@@ -1,7 +1,7 @@
 from functools import partial
 
+import jax
 import jax.numpy as jnp
-from kernel.build import gpu_ops
 from jax import core, dtypes
 from jax.core import ShapedArray
 from jax.interpreters import mlir, xla
@@ -9,6 +9,7 @@ from jax.interpreters.mlir import ir
 from jax.lib import xla_client
 from jaxlib.hlo_helpers import custom_call
 
+from kernel.build import gpu_ops
 
 # Create _gp_eval_fwd_p for forward operation.
 _gp_eval_fwd_p = core.Primitive("gp_eval_fwd")
@@ -16,7 +17,95 @@ _gp_eval_fwd_p.multiple_results = False
 _gp_eval_fwd_p.def_impl(partial(xla.apply_primitive, _gp_eval_fwd_p))
 
 
-def gp_eval_fwd(prefixGP_lengths, node_types, prefixGPs, variables):
+def gp_eval(
+    prefixGP_lengths: jax.Array,
+    node_types: jax.Array,
+    prefixGPs: jax.Array,
+    variables: jax.Array,
+):
+    """
+    The (forward) function for evaluating (inference) a population of (possibly different) GPs with corresponding population of input variables in parallel using CUDA.
+
+    Parameters
+    ----------
+    `prefixGP_lengths` : `jax.Array(shape=pop_size, dtype=(jnp.int32 | jnp.uint32))`
+        The lengths (number of nodes) of all GPs in the population
+
+    `node_types` : `jax.Array(shape=(pop_size, max_len), dtype=(jnp.int8 | jnp.uint8))`
+        The prefix node type arrays of all GPs in the population, see [kernel.gpdefs.NodeType](src/kernel/gpdefs.py)
+
+    `prefixGPs` : `jax.Array(shape=(pop_size, max_len), dtype=(jnp.bfloat16 | jnp.float16 | jnp.float32 | jnp.float64))`
+        The prefix arrays of all GPs in the population, storing all functions (see [kernel.gpdefs.Function](src/kernel/gpdefs.py)), constants and variable indices as floating point type
+
+    `variables` : `jax.Array(shape=(pop_size, var_len), dtype=(jnp.bfloat16 | jnp.float16 | jnp.float32 | jnp.float64))`
+        The corresponding variable arrays of all GPs in the population, must be of same dtype as `prefixGPs`
+
+    Raises
+    ------
+    AssertionError
+        If the dtypes or shapes are inconsistent
+
+    Usage
+    -----
+    ```
+    import jax
+    import jax.numpy as jnp
+    from kernel.gpdefs import *
+    from gp_eval_bind import gp_eval
+
+    # predefined GP with 17 nodes
+    prefixGP_len = 256
+    node_type = [
+        NodeType.BFUNC,
+        NodeType.BFUNC,
+        NodeType.BFUNC,
+        NodeType.VAR,
+        NodeType.VAR,
+        NodeType.VAR,
+        NodeType.BFUNC,
+        NodeType.BFUNC,
+        NodeType.VAR,
+        NodeType.VAR,
+        NodeType.BFUNC,
+        NodeType.BFUNC,
+        NodeType.VAR,
+        NodeType.VAR,
+        NodeType.BFUNC,
+        NodeType.CONST,
+        NodeType.VAR,
+    ]
+    prefixGP = [
+        Function.ADD,
+        Function.MUL,
+        Function.MUL,
+        0,
+        0,
+        0,
+        Function.ADD,
+        Function.MUL,
+        1,
+        1,
+        Function.ADD,
+        Function.MUL,
+        0,
+        1,
+        Function.DIV,
+        4,
+        0,
+    ]
+    variable = [1, 2]
+
+    # replicate to test
+    N = 1_000_000
+    prefixGP_lengths = 17 * jnp.ones((N,), dtype=jnp.uint32)
+    node_types = jnp.tile(jnp.asarray(node_type, dtype=jnp.uint8), [N, 1])
+    prefixGPs = jnp.tile(jnp.asarray(prefixGP, dtype=jnp.float32), [N, 1])
+    variables = jnp.tile(jnp.asarray(variable, dtype=jnp.float32), [N, 1])
+
+    # execute
+    results = jax.jit(gp_eval)(prefixGP_lengths, node_types, prefixGPs, variables)
+    ```
+    """
     results = _gp_eval_fwd_p.bind(prefixGP_lengths, node_types, prefixGPs, variables)
     return results
 
@@ -63,7 +152,9 @@ def _gp_eval_fwd_cuda_lowering(ctx, prefixGP_lengths, node_types, prefixGPs, var
         ],
         operands=[prefixGP_lengths, node_types, prefixGPs, variables],
         backend_config=opaque,
-        operand_layouts=default_layouts(len_info.shape, nt_info.shape, gp_info.shape, var_info.shape),
+        operand_layouts=default_layouts(
+            len_info.shape, nt_info.shape, gp_info.shape, var_info.shape
+        ),
         result_layouts=default_layouts(len_info.shape),
     )
     return out
@@ -79,6 +170,7 @@ mlir.register_lowering(
 #######################
 # Abstract evaluation #
 #######################
+
 
 def _gp_eval_fwd_abstract(prefixGP_lengths, node_types, prefixGPs, variables):
     len_type = dtypes.canonicalize_dtype(prefixGP_lengths.dtype)
@@ -102,6 +194,7 @@ def _gp_eval_fwd_abstract(prefixGP_lengths, node_types, prefixGPs, variables):
     assert len_type in [jnp.uint32, jnp.int32]
     assert nt_type in [jnp.uint8, jnp.int8]
     assert gp_type == var_type
+
     return ShapedArray(len_shape, var_type, named_shape=prefixGP_lengths.named_shape)
 
 
