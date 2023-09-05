@@ -10,6 +10,7 @@
 *.userosscache
 *.sln.docstates
 *.sh
+!src/kernel/build.sh
 src/kernel/build/
 test/
 
