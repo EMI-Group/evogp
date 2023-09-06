@@ -1,6 +1,6 @@
 #pragma once
 
-constexpr auto MAX_STACK = 128 * sizeof(float);
+constexpr auto MAX_STACK = 1024;
 
 constexpr auto DELTA = 1E-3, LOG_NEG = -1.0;
 

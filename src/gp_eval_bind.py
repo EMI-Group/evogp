@@ -45,6 +45,10 @@ def gp_eval(
     AssertionError
         If the dtypes or shapes are inconsistent
 
+    Return
+    ------
+    A `jax.Array(shape=pop_size, dtype=variables.dtype)` as the evaluation results of all the GPs in the population.
+
     Usage
     -----
     ```
@@ -53,51 +57,21 @@ def gp_eval(
     from kernel.gpdefs import *
     from gp_eval_bind import gp_eval
 
-    # predefined GP with 17 nodes
-    prefixGP_len = 256
+    # predefined GP with M nodes
+    prefixGP_maxlen = 1024
     node_type = [
-        NodeType.BFUNC,
-        NodeType.BFUNC,
-        NodeType.BFUNC,
-        NodeType.VAR,
-        NodeType.VAR,
-        NodeType.VAR,
-        NodeType.BFUNC,
-        NodeType.BFUNC,
-        NodeType.VAR,
-        NodeType.VAR,
-        NodeType.BFUNC,
-        NodeType.BFUNC,
-        NodeType.VAR,
-        NodeType.VAR,
-        NodeType.BFUNC,
-        NodeType.CONST,
-        NodeType.VAR,
+        # Your GP node types here
     ]
     prefixGP = [
-        Function.ADD,
-        Function.MUL,
-        Function.MUL,
-        0,
-        0,
-        0,
-        Function.ADD,
-        Function.MUL,
-        1,
-        1,
-        Function.ADD,
-        Function.MUL,
-        0,
-        1,
-        Function.DIV,
-        4,
-        0,
+        # Your GP in prefix here
     ]
+    node_type = [node_type[i] if i < prefixGP_len else 0 for i in range(prefixGP_maxlen)]
+    prefixGP = [prefixGP[i] if i < prefixGP_len else 0 for i in range(prefixGP_maxlen)]
     variable = [1, 2]
 
     # replicate to test
     N = 1_000_000
-    prefixGP_lengths = 17 * jnp.ones((N,), dtype=jnp.uint32)
+    prefixGP_lengths = M * jnp.ones((N,), dtype=jnp.uint32)
     node_types = jnp.tile(jnp.asarray(node_type, dtype=jnp.uint8), [N, 1])
     prefixGPs = jnp.tile(jnp.asarray(prefixGP, dtype=jnp.float32), [N, 1])
     variables = jnp.tile(jnp.asarray(variable, dtype=jnp.float32), [N, 1])
