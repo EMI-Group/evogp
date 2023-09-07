@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 constexpr auto MAX_STACK = 1024;
 
 constexpr auto DELTA = 1E-3, LOG_NEG = -1.0;
@@ -27,3 +29,17 @@ typedef enum Function {
 	INV, // arity: 1, if (a == 0) { a = DELTA } return 1 / a
 	NEG, // arity: 1, return -a
 } func_t;
+
+
+struct NodeInfo
+{
+	uint16_t nodeType;
+	uint16_t subtreeSize;
+};
+
+
+struct UInt16_2
+{
+	uint16_t left;
+	uint16_t right;
+};

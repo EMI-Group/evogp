@@ -11,24 +11,39 @@ template <typename T> pybind11::capsule EncapsulateFunction(T* fn) {
 }
 
 pybind11::dict TreeGPEvalRegistrations() {
-    pybind11::dict dict;
-    dict["gp_eval_forward"] =
-        EncapsulateFunction(treeGP_eval);
-    return dict;
+	pybind11::dict dict;
+	dict["gp_eval_forward"] =
+		EncapsulateFunction(treeGP_eval);
+	return dict;
+}
+
+pybind11::dict TreeGPCorssoverRegistrations() {
+	pybind11::dict dict;
+	dict["gp_crossover_forward"] =
+		EncapsulateFunction(treeGP_crossover);
+	return dict;
+}
+
+pybind11::dict TreeGPMutationRegistrations() {
+	pybind11::dict dict;
+	dict["gp_mutation_forward"] =
+		EncapsulateFunction(treeGP_mutation);
+	return dict;
 }
 
 PYBIND11_MODULE(gpu_ops, m) {
-    m.def("get_gp_eval_registrations", &TreeGPEvalRegistrations);
-    m.def("create_gp_eval_descriptor",
-        [](unsigned int popSize, unsigned int gpLen, unsigned int varLen, ElementType type) {
-                return PackDescriptor(TreeGPEvalDescriptor{
-                    popSize, gpLen, varLen, type });
-        });
+	m.def("get_gp_eval_registrations", &TreeGPEvalRegistrations);
+	m.def("get_gp_crossover_registrations", &TreeGPCorssoverRegistrations);
+	m.def("get_gp_mutation_registrations", &TreeGPMutationRegistrations);
+	m.def("create_gp_descriptor",
+		[](unsigned int popSize, unsigned int gpLen, unsigned int varLen, ElementType type)
+		{
+			return PackDescriptor(TreeGPDescriptor{popSize, gpLen, varLen, type});
+		});
 
-    pybind11::enum_<ElementType>(m, "ElementType")
-        .value("BF16", ElementType::BF16)
-        .value("F16", ElementType::F16)
-        .value("F32", ElementType::F32)
-        .value("F64", ElementType::F64);
-
+	pybind11::enum_<ElementType>(m, "ElementType")
+		.value("BF16", ElementType::BF16)
+		.value("F16", ElementType::F16)
+		.value("F32", ElementType::F32)
+		.value("F64", ElementType::F64);
 }

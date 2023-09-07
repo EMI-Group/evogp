@@ -19,10 +19,14 @@
 
 enum ElementType { BF16, F16, F32, F64 };
 
-struct TreeGPEvalDescriptor
+struct TreeGPDescriptor
 {
 	unsigned int popSize, gpLen, varLen;
 	ElementType type;
 };
 
 void treeGP_eval(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len);
+
+void treeGP_crossover(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len);
+
+void treeGP_mutation(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len);
