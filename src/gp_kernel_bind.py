@@ -30,7 +30,7 @@ def gp_eval(
     node_infos: jax.Array,
     prefixGPs: jax.Array,
     variables: jax.Array,
-):
+) -> jax.Array:
     """
     The (forward) function for evaluating (inference) a population of (possibly different) GPs with corresponding population of input variables in parallel using CUDA.
 
@@ -53,40 +53,6 @@ def gp_eval(
     Return
     ------
     A `jax.Array(shape=pop_size, dtype=variables.dtype)` as the evaluation results of all the GPs in the population.
-
-    Usage
-    -----
-    ```
-    import jax
-    import jax.numpy as jnp
-    from kernel.gpdefs import *
-    from gp_eval_bind import gp_eval
-
-    # predefined GP with M nodes
-    prefixGP_maxlen = 1024
-    node_type = [
-        # Your GP node types here
-    ]
-    subtree_size = [
-        # Your GP nodes' subtree sizes here
-    ]
-    prefixGP = [
-        # Your GP in prefix here
-    ]
-    prefixGP_len = len(node_type)
-    node_info = [[node_type[i], subtree_size[i]] if i < prefixGP_len else [0, 0] for i in range(prefixGP_maxlen)]
-    prefixGP = [prefixGP[i] if i < prefixGP_len else 0 for i in range(prefixGP_maxlen)]
-    variable = [1, 2]
-
-    # replicate to test
-    N = 1_000_000
-    node_infos = jnp.tile(jnp.asarray(node_info, dtype=jnp.uint16), [N, 1, 1])
-    prefixGPs = jnp.tile(jnp.asarray(prefixGP, dtype=jnp.float32), [N, 1])
-    variables = jnp.tile(jnp.asarray(variable, dtype=jnp.float32), [N, 1])
-
-    # execute
-    results = jax.jit(gp_eval)(node_infos, prefixGPs, variables)
-    ```
     """
     results = _gp_eval_fwd_p.bind(node_infos, prefixGPs, variables)
     return results
@@ -98,7 +64,7 @@ def gp_crossover(
     left_perms: jax.Array,
     right_perms: jax.Array,
     left_right_node_indices: jax.Array,
-):
+) -> tuple[jax.Array, jax.Array]:
     """
     The (forward) function for crossover a population of GPs with given permutations and node indices in parallel using CUDA.
     The new GP of index `i` is the input GP of index `left_perms[i]` while its subtree identified by root node `gp[left_perms[i], left_right_node_indices[i, 0]]` is fully replaced by the one as in `gp[right_perms[i], left_right_node_indices[i, 1]]`.
@@ -128,12 +94,6 @@ def gp_crossover(
     Return
     ------
     A new pair of `node_infos` and `prefixGPs` with same sizes and types representing the new population of GPs.
-
-    Usage
-    -----
-    ```
-
-    ```
     """
     results = _gp_crossover_fwd_p.bind(
         node_infos, prefixGPs, left_perms, right_perms, left_right_node_indices
@@ -147,7 +107,7 @@ def gp_mutation(
     node_indices: jax.Array,
     new_subtree_node_infos: jax.Array,
     new_subtree_prefixes: jax.Array,
-):
+) -> tuple[jax.Array, jax.Array]:
     """
     The (forward) function for mutating a population of GPs with given node indices in parallel using CUDA.
     The new GP of index `i` is the input GP of index `i` while its subtree identified by root node `gp[i, node_indices[i]]` is fully replaced by the one as in `new_subtree[i]`.
@@ -178,12 +138,6 @@ def gp_mutation(
     Return
     ------
     A new pair of `node_infos` and `prefixGPs` with same sizes and types representing the new population of GPs.
-
-    Usage
-    -----
-    ```
-
-    ```
     """
     results = _gp_mutation_fwd_p.bind(
         node_infos,

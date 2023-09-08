@@ -9,7 +9,7 @@ class Timer
 private:
 	// Type aliases to make accessing nested type easier
 	using clock_type = std::chrono::steady_clock;
-	using second_type = std::chrono::duration<double, std::ratio<1> >;
+	using seconi_type = std::chrono::duration<double, std::ratio<1> >;
 
 	std::chrono::time_point<clock_type> m_beg;
 
@@ -25,7 +25,7 @@ public:
 
 	double elapsed() const
 	{
-		return std::chrono::duration_cast<second_type>(clock_type::now() - m_beg).count();
+		return std::chrono::duration_cast<seconi_type>(clock_type::now() - m_beg).count();
 	}
 };
 #endif
@@ -40,19 +40,19 @@ __global__ void treeGPEvalKernel(const NodeInfo* nodeInfos, const T* prefixGPs, 
 	// init
 	T* stack = (T*)alloca(MAX_STACK * sizeof(T));
 	unsigned int* infos = (unsigned int*)alloca(MAX_STACK * sizeof(unsigned int));
-	auto d_nodeInfos = nodeInfos + n * maxGPLen;
-	auto d_nodeValue = prefixGPs + n * maxGPLen;
-	auto d_vars = variables + n * varLen;
+	auto i_nodeInfos = nodeInfos + n * maxGPLen;
+	auto i_nodeValue = prefixGPs + n * maxGPLen;
+	auto i_vars = variables + n * varLen;
 	auto s_vars = stack + MAX_STACK - varLen;
-	unsigned int len = d_nodeInfos[0].subtreeSize;
+	unsigned int len = i_nodeInfos[0].subtreeSize;
 	for (int i = 0; i < varLen; i++)
 	{
-		s_vars[i] = d_vars[i];
+		s_vars[i] = i_vars[i];
 	}
 	for (int i = 0; i < len; i++)
 	{
-		stack[len - i - 1] = d_nodeValue[i];
-		infos[len - i - 1] = d_nodeInfos[i].nodeType;
+		stack[len - i - 1] = i_nodeValue[i];
+		infos[len - i - 1] = i_nodeInfos[i].nodeType;
 	}
 	// do stack operation according to the type of each node
 	int top = 0;
@@ -182,6 +182,8 @@ void treeGP_eval(cudaStream_t stream, void** buffers, const char* opaque, size_t
 	void* results = (void*)(buffers[3]);
 #ifdef TEST
 	Timer t;
+	for (int i = 0; i < 1000; i++)
+	{
 #endif
 	switch (d.type)
 	{
@@ -202,10 +204,11 @@ void treeGP_eval(cudaStream_t stream, void** buffers, const char* opaque, size_t
 		break;
 	}
 #ifdef TEST
+	}
 	auto err = cudaDeviceSynchronize();
+	std::cout << "C++: " << t.elapsed() << std::endl;
 	if (err != 0)
 		throw std::runtime_error("Execution error of code " + (int)err);
-	std::cout << t.elapsed() << std::endl;
 #endif
 }
 
@@ -219,50 +222,53 @@ __global__ void treeGPCrossoverKernel(const NodeInfo* nodeInfos, const T* prefix
 	// init
 	T* gp = (T*)alloca(MAX_STACK * sizeof(T));
 	NodeInfo* info = (NodeInfo*)alloca(MAX_STACK * sizeof(NodeInfo));
-	auto d_leftInfo = nodeInfos + leftPerms[n] * maxGPLen;
-	auto d_leftValue = prefixGPs + leftPerms[n] * maxGPLen;
-	auto d_rightInfo = nodeInfos + rightPerms[n] * maxGPLen;
-	auto d_rightValue = prefixGPs + rightPerms[n] * maxGPLen;
+	auto i_leftInfo = nodeInfos + leftPerms[n] * maxGPLen;
+	auto i_leftValue = prefixGPs + leftPerms[n] * maxGPLen;
+	auto i_rightInfo = nodeInfos + rightPerms[n] * maxGPLen;
+	auto i_rightValue = prefixGPs + rightPerms[n] * maxGPLen;
 	const unsigned int leftNode = lrNodes[n].left, rightNode = lrNodes[n].right;
-	const unsigned int oldSubtreeSize = d_leftInfo[leftNode].subtreeSize, newSubtreeSize = d_rightInfo[rightNode].subtreeSize;
-	const unsigned int sizeDiff = newSubtreeSize - oldSubtreeSize, remainSize = d_leftInfo[0].subtreeSize - (leftNode + oldSubtreeSize);
+	const unsigned int oldSubtreeSize = i_leftInfo[leftNode].subtreeSize, newSubtreeSize = i_rightInfo[rightNode].subtreeSize;
+	const unsigned int sizeDiff = newSubtreeSize - oldSubtreeSize, remainSize = i_leftInfo[0].subtreeSize - (leftNode + oldSubtreeSize);
 	const unsigned int oldOffset = leftNode + oldSubtreeSize, newOffset = leftNode + newSubtreeSize;
 	// copy
 	for (int i = 0; i < leftNode; i++)
 	{
-		gp[i] = d_leftValue[i];
-		info[i] = d_leftInfo[i];
+		gp[i] = i_leftValue[i];
+		info[i] = i_leftInfo[i];
 	}
 	for (int i = 0; i < newSubtreeSize; i++)
 	{
-		gp[i + leftNode] = d_rightValue[i + rightNode];
-		info[i + leftNode] = d_rightInfo[i + rightNode];
+		gp[i + leftNode] = i_rightValue[i + rightNode];
+		info[i + leftNode] = i_rightInfo[i + rightNode];
 	}
 	for (int i = 0; i < remainSize; i++)
 	{
-		gp[i + newOffset] = d_leftValue[i + oldOffset];
-		info[i + newOffset] = d_leftInfo[i + oldOffset];
+		gp[i + newOffset] = i_leftValue[i + oldOffset];
+		info[i + newOffset] = i_leftInfo[i + oldOffset];
 	}
 	// change subtree sizes of ancestors
 	unsigned int current = 0;
-	while (leftNode != current)
+	while (leftNode > current)
 	{
 		info[current].subtreeSize += sizeDiff;
-		if (info[current + 1].subtreeSize + current + 1 > leftNode)
+		auto rightTreeIndex = info[current + 1].subtreeSize + current + 1;
+		if (rightTreeIndex > leftNode)
 		{	// at left subtree
 			current += 1;
 		}
 		else
 		{	// at right subtree
-			current += info[current + 1].subtreeSize + 1;
+			current = rightTreeIndex;
 		}
 	}
 	// outupt
 	const unsigned int len = info[0].subtreeSize;
+	auto o_value = outGPs + n * maxGPLen;
+	auto o_onfo = outInfos + n * maxGPLen;
 	for (int i = 0; i < len; i++)
 	{
-		outGPs[i] = gp[i];
-		outInfos[i] = info[i];
+		o_value[i] = gp[i];
+		o_onfo[i] = info[i];
 	}
 }
 
@@ -285,6 +291,8 @@ void treeGP_crossover(cudaStream_t stream, void** buffers, const char* opaque, s
 	void* outGPs = (void*)(buffers[6]);
 #ifdef TEST
 	Timer t;
+	for (int i = 0; i < 1000; i++)
+	{
 #endif
 	switch (d.type)
 	{
@@ -305,10 +313,11 @@ void treeGP_crossover(cudaStream_t stream, void** buffers, const char* opaque, s
 		break;
 	}
 #ifdef TEST
+	}
 	auto err = cudaDeviceSynchronize();
+	std::cout << "C++: " << t.elapsed() << std::endl;
 	if (err != 0)
 		throw std::runtime_error("Execution error of code " + (int)err);
-	std::cout << t.elapsed() << std::endl;
 #endif
 }
 
@@ -322,29 +331,29 @@ __global__ void treeGPMutationKernel(const NodeInfo* nodeInfos, const T* prefixG
 	// init
 	T* gp = (T*)alloca(MAX_STACK * sizeof(T));
 	NodeInfo* info = (NodeInfo*)alloca(MAX_STACK * sizeof(NodeInfo));
-	auto d_leftInfo = nodeInfos + n * maxGPLen;
-	auto d_leftValue = prefixGPs + n * maxGPLen;
-	auto d_rightInfo = newInfos + n * maxNewGPLen;
-	auto d_rightValue = newGPs + n * maxNewGPLen;
+	auto i_leftInfo = nodeInfos + n * maxGPLen;
+	auto i_leftValue = prefixGPs + n * maxGPLen;
+	auto i_rightInfo = newInfos + n * maxNewGPLen;
+	auto i_rightValue = newGPs + n * maxNewGPLen;
 	const unsigned int leftNode = mutateIndices[n];
-	const unsigned int oldSubtreeSize = d_leftInfo[leftNode].subtreeSize, newSubtreeSize = d_rightInfo[0].subtreeSize;
-	const unsigned int sizeDiff = newSubtreeSize - oldSubtreeSize, remainSize = d_leftInfo[0].subtreeSize - (leftNode + oldSubtreeSize);
+	const unsigned int oldSubtreeSize = i_leftInfo[leftNode].subtreeSize, newSubtreeSize = i_rightInfo[0].subtreeSize;
+	const unsigned int sizeDiff = newSubtreeSize - oldSubtreeSize, remainSize = i_leftInfo[0].subtreeSize - (leftNode + oldSubtreeSize);
 	const unsigned int oldOffset = leftNode + oldSubtreeSize, newOffset = leftNode + newSubtreeSize;
 	// copy
 	for (int i = 0; i < leftNode; i++)
 	{
-		gp[i] = d_leftValue[i];
-		info[i] = d_leftInfo[i];
+		gp[i] = i_leftValue[i];
+		info[i] = i_leftInfo[i];
 	}
 	for (int i = 0; i < newSubtreeSize; i++)
 	{
-		gp[i + leftNode] = d_rightValue[i];
-		info[i + leftNode] = d_rightInfo[i];
+		gp[i + leftNode] = i_rightValue[i];
+		info[i + leftNode] = i_rightInfo[i];
 	}
 	for (int i = 0; i < remainSize; i++)
 	{
-		gp[i + newOffset] = d_leftValue[i + oldOffset];
-		info[i + newOffset] = d_leftInfo[i + oldOffset];
+		gp[i + newOffset] = i_leftValue[i + oldOffset];
+		info[i + newOffset] = i_leftInfo[i + oldOffset];
 	}
 	// change subtree sizes of ancestors
 	unsigned int current = 0;
@@ -362,10 +371,12 @@ __global__ void treeGPMutationKernel(const NodeInfo* nodeInfos, const T* prefixG
 	}
 	// outupt
 	const unsigned int len = info[0].subtreeSize;
+	auto o_value = outGPs + n * maxGPLen;
+	auto o_onfo = outInfos + n * maxGPLen;
 	for (int i = 0; i < len; i++)
 	{
-		outGPs[i] = gp[i];
-		outInfos[i] = info[i];
+		o_value[i] = gp[i];
+		o_onfo[i] = info[i];
 	}
 }
 
@@ -388,6 +399,8 @@ void treeGP_mutation(cudaStream_t stream, void** buffers, const char* opaque, si
 	void* outGPs = (void*)(buffers[6]);
 #ifdef TEST
 	Timer t;
+	for (int i = 0; i < 1000; i++)
+	{
 #endif
 	switch (d.type)
 	{
@@ -408,9 +421,10 @@ void treeGP_mutation(cudaStream_t stream, void** buffers, const char* opaque, si
 		break;
 	}
 #ifdef TEST
+	}
 	auto err = cudaDeviceSynchronize();
+	std::cout << "C++: " << t.elapsed() << std::endl;
 	if (err != 0)
 		throw std::runtime_error("Execution error of code " + (int)err);
-	std::cout << t.elapsed() << std::endl;
 #endif
 }
