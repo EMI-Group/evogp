@@ -21,7 +21,7 @@ enum ElementType { BF16, F16, F32, F64 };
 
 struct TreeGPDescriptor
 {
-	unsigned int popSize, gpLen, varLen;
+	int popSize, gpLen, varLen;
 	ElementType type;
 };
 

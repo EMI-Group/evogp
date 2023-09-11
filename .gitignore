@@ -11,6 +11,7 @@
 *.sln.docstates
 *.sh
 !src/kernel/build.sh
+!src/kernel/build_test.sh
 src/kernel/build/
 
 # User-specific files (MonoDevelop/Xamarin Studio)

@@ -31,11 +31,15 @@ typedef enum Function {
 } func_t;
 
 
-struct NodeInfo
+template<typename T>
+struct GPNode
 {
-	uint16_t nodeType;
-	uint16_t subtreeSize;
+	static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>, "Only float and double types are supported.");
+	using U = std::conditional_t<std::is_same_v<T, float>, uint16_t, uint32_t>;
+	T value;
+	U nodeType, subtreeSize;
 };
+
 
 
 struct UInt16_2

@@ -1,7 +1,15 @@
 {
     "cSpell.words": [
+        "astype",
+        "BFUNC",
+        "bitcast",
+        "dtype",
         "dtypes",
+        "gpdefs",
         "jaxlib",
-        "mlir"
+        "mlir",
+        "PRNG",
+        "UFUNC",
+        "vmap"
     ]
 }

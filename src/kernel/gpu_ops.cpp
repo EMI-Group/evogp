@@ -36,7 +36,7 @@ PYBIND11_MODULE(gpu_ops, m) {
 	m.def("get_gp_crossover_registrations", &TreeGPCorssoverRegistrations);
 	m.def("get_gp_mutation_registrations", &TreeGPMutationRegistrations);
 	m.def("create_gp_descriptor",
-		[](unsigned int popSize, unsigned int gpLen, unsigned int varLen, ElementType type)
+		[](int popSize, int gpLen, int varLen, ElementType type)
 		{
 			return PackDescriptor(TreeGPDescriptor{popSize, gpLen, varLen, type});
 		});
