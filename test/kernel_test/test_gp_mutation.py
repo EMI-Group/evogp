@@ -7,8 +7,8 @@ import time
 
 import jax
 
-from gp_kernel_bind import gp_mutation
-from kernel.gpdefs import *
+from src.core.kernel.gp_kernel_bind import gp_mutation
+from src.core.kernel.utils import *
 
 
 @jax.jit
@@ -21,6 +21,7 @@ def gp_mutation_(prefixGPs, nodes, newGPs):
 ########
 
 gp_maxlen = 16
+
 node_type = [
     NodeType.BFUNC,
     NodeType.BFUNC,
@@ -39,7 +40,9 @@ node_type = [
     NodeType.UFUNC,
     NodeType.CONST,
 ]
+
 subtree_size = [16, 5, 3, 1, 1, 1, 11, 3, 1, 1, 7, 3, 1, 1, 2, 1]
+
 prefixGP = [
     Function.ADD,
     Function.MUL,
@@ -75,7 +78,7 @@ sub_gp = [sub_gp[i] if i < gp_len else 0 for i in range(sub_maxlen)]
 
 N = 200000
 gps = jnp.tile(
-    to_jax_node(
+    to_cuda_node(
         jnp.array(prefixGP, dtype=jnp.float32),
         jnp.array(node_type),
         jnp.array(subtree_size),
@@ -83,16 +86,15 @@ gps = jnp.tile(
     [N, 1],
 )
 sub_gps = jnp.tile(
-    to_jax_node(
+    to_cuda_node(
         jnp.array(sub_gp, dtype=jnp.float32),
         jnp.array(sub_node_type),
         jnp.array(sub_tree_size),
     ),
     [N, 1],
 )
-nodes = jnp.tile(
-    jnp.array(node, dtype=jnp.uint32), N
-)
+
+nodes = jnp.tile(jnp.array(node, dtype=jnp.int32), N)
 
 a = gp_mutation_(gps, nodes, sub_gps)
 a.block_until_ready()
@@ -100,7 +102,7 @@ a.block_until_ready()
 t = time.time()
 a = gp_mutation_(gps, nodes, sub_gps)
 print(time.time() - t)
-_, a, b = from_jax_node(a)
+_, a, b, _ = from_jax_node(a)
 print(a[0, : b[0, 0]], a[N // 2, : b[N // 2, 0]], a[N - 1, : b[N - 1, 0]])
 print(b[0, : b[0, 0]], b[N // 2, : b[N // 2, 0]], b[N - 1, : b[N - 1, 0]])
 
@@ -129,7 +131,7 @@ node = [7]
 
 N = 200000
 gps = jnp.tile(
-    to_jax_node(
+    to_cuda_node(
         jnp.array(prefixGP, dtype=jnp.float32),
         jnp.array(node_type),
         jnp.array(subtree_size),
@@ -137,16 +139,14 @@ gps = jnp.tile(
     [N, 1],
 )
 sub_gps = jnp.tile(
-    to_jax_node(
+    to_cuda_node(
         jnp.array(sub_gp, dtype=jnp.float32),
         jnp.array(sub_node_type),
         jnp.array(sub_tree_size),
     ),
     [N, 1],
 )
-nodes = jnp.tile(
-    jnp.array(node, dtype=jnp.uint32), N
-)
+nodes = jnp.tile(jnp.array(node, dtype=jnp.int32), N)
 
 a = gp_mutation_(gps, nodes, sub_gps)
 a.block_until_ready()
@@ -154,6 +154,6 @@ a.block_until_ready()
 t = time.time()
 a = gp_mutation_(gps, nodes, sub_gps)
 print(time.time() - t)
-_, a, b = from_jax_node(a)
+_, a, b, _ = from_jax_node(a)
 print(a[0, : b[0, 0]], a[N // 2, : b[N // 2, 0]], a[N - 1, : b[N - 1, 0]])
 print(b[0, : b[0, 0]], b[N // 2, : b[N // 2, 0]], b[N - 1, : b[N - 1, 0]])

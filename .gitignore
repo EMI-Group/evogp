@@ -10,9 +10,9 @@
 *.userosscache
 *.sln.docstates
 *.sh
-!src/kernel/build.sh
-!src/kernel/build_test.sh
-src/kernel/build/
+!src/core/kernel/build.sh
+!src/core/kernel/build_test.sh
+src/core/kernel/build/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
