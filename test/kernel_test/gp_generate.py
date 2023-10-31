@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.append(os.getcwd())
+
 from src.config import *
 
 from src.gp.cuda_backend.pipeline import Pipeline

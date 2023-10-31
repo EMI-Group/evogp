@@ -5,7 +5,6 @@ from src.core.kernel.gp_kernel_bind import gp_generate_, gp_crossover_, gp_mutat
 
 
 @partial(jax.jit, static_argnames=[
-    "seed",
     "pop_size",
     "max_len",
     "num_inputs",
@@ -26,6 +25,7 @@ def generate(
         const_prob,
 ):
     return gp_generate_(
+        seed,
         leaf_prob,
         functions_prob_accumulate,
         const_samples,
@@ -34,8 +34,7 @@ def generate(
         variable_len=num_inputs,
         output_len=num_outputs,
         output_prob=output_prob,
-        const_prob=const_prob,
-        seed=seed,
+        const_prob=const_prob
     )
 
 

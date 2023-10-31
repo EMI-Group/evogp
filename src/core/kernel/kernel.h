@@ -92,41 +92,65 @@ struct TreeGPSRDescriptor
 
 struct alignas(float) GPGenerateInfo
 {
-	unsigned int popSize, gpLen, varLen, outLen, constSamplesLen, seed;
+	unsigned int popSize, gpLen, varLen, outLen, constSamplesLen;
 	float outProb, constProb;
 
-	GPGenerateInfo(unsigned int popSize, unsigned int gpLen, unsigned int varLen, unsigned int outLen, unsigned int constSamplesLen, unsigned int seed, float outProb, float constProb)
-		: popSize(popSize), gpLen(gpLen), varLen(varLen), outLen(outLen), constSamplesLen(constSamplesLen), seed(seed), outProb(outProb), constProb(constProb)
+	GPGenerateInfo(unsigned int popSize, unsigned int gpLen, unsigned int varLen, unsigned int outLen, unsigned int constSamplesLen, float outProb, float constProb)
+		: popSize(popSize), gpLen(gpLen), varLen(varLen), outLen(outLen), constSamplesLen(constSamplesLen), outProb(outProb), constProb(constProb)
 	{
 	}
 };
 
 struct alignas(float) TreeGPGenerateDescriptor
 {
-	int popSize, gpLen, varLen, outLen, constSamplesLen, seed;
+	int popSize, gpLen, varLen, outLen, constSamplesLen;
 	float outProb, constProb;
 	RandomEngine engine;
 	ElementType type;
 
 	operator GPGenerateInfo() const
 	{
-		return GPGenerateInfo(popSize, gpLen, varLen, outLen, constSamplesLen, seed, outProb, constProb);
+		return GPGenerateInfo(popSize, gpLen, varLen, outLen, constSamplesLen, outProb, constProb);
 	}
 
-	TreeGPGenerateDescriptor(int popSize, int gpLen, int varLen, int outLen, int constSamplesLen, int seed, float outProb, float constProb, const RandomEngine engine, const ElementType type)
-		: popSize(popSize), gpLen(gpLen), varLen(varLen), outLen(outLen), constSamplesLen(constSamplesLen), seed(seed), outProb(outProb), constProb(constProb), engine(engine), type(type)
+	TreeGPGenerateDescriptor(int popSize, int gpLen, int varLen, int outLen, int constSamplesLen, float outProb, float constProb, const RandomEngine engine, const ElementType type)
+		: popSize(popSize), gpLen(gpLen), varLen(varLen), outLen(outLen), constSamplesLen(constSamplesLen), outProb(outProb), constProb(constProb), engine(engine), type(type)
 	{
 	}
 };
 
+template <typename T>
 __host__ __device__
-inline unsigned int hash(unsigned int a)
+inline T copy_sign(const T number, const T sign)
 {
-	a = (a + 0x7ed55d16) + (a << 12);
-	a = (a ^ 0xc761c23c) ^ (a >> 19);
-	a = (a + 0x165667b1) + (a << 5);
-	a = (a + 0xd3a2646c) ^ (a << 9);
-	a = (a + 0xfd7046c5) + (a << 3);
-	a = (a ^ 0xb55a4f09) ^ (a >> 16);
-	return a;
+#ifdef _MSC_VER
+	return std::abs(number) * T(sign >= T(0) ? 1 : -1);
+#else
+	return std::copysign(number, sign);
+#endif // _MSC_VER
+}
+
+constexpr size_t _FNV_offset_basis = 14695981039346656037ULL;
+constexpr size_t _FNV_prime = 1099511628211ULL;
+
+__host__ __device__
+inline unsigned int hash(const unsigned int n, const unsigned int k1, const unsigned int k2)
+{
+	const unsigned int a[3]{ n, k1, k2 };
+	auto h = _FNV_offset_basis;
+	auto b = &reinterpret_cast<const unsigned char&>(a);
+	constexpr auto C = sizeof(unsigned int) * 3;
+	// accumulate range [_First, _First + _Count) into partial FNV-1a hash _Val
+	for (size_t i = 0; i < C; ++i) {
+		h ^= static_cast<size_t>(b[i]);
+		h *= _FNV_prime;
+	}
+	return (unsigned int)h;
+	//a = (a + 0x7ed55d16) + (a << 12);
+	//a = (a ^ 0xc761c23c) ^ (a >> 19);
+	//a = (a + 0x165667b1) + (a << 5);
+	//a = (a + 0xd3a2646c) ^ (a << 9);
+	//a = (a + 0xfd7046c5) + (a << 3);
+	//a = (a ^ 0xb55a4f09) ^ (a >> 16);
+	//return a;
 }

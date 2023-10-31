@@ -102,34 +102,36 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 			}
 			else if (function == Function::SINH)
 			{
-				s_vals[top] = std::sinh(var1);
+				var1 = std::sinh(var1);
+				s_vals[top] = std::abs(var1) >= T(MAX_VAL) ? copy_sign(T(MAX_VAL), var1) : var1;
 			}
 			else if (function == Function::COSH)
 			{
-				s_vals[top] = std::cosh(var1);
+				var1 = std::cosh(var1);
+				s_vals[top] = std::abs(var1) >= T(MAX_VAL) ? copy_sign(T(MAX_VAL), var1) : var1;
 			}
 			else if (function == Function::LOG)
 			{
-				if (var1 <= T(0.3678794411714423f)) // 1/e
+				if (var1 == T(0.0f))
 				{
-					s_vals[top] = T(LOG_NEG);
+					s_vals[top] = T(-MAX_VAL);
 				}
 				else
 				{
-					s_vals[top] = std::log(var1);
+					s_vals[top] = std::log(std::abs(var1));
 				}
 			}
 			else if (function == Function::INV)
 			{
-				if (var1 == T(0.0f))
+				if (std::abs(var1) <= T(DELTA))
 				{
-					var1 = DELTA;
+					var1 = copy_sign(T(DELTA), var1);
 				}
 				s_vals[top] = T(1.0f) / var1;
 			}
 			else if (function == Function::EXP)
 			{
-				s_vals[top] = std::exp(var1);
+				s_vals[top] = std::min(std::exp(var1), T(1000.0f));
 			}
 			else if (function == Function::NEG)
 			{
@@ -137,22 +139,35 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 			}
 			else if (function == Function::POW2)
 			{
-				s_vals[top] = var1 * var1;
+				var1 *= var1;
+				if (std::abs(var1) <= T(MAX_VAL))
+				{
+					s_vals[top] = var1;
+				}
+				else
+				{
+					s_vals[top] = copy_sign(T(MAX_VAL), var1);
+				}
 			}
 			else if (function == Function::POW3)
 			{
-				s_vals[top] = var1 * var1 * var1;
+				var1 *= var1 * var1;
+				if (std::abs(var1) <= T(MAX_VAL))
+				{
+					s_vals[top] = var1;
+				}
+				else
+				{
+					s_vals[top] = copy_sign(T(MAX_VAL), var1);
+				}
 			}
 			else if (function == Function::SQRT)
 			{
 				if (var1 <= T(0.0f))
 				{
-					s_vals[top] = T(LOG_NEG);
+					var1 = std::abs(var1);
 				}
-				else
-				{
-					s_vals[top] = std::sqrt(var1);
-				}
+				s_vals[top] = std::sqrt(var1);
 			}
 		}
 		else if (node_type == NodeType::BFUNC)
@@ -173,9 +188,9 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 			}
 			else if (function == Function::DIV)
 			{
-				if (var2 == T(0.0f))
+				if (std::abs(var2) <= T(DELTA))
 				{
-					var2 = T(DELTA);
+					var2 = copy_sign(T(DELTA), var2);
 				}
 				s_vals[top] = var1 / var2;
 			}
@@ -283,9 +298,12 @@ void treeGP_eval(cudaStream_t stream, void** buffers, const char* opaque, size_t
 	const void* gps = (const void*)(buffers[0]);
 	const void* variables = (const void*)(buffers[1]);
 	void* results = (void*)(buffers[2]);
+
+	cudaDeviceSynchronize();
+
 #ifdef TEST
 	Timer t;
-	for (int i = 0; i < 10; i++)
+	for (int i = 0; i < 1; i++)
 	{
 #endif
 		switch (d.type)
@@ -307,6 +325,79 @@ void treeGP_eval(cudaStream_t stream, void** buffers, const char* opaque, size_t
 	if (err != 0)
 		std::cout << "Execution error of code " << (int)err << std::endl;
 #endif
+}
+
+template<typename T>
+__host__ __device__
+inline void _gpTreeReplace(const int leftNode, const int rightNode, const int newSubtreeSize, const int oldOffset, const int leftSize, const int sizeDiff, const GPNode<T>* i_leftGP, const GPNode<T>* i_rightGP, GPNode<T>* o_gp)
+{
+	// copy until replace position
+	GPNode<T>* gp = (GPNode<T>*)alloca(MAX_STACK * sizeof(GPNode<T>));
+	for (int i = 0; i < leftNode; i++)
+	{
+		gp[i] = i_leftGP[i];
+	}
+	// change subtree sizes of ancestors
+	int current = 0;
+	while (leftNode > current)
+	{
+		int midTreeIndex{}, rightTreeIndex{};
+		gp[current].subtreeSize += sizeDiff;
+		auto node_type = gp[current].nodeType;
+		node_type &= NodeType::TYPE_MASK;
+		current++;
+		switch (node_type)
+		{
+		case NodeType::UFUNC:
+			// do nothing
+			break;
+		case NodeType::BFUNC:
+			rightTreeIndex = gp[current].subtreeSize + current;
+			if (rightTreeIndex > leftNode)
+			{	// at left subtree
+				// do nothing
+			}
+			else
+			{	// at right subtree
+				current = rightTreeIndex;
+			}
+			break;
+		case NodeType::TFUNC:
+			midTreeIndex = gp[current].subtreeSize + current;
+			if (midTreeIndex > leftNode)
+			{	// at left subtree
+				// do nothing
+				break;
+			}
+			rightTreeIndex = gp[midTreeIndex].subtreeSize + midTreeIndex;
+			if (rightTreeIndex > leftNode)
+			{	// at mid subtree
+				current = midTreeIndex;
+			}
+			else
+			{	// at right subtree
+				current = rightTreeIndex;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+	// copy rest
+	for (int i = 0; i < newSubtreeSize; i++)
+	{
+		gp[i + leftNode] = i_rightGP[i + rightNode];
+	}
+	for (int i = oldOffset; i < leftSize; i++)
+	{
+		gp[i + sizeDiff] = i_leftGP[i];
+	}
+	// output
+	const int len = gp[0].subtreeSize;
+	for (int i = 0; i < len; i++)
+	{
+		o_gp[i] = gp[i];
+	}
 }
 
 
@@ -341,41 +432,8 @@ __global__ void treeGPCrossoverKernel(const GPNode<T>* gps, const int* leftPerms
 		}
 		return;
 	}
-	// copy
-	GPNode<T>* gp = (GPNode<T>*)alloca(MAX_STACK * sizeof(GPNode<T>));
-	for (int i = 0; i < leftNode; i++)
-	{
-		gp[i] = i_leftGP[i];
-	}
-	for (int i = 0; i < newSubtreeSize; i++)
-	{
-		gp[i + leftNode] = i_rightGP[i + rightNode];
-	}
-	for (int i = oldOffset; i < leftSize; i++)
-	{
-		gp[i + sizeDiff] = i_leftGP[i];
-	}
-	// change subtree sizes of ancestors
-	int current = 0;
-	while (leftNode > current)
-	{
-		gp[current].subtreeSize += sizeDiff;
-		auto rightTreeIndex = gp[current + 1].subtreeSize + current + 1;
-		if (rightTreeIndex > leftNode)
-		{	// at left subtree
-			current += 1;
-		}
-		else
-		{	// at right subtree
-			current = rightTreeIndex;
-		}
-	}
-	// output
-	const int len = gp[0].subtreeSize;
-	for (int i = 0; i < len; i++)
-	{
-		o_gp[i] = gp[i];
-	}
+	// replace
+	_gpTreeReplace(leftNode, rightNode, newSubtreeSize, oldOffset, leftSize, sizeDiff, i_leftGP, i_rightGP, o_gp);
 }
 
 template<typename T>
@@ -396,9 +454,12 @@ void treeGP_crossover(cudaStream_t stream, void** buffers, const char* opaque, s
 	const int* rightPerms = (const int*)(buffers[2]);
 	const LeftRightIdx* lrNodes = (const LeftRightIdx*)(buffers[3]);
 	void* outGPs = (void*)(buffers[4]);
+
+	cudaDeviceSynchronize();
+
 #ifdef TEST
 	Timer t;
-	for (int i = 0; i < 10; i++)
+	for (int i = 0; i < 1; i++)
 	{
 #endif
 		switch (d.type)
@@ -454,41 +515,8 @@ __global__ void treeGPMutationKernel(const GPNode<T>* gps, const int* mutateIndi
 		}
 		return;
 	}
-	// copy
-	GPNode<T>* gp = (GPNode<T>*)alloca(MAX_STACK * sizeof(GPNode<T>));
-	for (int i = 0; i < leftNode; i++)
-	{
-		gp[i] = i_leftGP[i];
-	}
-	for (int i = 0; i < newSubtreeSize; i++)
-	{
-		gp[i + leftNode] = i_rightGP[i];
-	}
-	for (int i = oldOffset; i < leftSize; i++)
-	{
-		gp[i + sizeDiff] = i_leftGP[i];
-	}
-	// change subtree sizes of ancestors
-	int current = 0;
-	while (leftNode > current)
-	{
-		gp[current].subtreeSize += sizeDiff;
-		auto rightTreeIndex = gp[current + 1].subtreeSize + current + 1;
-		if (rightTreeIndex > leftNode)
-		{	// at left subtree
-			current += 1;
-		}
-		else
-		{	// at right subtree
-			current = rightTreeIndex;
-		}
-	}
-	// output
-	const int len = gp[0].subtreeSize;
-	for (int i = 0; i < len; i++)
-	{
-		o_gp[i] = gp[i];
-	}
+	// replace
+	_gpTreeReplace(leftNode, 0, newSubtreeSize, oldOffset, leftSize, sizeDiff, i_leftGP, i_rightGP, o_gp);
 }
 
 template<typename T>
@@ -508,9 +536,12 @@ void treeGP_mutation(cudaStream_t stream, void** buffers, const char* opaque, si
 	const int* mutateIndices = (const int*)(buffers[1]);
 	const void* newGPs = (const void*)(buffers[2]);
 	void* outGPs = (void*)(buffers[3]);
+
+	cudaDeviceSynchronize();
+
 #ifdef TEST
 	Timer t;
-	for (int i = 0; i < 10; i++)
+	for (int i = 0; i < 1; i++)
 	{
 #endif
 		switch (d.type)
@@ -580,9 +611,9 @@ __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* var
 			{
 				T diff = i_labels[i] - s_outs[i];
 				if constexpr (useMSE)
-					f += diff * diff;
+					f += diff * diff / pointsPerThread;
 				else
-					f += diff >= 0 ? diff : -diff;
+					f += std::abs(diff) / pointsPerThread;
 			}
 			fit += f;
 		}
@@ -590,12 +621,11 @@ __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* var
 		{
 			T diff = labels[pointId] - stack[--top];
 			if constexpr (useMSE)
-				fit += diff * diff;
+				fit += diff * diff / pointsPerThread;
 			else
-				fit += diff >= 0 ? diff : -diff;
+				fit += std::abs(diff) / pointsPerThread;
 		}
 	}
-	fit /= pointsPerThread;
 	// write to shared memory
 	sharedFitness[threadId] = fit;
 	__syncthreads();
@@ -649,9 +679,12 @@ void treeGP_SR_fitness(cudaStream_t stream, void** buffers, const char* opaque, 
 	const void* variables = (const void*)(buffers[1]);
 	const void* labels = (const void*)(buffers[2]);
 	void* fitnesses = (void*)(buffers[3]);
+
+	cudaDeviceSynchronize();
+
 #ifdef TEST
 	Timer t;
-	for (int i = 0; i < 10; i++)
+	for (int i = 0; i < 1; i++)
 	{
 #endif
 		switch (d.type)
@@ -677,14 +710,14 @@ void treeGP_SR_fitness(cudaStream_t stream, void** buffers, const char* opaque, 
 
 
 template<typename T, typename RandomEngine, bool multiOutput = false>
-__global__ void treeGPGenerate(GPNode<T>* results, const T* depth2leafProbs, const T* rouletteFuncs, const T* constSamples, const GPGenerateInfo info)
+__global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, const T* depth2leafProbs, const T* rouletteFuncs, const T* constSamples, const GPGenerateInfo info)
 {
 	const unsigned int n = blockIdx.x * blockDim.x + threadIdx.x;
 	if (n >= info.popSize)
 		return;
 	// possible registers init
 	T leafProbs[MAX_FULL_DEPTH]{}, funcRoulette[Function::END]{};
-	RandomEngine engine(hash(n + info.seed));
+	RandomEngine engine(hash(n, keys[0], keys[1]));
 	thrust::uniform_real_distribution<T> rand(T(0.0f), T(1.0f));
 #pragma unroll
 	for (int i = 0; i < MAX_FULL_DEPTH; i++)
@@ -730,15 +763,9 @@ __global__ void treeGPGenerate(GPNode<T>* results, const T* depth2leafProbs, con
 					OutNodeValue<T> outNode{ (typename GPNode<T>::U)k, (typename GPNode<T>::U)(engine() % info.outLen) };
 					node = GPNode<T>{ outNode, outType, 1 };
 				}
-				else
-				{	// normal node
-					node = GPNode<T>{ T(k), type, 1 };
-				}
 			}
-			else
-			{	// normal node
-				node = GPNode<T>{ T(k), type, 1 };
-			}
+			// normal node
+			node = GPNode<T>{ T(k), type, 1 };
 			cdNew = NchildDepth{ uint16_t(type - 1), uint16_t(cd.depth + 1) };
 		}
 		else
@@ -802,7 +829,7 @@ __global__ void treeGPGenerate(GPNode<T>* results, const T* depth2leafProbs, con
 }
 
 template<typename T>
-inline void generate_kernel(cudaStream_t stream, const TreeGPGenerateDescriptor& d, void* gps, const void* depth2leafProbs, const void* rouletteFuncs, const void* constSamples)
+inline void generate_kernel(cudaStream_t stream, const TreeGPGenerateDescriptor& d, const void* keys, void* gps, const void* depth2leafProbs, const void* rouletteFuncs, const void* constSamples)
 {
 #define __GEN(engine, multiout) do { \
 	cudaOccupancyMaxPotentialBlockSize(&gridSize, &blockSize, treeGPGenerate<T, engine, multiout>); \
@@ -810,7 +837,7 @@ inline void generate_kernel(cudaStream_t stream, const TreeGPGenerateDescriptor&
 	{ \
 		gridSize = (d.popSize - 1) / blockSize + 1; \
 	} \
-	treeGPGenerate<T, engine, multiout><<<gridSize, blockSize, 0, stream>>>((GPNode<T>*)gps, (const T*)depth2leafProbs, (const T*)rouletteFuncs, (const T*)constSamples, d); \
+	treeGPGenerate<T, engine, multiout><<<gridSize, blockSize, 0, stream>>>((GPNode<T>*)gps, (const unsigned int*)keys, (const T*)depth2leafProbs, (const T*)rouletteFuncs, (const T*)constSamples, d); \
 } while (0)
 
 	int gridSize{}, blockSize{};
@@ -850,22 +877,26 @@ void treeGP_generate(cudaStream_t stream, void** buffers, const char* opaque, si
 {
 	const TreeGPGenerateDescriptor& d = *UnpackDescriptor<TreeGPGenerateDescriptor>(opaque, opaque_len);
 	// depth2leafProbs, const void* rouletteFuncs, const void* constSamples
-	const void* depth2leafProbs = (const void*)(buffers[0]);
-	const void* rouletteFuncs = (const void*)(buffers[1]);
-	const void* constSamples = (const void*)(buffers[2]);
-	void* out_gps = (void*)(buffers[3]);
+	const void* keys = (const void*)(buffers[0]);
+	const void* depth2leafProbs = (const void*)(buffers[1]);
+	const void* rouletteFuncs = (const void*)(buffers[2]);
+	const void* constSamples = (const void*)(buffers[3]);
+	void* out_gps = (void*)(buffers[4]);
+
+	cudaDeviceSynchronize();
+
 #ifdef TEST
 	Timer t;
-	for (int i = 0; i < 10; i++)
+	for (int i = 0; i < 1; i++)
 	{
 #endif
 		switch (d.type)
 		{
 		case ElementType::F32:
-			generate_kernel<float>(stream, d, out_gps, depth2leafProbs, rouletteFuncs, constSamples);
+			generate_kernel<float>(stream, d, keys, out_gps, depth2leafProbs, rouletteFuncs, constSamples);
 			break;
 		case ElementType::F64:
-			generate_kernel<double>(stream, d, out_gps, depth2leafProbs, rouletteFuncs, constSamples);
+			generate_kernel<double>(stream, d, keys, out_gps, depth2leafProbs, rouletteFuncs, constSamples);
 			break;
 		default:
 			throw std::runtime_error("Unsupported data type");
@@ -883,9 +914,9 @@ void treeGP_generate(cudaStream_t stream, void** buffers, const char* opaque, si
 
 
 #ifdef _MSC_VER
-int main_old()
+int mainold()
 {
-	constexpr size_t popSize = 200000, maxGPLen = 16, gpSize = 16;
+	constexpr size_t popSize = 10000, maxGPLen = 16, gpSize = 16;
 	////GPNode<float> gp[gpSize]
 	////{
 	////	GPNode<float>{Function::ADD, (uint16_t)NodeType::BFUNC, 16},
@@ -959,23 +990,24 @@ int main_old()
 	thrust::shuffle(thrust::cuda::par, d_perms2, d_perms2 + popSize, g2);
 
 	TreeGPDescriptor d1(popSize, maxGPLen, 2, 3, ElementType::F32);
-	eval_kernel<float>(NULL, d1, d_gps, d_vars, o_gps);
+	////eval_kernel<float>(NULL, d1, d_gps, d_vars, o_gps);
 	////crossover_kernel<float>(NULL, d1, d_gps, d_perms1, d_perms2, d_lrs, o_gps);
-	////TreeGPSRDescriptor d2(1024, 1024 * 128, maxGPLen, 2, 3, ElementType::F32, true);
-	////SR_fitness_kernel<float>(NULL, d2, d_gps, d_vars, d_targets, d_fitness);
+	TreeGPSRDescriptor d2(popSize, 4, maxGPLen, 2, 3, ElementType::F32, true);
+	SR_fitness_kernel<float>(NULL, d2, d_gps, d_vars, d_targets, d_fitness);
 	cudaDeviceSynchronize();
-	cudaMemcpy(vars, (float*)o_gps + 3 * 0, 3 * sizeof(float), cudaMemcpyKind::cudaMemcpyDeviceToHost);
-	std::cout << vars[0] << vars[1] << vars[2] << std::endl;
+	float* fitness = (float*)perms;
+	cudaMemcpy(fitness, (float*)d_fitness, popSize * sizeof(float), cudaMemcpyKind::cudaMemcpyDeviceToHost);
+	std::cout << fitness[0] << "\t" << fitness[1] << "\t" << fitness[2] << "\t" << fitness[popSize - 3] << "\t" << fitness[popSize - 2] << "\t" << fitness[popSize - 1] << std::endl;
 	return 0;
 }
 
 int main()
 {
-	constexpr unsigned int popSize = 200000, maxGPLen = 1024, seed = 1111;
-	constexpr float outProb = 0.5f, constProb = 0.5f;
+	constexpr unsigned int popSize = 10000, maxGPLen = 32;
+	constexpr float outProb = 0.25f, constProb = 0.5f;
 	float depth2leafProbs[10]
 	{
-		0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f
+		0.2f, 0.2f, 0.2f, 0.2f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f
 	};
 	float rouletteFuncs[Function::END]
 	{
@@ -984,22 +1016,30 @@ int main()
 		0.65f, 0.7f, 0.75f, 0.8f,
 		0.82f, 0.84f, 0.86f, 0.88f, 0.9f, 0.92f, 0.94f, 0.96f, 0.98f, 0.99f, 1.0f
 	};
-	float constSamples[5]
+	for (size_t i = 0; i < Function::END; i++)
 	{
-		-2, -1, 0, 1, 2
+		rouletteFuncs[i] = (float)(i + 1) / Function::END;
+	}
+	float constSamples[6]
+	{
+		-2, -1, -0.5f, 0.5f, 1, 2
 	};
+	unsigned int keys[2] {1, 2};
+	unsigned int* d_keys;
 	GPNode<float>* d_gps;
 	float* d_depth2leafProbs, * d_rouletteFuncs, * d_constSamples;
+	cudaMalloc(&d_keys, sizeof(keys));
 	cudaMalloc(&d_gps, popSize * maxGPLen * sizeof(GPNode<float>));
 	cudaMalloc(&d_depth2leafProbs, sizeof(depth2leafProbs));
 	cudaMalloc(&d_rouletteFuncs, sizeof(rouletteFuncs));
 	cudaMalloc(&d_constSamples, sizeof(constSamples));
+	cudaMemcpy(d_keys, keys, sizeof(keys), cudaMemcpyKind::cudaMemcpyHostToDevice);
 	cudaMemcpy(d_depth2leafProbs, depth2leafProbs, sizeof(depth2leafProbs), cudaMemcpyKind::cudaMemcpyHostToDevice);
 	cudaMemcpy(d_rouletteFuncs, rouletteFuncs, sizeof(rouletteFuncs), cudaMemcpyKind::cudaMemcpyHostToDevice);
 	cudaMemcpy(d_constSamples, constSamples, sizeof(constSamples), cudaMemcpyKind::cudaMemcpyHostToDevice);
 
-	TreeGPGenerateDescriptor d(popSize, maxGPLen, 2, 4, sizeof(constSamples) / sizeof(float), seed, outProb, constProb, RandomEngine::Default, ElementType::F32);
-	generate_kernel<float>(NULL, d, d_gps, d_depth2leafProbs, d_rouletteFuncs, d_constSamples);
+	TreeGPGenerateDescriptor d(popSize, maxGPLen, 2, 4, sizeof(constSamples) / sizeof(float), outProb, constProb, RandomEngine::Default, ElementType::F32);
+	generate_kernel<float>(NULL, d, d_keys, d_gps, d_depth2leafProbs, d_rouletteFuncs, d_constSamples);
 	auto err = cudaDeviceSynchronize();
 
 	GPNode<float> gps[4 * maxGPLen]{};

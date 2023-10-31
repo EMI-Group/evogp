@@ -62,9 +62,9 @@ PYBIND11_MODULE(gpu_ops, m) {
 			return PackDescriptor(TreeGPSRDescriptor(popSize, dataPoints, gpLen, varLen, outLen, type, useMSE));
 		});
 	m.def("create_gp_generate_descriptor",
-		[](int popSize, int gpLen, int varLen, int outLen, int constSamplesLen, int seed, float outProb, float constProb, const RandomEngine engine, const ElementType type)
+		[](int popSize, int gpLen, int varLen, int outLen, int constSamplesLen, float outProb, float constProb, const RandomEngine engine, const ElementType type)
 		{
-			return PackDescriptor(TreeGPGenerateDescriptor(popSize, gpLen, varLen, outLen, constSamplesLen, seed, outProb, constProb, engine, type));
+			return PackDescriptor(TreeGPGenerateDescriptor(popSize, gpLen, varLen, outLen, constSamplesLen, outProb, constProb, engine, type));
 		});
 
 	pybind11::enum_<ElementType>(m, "ElementType")

@@ -54,7 +54,10 @@ class FuncConfig:
         Func.POW3,
         Func.SQRT)
 
-    prob: Tuple = (1 / len(pool), ) * len(pool)
+    # no prob for IF
+    ##prob: Tuple = tuple([0] + ([1 / (len(pool) - 1)] * (len(pool) - 1)))
+    # all equal prob
+    prob: Tuple = tuple([1 / len(pool)] * len(pool))
 
     def __post_init__(self):
         assert len(self.pool) > 0, "pool must not be empty"

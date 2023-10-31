@@ -31,10 +31,11 @@ class Pipeline:
 
     def setup(self):
         key = jax.random.PRNGKey(self.config.basic.seed)
-
+        k1, key = jax.random.split(key)
+        
         return State(
             randkey=key,
-            trees=self.new_trees(key, self.config.gp.subtree.subtree_size),
+            trees=self.new_trees(k1, self.config.gp.max_size),
             generation=0,
         )
 
@@ -42,13 +43,15 @@ class Pipeline:
     def step(self, state: State):
         fitness = self.evaluate(state)
 
-        jax.debug.print("{}", jnp.max(fitness))
+        # node_vals, node_types, node_sizes, _ = from_cuda_node(jnp.select(jnp.isinf(fitness), state.trees))
+        # jax.debug.print("{}", to_string(node_types[:node_sizes[0]], node_vals[:node_sizes[0]]))
+        jax.debug.print("Gen {}: {}", state.generation, jnp.min(fitness))
 
         k1, k2, k3, k4, new_key = jax.random.split(state.randkey, 5)
 
         pop_size, pop_idx = fitness.shape[0], jnp.arange(0, fitness.shape[0])
 
-        sorted_idx = jnp.argsort(fitness)[::-1]
+        sorted_idx = jnp.argsort(-fitness)[::-1]
         ranks = jnp.argsort(sorted_idx)
 
         selected_num = int(self.config.gp.parent_rate * pop_size)
@@ -58,16 +61,16 @@ class Pipeline:
         left, right = jax.random.choice(k1, pop_idx, p=selected_p, shape=(2, pop_size), replace=True)
 
         children = self.crossover_trees(
-            k1,
+            k2,
             state.trees,
             left,
             right,
         )
-
+        
         # children = state.trees
 
         mutated_children = self.mutate_trees(
-            k2,
+            k3,
             children,
         )
 
@@ -104,6 +107,11 @@ class Pipeline:
 
         indices = vmap(random_idx)(jax.random.split(k2, num=trees.shape[0]), tree_sizes)
 
+        # l_size = vmap(lambda x, i: tree_size(jnp.array([x[i]])))(trees, indices)
+        # r_size = vmap(tree_size)(sub_trees)
+        # new_size = r_size - l_size + tree_sizes
+        # jax.debug.print("mutate: {}", jnp.count_nonzero(new_size > 1024))
+
         return mutation(
             trees,
             indices,
@@ -117,6 +125,11 @@ class Pipeline:
 
         l_pos = vmap(random_idx)(jax.random.split(k1, num=trees.shape[0]), tree_sizes[l_indices])
         r_pos = vmap(random_idx)(jax.random.split(k2, num=trees.shape[0]), tree_sizes[r_indices])
+
+        # l_size = vmap(lambda x, i: tree_size(jnp.array([x[i]])))(trees[l_indices], l_pos)
+        # r_size = vmap(lambda x, i: tree_size(jnp.array([x[i]])))(trees[r_indices], r_pos)
+        # new_size = r_size - l_size + tree_sizes[l_indices]
+        # jax.debug.print("crossover: {}", jnp.count_nonzero(new_size > 1024))
 
         nodes = jnp.stack([l_pos, r_pos], axis=1).astype(jnp.int16)
 
@@ -140,17 +153,14 @@ class Pipeline:
                     + self.config.gp.const.mean
             )
 
-        # seed = int(jax.random.randint(key, (), 0, int(2 ** 10 - 1)))
-        seed = 0
-
         trees = generate(
-            seed=seed,
+            seed=k2,
             pop_size=self.config.gp.pop_size,
             max_len=size,
             num_inputs=self.config.gp.num_inputs,
             num_outputs=self.config.gp.num_outputs,
             leaf_prob=jnp.array(self.config.gp.subtree.leaf_prob),
-            functions_prob_accumulate=self.func_cum,
+            functions_prob_accumulate=jnp.array(self.func_cum),
             const_samples=consts,
             output_prob=self.config.gp.output_prob,
             const_prob=self.config.gp.const.const_prob,

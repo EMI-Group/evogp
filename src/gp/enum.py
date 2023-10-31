@@ -33,28 +33,30 @@ class Func:
     The enumeration class for GP function types.
 
     ```C++
-    IF,  // arity: 3, return if (a > 0) { return b } return c
-    ADD, // arity: 2, return a + b
-    SUB, // arity: 2, return a - b
-    MUL, // arity: 2, return a * b
-    DIV, // arity: 2, if (b == 0) { b = DELTA } return a / b
-    MAX, // arity: 2, if (a > b) { return a } return b
-    MIN, // arity: 2, if (a < b) { return a } return b
-    LT,  // arity: 2, if (a < b) { return 1 } return 0
-    GT,  // arity: 2, if (a > b) { return 1 } return 0
-    LE,  // arity: 2, if (a <= b) { return 1 } return 0
-    GE,  // arity: 2, if (a >= b) { return 1 } return 0
-    SIN, // arity: 1, return sin a
-    COS, // arity: 1, return cos a
-    SINH,// arity: 1, return sinh a
-    COSH,// arity: 1, return cosh a
-    LOG, // arity: 1, return log a
-    EXP, // arity: 1, return exp a
-    INV, // arity: 1, if (a == 0) { a = DELTA } return 1 / a
-    NEG, // arity: 1, return -a
-    POW2,// arity: 1, return a * a
-    POW3,// arity: 1, return a * a * a
-    SQRT,// arity: 1, return sqrt(a)
+	// The absolute value of any operation will be limited to MAX_VAL
+	IF,  // arity: 3, if (a > 0) { return b } return c
+	ADD, // arity: 2, return a + b
+	SUB, // arity: 2, return a - b
+	MUL, // arity: 2, return a * b
+	DIV, // arity: 2, if (|b| < DELTA) { return a / DELTA * sign(b) } return a / b
+	MAX, // arity: 2, if (a > b) { return a } return b
+	MIN, // arity: 2, if (a < b) { return a } return b
+	LT,  // arity: 2, if (a < b) { return 1 } return -1
+	GT,  // arity: 2, if (a > b) { return 1 } return -1
+	LE,  // arity: 2, if (a <= b) { return 1 } return -1
+	GE,  // arity: 2, if (a >= b) { return 1 } return -1
+	SIN, // arity: 1, return sin(a)
+	COS, // arity: 1, return cos(a)
+	SINH,// arity: 1, return sinh(a)
+	COSH,// arity: 1, return cosh(a)
+	LOG, // arity: 1, return if (a == 0) { return -MAX_VAL } return log(|a|)
+	EXP, // arity: 1, return min(exp(a), MAX_VAL)
+	INV, // arity: 1, if (|a| < DELTA) { return 1 / DELTA * sign(a) } return 1 / a
+	NEG, // arity: 1, return -a
+	POW2,// arity: 1, return a * a
+	POW3,// arity: 1, return a * a * a
+	SQRT,// arity: 1, return sqrt(|a|)
+	END  // not used, the ending notation
     ```
     """
 
@@ -121,7 +123,6 @@ FUNCS_NAMES = [
     ">",
     "<=",
     ">=",
-
     "sin",
     "cos",
     "sinh",
@@ -130,9 +131,9 @@ FUNCS_NAMES = [
     "exp",
     "inv",
     "neg",
-    "^2",
-    "^3",
-    "√"
+    "square",
+    "cube",
+    "sqrt"
 ]
 
 
@@ -145,14 +146,14 @@ def to_string(node_type, node_val):
     res = ""
     for t, v in zip(node_type, node_val):
         if t == NType.VAR:
-            res += f"in[{v}]"
+            res += f"in[{int(v)}]"
         elif t == NType.CONST:
             res += f"{v}"
-        elif t == NType.UFUNC or t == NType.BFUNC:
+        elif t == NType.UFUNC or t == NType.BFUNC or t == NType.TFUNC:
             res += f"{FUNCS_NAMES[int(v)]}"
-
         res += " "
     return res
+
 
 # FUNC_TYPES = jnp.array([
 #     Type.BFUNC,
