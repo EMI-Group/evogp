@@ -187,7 +187,7 @@ def gp_sr_fitness_(
 
 
 def gp_generate_(
-    seed: jax.Array,
+    key: jax.Array,
     depth_to_leaf_prob: jax.Array,
     functions_prob_accumulate: jax.Array,
     const_samples: jax.Array,
@@ -231,8 +231,8 @@ def gp_generate_(
     `const_prob` : `float`
         The change that a leaf node in a generated GP tree is selected to be a constant node rather than a variable node.
 
-    `seed` : `jax.random.PRNGKey`
-        The seed controlling the random outcomes.
+    `key` : `jax.random.PRNGKey`
+        The key controlling the random outcomes.
 
     `random_generator` : `gpu_ops.RandomEngine`
         The random number generator type. The possible values are `Default`, `RANLUX24`, `RANLUX48` and `TAUS88`.
@@ -249,7 +249,7 @@ def gp_generate_(
     Note that the output GP(s) with invalid `node_indices` is/are direct copies of `gp[i]`. Besides, any mutation(s) that may cause size overflow is/are ignored as well.
     """
     results = _gp_generate_fwd_p.bind(
-        seed,
+        key,
         depth_to_leaf_prob,
         functions_prob_accumulate,
         const_samples,
@@ -416,7 +416,7 @@ def _gp_sr_fitness_fwd_cuda_lowering(ctx, prefixGPs, data_points, targets, use_M
 
 def _gp_generate_fwd_cuda_lowering(
     ctx,
-    seed,
+    key,
     depth_to_leaf_prob,
     functions_prob_accumulate,
     const_samples,
@@ -428,7 +428,7 @@ def _gp_generate_fwd_cuda_lowering(
     const_prob,
     random_generator,
 ):
-    key_info = ir.RankedTensorType(seed.type)
+    key_info = ir.RankedTensorType(key.type)
     d2l_info = ir.RankedTensorType(depth_to_leaf_prob.type)
     fp_info = ir.RankedTensorType(functions_prob_accumulate.type)
     cs_info = ir.RankedTensorType(const_samples.type)
@@ -455,7 +455,7 @@ def _gp_generate_fwd_cuda_lowering(
         out_types=[
             ir.RankedTensorType.get(out_shape, out_type),
         ],
-        operands=[seed, depth_to_leaf_prob, functions_prob_accumulate, const_samples],
+        operands=[key, depth_to_leaf_prob, functions_prob_accumulate, const_samples],
         backend_config=opaque,
         operand_layouts=default_layouts(key_info.shape, d2l_info.shape, fp_info.shape, cs_info.shape),
         result_layouts=default_layouts(out_shape),
@@ -589,7 +589,7 @@ def _gp_sr_fitness_fwd_abstract(prefixGPs, data_points, targets, use_MSE=False):
 
 
 def _gp_generate_fwd_abstract(
-    seed,
+    key,
     depth_to_leaf_prob,
     functions_prob_accumulate,
     const_samples,
@@ -601,8 +601,8 @@ def _gp_generate_fwd_abstract(
     const_prob: float = 0.5,
     random_generator: str = "Default",
 ):
-    key_type = dtypes.canonicalize_dtype(seed.dtype)
-    key_shape = seed.shape
+    key_type = dtypes.canonicalize_dtype(key.dtype)
+    key_shape = key.shape
     dl_type = dtypes.canonicalize_dtype(depth_to_leaf_prob.dtype)
     dl_shape = depth_to_leaf_prob.shape
     fp_type = dtypes.canonicalize_dtype(functions_prob_accumulate.dtype)

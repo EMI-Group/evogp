@@ -51,6 +51,7 @@ class Pipeline:
 
         pop_size, pop_idx = fitness.shape[0], jnp.arange(0, fitness.shape[0])
 
+        # TODO: is this a rank?
         sorted_idx = jnp.argsort(-fitness)[::-1]
         ranks = jnp.argsort(sorted_idx)
 
@@ -105,7 +106,8 @@ class Pipeline:
 
         sub_trees = self.new_trees(k1, self.config.gp.subtree.subtree_size)
 
-        indices = vmap(random_idx)(jax.random.split(k2, num=trees.shape[0]), tree_sizes)
+        ## indices = vmap(random_idx)(jax.random.split(k2, num=trees.shape[0]), tree_sizes)
+        indices = jax.random.randint(k2, (trees.shape[0], ), 0, tree_sizes)
 
         # l_size = vmap(lambda x, i: tree_size(jnp.array([x[i]])))(trees, indices)
         # r_size = vmap(tree_size)(sub_trees)
@@ -123,8 +125,10 @@ class Pipeline:
 
         k1, k2 = jax.random.split(key)
 
-        l_pos = vmap(random_idx)(jax.random.split(k1, num=trees.shape[0]), tree_sizes[l_indices])
-        r_pos = vmap(random_idx)(jax.random.split(k2, num=trees.shape[0]), tree_sizes[r_indices])
+        ## l_pos = vmap(random_idx)(jax.random.split(k1, num=trees.shape[0]), tree_sizes[l_indices])
+        ## r_pos = vmap(random_idx)(jax.random.split(k2, num=trees.shape[0]), tree_sizes[r_indices])
+        l_pos = jax.random.randint(k1, (trees.shape[0], ), 0, tree_sizes[l_indices])
+        r_pos = jax.random.randint(k2, (trees.shape[0], ), 0, tree_sizes[r_indices])
 
         # l_size = vmap(lambda x, i: tree_size(jnp.array([x[i]])))(trees[l_indices], l_pos)
         # r_size = vmap(lambda x, i: tree_size(jnp.array([x[i]])))(trees[r_indices], r_pos)

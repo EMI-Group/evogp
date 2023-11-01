@@ -13,6 +13,7 @@
 !src/core/kernel/build.sh
 !src/core/kernel/build_test.sh
 src/core/kernel/build/
+.vscode/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

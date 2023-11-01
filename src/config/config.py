@@ -9,7 +9,7 @@ from src.gp.enum import Func
 @dataclass(frozen=True)
 class BasicConfig:
     seed: int = 42
-    fitness_target: float = 1
+    fitness_target: float = 1.0
     generation_limit: int = 1000
 
 
@@ -17,8 +17,8 @@ class BasicConfig:
 class ConstConfig:
     type: str = 'discrete'
     pool: Tuple = (-1, 1, 2, -2, 0.5, -0.5)
-    mean: float = 0
-    std: float = 1
+    mean: float = 0.0
+    std: float = 1.0
     points_cnt: int = 100
 
     const_prob: float = 0.25  # probability of const in leaves

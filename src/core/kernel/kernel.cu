@@ -298,9 +298,6 @@ void treeGP_eval(cudaStream_t stream, void** buffers, const char* opaque, size_t
 	const void* gps = (const void*)(buffers[0]);
 	const void* variables = (const void*)(buffers[1]);
 	void* results = (void*)(buffers[2]);
-
-	cudaDeviceSynchronize();
-
 #ifdef TEST
 	Timer t;
 	for (int i = 0; i < 1; i++)
@@ -454,9 +451,6 @@ void treeGP_crossover(cudaStream_t stream, void** buffers, const char* opaque, s
 	const int* rightPerms = (const int*)(buffers[2]);
 	const LeftRightIdx* lrNodes = (const LeftRightIdx*)(buffers[3]);
 	void* outGPs = (void*)(buffers[4]);
-
-	cudaDeviceSynchronize();
-
 #ifdef TEST
 	Timer t;
 	for (int i = 0; i < 1; i++)
@@ -536,9 +530,6 @@ void treeGP_mutation(cudaStream_t stream, void** buffers, const char* opaque, si
 	const int* mutateIndices = (const int*)(buffers[1]);
 	const void* newGPs = (const void*)(buffers[2]);
 	void* outGPs = (void*)(buffers[3]);
-
-	cudaDeviceSynchronize();
-
 #ifdef TEST
 	Timer t;
 	for (int i = 0; i < 1; i++)
@@ -679,9 +670,6 @@ void treeGP_SR_fitness(cudaStream_t stream, void** buffers, const char* opaque, 
 	const void* variables = (const void*)(buffers[1]);
 	const void* labels = (const void*)(buffers[2]);
 	void* fitnesses = (void*)(buffers[3]);
-
-	cudaDeviceSynchronize();
-
 #ifdef TEST
 	Timer t;
 	for (int i = 0; i < 1; i++)
@@ -882,8 +870,6 @@ void treeGP_generate(cudaStream_t stream, void** buffers, const char* opaque, si
 	const void* rouletteFuncs = (const void*)(buffers[2]);
 	const void* constSamples = (const void*)(buffers[3]);
 	void* out_gps = (void*)(buffers[4]);
-
-	cudaDeviceSynchronize();
 
 #ifdef TEST
 	Timer t;
