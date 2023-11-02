@@ -137,29 +137,9 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 			{
 				s_vals[top] = -var1;
 			}
-			else if (function == Function::POW2)
+			else if (function == Function::ABS)
 			{
-				var1 *= var1;
-				if (std::abs(var1) <= T(MAX_VAL))
-				{
-					s_vals[top] = var1;
-				}
-				else
-				{
-					s_vals[top] = copy_sign(T(MAX_VAL), var1);
-				}
-			}
-			else if (function == Function::POW3)
-			{
-				var1 *= var1 * var1;
-				if (std::abs(var1) <= T(MAX_VAL))
-				{
-					s_vals[top] = var1;
-				}
-				else
-				{
-					s_vals[top] = copy_sign(T(MAX_VAL), var1);
-				}
+				s_vals[top] = std::abs(var1);
 			}
 			else if (function == Function::SQRT)
 			{
@@ -193,6 +173,22 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 					var2 = copy_sign(T(DELTA), var2);
 				}
 				s_vals[top] = var1 / var2;
+			}
+			else if (function == Function::POW)
+			{
+				if (var1 == T(0.0f) && var2 == T(0.0f))
+				{
+					s_vals[top] = 0;
+				}
+				else
+				{
+					var2 = std::pow(std::abs(var1), var2);
+					if (std::abs(var2) >= T(MAX_VAL))
+					{
+						var2 = copy_sign(T(MAX_VAL), var2);
+					}
+					s_vals[top] = var2;
+				}
 			}
 			else if (function == Function::MAX)
 			{

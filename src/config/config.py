@@ -3,7 +3,7 @@ from typing import Tuple
 
 import numpy as np
 
-from src.gp.enum import Func
+from src.gp.enum import Func, FUNCS
 
 
 @dataclass(frozen=True)
@@ -30,29 +30,30 @@ class ConstConfig:
 
 @dataclass(frozen=True)
 class FuncConfig:
-    pool: Tuple = (
-        Func.IF,
-        Func.ADD,
-        Func.SUB,
-        Func.MUL,
-        Func.DIV,
-        Func.MAX,
-        Func.MIN,
-        Func.LT,
-        Func.GT,
-        Func.LE,
-        Func.GE,
-        Func.SIN,
-        Func.COS,
-        Func.SINH,
-        Func.COSH,
-        Func.LOG,
-        Func.EXP,
-        Func.INV,
-        Func.NEG,
-        Func.POW2,
-        Func.POW3,
-        Func.SQRT)
+    # pool: Tuple = (
+    #     Func.IF,
+    #     Func.ADD,
+    #     Func.SUB,
+    #     Func.MUL,
+    #     Func.DIV,
+    #     Func.MAX,
+    #     Func.MIN,
+    #     Func.LT,
+    #     Func.GT,
+    #     Func.LE,
+    #     Func.GE,
+    #     Func.SIN,
+    #     Func.COS,
+    #     Func.SINH,
+    #     Func.COSH,
+    #     Func.LOG,
+    #     Func.EXP,
+    #     Func.INV,
+    #     Func.NEG,
+    #     Func.POW2,
+    #     Func.POW3,
+    #     Func.SQRT)
+    pool: Tuple = tuple(FUNCS)
 
     # no prob for IF
     ##prob: Tuple = tuple([0] + ([1 / (len(pool) - 1)] * (len(pool) - 1)))
@@ -68,14 +69,14 @@ class FuncConfig:
 @dataclass(frozen=True)
 class SubtreeConfig:
     subtree_size: int = 32
-    leaf_prob: Tuple = (0.2, 0.2, 0.2, 0.2, 1, 1, 1, 1, 1, 1)  # the probability of a node is leaf in each depth
+    leaf_prob: Tuple = (0.4, 0.5, 0.6, 1, 1, 1, 1, 1, 1, 1)  # the probability of a node is leaf in each depth
 
 
 @dataclass(frozen=True)
 class GPConfig(BasicConfig):
     pop_size: int = 100
     max_size: int = 1024
-    num_inputs: int = 2
+    # num_inputs: int = 2
     num_outputs: int = 1
 
     const: ConstConfig = ConstConfig()

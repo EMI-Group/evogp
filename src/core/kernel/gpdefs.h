@@ -7,7 +7,8 @@ constexpr auto MAX_STACK = 1024, MAX_FULL_DEPTH = 10;
 constexpr auto DELTA = 1E-3f;
 constexpr auto MAX_VAL = 1E3f;
 
-typedef enum NodeType {
+typedef enum NodeType
+{
 	VAR = 0,   // variable
 	CONST = 1, // constant
 	UFUNC = 2, // unary function
@@ -20,13 +21,15 @@ typedef enum NodeType {
 	TFUNC_OUT = TFUNC + OUT_NODE,  // ternary function, output node
 } ntype_t;
 
-typedef enum Function {
+typedef enum Function
+{
 	// The absolute value of any operation will be limited to MAX_VAL
 	IF,  // arity: 3, if (a > 0) { return b } return c
 	ADD, // arity: 2, return a + b
 	SUB, // arity: 2, return a - b
 	MUL, // arity: 2, return a * b
 	DIV, // arity: 2, if (|b| < DELTA) { return a / DELTA * sign(b) } return a / b
+	POW, // arity: 2, |a|^b
 	MAX, // arity: 2, if (a > b) { return a } return b
 	MIN, // arity: 2, if (a < b) { return a } return b
 	LT,  // arity: 2, if (a < b) { return 1 } return -1
@@ -41,8 +44,7 @@ typedef enum Function {
 	EXP, // arity: 1, return min(exp(a), MAX_VAL)
 	INV, // arity: 1, if (|a| < DELTA) { return 1 / DELTA * sign(a) } return 1 / a
 	NEG, // arity: 1, return -a
-	POW2,// arity: 1, return a * a
-	POW3,// arity: 1, return a * a * a
+	ABS, // arity: 1, return |a|
 	SQRT,// arity: 1, return sqrt(|a|)
 	END  // not used, the ending notation
 } func_t;

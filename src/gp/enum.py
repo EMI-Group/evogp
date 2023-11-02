@@ -39,6 +39,7 @@ class Func:
 	SUB, // arity: 2, return a - b
 	MUL, // arity: 2, return a * b
 	DIV, // arity: 2, if (|b| < DELTA) { return a / DELTA * sign(b) } return a / b
+	POW, // arity: 2, |a|^b
 	MAX, // arity: 2, if (a > b) { return a } return b
 	MIN, // arity: 2, if (a < b) { return a } return b
 	LT,  // arity: 2, if (a < b) { return 1 } return -1
@@ -53,8 +54,7 @@ class Func:
 	EXP, // arity: 1, return min(exp(a), MAX_VAL)
 	INV, // arity: 1, if (|a| < DELTA) { return 1 / DELTA * sign(a) } return 1 / a
 	NEG, // arity: 1, return -a
-	POW2,// arity: 1, return a * a
-	POW3,// arity: 1, return a * a * a
+	ABS, // arity: 1, return |a|
 	SQRT,// arity: 1, return sqrt(|a|)
 	END  // not used, the ending notation
     ```
@@ -66,23 +66,23 @@ class Func:
     SUB = 2
     MUL = 3
     DIV = 4
-    MAX = 5
-    MIN = 6
-    LT = 7
-    GT = 8
-    LE = 9
-    GE = 10
+    POW = 5
+    MAX = 6
+    MIN = 7
+    LT = 8
+    GT = 9
+    LE = 10
+    GE = 11
 
-    SIN = 11
-    COS = 12
-    SINH = 13
-    COSH = 14
-    LOG = 15
-    EXP = 16
-    INV = 17
-    NEG = 18
-    POW2 = 19
-    POW3 = 20
+    SIN = 12
+    COS = 13
+    SINH = 14
+    COSH = 15
+    LOG = 16
+    EXP = 17
+    INV = 18
+    NEG = 19
+    ABS = 20
     SQRT = 21
 
 
@@ -92,6 +92,7 @@ FUNCS = [
     Func.SUB,
     Func.MUL,
     Func.DIV,
+    Func.POW,
     Func.MAX,
     Func.MIN,
     Func.LT,
@@ -106,8 +107,7 @@ FUNCS = [
     Func.EXP,
     Func.INV,
     Func.NEG,
-    Func.POW2,
-    Func.POW3,
+    Func.ABS,
     Func.SQRT
 ]
 
@@ -117,6 +117,7 @@ FUNCS_NAMES = [
     "-",
     "*",
     "/",
+    "pow",
     "max",
     "min",
     "<",
@@ -131,29 +132,9 @@ FUNCS_NAMES = [
     "exp",
     "inv",
     "neg",
-    "square",
-    "cube",
+    "abs",
     "sqrt"
 ]
-
-
-def tree2str(tree):
-    return to_string(tree.node_types, tree.node_vals)
-
-
-def to_string(node_type, node_val):
-    node_type, node_val = list(node_type), list(node_val)
-    res = ""
-    for t, v in zip(node_type, node_val):
-        if t == NType.VAR:
-            res += f"in[{int(v)}]"
-        elif t == NType.CONST:
-            res += f"{v}"
-        elif t == NType.UFUNC or t == NType.BFUNC or t == NType.TFUNC:
-            res += f"{FUNCS_NAMES[int(v)]}"
-        res += " "
-    return res
-
 
 # FUNC_TYPES = jnp.array([
 #     Type.BFUNC,

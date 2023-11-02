@@ -43,18 +43,20 @@ class Pipeline:
     def step(self, state: State):
         fitness = self.evaluate(state)
 
-        # node_vals, node_types, node_sizes, _ = from_cuda_node(jnp.select(jnp.isinf(fitness), state.trees))
-        # jax.debug.print("{}", to_string(node_types[:node_sizes[0]], node_vals[:node_sizes[0]]))
         jax.debug.print("Gen {}: {}", state.generation, jnp.min(fitness))
+        # jax.debug.print("Gen {}: {}\n\t{}", state.generation, jnp.min(fitness), cuda_tree_to_string(state.trees[jnp.argmin(fitness)]))
 
         k1, k2, k3, k4, new_key = jax.random.split(state.randkey, 5)
 
         pop_size, pop_idx = fitness.shape[0], jnp.arange(0, fitness.shape[0])
 
-        # TODO: is this a rank?
-        sorted_idx = jnp.argsort(-fitness)[::-1]
-        ranks = jnp.argsort(sorted_idx)
+        # # size penalty
+        # fitness += (jnp.max(fitness) - jnp.min(fitness)) / 100 / vmap(tree_size)(state.trees)
 
+        # TODO: is this a rank?
+        sorted_idx = jnp.argsort(fitness)
+        ranks = jnp.argsort(sorted_idx)
+        
         selected_num = int(self.config.gp.parent_rate * pop_size)
         selected_p = jnp.where(ranks < selected_num, 1, 0)
         selected_p = selected_p / jnp.sum(selected_p)
@@ -161,7 +163,7 @@ class Pipeline:
             seed=k2,
             pop_size=self.config.gp.pop_size,
             max_len=size,
-            num_inputs=self.config.gp.num_inputs,
+            num_inputs=self.problem.inputs.shape[1],
             num_outputs=self.config.gp.num_outputs,
             leaf_prob=jnp.array(self.config.gp.subtree.leaf_prob),
             functions_prob_accumulate=jnp.array(self.func_cum),
@@ -188,5 +190,5 @@ def func_cum_prob(conf: FuncConfig):
     return probs.cumsum()
 
 
-def random_idx(key, size):
-    return jax.random.randint(key, (), 0, size - 1)
+# def random_idx(key, size):
+#     return jax.random.randint(key, (), 0, size - 1)

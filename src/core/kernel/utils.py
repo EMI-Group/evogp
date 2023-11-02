@@ -1,7 +1,28 @@
 import jax
 import jax.numpy as jnp
 
-from src.gp.enum import NType
+from src.gp.enum import NType, FUNCS_NAMES
+
+
+def tree2str(tree):
+    return to_string(tree.node_types, tree.node_vals)
+
+def cuda_tree_to_string(tree):
+    node_val, node_type, node_size, _ = from_cuda_node(tree)
+    return to_string(node_type[:node_size[0]], node_val[:node_size[0]])
+
+def to_string(node_type, node_val):
+    node_type, node_val = list(node_type), list(node_val)
+    res = ""
+    for t, v in zip(node_type, node_val):
+        if t == NType.VAR:
+            res += f"in[{int(v)}]"
+        elif t == NType.CONST:
+            res += f"{v}"
+        elif t == NType.UFUNC or t == NType.BFUNC or t == NType.TFUNC:
+            res += f"{FUNCS_NAMES[int(v)]}"
+        res += " "
+    return res
 
 
 def to_cuda_node(
