@@ -6,8 +6,8 @@ from src.config import *
 from src.core.kernel.utils import *
 
 from src.gp.cuda_backend.pipeline import Pipeline
-from src.problems import XOR, XOR3d, FuncFitConfig
-
+from src.problems import XOR, XOR3d, Polynomial, Polynomial_3d, FuncFitConfig
+import shutil
 
 def main():
     conf = Config(
@@ -16,8 +16,11 @@ def main():
         ),
         problem=FuncFitConfig(),
     )
-    pipeline = Pipeline(conf, XOR3d)
+    pipeline = Pipeline(conf, Polynomial_3d)
     state = pipeline.setup()
+    if os.path.exists("output"):
+        shutil.rmtree("output")
+    os.mkdir("output")
     for _ in range(1000):
         state = pipeline.step(state)
     fitness = pipeline.evaluate(state)

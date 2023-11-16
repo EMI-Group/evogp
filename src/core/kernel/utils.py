@@ -2,7 +2,46 @@ import jax
 import jax.numpy as jnp
 
 from src.gp.enum import NType, FUNCS_NAMES
+import networkx as nx
+import operator, sympy
 
+class Function:
+    """
+    A general function
+    """
+    def __init__(self, func, arity, symbol = None):
+        self.func = func
+        self.arity = arity
+        self.symbol = symbol
+        self.name = func.__name__
+
+    def __call__(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
+    
+function_set = [
+            Function(operator.eq, 3), # 0
+            Function(operator.add, 2, '+'), # 1
+            Function(operator.sub, 2, '-'), # 2
+            Function(operator.mul, 2, '×'), # 3
+            Function(operator.truediv, 2, '/'), # 4
+            Function(operator.pow, 2), # 5
+            Function(sympy.Max, 2), # 6
+            Function(sympy.Min, 2), # 7
+            Function(operator.lt, 2, '<'), # 8
+            Function(operator.gt, 2, '>'), # 9
+            Function(operator.le, 2, '≤'), # 10
+            Function(operator.ge, 2, '≥'), # 11
+            Function(sympy.sin, 1), # 12
+            Function(sympy.cos, 1), # 13
+            Function(sympy.sinh, 1), # 14
+            Function(sympy.cosh, 1), # 15
+            Function(sympy.log, 1), # 16
+            Function(sympy.exp, 1), # 17
+            Function(operator.inv, 1), # 18
+            Function(operator.neg, 1, '-'), # 19
+            Function(operator.abs, 1), # 20
+            Function(sympy.sqrt, 1, '√') # 21
+        ]
 
 def tree2str(tree):
     return to_string(tree.node_types, tree.node_vals)
@@ -24,6 +63,103 @@ def to_string(node_type, node_val):
         res += " "
     return res
 
+""" Recursive Traversal """
+def fillout_graph(graph: nx.DiGraph, type_list, val_list):
+    node_id = graph.node_count
+    node_type, node_val = type_list[node_id], val_list[node_id]
+    if node_type == NType.CONST:
+        node_label = str(node_val)
+        node_func = float(node_val)
+        child_remain = 0
+    elif node_type == NType.VAR:
+        node_label = chr(ord('A') + int(node_val))
+        node_func = sympy.Symbol(node_label)
+        child_remain = 0
+    elif node_type == NType.UFUNC:
+        node_label = FUNCS_NAMES[int(node_val)]
+        node_func = function_set[int(node_val)]
+        child_remain = 1
+    elif node_type == NType.BFUNC:
+        node_label = FUNCS_NAMES[int(node_val)]
+        # if node_val in [8, 9, 10, 11]:
+        #     node_func = sympy.Symbol(node_label)
+        # else:
+        node_func = function_set[int(node_val)]
+        child_remain = 2
+    elif node_type == NType.TFUNC:
+        node_label = FUNCS_NAMES[int(node_val)]
+        node_func = sympy.Symbol(node_label)
+        child_remain = 3
+
+    graph.add_node(node_id, label = node_label, func = node_func)
+
+    for i in range(child_remain):
+        graph.node_count += 1
+        graph.add_edge(graph.node_count, node_id, order = i)
+        fillout_graph(graph, type_list, val_list)
+
+def to_graph(tree):
+    node_val, node_type, node_size, _ = from_cuda_node(tree)
+    node_type, node_val = list(node_type[:node_size[0]]), list(node_val[:node_size[0]])
+    graph = nx.DiGraph()
+    graph.node_count = 0
+    fillout_graph(graph, node_type, node_val)
+    graph.node_count += 1
+    return graph
+
+def to_png(graph, fname):
+    from networkx.drawing.nx_agraph import to_agraph
+    import pygraphviz
+    agraph: pygraphviz.agraph.AGraph = to_agraph(graph)
+    agraph.graph_attr.update(rankdir='BT')
+    agraph.graph_attr['label'] = f'size: {graph.node_count}'
+    agraph.draw(fname, format = 'png', prog = 'dot')
+
+def concat(func: Function, args):
+    if func.arity == 1:
+        if func.symbol:
+            expr = f"{func.symbol}{args[0]}"
+        else:
+            expr = f"{func.name}({args[0]})"
+    elif func.arity == 2:
+        if func.symbol:
+            expr = f"{args[0]}{func.symbol}{args[1]}"
+        else:
+            expr = f"{func.name}({args[0]},{args[1]})"
+    elif func.arity == 3:
+        expr = f"{func.name}({args[0]},{args[1]},{args[2]})"
+    return expr
+
+def to_sympy(graph: nx.DiGraph):
+    tp_sort = list(nx.topological_sort(graph))
+    # if len(tp_sort) <= 0: return
+    dict_expr = dict()
+    for node_id in tp_sort:
+        inputs = []
+        for input_node_id in graph.predecessors(node_id):
+            for order in graph.get_edge_data(input_node_id, node_id).values():
+                inputs.append((input_node_id, order))
+        inputs.sort(key = operator.itemgetter(1))
+        args = []
+        for input in inputs:
+            input_node_id = input[0]
+            args.append(dict_expr[input_node_id])
+        sym_func = graph.nodes[node_id]["func"]
+        if sym_func in function_set:
+            try:
+                expr = sym_func(*args)
+                expr = sympy.simplify(expr)
+            except:
+                print("error")
+                try:
+                    expr = concat(sym_func, args)
+                except:
+                    print("double error")
+                    expr = sym_func.name
+            dict_expr[node_id] = expr
+        else:
+            dict_expr[node_id] = sym_func
+    return dict_expr[tp_sort[-1]]
 
 def to_cuda_node(
         node_values: jax.Array, node_types: jax.Array, subtree_sizes: jax.Array

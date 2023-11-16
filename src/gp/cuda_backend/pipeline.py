@@ -8,7 +8,7 @@ import jax
 from jax import numpy as jnp, vmap, jit
 
 from src.config import *
-from src.core import State
+from src.core.state import State
 from src.core.problem import Problem
 
 from src.gp.enum import FUNCS
@@ -16,6 +16,7 @@ from .operations import *
 
 from src.core.kernel.utils import *
 
+import matplotlib.pyplot as plt
 
 class Pipeline:
     def __init__(self, conf: Config, problem_type: Type[Problem]):
@@ -32,19 +33,56 @@ class Pipeline:
     def setup(self):
         key = jax.random.PRNGKey(self.config.basic.seed)
         k1, key = jax.random.split(key)
+
+        fig = plt.figure()
+        if self.problem.input_shape[1] == 1:
+            x = self.problem.inputs
+            y = self.problem.targets
+            ax = fig.add_subplot()
+            ax.plot(x.ravel(), y.ravel(), label='base')
+        else:
+            x = self.problem.inputs
+            y = self.problem.targets
+            x_split = jnp.split(x, self.problem.input_shape[1], axis=1)
+            ax = fig.add_subplot(projection='3d')
+            ax.plot(x_split[0].ravel(), x_split[1].ravel(), y.ravel(), label='base')
         
-        return State(
+        state = State(
             randkey=key,
             trees=self.new_trees(k1, self.config.gp.max_size),
             generation=0,
+            ax=ax,
         )
+        return state
 
-    @partial(jit, static_argnums=(0,))
+    # @partial(jit, static_argnums=(0,))
     def step(self, state: State):
         fitness = self.evaluate(state)
 
-        jax.debug.print("Gen {}: {}", state.generation, jnp.min(fitness))
-        # jax.debug.print("Gen {}: {}\n\t{}", state.generation, jnp.min(fitness), cuda_tree_to_string(state.trees[jnp.argmin(fitness)]))
+        # jax.debug.print("Gen {}: {}", state.generation, jnp.min(fitness))
+        best = state.trees[jnp.argmin(fitness)]
+        jax.debug.print("Gen {}: {}\n\t{}", state.generation, jnp.min(fitness), cuda_tree_to_string(best))
+        graph = to_graph(best)
+        to_png(graph, f"output/{state.generation}.png")
+        print("-------------------", to_sympy(graph))
+        out = forward(jnp.tile(best, [self.problem.input_shape[0], 1]), self.problem.inputs.astype(jnp.float32))
+
+        
+        for line in state.ax.lines:
+            from matplotlib import lines
+            line: lines.Line2D
+            if line.get_label() == 'regress':
+                line.remove()
+
+        if self.problem.input_shape[1] == 1:
+            x = self.problem.inputs
+            state.ax.plot(x.ravel(), out.ravel(), color = 'red', label='regress')
+        else:
+            x = self.problem.inputs
+            x_split = jnp.split(x, self.problem.input_shape[1], axis=1)
+            state.ax.plot(x_split[0].ravel(), x_split[1].ravel(), out.ravel(), color = 'red', label='regress')
+        plt.pause(0.01)
+
 
         k1, k2, k3, k4, new_key = jax.random.split(state.randkey, 5)
 
@@ -90,6 +128,7 @@ class Pipeline:
             trees=children,
             randkey=new_key,
             generation=state.generation + 1,
+            ax=state.ax,
         )
 
     def evaluate(self, state: State):
