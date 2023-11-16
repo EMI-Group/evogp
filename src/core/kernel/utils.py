@@ -150,11 +150,11 @@ def to_sympy(graph: nx.DiGraph):
                 expr = sym_func(*args)
                 expr = sympy.simplify(expr)
             except:
-                print("error")
+                # print("sympy error: cannot parse")
                 try:
                     expr = concat(sym_func, args)
                 except:
-                    print("double error")
+                    print("error: not a GP tree")
                     expr = sym_func.name
             dict_expr[node_id] = expr
         else:
