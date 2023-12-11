@@ -1,30 +1,26 @@
 import numpy as np
 
-from .func_fit import FuncFit, FuncFitConfig
+from .func_fit import FuncFit
 
 
 class XOR(FuncFit):
 
-    def __init__(self, config: FuncFitConfig = FuncFitConfig()):
-        self.config = config
-        super().__init__(config)
-
     @property
     def inputs(self):
         return np.array([
-            [0, 0],
-            [0, 1],
-            [1, 0],
-            [1, 1]
+            [0., 0.],
+            [0., 1.],
+            [1., 0.],
+            [1., 1.]
         ])
 
     @property
     def targets(self):
         return np.array([
-            [0],
-            [1],
-            [1],
-            [0]
+            [0.],
+            [1.],
+            [1.],
+            [0.]
         ])
 
     @property

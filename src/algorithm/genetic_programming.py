@@ -28,7 +28,7 @@ class GeneticProgramming:
             func_prob_dict = {"+": 0.25, "-": 0.25, "*": 0.25, "/": 0.25}
 
         if leaf_prob is None:
-            leaf_prob = [0, 0, 0, 0, 0, 1.0]
+            leaf_prob = [0, 0, 0, 0, 1, 1, 1, 1, 1, 1]
 
         self.crossover = crossover
         self.mutation = mutation
@@ -41,7 +41,7 @@ class GeneticProgramming:
             "num_outputs": num_outputs,
             "max_len": max_len,
             "max_sub_tree_len": max_sub_tree_len,
-            "leaf_prob": jnp.array(leaf_prob),
+            "leaf_prob": jnp.array(leaf_prob, dtype=jnp.float32),
             "output_prob": output_prob,
             "const_prob": const_prob,
             "func_prob_cdf": dict2cdf(func_prob_dict),

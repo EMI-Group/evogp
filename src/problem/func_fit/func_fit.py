@@ -1,26 +1,16 @@
-from typing import Callable
-from dataclasses import dataclass
-
-import jax
 import jax.numpy as jnp
-from src.config import ProblemConfig
-from src.core import Problem, State
-from src.gp.operations import sr_fitness
 
-@dataclass(frozen=True)
-class FuncFitConfig(ProblemConfig):
-    error_method: str = 'mse'
+from ..problem import Problem
 
-    def __post_init__(self):
-        assert self.error_method in {'mse', 'rmse', 'mae', 'mape'}
+from src.cuda.operations import sr_fitness
 
 
 class FuncFit(Problem):
-    jitable = True
 
-    def __init__(self, config: FuncFitConfig = FuncFitConfig()):
-        self.config = config
-        super().__init__(config)
+    def __init__(self, error_method='mse'):
+        super().__init__()
+        assert error_method in {'mse', 'rmse', 'mae', 'mape'}
+        self.error_method = error_method
 
     def evaluate(self, randkey, trees):
         res = sr_fitness(
@@ -29,17 +19,18 @@ class FuncFit(Problem):
             targets=self.targets.astype(jnp.float32),
         )
 
-        return res
+        return -res
 
-    def show(self, randkey, state: State, act_func: Callable, params):
-        predict = act_func(state, self.inputs, params)
-        inputs, target, predict = jax.device_get([self.inputs, self.targets, predict])
-        loss = -self.evaluate(randkey, state, act_func, params)
-        msg = ""
-        for i in range(inputs.shape[0]):
-            msg += f"input: {inputs[i]}, target: {target[i]}, predict: {predict[i]}\n"
-        msg += f"loss: {loss}\n"
-        print(msg)
+    def show(self, randkey, prefix_trees):
+        pass
+        # predict = act_func(state, self.inputs, params)
+        # inputs, target, predict = jax.device_get([self.inputs, self.targets, predict])
+        # loss = -self.evaluate(randkey, state, act_func, params)
+        # msg = ""
+        # for i in range(inputs.shape[0]):
+        #     msg += f"input: {inputs[i]}, target: {target[i]}, predict: {predict[i]}\n"
+        # msg += f"loss: {loss}\n"
+        # print(msg)
 
     @property
     def inputs(self):

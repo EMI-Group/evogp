@@ -18,6 +18,8 @@ class BasicSelection(Selection):
     def __call__(self, key, fitnesses: jax.Array, config) -> Tuple[jax.Array, jax.Array]:
         # returns: (left indices, right indices)
 
+        idx = jnp.arange(0, config["pop_size"])
+
         elite_num = jnp.array(config["pop_size"] * self.elite_rate, dtype=jnp.int32)
         survive_num = jnp.array(config["pop_size"] * self.survive_rate, dtype=jnp.int32)
 
@@ -26,19 +28,26 @@ class BasicSelection(Selection):
 
         survive_mask = rank_score < survive_num
 
-        left_elite = rank_idx[:elite_num]
-        right_elite = rank_idx[:elite_num]
+        left, right = jnp.zeros((2, config["pop_size"]), dtype=jnp.int32)
 
+        # elite
+        left = jnp.where(idx < elite_num, rank_idx, left)
+        right = jnp.where(idx < elite_num, rank_idx, right)
+
+        # left_elite = rank_idx[:elite_num]  these cause JAX IndexError as DynamicSliceOp
+        # right_elite = rank_idx[:elite_num]
+
+        # select father and mother from survivors
         left_survive, right_survive = jax.random.choice(
             key,
-            jnp.arange(0, config["pop_size"]),
+            idx,
             p=survive_mask / jnp.sum(survive_mask),
-            shape=(2, config["pop_size"] - elite_num),
+            shape=(2, config["pop_size"]),
             replace=True,
         )
 
-        return (
-            jnp.concatenate([left_elite, left_survive]),
-            jnp.concatenate([right_elite, right_survive]),
-        )
+        left = jnp.where(idx >= elite_num, left_survive, left)
+        right = jnp.where(idx >= elite_num, right_survive, right)
+
+        return left, right
 

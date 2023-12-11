@@ -1,6 +1,3 @@
-from src.utils.state import State
-
-
 class Problem:
 
     def __init__(self):
@@ -17,7 +14,7 @@ class Problem:
     def output_shape(self):
         raise NotImplementedError
 
-    def show(self, randkey, state: State, prefix_trees):
+    def show(self, randkey, prefix_trees):
         """
         show how a genome perform in this problem
         """
