@@ -10,9 +10,9 @@
 *.userosscache
 *.sln.docstates
 *.sh
-!src/core/kernel/build.sh
-!src/core/kernel/build_test.sh
-src/core/kernel/build/
+!src/cuda/build.sh
+!src/cuda/build_test.sh
+src/cuda/build/
 .vscode/
 output/
 

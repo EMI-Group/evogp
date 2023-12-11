@@ -1,7 +1,7 @@
 from src.gp import NormalGP
 from src.config import *
 from src.gp.enum import tree2str
-from src.problems import XOR, FuncFitConfig
+from src.problem import XOR, FuncFitConfig
 
 from src.gp.jax_backend.pipeline import Pipeline
 
