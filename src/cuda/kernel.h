@@ -12,6 +12,7 @@
 #include <malloc.h>
 #include <cassert>
 #include <iostream>
+#include <limits>
 
 
 #define HEADER __host__ __device__
@@ -127,6 +128,17 @@ inline T copy_sign(const T number, const T sign)
 	return std::abs(number) * T(sign >= T(0) ? 1 : -1);
 #else
 	return std::copysign(number, sign);
+#endif // _MSC_VER
+}
+
+template <typename T>
+__host__ __device__
+inline bool is_inf(const T number)
+{
+#ifdef _MSC_VER
+	return std::abs(number) == std::numeric_limits<T>::infinity();
+#else
+	return std::isinf(number);
 #endif // _MSC_VER
 }
 
