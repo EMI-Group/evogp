@@ -89,36 +89,37 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				outIdx = v.outIndex;
 			}
 		}
+		T right_node{};
+		T top_val{};
 		if (node_type == NodeType::UFUNC)
 		{
 			T var1 = s_vals[--top];
+			right_node = var1;
 			if (function == Function::SIN)
 			{
-				s_vals[top] = std::sin(var1);
+				top_val = std::sin(var1);
 			}
 			else if (function == Function::COS)
 			{
-				s_vals[top] = std::cos(var1);
+				top_val = std::cos(var1);
 			}
 			else if (function == Function::SINH)
 			{
-				var1 = std::sinh(var1);
-				s_vals[top] = std::abs(var1) >= T(MAX_VAL) ? copy_sign(T(MAX_VAL), var1) : var1;
+				top_val = std::sinh(var1);
 			}
 			else if (function == Function::COSH)
 			{
-				var1 = std::cosh(var1);
-				s_vals[top] = std::abs(var1) >= T(MAX_VAL) ? copy_sign(T(MAX_VAL), var1) : var1;
+				top_val = std::cosh(var1);
 			}
 			else if (function == Function::LOG)
 			{
 				if (var1 == T(0.0f))
 				{
-					s_vals[top] = T(-MAX_VAL);
+					top_val = T(-MAX_VAL);
 				}
 				else
 				{
-					s_vals[top] = std::log(std::abs(var1));
+					top_val = std::log(std::abs(var1));
 				}
 			}
 			else if (function == Function::INV)
@@ -127,19 +128,19 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				{
 					var1 = copy_sign(T(DELTA), var1);
 				}
-				s_vals[top] = T(1.0f) / var1;
+				top_val = T(1.0f) / var1;
 			}
 			else if (function == Function::EXP)
 			{
-				s_vals[top] = std::min(std::exp(var1), T(1000.0f));
+				top_val = std::exp(var1);
 			}
 			else if (function == Function::NEG)
 			{
-				s_vals[top] = -var1;
+				top_val = -var1;
 			}
 			else if (function == Function::ABS)
 			{
-				s_vals[top] = std::abs(var1);
+				top_val = std::abs(var1);
 			}
 			else if (function == Function::SQRT)
 			{
@@ -147,24 +148,25 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				{
 					var1 = std::abs(var1);
 				}
-				s_vals[top] = std::sqrt(var1);
+				top_val = std::sqrt(var1);
 			}
 		}
 		else if (node_type == NodeType::BFUNC)
 		{
 			T var1 = s_vals[--top];
 			T var2 = s_vals[--top];
+			right_node = var2;
 			if (function == Function::ADD)
 			{
-				s_vals[top] = var1 + var2;
+				top_val = var1 + var2;
 			}
 			else if (function == Function::SUB)
 			{
-				s_vals[top] = var1 - var2;
+				top_val = var1 - var2;
 			}
 			else if (function == Function::MUL)
 			{
-				s_vals[top] = var1 * var2;
+				top_val = var1 * var2;
 			}
 			else if (function == Function::DIV)
 			{
@@ -172,47 +174,42 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				{
 					var2 = copy_sign(T(DELTA), var2);
 				}
-				s_vals[top] = var1 / var2;
+				top_val = var1 / var2;
 			}
 			else if (function == Function::POW)
 			{
 				if (var1 == T(0.0f) && var2 == T(0.0f))
 				{
-					s_vals[top] = 0;
+					top_val = T(0.0f);
 				}
 				else
 				{
-					var2 = std::pow(std::abs(var1), var2);
-					if (std::abs(var2) >= T(MAX_VAL))
-					{
-						var2 = copy_sign(T(MAX_VAL), var2);
-					}
-					s_vals[top] = var2;
+					top_val = std::pow(std::abs(var1), var2);
 				}
 			}
 			else if (function == Function::MAX)
 			{
-				s_vals[top] = var1 >= var2 ? var1 : var2;
+				top_val = var1 >= var2 ? var1 : var2;
 			}
 			else if (function == Function::MIN)
 			{
-				s_vals[top] = var1 <= var2 ? var1 : var2;
+				top_val = var1 <= var2 ? var1 : var2;
 			}
 			else if (function == Function::LT)
 			{
-				s_vals[top] = var1 < var2 ? T(1) : T(-1);
+				top_val = var1 < var2 ? T(1) : T(-1);
 			}
 			else if (function == Function::GT)
 			{
-				s_vals[top] = var1 > var2 ? T(1) : T(-1);
+				top_val = var1 > var2 ? T(1) : T(-1);
 			}
 			else if (function == Function::LE)
 			{
-				s_vals[top] = var1 <= var2 ? T(1) : T(-1);
+				top_val = var1 <= var2 ? T(1) : T(-1);
 			}
 			else if (function == Function::GE)
 			{
-				s_vals[top] = var1 >= var2 ? T(1) : T(-1);
+				top_val = var1 >= var2 ? T(1) : T(-1);
 			}
 		}
 		else //// if (node_type == NodeType::TFUNC)
@@ -220,14 +217,29 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 			T var1 = s_vals[--top];
 			T var2 = s_vals[--top];
 			T var3 = s_vals[--top];
+			right_node = var3;
 			//// if (function == Function::IF)
-			s_vals[top] = var1 > T(0.0f) ? var2 : var3;
+			top_val = var1 > T(0.0f) ? var2 : var3;
 		}
 		// multiple output
 		if constexpr (multiOutput)
 		{
+			top_val = right_node;
 			if (outNode && outIdx < outLen)
-				s_outs[outIdx] += s_vals[top];
+				s_outs[outIdx] += top_val;
+		}
+		// clip value
+		if (std::isnan(top_val))
+		{
+			s_vals[top] = T(0);
+		}
+		else if (is_inf(top_val) || std::abs(top_val) > T(MAX_VAL))
+		{
+			s_vals[top] = copy_sign(T(MAX_VAL), top_val);
+		}
+		else
+		{
+			s_vals[top] = top_val;
 		}
 		top++;
 	}
@@ -753,7 +765,7 @@ __global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, con
 			cdNew = NchildDepth{ uint16_t(type - 1), uint16_t(cd.depth + 1) };
 		}
 		else
-		{	//generate leaf node
+		{	// generate leaf node
 			T value{};
 			typename GPNode<T>::U type{};
 			if (rand(engine) <= info.constProb)
@@ -803,7 +815,6 @@ __global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, con
 		gp[i].subtreeSize = (typename GPNode<T>::U)nodeSize[top];
 		top++;
 	}
-	// output
 	const int len = gp[0].subtreeSize;
 	auto o_gp = results + n * info.gpLen;
 	for (int i = 0; i < len; i++)
@@ -892,142 +903,3 @@ void treeGP_generate(cudaStream_t stream, void** buffers, const char* opaque, si
 		std::cout << "Execution error of code " << (int)err << std::endl;
 #endif
 }
-
-
-
-#ifdef _MSC_VER
-int mainold()
-{
-	constexpr size_t popSize = 10000, maxGPLen = 16, gpSize = 16;
-	////GPNode<float> gp[gpSize]
-	////{
-	////	GPNode<float>{Function::ADD, (uint16_t)NodeType::BFUNC, 16},
-	////	GPNode<float>{Function::MUL, (uint16_t)NodeType::BFUNC, 5},
-	////	GPNode<float>{Function::MUL, (uint16_t)NodeType::BFUNC, 3},
-	////	GPNode<float>{0, (uint16_t)NodeType::VAR, 1},
-	////	GPNode<float>{0, (uint16_t)NodeType::VAR, 1},
-	////	GPNode<float>{0, (uint16_t)NodeType::VAR, 1},
-	////	GPNode<float>{Function::ADD, (uint16_t)NodeType::BFUNC, 10},
-	////	GPNode<float>{Function::MUL, (uint16_t)NodeType::BFUNC, 3},
-	////	GPNode<float>{1, (uint16_t)NodeType::VAR, 1},
-	////	GPNode<float>{1, (uint16_t)NodeType::VAR, 1},
-	////	GPNode<float>{Function::ADD, (uint16_t)NodeType::BFUNC, 6},
-	////	GPNode<float>{Function::MUL, (uint16_t)NodeType::BFUNC, 3},
-	////	GPNode<float>{0, (uint16_t)NodeType::VAR, 1},
-	////	GPNode<float>{1, (uint16_t)NodeType::VAR, 1},
-	////	GPNode<float>{Function::SIN, (uint16_t)NodeType::UFUNC, 2},
-	////	GPNode<float>{4, (uint16_t)NodeType::CONST, 1},
-	////};
-	GPNode<float> gp[gpSize]
-	{
-		GPNode<float>{OutNodeValue<float>{Function::ADD, 1}, (uint16_t)NodeType::BFUNC_OUT, 16},
-		GPNode<float>{OutNodeValue<float>{Function::MUL, 0}, (uint16_t)NodeType::BFUNC_OUT, 5},
-		GPNode<float>{Function::MUL, (uint16_t)NodeType::BFUNC, 3},
-		GPNode<float>{0, (uint16_t)NodeType::VAR, 1},
-		GPNode<float>{0, (uint16_t)NodeType::VAR, 1},
-		GPNode<float>{0, (uint16_t)NodeType::VAR, 1},
-		GPNode<float>{Function::ADD, (uint16_t)NodeType::BFUNC, 10},
-		GPNode<float>{Function::MUL, (uint16_t)NodeType::BFUNC, 3},
-		GPNode<float>{1, (uint16_t)NodeType::VAR, 1},
-		GPNode<float>{1, (uint16_t)NodeType::VAR, 1},
-		GPNode<float>{Function::ADD, (uint16_t)NodeType::BFUNC, 6},
-		GPNode<float>{Function::MUL, (uint16_t)NodeType::BFUNC, 3},
-		GPNode<float>{0, (uint16_t)NodeType::VAR, 1},
-		GPNode<float>{1, (uint16_t)NodeType::VAR, 1},
-		GPNode<float>{OutNodeValue<float>{Function::SIN, 2}, (uint16_t)NodeType::UFUNC_OUT, 2},
-		GPNode<float>{4, (uint16_t)NodeType::CONST, 1},
-	};
-	GPNode<float>* gps = new GPNode<float>[popSize * gpSize];
-	LeftRightIdx* lrNodes = new LeftRightIdx[popSize];
-	int* perms = new int[popSize];
-	float* vars = new float[popSize * 2];
-	for (int i = 0; i < popSize; i++)
-	{
-		memcpy(gps + i * gpSize, &gp, sizeof(gp));
-		lrNodes[i] = LeftRightIdx{ (uint16_t)11, (uint16_t)11 };
-		perms[i] = i;
-		vars[i * 2] = 1; vars[i * 2 + 1] = 2;
-	}
-	GPNode<float>* d_gps, * o_gps;
-	float* d_vars, *d_targets, *d_fitness;
-	LeftRightIdx* d_lrs;
-	int* d_perms1, * d_perms2;
-	cudaMalloc(&d_gps, popSize * maxGPLen * sizeof(GPNode<float>));
-	cudaMalloc(&o_gps, popSize * maxGPLen * sizeof(GPNode<float>));
-	cudaMalloc(&d_lrs, popSize * sizeof(LeftRightIdx));
-	cudaMalloc(&d_perms1, popSize * sizeof(int));
-	cudaMalloc(&d_perms2, popSize * sizeof(int));
-	cudaMalloc(&d_vars, popSize * 2 * sizeof(float));
-	cudaMalloc(&d_targets, popSize * 3 * sizeof(float));
-	cudaMalloc(&d_fitness, popSize * sizeof(float));
-	cudaMemcpy2D(d_gps, maxGPLen * sizeof(GPNode<float>), gps, gpSize * sizeof(GPNode<float>), gpSize * sizeof(GPNode<float>), popSize, cudaMemcpyKind::cudaMemcpyHostToDevice);
-	cudaMemcpy(d_lrs, lrNodes, popSize * sizeof(LeftRightIdx), cudaMemcpyKind::cudaMemcpyHostToDevice);
-	cudaMemcpy(d_perms1, perms, popSize * sizeof(int), cudaMemcpyKind::cudaMemcpyHostToDevice);
-	cudaMemcpy(d_perms2, perms, popSize * sizeof(int), cudaMemcpyKind::cudaMemcpyHostToDevice);
-	cudaMemcpy(d_vars, vars, popSize * 2 * sizeof(float), cudaMemcpyKind::cudaMemcpyHostToDevice);
-	cudaMemset(d_targets, 0, popSize * 3 * sizeof(float));
-	thrust::default_random_engine g1(10);
-	thrust::shuffle(thrust::cuda::par, d_perms1, d_perms1 + popSize, g1);
-	thrust::default_random_engine g2(100);
-	thrust::shuffle(thrust::cuda::par, d_perms2, d_perms2 + popSize, g2);
-
-	TreeGPDescriptor d1(popSize, maxGPLen, 2, 3, ElementType::F32);
-	////eval_kernel<float>(NULL, d1, d_gps, d_vars, o_gps);
-	////crossover_kernel<float>(NULL, d1, d_gps, d_perms1, d_perms2, d_lrs, o_gps);
-	TreeGPSRDescriptor d2(popSize, 4, maxGPLen, 2, 3, ElementType::F32, true);
-	SR_fitness_kernel<float>(NULL, d2, d_gps, d_vars, d_targets, d_fitness);
-	cudaDeviceSynchronize();
-	float* fitness = (float*)perms;
-	cudaMemcpy(fitness, (float*)d_fitness, popSize * sizeof(float), cudaMemcpyKind::cudaMemcpyDeviceToHost);
-	std::cout << fitness[0] << "\t" << fitness[1] << "\t" << fitness[2] << "\t" << fitness[popSize - 3] << "\t" << fitness[popSize - 2] << "\t" << fitness[popSize - 1] << std::endl;
-	return 0;
-}
-
-int main()
-{
-	constexpr unsigned int popSize = 10000, maxGPLen = 32;
-	constexpr float outProb = 0.25f, constProb = 0.5f;
-	float depth2leafProbs[10]
-	{
-		0.2f, 0.2f, 0.2f, 0.2f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f
-	};
-	float rouletteFuncs[Function::END]
-	{
-		0.0f,
-		0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 
-		0.65f, 0.7f, 0.75f, 0.8f,
-		0.82f, 0.84f, 0.86f, 0.88f, 0.9f, 0.92f, 0.94f, 0.96f, 0.98f, 0.99f, 1.0f
-	};
-	for (size_t i = 0; i < Function::END; i++)
-	{
-		rouletteFuncs[i] = (float)(i + 1) / Function::END;
-	}
-	float constSamples[6]
-	{
-		-2, -1, -0.5f, 0.5f, 1, 2
-	};
-	unsigned int keys[2] {1, 2};
-	unsigned int* d_keys;
-	GPNode<float>* d_gps;
-	float* d_depth2leafProbs, * d_rouletteFuncs, * d_constSamples;
-	cudaMalloc(&d_keys, sizeof(keys));
-	cudaMalloc(&d_gps, popSize * maxGPLen * sizeof(GPNode<float>));
-	cudaMalloc(&d_depth2leafProbs, sizeof(depth2leafProbs));
-	cudaMalloc(&d_rouletteFuncs, sizeof(rouletteFuncs));
-	cudaMalloc(&d_constSamples, sizeof(constSamples));
-	cudaMemcpy(d_keys, keys, sizeof(keys), cudaMemcpyKind::cudaMemcpyHostToDevice);
-	cudaMemcpy(d_depth2leafProbs, depth2leafProbs, sizeof(depth2leafProbs), cudaMemcpyKind::cudaMemcpyHostToDevice);
-	cudaMemcpy(d_rouletteFuncs, rouletteFuncs, sizeof(rouletteFuncs), cudaMemcpyKind::cudaMemcpyHostToDevice);
-	cudaMemcpy(d_constSamples, constSamples, sizeof(constSamples), cudaMemcpyKind::cudaMemcpyHostToDevice);
-
-	TreeGPGenerateDescriptor d(popSize, maxGPLen, 2, 4, sizeof(constSamples) / sizeof(float), outProb, constProb, RandomEngine::Default, ElementType::F32);
-	generate_kernel<float>(NULL, d, d_keys, d_gps, d_depth2leafProbs, d_rouletteFuncs, d_constSamples);
-	auto err = cudaDeviceSynchronize();
-
-	GPNode<float> gps[4 * maxGPLen]{};
-	cudaMemcpy(&gps, d_gps, std::min(4U, popSize) * maxGPLen * sizeof(GPNode<float>), cudaMemcpyKind::cudaMemcpyDeviceToHost);
-	std::cout << gps[0].subtreeSize << std::endl;
-
-	return 0;
-}
-#endif
