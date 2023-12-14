@@ -6,10 +6,9 @@ from src.cuda.operations import sr_fitness
 
 
 class FuncFit(Problem):
-
-    def __init__(self, error_method='mse'):
+    def __init__(self, error_method="mse"):
         super().__init__()
-        assert error_method in {'mse', 'rmse', 'mae', 'mape'}
+        assert error_method in {"mse", "rmse", "mae", "mape"}
         self.error_method = error_method
 
     def evaluate(self, randkey, trees):
