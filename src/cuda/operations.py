@@ -96,6 +96,8 @@ def crossover(prefixTrees, left, right, nodes):
 
     output:
         prefixTrees, that is, GP Trees in CUDA.
+
+    right < 0 | right >= pop_size => no crossover
     """
     return gp_crossover_(prefixTrees, left, right, nodes)
 
@@ -115,6 +117,8 @@ def mutation(prefixTrees, index, new_sub_trees):
 
     output:
         prefixGPs, that is, GP Trees in CUDA.
+
+    index < 0 | index > max_len => no mutation
     """
 
     return gp_mutation_(prefixTrees, index, new_sub_trees)
