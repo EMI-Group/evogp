@@ -1,7 +1,7 @@
 from typing import Callable
 
 import jax
-from jax import Array
+from jax import Array, numpy as jnp
 import numpy as np
 
 from .func_fit import FuncFit
@@ -64,8 +64,8 @@ class General(FuncFit):
 
         outputs = jax.vmap(self.func)(inputs)
 
-        self.data_inputs = inputs
-        self.data_outputs = outputs
+        self.data_inputs = jnp.array(inputs)
+        self.data_outputs = jnp.array(outputs)
 
     @property
     def inputs(self):

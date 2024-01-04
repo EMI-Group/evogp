@@ -2,7 +2,7 @@ import jax
 from src.algorithm import GeneticProgramming as GP
 from src.algorithm import DiscreteConst, BasicSelection, BasicCrossover, BasicMutation
 from src.pipeline.symbolic_regression import SymbolicRegression
-from src.problem import GymNaxEnv
+from src.problem.rl_env import GymNaxEnv
 
 
 def main():

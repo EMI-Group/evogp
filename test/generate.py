@@ -6,16 +6,16 @@ from src.utils.tools import dict2cdf
 
 
 key = jax.random.PRNGKey(0)
-leaf_prob = jnp.array([0, 0, 0, 0, 1.0])
+leaf_prob = jnp.array([0, 0, 0, 1.])
 funcs_prob_acc = dict2cdf({
     "+": 0.25,
-    "-": 0.5,
-    "*": 0.75,
-    "/": 1.0,
+    "-": 0.25,
+    "*": 0.25,
+    "/": 0.25,
 })
 const_samples = jnp.array([-1.0, 0.0, 1.0])
-pop_size = 2
-max_len = 16
+pop_size = 1
+max_len = 8
 num_inputs = 2
 
 trees = generate(
@@ -28,5 +28,7 @@ trees = generate(
     num_inputs=num_inputs,
 )
 
-print(from_cuda_node(trees))
+node_val, node_type, tree_size, output_index = from_cuda_node(trees)
+
+print(node_val, node_type, tree_size, output_index, sep='\n')
 

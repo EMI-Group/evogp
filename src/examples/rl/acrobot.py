@@ -12,7 +12,7 @@ from src.problem.rl_env import GymNaxEnv
 
 def main():
     alg = GP(
-        pop_size=2,
+        pop_size=1000,
         num_inputs=6,
         num_outputs=3,
         crossover=BasicCrossover(),
@@ -24,7 +24,7 @@ def main():
         const=DiscreteConst(
             jax.numpy.array([-1., 0., 1.])
         ),
-        leaf_prob=[0, 0, 0, 0, 1, 1, 1, 1, 1, 1]
+        leaf_prob=[0, 0, 1, 1, 1, 1, 1, 1, 1, 1]
     )
     prob = GymNaxEnv(
         output_transform=lambda x: jnp.array(jnp.argmax(x), dtype=jnp.int32),  # action space is {0, 1, 2}

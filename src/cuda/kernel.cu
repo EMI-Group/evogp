@@ -36,7 +36,7 @@ public:
 #endif // TEST
 
 
-template<typename T, bool multiOutput = false>
+template <typename T, bool multiOutput = false>
 __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_vars, T* s_vals, uint16_t* s_infos, const unsigned int n, const unsigned int popSize, const unsigned int maxGPLen, const unsigned int varLen, const unsigned int outLen, T*& s_outs, int& top)
 {
 	T* s_vars = (T*)(s_infos + MAX_STACK);
@@ -95,23 +95,37 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 		{
 			T var1 = s_vals[--top];
 			right_node = var1;
+
+#ifdef ENABLE_SIN
 			if (function == Function::SIN)
 			{
 				top_val = std::sin(var1);
 			}
-			else if (function == Function::COS)
+			else
+#endif
+#ifdef ENABLE_COS
+            if (function == Function::COS)
 			{
 				top_val = std::cos(var1);
 			}
-			else if (function == Function::SINH)
+			else
+#endif
+#ifdef ENABLE_SINH
+		    if (function == Function::SINH)
 			{
 				top_val = std::sinh(var1);
 			}
-			else if (function == Function::COSH)
+			else
+#endif
+#ifdef ENABLE_COSH
+			if (function == Function::COSH)
 			{
 				top_val = std::cosh(var1);
 			}
-			else if (function == Function::LOG)
+			else
+#endif
+#ifdef ENABLE_LOG
+			if (function == Function::LOG)
 			{
 				if (var1 == T(0.0f))
 				{
@@ -122,7 +136,10 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 					top_val = std::log(std::abs(var1));
 				}
 			}
-			else if (function == Function::INV)
+			else
+#endif
+#ifdef ENABLE_INV
+			if (function == Function::INV)
 			{
 				if (std::abs(var1) <= T(DELTA))
 				{
@@ -130,19 +147,31 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				}
 				top_val = T(1.0f) / var1;
 			}
-			else if (function == Function::EXP)
+			else
+#endif
+#ifdef ENABLE_EXP
+		    if (function == Function::EXP)
 			{
 				top_val = std::exp(var1);
 			}
-			else if (function == Function::NEG)
+			else
+#endif
+#ifdef ENABLE_NEG
+			if (function == Function::NEG)
 			{
 				top_val = -var1;
 			}
-			else if (function == Function::ABS)
+			else
+#endif
+#ifdef ENABLE_ABS
+			if (function == Function::ABS)
 			{
 				top_val = std::abs(var1);
 			}
-			else if (function == Function::SQRT)
+			else
+#endif
+#ifdef ENABLE_SQRT
+			if (function == Function::SQRT)
 			{
 				if (var1 <= T(0.0f))
 				{
@@ -150,25 +179,36 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				}
 				top_val = std::sqrt(var1);
 			}
+#endif
 		}
 		else if (node_type == NodeType::BFUNC)
 		{
 			T var1 = s_vals[--top];
 			T var2 = s_vals[--top];
 			right_node = var2;
+#ifdef ENABLE_ADD
 			if (function == Function::ADD)
 			{
 				top_val = var1 + var2;
 			}
-			else if (function == Function::SUB)
+			else
+#endif
+#ifdef ENABLE_SUB
+			if (function == Function::SUB)
 			{
 				top_val = var1 - var2;
 			}
-			else if (function == Function::MUL)
+			else
+#endif
+#ifdef ENABLE_MUL
+			if (function == Function::MUL)
 			{
 				top_val = var1 * var2;
 			}
-			else if (function == Function::DIV)
+			else
+#endif
+#ifdef ENABLE_DIV
+			if (function == Function::DIV)
 			{
 				if (std::abs(var2) <= T(DELTA))
 				{
@@ -176,7 +216,10 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				}
 				top_val = var1 / var2;
 			}
-			else if (function == Function::POW)
+			else
+#endif
+#ifdef ENABLE_POW
+			if (function == Function::POW)
 			{
 				if (var1 == T(0.0f) && var2 == T(0.0f))
 				{
@@ -187,31 +230,54 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 					top_val = std::pow(std::abs(var1), var2);
 				}
 			}
-			else if (function == Function::MAX)
+			else
+#endif
+#ifdef ENABLE_MAX
+			if (function == Function::MAX)
 			{
 				top_val = var1 >= var2 ? var1 : var2;
 			}
-			else if (function == Function::MIN)
+			else
+#endif
+#ifdef ENABLE_MIN
+			if (function == Function::MIN)
 			{
 				top_val = var1 <= var2 ? var1 : var2;
 			}
-			else if (function == Function::LT)
+			else
+#endif
+#ifdef ENABLE_LT
+			if (function == Function::LT)
 			{
 				top_val = var1 < var2 ? T(1) : T(-1);
 			}
-			else if (function == Function::GT)
+			else
+#endif
+#ifdef ENABLE_GT
+			if (function == Function::GT)
 			{
 				top_val = var1 > var2 ? T(1) : T(-1);
 			}
-			else if (function == Function::LE)
+			else
+#endif
+#ifdef ENABLE_LE
+			if (function == Function::LE)
 			{
 				top_val = var1 <= var2 ? T(1) : T(-1);
 			}
-			else if (function == Function::GE)
+			else
+#endif
+#ifdef ENABLE_GE
+			if (function == Function::GE)
 			{
 				top_val = var1 >= var2 ? T(1) : T(-1);
 			}
+			else
+#endif
+            {}
 		}
+
+#ifdef ENABLE_IF
 		else //// if (node_type == NodeType::TFUNC)
 		{
 			T var1 = s_vals[--top];
@@ -221,6 +287,7 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 			//// if (function == Function::IF)
 			top_val = var1 > T(0.0f) ? var2 : var3;
 		}
+#endif
 		// multiple output
 		if constexpr (multiOutput)
 		{
@@ -715,12 +782,12 @@ __global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, con
 	T leafProbs[MAX_FULL_DEPTH]{}, funcRoulette[Function::END]{};
 	RandomEngine engine(hash(n, keys[0], keys[1]));
 	thrust::uniform_real_distribution<T> rand(T(0.0f), T(1.0f));
-#pragma unroll
+// #pragma unroll
 	for (int i = 0; i < MAX_FULL_DEPTH; i++)
 	{
 		leafProbs[i] = depth2leafProbs[i];
 	}
-#pragma unroll
+// #pragma unroll
 	for (int i = 0; i < Function::END; i++)
 	{
 		funcRoulette[i] = rouletteFuncs[i];
@@ -741,7 +808,7 @@ __global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, con
 		{	// generate non-leaf (function) node
 			T r = rand(engine);
 			int k = 0;
-#pragma unroll
+// #pragma unroll
 			for (int i = Function::END - 1; i >= 0; i--)
 			{
 				if (r >= funcRoulette[i])
@@ -750,7 +817,10 @@ __global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, con
 					break;
 				}
 			}
+
 			typename GPNode<T>::U type = k <= Function::IF ? NodeType::TFUNC : k <= Function::GE ? NodeType::BFUNC : NodeType::UFUNC;
+
+
 			if constexpr (multiOutput)
 			{
 				if (rand(engine) <= info.outProb)

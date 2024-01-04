@@ -15,8 +15,6 @@
 #include <limits>
 
 
-#define HEADER __host__ __device__
-
 
 enum ElementType { BF16, F16, F32, F64 };
 

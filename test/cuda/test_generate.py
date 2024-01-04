@@ -3,6 +3,7 @@ import time
 from src.cuda.operations import generate
 from src.cuda.utils import *
 
+
 def test():
     depth_to_leaf_prob = jnp.array(
         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32

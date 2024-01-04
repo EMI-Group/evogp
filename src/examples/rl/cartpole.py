@@ -22,6 +22,7 @@ def main():
         ),
         leaf_prob=[0, 0, 0, 0, 1, 1, 1, 1, 1, 1]
     )
+
     prob = GymNaxEnv(
         output_transform=lambda x: jax.numpy.tanh(x),
         output_length=1,

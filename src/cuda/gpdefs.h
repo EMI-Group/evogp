@@ -4,8 +4,8 @@
 
 constexpr auto MAX_STACK = 1024, MAX_FULL_DEPTH = 10;
 
-constexpr auto DELTA = 1E-3f;
-constexpr auto MAX_VAL = 1E3f;
+constexpr auto DELTA = 1E-5f;
+constexpr auto MAX_VAL = 1E5f;
 
 typedef enum NodeType
 {
@@ -48,3 +48,7 @@ typedef enum Function
 	SQRT,// arity: 1, return sqrt(|a|)
 	END  // not used, the ending notation
 } func_t;
+
+/* ALL FUNCTIONS:
+* [IF, ADD, SUB, MUL, DIV, POW, MAX, MIN, LT, GT, LE, GE, SIN, COS, SINH, COSH, LOG, EXP, INV, NEG, ABS, SQRT]
+*/
