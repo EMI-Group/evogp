@@ -1,3 +1,5 @@
+import sys
+sys.path.append("/home/skb/TensorGP/")
 import time
 
 from src.cuda.operations import sr_fitness
@@ -54,7 +56,8 @@ def test():
     variable = [1, 2]
     target = [1, 6.2431974, -1]
 
-    N = 512
+    N = 1000
+    M = 4096 * 4096
     gps = jnp.tile(
         to_cuda_node(
             jnp.array(prefixGP, dtype=jnp.float32),
@@ -63,14 +66,15 @@ def test():
         ),
         [N, 1],
     )
-    data_points = jnp.tile(jnp.array(variable, dtype=jnp.float32), [N, 1])
-    targets = jnp.tile(jnp.array(target, dtype=jnp.float32), [N, 1])
+    data_points = jnp.tile(jnp.array(variable, dtype=jnp.float32), [M, 1])
+    targets = jnp.tile(jnp.array(target, dtype=jnp.float32), [M, 1])
 
     a = sr_fitness(gps, data_points, targets[:, 1])
     a.block_until_ready()
 
     t = time.time()
     a = sr_fitness(gps, data_points, targets[:, 1])
+    a.block_until_ready()
     print(time.time() - t)
     print(a[0], a[N // 2], a[N - 1])
 
@@ -91,6 +95,7 @@ def test():
 
     t = time.time()
     a = sr_fitness(gps, data_points, targets)
+    a.block_until_ready()
     print(time.time() - t)
     print(a[0], a[N // 2], a[N - 1])
 
@@ -120,8 +125,8 @@ def test():
     variable = [1]
     target = [512, 511, 511]
 
-    N = 128
-    M = 1024 * 4
+    N = 1000
+    M = 256 * 256
     gps = jnp.tile(
         to_cuda_node(
             jnp.array(prefixGP, dtype=jnp.float32),
@@ -132,12 +137,18 @@ def test():
     )
     data_points = jnp.tile(jnp.array(variable, dtype=jnp.float32), [M, 1])
     targets = jnp.tile(jnp.array(target, dtype=jnp.float32), [M, 1])
-
+    
+    print("Warming")
+    gps.block_until_ready()
+    data_points.block_until_ready()
+    targets.block_until_ready()
     a = sr_fitness(gps, data_points, targets[:, 0])
     a.block_until_ready()
 
+    print("Running")
     t = time.time()
     a = sr_fitness(gps, data_points, targets[:, 0])
+    a.block_until_ready()
     print(time.time() - t)
     print(a[0])
 
@@ -160,3 +171,6 @@ def test():
     a = sr_fitness(gps, data_points, targets)
     print(time.time() - t)
     print(a[0], a[N // 2], a[N - 1])
+
+if __name__ == "__main__":
+    test()
