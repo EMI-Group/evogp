@@ -142,6 +142,17 @@ inline bool is_inf(const T number)
 #endif // _MSC_VER
 }
 
+template <typename T>
+__host__ __device__
+inline bool is_nan(const T number)
+{
+#ifdef _MSC_VER
+	return !(number == number);
+#else
+	return std::isnan(number);
+#endif // _MSC_VER
+}
+
 constexpr size_t _FNV_offset_basis = 14695981039346656037ULL;
 constexpr size_t _FNV_prime = 1099511628211ULL;
 

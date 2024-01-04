@@ -6,7 +6,7 @@
 #include <thrust/shuffle.h>
 #endif // _MSC_VER
 
-#ifdef TEST
+//#ifdef TEST
 #include <chrono> // for std::chrono functions
 
 class Timer
@@ -33,7 +33,7 @@ public:
 		return std::chrono::duration_cast<seconi_type>(clock_type::now() - m_beg).count();
 	}
 };
-#endif // TEST
+//#endif // TEST
 
 
 template<typename T, bool multiOutput = false>
@@ -229,7 +229,7 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				s_outs[outIdx] += top_val;
 		}
 		// clip value
-		if (std::isnan(top_val))
+		if (is_nan(top_val))
 		{
 			s_vals[top] = T(0);
 		}
@@ -528,7 +528,7 @@ inline void mutation_kernel(cudaStream_t stream, const TreeGPDescriptor& d, cons
 	cudaOccupancyMaxPotentialBlockSize(&gridSize, &blockSize, treeGPMutationKernel<T>);
 	if (gridSize * blockSize < d.popSize)
 		gridSize = (d.popSize - 1) / blockSize + 1;
-	treeGPMutationKernel<T> << <gridSize, blockSize, 0, stream >> > ((const GPNode<T>*)gps, mutateIndices, (const GPNode<T>*)newGPs, (GPNode<T>*)outGPs, d.popSize, d.gpLen, d.varLen);
+	treeGPMutationKernel<T><<<gridSize, blockSize, 0, stream>>>((const GPNode<T>*)gps, mutateIndices, (const GPNode<T>*)newGPs, (GPNode<T>*)outGPs, d.popSize, d.gpLen, d.varLen);
 }
 
 void treeGP_mutation(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len)
@@ -565,13 +565,15 @@ void treeGP_mutation(cudaStream_t stream, void** buffers, const char* opaque, si
 }
 
 
-constexpr auto SR_BLOCK_SIZE = 128;
+constexpr auto SR_BLOCK_SIZE = 1024;
 
 template<typename T, bool multiOutput = false, bool useMSE = true>
 __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* variables, const T* labels, T* fitnesses, const unsigned int popSize, const unsigned int dataPoints, const unsigned int maxGPLen, const unsigned int varLen, const unsigned int outLen = 0)
 {
-	const unsigned int n = blockIdx.x, threadId = threadIdx.x;
-	if (n >= popSize)
+	const unsigned int maxThreadBlocks = (dataPoints - 1) / SR_BLOCK_SIZE + 1;
+	const unsigned int nGP = blockIdx.x, nTB = blockIdx.y, threadId = threadIdx.x;
+	const unsigned int dataPointId = nTB * SR_BLOCK_SIZE + threadId;
+	if (nGP >= popSize || nTB >= maxThreadBlocks)
 		return;
 	if constexpr (multiOutput)
 	{
@@ -588,41 +590,35 @@ __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* var
 	T fit = T(0.0f);
 	T* stack = (T*)alloca(MAX_STACK * sizeof(T));
 	uint16_t* infos = (uint16_t*)alloca(MAX_STACK * sizeof(int));
-	auto i_gps = gps + n * maxGPLen;
-	// loop over data points
-	const unsigned int pointsPerThread = (dataPoints - 1) / SR_BLOCK_SIZE + 1;
-	for (int p = 0; p < pointsPerThread; p++)
+	auto i_gps = gps + nGP * maxGPLen;
+	// evaluate over data points
+	if (dataPointId < dataPoints)
 	{
-		const unsigned int pointId = threadId * pointsPerThread + p;
-		if (pointId >= dataPoints)
-			break;
-		// call
-		auto i_vars = variables + pointId * varLen;
+		// eval
+		auto i_vars = variables + dataPointId * varLen;
 		T* s_outs{};
 		int top{};
-		_treeGPEvalByStack<T, multiOutput>(i_gps, i_vars, stack, infos, n, popSize, maxGPLen, varLen, outLen, s_outs, top);
+		_treeGPEvalByStack<T, multiOutput>(i_gps, i_vars, stack, infos, nGP, popSize, maxGPLen, varLen, outLen, s_outs, top);
 		// accumulate
 		if constexpr (multiOutput)
 		{
-			auto i_labels = labels + pointId * outLen;
-			T f = T(0.0f);
+			auto i_labels = labels + dataPointId * outLen;
 			for (int i = 0; i < outLen; i++)
 			{
 				T diff = i_labels[i] - s_outs[i];
 				if constexpr (useMSE)
-					f += diff * diff / pointsPerThread;
+					fit += diff * diff;
 				else
-					f += std::abs(diff) / pointsPerThread;
+					fit += std::abs(diff);
 			}
-			fit += f;
 		}
 		else
 		{
-			T diff = labels[pointId] - stack[--top];
+			T diff = labels[dataPointId] - stack[--top];
 			if constexpr (useMSE)
-				fit += diff * diff / pointsPerThread;
+				fit = diff * diff;
 			else
-				fit += std::abs(diff) / pointsPerThread;
+				fit = std::abs(diff);
 		}
 	}
 	// write to shared memory
@@ -630,6 +626,10 @@ __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* var
 	__syncthreads();
 	// reduce
 #define __REDUCE_SHARED(size) if (threadId < size) { sharedFitness[threadId] = T(0.5f) * (sharedFitness[threadId] + sharedFitness[threadId + size]); } __syncthreads()
+	if constexpr (SR_BLOCK_SIZE >= 1024)
+	{
+		__REDUCE_SHARED(512);
+	}
 	if constexpr (SR_BLOCK_SIZE >= 512)
 	{
 		__REDUCE_SHARED(256);
@@ -646,7 +646,7 @@ __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* var
 	if (threadId == 0)
 	{
 		T finalFit = T(0.25f) * (sharedFitness[threadId] + sharedFitness[threadId + 1] + sharedFitness[threadId + 2] + sharedFitness[threadId + 3]);
-		fitnesses[n] = finalFit;
+		atomicAdd(fitnesses + nGP, finalFit / maxThreadBlocks);
 	}
 #undef __REDUCE_SHARED
 }
@@ -654,7 +654,9 @@ __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* var
 template<typename T>
 inline void SR_fitness_kernel(cudaStream_t stream, const TreeGPSRDescriptor& d, const void* gps, const void* variables, const void* labels, void* fitnesses)
 {
-	int gridSize = d.popSize;
+	const unsigned int threadBlocks = (d.dataPoints - 1) / SR_BLOCK_SIZE + 1;
+	dim3 gridSize{ (unsigned int)d.popSize, threadBlocks };
+	auto err = cudaMemsetAsync(fitnesses, 0, d.popSize * sizeof(T), stream);
 	if (d.outLen > 1)
 	{
 		if (d.useMSE)
