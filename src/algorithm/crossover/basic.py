@@ -11,19 +11,20 @@ class BasicCrossover(Crossover):
     def __init__(self):
         super().__init__()
 
-    def __call__(self, key, trees, left, right, config) -> jax.Array:  # prefix_trees (in cuda)
-        tree_sizes = jax.vmap(tree_size)(trees)
+    def __call__(self, key, recipient_trees, donor_trees, config) -> jax.Array:  # prefix_trees (in cuda)
+        k1, k2, k3 = jax.random.split(key, 3)
+        pop_size = config["pop_size"]
 
-        k1, k2 = jax.random.split(key)
+        trees = jnp.concatenate([recipient_trees, donor_trees], axis=0)
 
-        l_pos = jax.random.randint(k1, (trees.shape[0],), 0, tree_sizes[left])
-        r_pos = jax.random.randint(k2, (trees.shape[0],), 0, tree_sizes[right])
+        recipient_idx = jnp.arange(pop_size * 2, dtype=jnp.int32)
+        donor_idx = jax.random.randint(k1, (pop_size,), pop_size, pop_size * 2, dtype=jnp.int32)
+        donor_idx = jnp.pad(donor_idx, (0, pop_size), constant_values=(-1))
 
-        nodes = jnp.stack([l_pos, r_pos], axis=1).astype(jnp.int16)
+        trees_size = jax.vmap(tree_size)(trees)
+        recipient_pos = jax.random.randint(k2, (pop_size * 2,), 0, trees_size[recipient_idx], dtype=jnp.int16)
+        donor_pos = jax.random.randint(k3, (pop_size * 2,), 0, trees_size[donor_idx], dtype=jnp.int16)
+        nodes = jnp.stack([recipient_pos, donor_pos], axis=1)
 
-        return crossover(
-            trees,
-            left,
-            right,
-            nodes,
-        )
+        trees = crossover(trees, recipient_idx, donor_idx, nodes)
+        return trees[:pop_size]

@@ -218,7 +218,9 @@ def to_cuda_node_multi_output(
     """
     Convert the given GP node values, types, subtree sizes and output indices to a compact form used in CUDA.
 
-    Can be compiled by `jax.jit`. Inputs shall be a batch of nodes.
+    Can be compiled by `jax.jit`. Inputs shall be a batch of nodes 
+
+    ***Attention: this function is only used for a single GP tree.
 
     Parameters
     ----------

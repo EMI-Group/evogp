@@ -1,7 +1,6 @@
 from typing import Tuple
 import jax
 
-
 class Selection:
 
     def __init__(self):

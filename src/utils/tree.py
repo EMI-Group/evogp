@@ -1,39 +1,32 @@
 """GP Tree representation in JAX"""
+import jax
+import jax.numpy as jnp
+from jax import lax
 
-from __future__ import annotations
-
-from jax.tree_util import register_pytree_node_class
-
-
-@register_pytree_node_class
 class Tree:
-    def __init__(self, node_types, node_vals, subtree_size, output_indices):
+    def __init__(self, node_values, node_types, subtree_sizes, output_indices):
+        self.node_values = node_values
         self.node_types = node_types
-        self.node_vals = node_vals
-        self.subtree_size = subtree_size
+        self.subtree_sizes = subtree_sizes
         self.output_indices = output_indices
 
     def tree_flatten(self):
-        children = self.node_types, self.node_vals, self.subtree_size, self.output_indices
-        aux_data = None
-        return children, aux_data
+        all_data = self.node_values, self.node_types, self.subtree_sizes, self.output_indices
+        return all_data
+    
+    def subtree(self, node_index, max_len = 1024):
+        # Try not to change the **max_len** parameter or it will cause recompilation.
+        subtree_size = self.subtree_sizes[node_index]
+    
+        def body_fun(i, val):
+            sub_arr, arr = val
+            return (sub_arr.at[i].set(arr[node_index + i]), arr)
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*children)
+        node_values = jnp.zeros(max_len, dtype=jnp.float32)
+        node_types, subtree_sizes, output_indices = jnp.zeros((3, max_len), dtype=jnp.int16)
 
-    def __getitem__(self, idx):
-        return self.__class__(
-            self.node_types[idx],
-            self.node_vals[idx],
-            self.subtree_size[idx],
-            self.output_indices[idx],
-        )
-
-    def set(self, idx, val: Tree):
-        return self.__class__(
-            self.node_types.at[idx].set(val.node_types),
-            self.node_vals.at[idx].set(val.node_vals),
-            self.subtree_size.at[idx].set(val.subtree_size),
-            self.output_indices.at[idx].set(val.output_indices),
-        )
+        node_values, _ = lax.fori_loop(0, subtree_size, body_fun, (node_values, self.node_values))
+        node_types, _ = lax.fori_loop(0, subtree_size, body_fun, (node_types, self.node_types))
+        subtree_sizes, _ = lax.fori_loop(0, subtree_size, body_fun, (subtree_sizes, self.subtree_sizes))
+        output_indices, _ = lax.fori_loop(0, subtree_size, body_fun, (output_indices, self.output_indices))
+        return Tree(node_values, node_types, subtree_sizes, output_indices)

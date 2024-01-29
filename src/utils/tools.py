@@ -3,6 +3,7 @@ from .enum import FUNCS, FUNCS_NAMES
 
 
 def dict2cdf(prob_dict):
+    # Probability Dictionary to Cumulative Distribution Function
     assert len(prob_dict) > 0, "Empty probability dictionary"
 
     cdf = np.zeros(len(FUNCS))

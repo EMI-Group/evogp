@@ -23,6 +23,8 @@ class GeneticProgramming:
             output_prob: float = 0.5,
             const_prob: float = 0.5,
             func_prob_dict=None,
+            crossover_rate = 0.5,
+            mutation_rate = 0.5,
     ):
         if func_prob_dict is None:
             func_prob_dict = {"+": 0.25, "-": 0.25, "*": 0.25, "/": 0.25}
@@ -34,6 +36,8 @@ class GeneticProgramming:
         self.mutation = mutation
         self.selection = selection
         self.const = const
+        self.crossover_rate = crossover_rate
+        self.mutation_rate = mutation_rate
 
         self.config = {
             "pop_size": pop_size,
@@ -56,7 +60,7 @@ class GeneticProgramming:
             funcs_prob_acc=self.config["func_prob_cdf"],
             const_samples=consts,
             pop_size=self.config["pop_size"],
-            max_len=self.config["max_sub_tree_len"],
+            max_len=self.config["max_len"],
             num_inputs=self.config["num_inputs"],
             num_outputs=self.config["num_outputs"],
             output_prob=self.config["output_prob"],
@@ -72,12 +76,27 @@ class GeneticProgramming:
 
     def tell(self, state: State, fitness):
         trees = self.ask(state)
-        k1, k2, k3, k4 = jax.random.split(state.alg_key, 4)
+        k1, k2, k3, k4, k5, k6 = jax.random.split(state.alg_key, 6)
+        pop_size = self.config["pop_size"]
 
-        left, right = self.selection(k1, fitness, self.config)
-        trees = self.crossover(k2, trees, left, right, self.config)
-        trees = self.mutation(k3, trees, self.const, self.config)
+        # selection
+        recipient_trees, fitness = self.selection(k1, trees, fitness, self.config)
+        donor_trees, fitness = self.selection(k2, trees, fitness, self.config)
+
+        # crossover
+        crossover_trees = self.crossover(k3, recipient_trees, donor_trees, self.config)
+        crossover_num = int(pop_size * self.crossover_rate)
+        crossover_mask = (jnp.arange(0, pop_size) < crossover_num)[:, None]
+        new_trees = jnp.where(crossover_mask, crossover_trees, trees)
+        new_trees = jax.random.permutation(k4, new_trees)
+
+        # mutation
+        mutation_trees = self.mutation(k5, new_trees, self.const, self.config)
+        mutation_num = int(pop_size * self.mutation_rate)
+        mutation_mask = (jnp.arange(0, pop_size) < mutation_num)[:, None]
+        new_trees = jnp.where(mutation_mask, mutation_trees, trees)
+
         return state.update(
-            alg_key=k4,
-            trees=trees,
+            alg_key=k6,
+            trees=new_trees,
         )

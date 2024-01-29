@@ -15,7 +15,7 @@ def main():
         mutation=BasicMutation(),
         selection=BasicSelection(
             elite_rate=0.1,
-            survive_rate=0.4,
+            survivor_rate=0.4,
         ),
         const=DiscreteConst(
             jax.numpy.array([-1., 0., 1.])
