@@ -126,7 +126,7 @@ def test():
     target = [512, 511, 511]
 
     N = 1000
-    M = 256 * 256
+    M = 1024 * 1024
     gps = jnp.tile(
         to_cuda_node(
             jnp.array(prefixGP, dtype=jnp.float32),
@@ -138,14 +138,12 @@ def test():
     data_points = jnp.tile(jnp.array(variable, dtype=jnp.float32), [M, 1])
     targets = jnp.tile(jnp.array(target, dtype=jnp.float32), [M, 1])
     
-    print("Warming")
     gps.block_until_ready()
     data_points.block_until_ready()
     targets.block_until_ready()
     a = sr_fitness(gps, data_points, targets[:, 0])
     a.block_until_ready()
 
-    print("Running")
     t = time.time()
     a = sr_fitness(gps, data_points, targets[:, 0])
     a.block_until_ready()
@@ -169,6 +167,7 @@ def test():
 
     t = time.time()
     a = sr_fitness(gps, data_points, targets)
+    a.block_until_ready()
     print(time.time() - t)
     print(a[0], a[N // 2], a[N - 1])
 

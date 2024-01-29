@@ -1,11 +1,5 @@
 ﻿#include "kernel.h"
 
-#ifdef _MSC_VER
-#include <thrust/random.h>
-#include <thrust/execution_policy.h>
-#include <thrust/shuffle.h>
-#endif // _MSC_VER
-
 //#ifdef TEST
 #include <chrono> // for std::chrono functions
 
@@ -36,7 +30,7 @@ public:
 //#endif // TEST
 
 
-template <typename T, bool multiOutput = false>
+template<typename T, bool multiOutput = false>
 __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_vars, T* s_vals, uint16_t* s_infos, const unsigned int n, const unsigned int popSize, const unsigned int maxGPLen, const unsigned int varLen, const unsigned int outLen, T*& s_outs, int& top)
 {
 	T* s_vars = (T*)(s_infos + MAX_STACK);
@@ -95,37 +89,23 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 		{
 			T var1 = s_vals[--top];
 			right_node = var1;
-
-#ifdef ENABLE_SIN
 			if (function == Function::SIN)
 			{
 				top_val = std::sin(var1);
 			}
-			else
-#endif
-#ifdef ENABLE_COS
-            if (function == Function::COS)
+			else if (function == Function::COS)
 			{
 				top_val = std::cos(var1);
 			}
-			else
-#endif
-#ifdef ENABLE_SINH
-		    if (function == Function::SINH)
+			else if (function == Function::SINH)
 			{
 				top_val = std::sinh(var1);
 			}
-			else
-#endif
-#ifdef ENABLE_COSH
-			if (function == Function::COSH)
+			else if (function == Function::COSH)
 			{
 				top_val = std::cosh(var1);
 			}
-			else
-#endif
-#ifdef ENABLE_LOG
-			if (function == Function::LOG)
+			else if (function == Function::LOG)
 			{
 				if (var1 == T(0.0f))
 				{
@@ -136,10 +116,7 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 					top_val = std::log(std::abs(var1));
 				}
 			}
-			else
-#endif
-#ifdef ENABLE_INV
-			if (function == Function::INV)
+			else if (function == Function::INV)
 			{
 				if (std::abs(var1) <= T(DELTA))
 				{
@@ -147,31 +124,19 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				}
 				top_val = T(1.0f) / var1;
 			}
-			else
-#endif
-#ifdef ENABLE_EXP
-		    if (function == Function::EXP)
+			else if (function == Function::EXP)
 			{
 				top_val = std::exp(var1);
 			}
-			else
-#endif
-#ifdef ENABLE_NEG
-			if (function == Function::NEG)
+			else if (function == Function::NEG)
 			{
 				top_val = -var1;
 			}
-			else
-#endif
-#ifdef ENABLE_ABS
-			if (function == Function::ABS)
+			else if (function == Function::ABS)
 			{
 				top_val = std::abs(var1);
 			}
-			else
-#endif
-#ifdef ENABLE_SQRT
-			if (function == Function::SQRT)
+			else if (function == Function::SQRT)
 			{
 				if (var1 <= T(0.0f))
 				{
@@ -179,36 +144,25 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				}
 				top_val = std::sqrt(var1);
 			}
-#endif
 		}
 		else if (node_type == NodeType::BFUNC)
 		{
 			T var1 = s_vals[--top];
 			T var2 = s_vals[--top];
 			right_node = var2;
-#ifdef ENABLE_ADD
 			if (function == Function::ADD)
 			{
 				top_val = var1 + var2;
 			}
-			else
-#endif
-#ifdef ENABLE_SUB
-			if (function == Function::SUB)
+			else if (function == Function::SUB)
 			{
 				top_val = var1 - var2;
 			}
-			else
-#endif
-#ifdef ENABLE_MUL
-			if (function == Function::MUL)
+			else if (function == Function::MUL)
 			{
 				top_val = var1 * var2;
 			}
-			else
-#endif
-#ifdef ENABLE_DIV
-			if (function == Function::DIV)
+			else if (function == Function::DIV)
 			{
 				if (std::abs(var2) <= T(DELTA))
 				{
@@ -216,10 +170,7 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 				}
 				top_val = var1 / var2;
 			}
-			else
-#endif
-#ifdef ENABLE_POW
-			if (function == Function::POW)
+			else if (function == Function::POW)
 			{
 				if (var1 == T(0.0f) && var2 == T(0.0f))
 				{
@@ -230,54 +181,31 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 					top_val = std::pow(std::abs(var1), var2);
 				}
 			}
-			else
-#endif
-#ifdef ENABLE_MAX
-			if (function == Function::MAX)
+			else if (function == Function::MAX)
 			{
 				top_val = var1 >= var2 ? var1 : var2;
 			}
-			else
-#endif
-#ifdef ENABLE_MIN
-			if (function == Function::MIN)
+			else if (function == Function::MIN)
 			{
 				top_val = var1 <= var2 ? var1 : var2;
 			}
-			else
-#endif
-#ifdef ENABLE_LT
-			if (function == Function::LT)
+			else if (function == Function::LT)
 			{
 				top_val = var1 < var2 ? T(1) : T(-1);
 			}
-			else
-#endif
-#ifdef ENABLE_GT
-			if (function == Function::GT)
+			else if (function == Function::GT)
 			{
 				top_val = var1 > var2 ? T(1) : T(-1);
 			}
-			else
-#endif
-#ifdef ENABLE_LE
-			if (function == Function::LE)
+			else if (function == Function::LE)
 			{
 				top_val = var1 <= var2 ? T(1) : T(-1);
 			}
-			else
-#endif
-#ifdef ENABLE_GE
-			if (function == Function::GE)
+			else if (function == Function::GE)
 			{
 				top_val = var1 >= var2 ? T(1) : T(-1);
 			}
-			else
-#endif
-            {}
 		}
-
-#ifdef ENABLE_IF
 		else //// if (node_type == NodeType::TFUNC)
 		{
 			T var1 = s_vals[--top];
@@ -287,7 +215,6 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 			//// if (function == Function::IF)
 			top_val = var1 > T(0.0f) ? var2 : var3;
 		}
-#endif
 		// multiple output
 		if constexpr (multiOutput)
 		{
@@ -634,6 +561,19 @@ void treeGP_mutation(cudaStream_t stream, void** buffers, const char* opaque, si
 
 constexpr auto SR_BLOCK_SIZE = 1024;
 
+template<typename T>
+__device__ void warpReduce(volatile T* sdata, const unsigned int tid)
+{
+#define __REDUCE_WARP(size) T(0.5f) * (sdata[tid] + sdata[tid + size])
+	__REDUCE_WARP(32);
+	__REDUCE_WARP(16);
+	__REDUCE_WARP(8);
+	__REDUCE_WARP(4);
+	__REDUCE_WARP(2);
+	__REDUCE_WARP(1);
+#undef __REDUCE_WARP
+}
+
 template<typename T, bool multiOutput = false, bool useMSE = true>
 __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* variables, const T* labels, T* fitnesses, const unsigned int popSize, const unsigned int dataPoints, const unsigned int maxGPLen, const unsigned int varLen, const unsigned int outLen = 0)
 {
@@ -706,13 +646,10 @@ __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* var
 		__REDUCE_SHARED(128);
 	}
 	__REDUCE_SHARED(64);
-	__REDUCE_SHARED(32);
-	__REDUCE_SHARED(16);
-	__REDUCE_SHARED(8);
-	__REDUCE_SHARED(4);
+	warpReduce(sharedFitness, threadId);
 	if (threadId == 0)
 	{
-		T finalFit = T(0.25f) * (sharedFitness[threadId] + sharedFitness[threadId + 1] + sharedFitness[threadId + 2] + sharedFitness[threadId + 3]);
+		T finalFit = sharedFitness[0];
 		atomicAdd(fitnesses + nGP, finalFit / maxThreadBlocks);
 	}
 #undef __REDUCE_SHARED
@@ -784,12 +721,12 @@ __global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, con
 	T leafProbs[MAX_FULL_DEPTH]{}, funcRoulette[Function::END]{};
 	RandomEngine engine(hash(n, keys[0], keys[1]));
 	thrust::uniform_real_distribution<T> rand(T(0.0f), T(1.0f));
-// #pragma unroll
+#pragma unroll
 	for (int i = 0; i < MAX_FULL_DEPTH; i++)
 	{
 		leafProbs[i] = depth2leafProbs[i];
 	}
-// #pragma unroll
+#pragma unroll
 	for (int i = 0; i < Function::END; i++)
 	{
 		funcRoulette[i] = rouletteFuncs[i];
@@ -810,7 +747,7 @@ __global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, con
 		{	// generate non-leaf (function) node
 			T r = rand(engine);
 			int k = 0;
-// #pragma unroll
+#pragma unroll
 			for (int i = Function::END - 1; i >= 0; i--)
 			{
 				if (r >= funcRoulette[i])
@@ -819,10 +756,7 @@ __global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, con
 					break;
 				}
 			}
-
 			typename GPNode<T>::U type = k <= Function::IF ? NodeType::TFUNC : k <= Function::GE ? NodeType::BFUNC : NodeType::UFUNC;
-
-
 			if constexpr (multiOutput)
 			{
 				if (rand(engine) <= info.outProb)
