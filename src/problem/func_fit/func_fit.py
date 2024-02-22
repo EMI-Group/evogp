@@ -18,6 +18,10 @@ class FuncFit(Problem):
             targets=self.targets.astype(jnp.float32),
         )
 
+        # import jax
+        # pop_size = trees.shape[0]
+        # res = jax.random.uniform(randkey, (pop_size,))
+
         return -res
 
     def show(self, randkey, prefix_trees):

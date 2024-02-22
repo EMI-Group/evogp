@@ -14,7 +14,9 @@ class GeneticProgramming:
             num_inputs: int,
             num_outputs: int,
             crossover: Crossover,
+            crossover_rate: float,
             mutation: Mutation,
+            mutation_rate: tuple,
             selection: Selection,
             const: Const,
             max_len: int = 1024,
@@ -23,8 +25,6 @@ class GeneticProgramming:
             output_prob: float = 0.5,
             const_prob: float = 0.5,
             func_prob_dict=None,
-            crossover_rate = 0.5,
-            mutation_rate = 0.5,
     ):
         if func_prob_dict is None:
             func_prob_dict = {"+": 0.25, "-": 0.25, "*": 0.25, "/": 0.25}
@@ -76,7 +76,7 @@ class GeneticProgramming:
 
     def tell(self, state: State, fitness):
         trees = self.ask(state)
-        k1, k2, k3, k4, k5, k6 = jax.random.split(state.alg_key, 6)
+        k1, k2, k3, k4 = jax.random.split(state.alg_key, 4)
         pop_size = self.config["pop_size"]
 
         # selection
@@ -88,15 +88,17 @@ class GeneticProgramming:
         crossover_num = int(pop_size * self.crossover_rate)
         crossover_mask = (jnp.arange(0, pop_size) < crossover_num)[:, None]
         new_trees = jnp.where(crossover_mask, crossover_trees, trees)
-        new_trees = jax.random.permutation(k4, new_trees)
 
         # mutation
-        mutation_trees = self.mutation(k5, new_trees, self.const, self.config)
-        mutation_num = int(pop_size * self.mutation_rate)
-        mutation_mask = (jnp.arange(0, pop_size) < mutation_num)[:, None]
-        new_trees = jnp.where(mutation_mask, mutation_trees, trees)
+        for i in range(len(self.mutation)):
+            k4, k5, k6 = jax.random.split(k4, 3)
+            new_trees = jax.random.permutation(k5, new_trees)
+            mutation_trees = self.mutation[i](k6, new_trees, self.const, self.config)
+            mutation_num = int(pop_size * self.mutation_rate[i])
+            mutation_mask = (jnp.arange(0, pop_size) < mutation_num)[:, None]
+            new_trees = jnp.where(mutation_mask, mutation_trees, new_trees)
 
         return state.update(
-            alg_key=k6,
+            alg_key=k4,
             trees=new_trees,
         )

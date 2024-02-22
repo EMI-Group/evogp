@@ -6,7 +6,9 @@ from src.cuda.operations import mutation, generate
 
 
 class BasicMutation(Mutation):
-
+    """
+    Mutate with a randomly generated subtree
+    """
     def __init__(self):
         super().__init__()
 

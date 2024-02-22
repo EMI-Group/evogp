@@ -3,9 +3,10 @@ import jax
 import jax.numpy as jnp
 from .base import Selection
 
-# save the elites and choose the survivors by random
 class BasicSelection(Selection):
-
+    """
+    save the elites and choose the survivors by random
+    """
     def __init__(
             self,
             elite_rate: float,

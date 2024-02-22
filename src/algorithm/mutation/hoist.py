@@ -1,13 +1,10 @@
-from functools import partial
-
 import jax
 import jax.numpy as jnp
 
 from .base import Mutation
 from src.cuda.utils import from_cuda_node, to_cuda_node_multi_output
 from src.cuda.operations import mutation
-from jax import lax
-from functools import partial
+from src.utils import sub_arr
 
 class HoistMutation(Mutation):
 
@@ -20,19 +17,6 @@ class HoistMutation(Mutation):
         max_len = config["max_len"]
         consts = const(k1)
         
-        @partial(jax.vmap, in_axes=(0, 0, 0, None))
-        def sub_arr(orig_arr: jax.Array, node_index, subtree_size, max_len):
-            # Try not to change the `max_len` parameter or it will cause recompilation.
-            if max_len == None: max_len = 1024
-
-            def body_fun(i, val):
-                new_arr, orig_arr = val
-                return (new_arr.at[i].set(orig_arr[node_index + i]), orig_arr)
-
-            new_arr = jnp.zeros(max_len, dtype=orig_arr.dtype)
-            new_arr, _ = lax.fori_loop(0, subtree_size, body_fun, (new_arr, orig_arr))
-            return new_arr
-
         # to JAX
         node_values, node_types, subtree_sizes, output_indices = from_cuda_node(trees)
 
