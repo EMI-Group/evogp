@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
+
 def dict2cdf(prob_dict):
     # Probability Dictionary to Cumulative Distribution Function
     assert len(prob_dict) > 0, "Empty probability dictionary"
@@ -20,6 +21,7 @@ def dict2cdf(prob_dict):
     cdf = cdf / cdf.sum()
 
     return np.cumsum(cdf)
+
 
 @partial(jax.vmap, in_axes=(0, 0, 0, None))
 def sub_arr(orig_arr: jax.Array, node_index, subtree_size, max_len):

@@ -29,6 +29,8 @@ void treeGP_mutation(cudaStream_t stream, void** buffers, const char* opaque, si
 
 void treeGP_SR_fitness(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len);
 
+void constant_treeGP_SR_fitness(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len);
+
 void treeGP_generate(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len);
 
 

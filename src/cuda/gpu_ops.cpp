@@ -4,7 +4,7 @@
 
 template <typename T> pybind11::bytes PackDescriptor(const T& descriptor) {
 	return pybind11::bytes(PackDescriptorAsString(descriptor));
-}
+}	
 
 template <typename T> pybind11::capsule EncapsulateFunction(T* fn) {
 	return pybind11::capsule(bit_cast<void*>(fn), "xla._CUSTOM_CALL_TARGET");
@@ -38,6 +38,13 @@ pybind11::dict TreeGPSRFitnessRegistrations() {
 	return dict;
 }
 
+pybind11::dict ConstantTreeGPSRFitnessRegistrations() {
+	pybind11::dict dict;
+	dict["constant_gp_sr_fitness_forward"] =
+		EncapsulateFunction(constant_treeGP_SR_fitness);
+	return dict;
+}
+
 pybind11::dict TreeGPGenerateRegistrations() {
 	pybind11::dict dict;
 	dict["gp_generate_forward"] =
@@ -50,6 +57,7 @@ PYBIND11_MODULE(gpu_ops, m) {
 	m.def("get_gp_crossover_registrations", &TreeGPCorssoverRegistrations);
 	m.def("get_gp_mutation_registrations", &TreeGPMutationRegistrations);
 	m.def("get_gp_sr_fitness_registrations", &TreeGPSRFitnessRegistrations);
+	m.def("get_constant_gp_sr_fitness_registrations", &ConstantTreeGPSRFitnessRegistrations);
 	m.def("get_gp_generate_registrations", &TreeGPGenerateRegistrations);
 	m.def("create_gp_descriptor",
 		[](int popSize, int gpLen, int varLen, int outLen, ElementType type)

@@ -1,7 +1,11 @@
 ﻿#include "kernel.h"
+#include <thrust/execution_policy.h>
+#include <thrust/reduce.h>
 
 //#ifdef TEST
 #include <chrono> // for std::chrono functions
+
+__constant__ GPNode<double> _constGP[MAX_STACK];
 
 class Timer
 {
@@ -561,21 +565,13 @@ void treeGP_mutation(cudaStream_t stream, void** buffers, const char* opaque, si
 
 constexpr auto SR_BLOCK_SIZE = 1024;
 
-template<typename T>
-__device__ void warpReduce(volatile T* sdata, const unsigned int tid)
-{
-#define __REDUCE_WARP(size) T(0.5f) * (sdata[tid] + sdata[tid + size])
-	__REDUCE_WARP(32);
-	__REDUCE_WARP(16);
-	__REDUCE_WARP(8);
-	__REDUCE_WARP(4);
-	__REDUCE_WARP(2);
-	__REDUCE_WARP(1);
-#undef __REDUCE_WARP
-}
-
 template<typename T, bool multiOutput = false, bool useMSE = true>
 __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* variables, const T* labels, T* fitnesses, const unsigned int popSize, const unsigned int dataPoints, const unsigned int maxGPLen, const unsigned int varLen, const unsigned int outLen = 0)
+/**
+ * gps: [popSize * maxLen]
+ * 
+ * 
+*/
 {
 	const unsigned int maxThreadBlocks = (dataPoints - 1) / SR_BLOCK_SIZE + 1;
 	const unsigned int nGP = blockIdx.x, nTB = blockIdx.y, threadId = threadIdx.x;
@@ -594,6 +590,12 @@ __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* var
 	}
 	// init
 	__shared__ T sharedFitness[SR_BLOCK_SIZE];
+
+	// for (int i = threadIdx.x; i < SR_BLOCK_SIZE; i += blockDim.x) {
+	// 	sharedFitness[i] = T(0);
+	// }
+	// __syncthreads();
+
 	T fit = T(0.0f);
 	T* stack = (T*)alloca(MAX_STACK * sizeof(T));
 	uint16_t* infos = (uint16_t*)alloca(MAX_STACK * sizeof(int));
@@ -628,43 +630,44 @@ __global__ void treeGPRegressionFitnessKernel(const GPNode<T>* gps, const T* var
 				fit = std::abs(diff);
 		}
 	}
-	// write to shared memory
 	sharedFitness[threadId] = fit;
 	__syncthreads();
-	// reduce
-#define __REDUCE_SHARED(size) if (threadId < size) { sharedFitness[threadId] = T(0.5f) * (sharedFitness[threadId] + sharedFitness[threadId + size]); } __syncthreads()
-	if constexpr (SR_BLOCK_SIZE >= 1024)
-	{
-		__REDUCE_SHARED(512);
-	}
-	if constexpr (SR_BLOCK_SIZE >= 512)
-	{
-		__REDUCE_SHARED(256);
-	}
-	if constexpr (SR_BLOCK_SIZE >= 256)
-	{
-		__REDUCE_SHARED(128);
-	}
-	__REDUCE_SHARED(64);
-	warpReduce(sharedFitness, threadId);
-	if (threadId == 0)
-	{
-		T finalFit = sharedFitness[0];
-		atomicAdd(fitnesses + nGP, finalFit / maxThreadBlocks);
-	}
-#undef __REDUCE_SHARED
+
+    for (unsigned int size = SR_BLOCK_SIZE / 2; size > 0; size >>= 1)
+    {
+        if (threadId < size)
+        {
+            sharedFitness[threadId] += sharedFitness[threadId + size];
+        }
+        __syncthreads();
+    }
+
+    // 每个block只进行一次atomicAdd
+    if (threadId == 0)
+    {
+        atomicAdd(&fitnesses[nGP], sharedFitness[0]);
+    }
+}
+
+
+template<typename T>
+__global__ void averageFitnessValueKernel(T* fitnesses, const unsigned int popSize, const unsigned int dataPoints){
+	const unsigned int n = blockIdx.x * blockDim.x + threadIdx.x;
+	if (n >= popSize)
+		return;
+	fitnesses[n] /= dataPoints;
 }
 
 template<typename T>
 inline void SR_fitness_kernel(cudaStream_t stream, const TreeGPSRDescriptor& d, const void* gps, const void* variables, const void* labels, void* fitnesses)
 {
-	const unsigned int threadBlocks = (d.dataPoints - 1) / SR_BLOCK_SIZE + 1;
-	dim3 gridSize{ (unsigned int)d.popSize, threadBlocks };
-	auto err = cudaMemsetAsync(fitnesses, 0, d.popSize * sizeof(T), stream);
+	const unsigned int threadBlocks = (d.dataPoints - 1) / SR_BLOCK_SIZE + 1;  // number of blocks for one individual
+	dim3 gridSize{ (unsigned int)d.popSize, threadBlocks };  // total blocks
+	auto err = cudaMemsetAsync(fitnesses, 0, d.popSize * sizeof(T), stream);  // clear fitnesses
 	if (d.outLen > 1)
 	{
 		if (d.useMSE)
-			treeGPRegressionFitnessKernel<T, true, true><<<gridSize, SR_BLOCK_SIZE, 0, stream>>>((const GPNode<T>*)gps, (const T*)variables, (const T*)labels, (T*)fitnesses, d.popSize, d.dataPoints, d.gpLen, d.varLen, d.outLen);
+			treeGPRegressionFitnessKernel<T, true, true><<<gridSize, SR_BLOCK_SIZE, 0, stream>>>((const GPNode<T>*)gps, (const T*)variables, (const T*)labels, (T*)fitnesses, d.popSize, d.dataPoints, d.gpLen, d.varLen, d.outLen);   
 		else
 			treeGPRegressionFitnessKernel<T, true, false><<<gridSize, SR_BLOCK_SIZE, 0, stream>>>((const GPNode<T>*)gps, (const T*)variables, (const T*)labels, (T*)fitnesses, d.popSize, d.dataPoints, d.gpLen, d.varLen, d.outLen);
 	}
@@ -675,7 +678,12 @@ inline void SR_fitness_kernel(cudaStream_t stream, const TreeGPSRDescriptor& d, 
 		else
 			treeGPRegressionFitnessKernel<T, false, false><<<gridSize, SR_BLOCK_SIZE, 0, stream>>>((const GPNode<T>*)gps, (const T*)variables, (const T*)labels, (T*)fitnesses, d.popSize, d.dataPoints, d.gpLen, d.varLen, 0);
 	}
+
+	// average fitness value
+	unsigned int averagethreadBlocks = (d.popSize - 1) / SR_BLOCK_SIZE + 1;
+	averageFitnessValueKernel<T><<<averagethreadBlocks, SR_BLOCK_SIZE, 0, stream>>>((T*)fitnesses, d.popSize, d.dataPoints);
 }
+
 
 void treeGP_SR_fitness(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len)
 {
@@ -696,6 +704,380 @@ void treeGP_SR_fitness(cudaStream_t stream, void** buffers, const char* opaque, 
 			break;
 		case ElementType::F64:
 			SR_fitness_kernel<double>(stream, d, gps, variables, labels, fitnesses);
+			break;
+		default:
+			throw std::runtime_error("Unsupported data type");
+			break;
+		}
+#ifdef TEST
+	}
+	auto err = cudaDeviceSynchronize();
+	std::cout << "C++: " << t.elapsed() << std::endl;
+	if (err != 0)
+		std::cout << "Execution error of code " << (int)err << std::endl;
+#endif
+}
+
+
+template<typename T, bool multiOutput = false>
+__device__ inline void constant_treeGPEvalByStack(const T* i_vars, T* s_vals, uint16_t* s_infos, const unsigned int varLen, const unsigned int outLen, T*& s_outs, int& top)
+{
+	// printf("varLen: %d\n", varLen);
+
+	T* s_vars = (T*)(s_infos + MAX_STACK);
+	if constexpr (multiOutput)
+	{
+		s_outs = (T*)(s_infos + MAX_STACK + MAX_STACK / 2);
+	}
+
+    auto constGP = reinterpret_cast<GPNode<T>*>(&_constGP);
+    const unsigned int len = constGP[0].subtreeSize;
+	// printf("len: %d\n", len);
+	for (int i = 0; i < varLen; i++)
+	{
+		s_vars[i] = i_vars[i];
+	}
+	for (int i = 0; i < outLen; i++)
+	{
+		s_outs[i] = 0;
+	}
+	// for (int i = 0; i < len; i++)
+	// {
+	// 	s_vals[len - i - 1] = constGP[i].value;
+	// 	// s_infos[len - i - 1] = constGP[i].nodeType;
+	// }
+	// do stack operation according to the type of each node
+	top = 0;
+	for (int i = 0; i < len; i++)
+	{
+        uint16_t node_type = constGP[len - i - 1].nodeType;
+		uint16_t outNode = node_type & (uint16_t)NodeType::OUT_NODE;
+		node_type &= NodeType::TYPE_MASK;
+		T node_value = constGP[len - i - 1].value;
+		// printf("i: %d\nnode_type: %d\nnode_value: %d\n", i, node_type, node_value);
+
+		if (node_type == NodeType::CONST)
+		{
+			s_vals[top++] = node_value;
+			continue;
+		}
+		else if (node_type == NodeType::VAR)
+		{
+			int var_num = (int)node_value;
+			s_vals[top++] = s_vars[var_num];
+			continue;
+		}
+		unsigned int function, outIdx;
+		function = (unsigned int)node_value;
+		if constexpr (multiOutput)
+		{
+			if (outNode)
+			{
+				OutNodeValue<T> v = *(OutNodeValue<T>*) & node_value;
+				function = v.function;
+				outIdx = v.outIndex;
+			}
+		}
+		T right_node{};
+		T top_val{};
+		if (node_type == NodeType::UFUNC)
+		{
+			T var1 = s_vals[--top];
+			right_node = var1;
+			if (function == Function::SIN)
+			{
+				top_val = std::sin(var1);
+			}
+			else if (function == Function::COS)
+			{
+				top_val = std::cos(var1);
+			}
+			else if (function == Function::SINH)
+			{
+				top_val = std::sinh(var1);
+			}
+			else if (function == Function::COSH)
+			{
+				top_val = std::cosh(var1);
+			}
+			else if (function == Function::LOG)
+			{
+				if (var1 == T(0.0f))
+				{
+					top_val = T(-MAX_VAL);
+				}
+				else
+				{
+					top_val = std::log(std::abs(var1));
+				}
+			}
+			else if (function == Function::INV)
+			{
+				if (std::abs(var1) <= T(DELTA))
+				{
+					var1 = copy_sign(T(DELTA), var1);
+				}
+				top_val = T(1.0f) / var1;
+			}
+			else if (function == Function::EXP)
+			{
+				top_val = std::exp(var1);
+			}
+			else if (function == Function::NEG)
+			{
+				top_val = -var1;
+			}
+			else if (function == Function::ABS)
+			{
+				top_val = std::abs(var1);
+			}
+			else if (function == Function::SQRT)
+			{
+				if (var1 <= T(0.0f))
+				{
+					var1 = std::abs(var1);
+				}
+				top_val = std::sqrt(var1);
+			}
+		}
+		else if (node_type == NodeType::BFUNC)
+		{
+			T var1 = s_vals[--top];
+			T var2 = s_vals[--top];
+			right_node = var2;
+			if (function == Function::ADD)
+			{
+				top_val = var1 + var2;
+			}
+			else if (function == Function::SUB)
+			{
+				top_val = var1 - var2;
+			}
+			else if (function == Function::MUL)
+			{
+				top_val = var1 * var2;
+			}
+			else if (function == Function::DIV)
+			{
+				if (std::abs(var2) <= T(DELTA))
+				{
+					var2 = copy_sign(T(DELTA), var2);
+				}
+				top_val = var1 / var2;
+			}
+			else if (function == Function::POW)
+			{
+				if (var1 == T(0.0f) && var2 == T(0.0f))
+				{
+					top_val = T(0.0f);
+				}
+				else
+				{
+					top_val = std::pow(std::abs(var1), var2);
+				}
+			}
+			else if (function == Function::MAX)
+			{
+				top_val = var1 >= var2 ? var1 : var2;
+			}
+			else if (function == Function::MIN)
+			{
+				top_val = var1 <= var2 ? var1 : var2;
+			}
+			else if (function == Function::LT)
+			{
+				top_val = var1 < var2 ? T(1) : T(-1);
+			}
+			else if (function == Function::GT)
+			{
+				top_val = var1 > var2 ? T(1) : T(-1);
+			}
+			else if (function == Function::LE)
+			{
+				top_val = var1 <= var2 ? T(1) : T(-1);
+			}
+			else if (function == Function::GE)
+			{
+				top_val = var1 >= var2 ? T(1) : T(-1);
+			}
+		}
+		else //// if (node_type == NodeType::TFUNC)
+		{
+			T var1 = s_vals[--top];
+			T var2 = s_vals[--top];
+			T var3 = s_vals[--top];
+			right_node = var3;
+			//// if (function == Function::IF)
+			top_val = var1 > T(0.0f) ? var2 : var3;
+		}
+		// multiple output
+		if constexpr (multiOutput)
+		{
+			top_val = right_node;
+			if (outNode && outIdx < outLen)
+				s_outs[outIdx] += top_val;
+		}
+		// clip value
+		if (is_nan(top_val))
+		{
+			s_vals[top] = T(0);
+		}
+		else if (is_inf(top_val) || std::abs(top_val) > T(MAX_VAL))
+		{
+			s_vals[top] = copy_sign(T(MAX_VAL), top_val);
+		}
+		else
+		{
+			s_vals[top] = top_val;
+		}
+		top++;
+	}
+	// return
+}
+
+
+template<typename T, bool multiOutput = false, bool useMSE = true>
+__global__ void constant_TreeGPRegressionFitnessKernel(const T* variables, const T* labels, T* fitnesses, T* block_fitness_space, const unsigned int dataPoints, const unsigned int maxGPLen, const unsigned int varLen, const unsigned int outLen)
+{
+	const unsigned int maxThreadBlocks = (dataPoints - 1) / SR_BLOCK_SIZE + 1;
+	const unsigned int threadId = threadIdx.x;
+    const unsigned int dataPointId = blockIdx.x * blockDim.x + threadId;
+
+	if (dataPointId >= dataPoints || blockIdx.x >= maxThreadBlocks) 
+		return;
+
+	if constexpr (multiOutput)
+	{
+		assert(outLen > 0);
+		assert(varLen * sizeof(T) / sizeof(int) <= MAX_STACK / 4);
+		assert(outLen * sizeof(T) / sizeof(int) <= MAX_STACK / 4);
+	}
+	else
+	{
+		assert(varLen * sizeof(T) / sizeof(int) <= MAX_STACK / 2);
+	}
+	
+    __shared__ T sharedFitness[SR_BLOCK_SIZE];
+
+	T fit = T(0.0f);
+	T* stack = (T*)alloca(MAX_STACK * sizeof(T));
+	uint16_t* infos = (uint16_t*)alloca(MAX_STACK * sizeof(int));
+
+	// evaluate over data points
+	if (dataPointId < dataPoints)
+	{
+		// eval
+		auto i_vars = variables + dataPointId * varLen;
+		T* s_outs{};
+		int top{};
+		constant_treeGPEvalByStack<T, multiOutput>(i_vars, stack, infos, varLen, outLen, s_outs, top);
+		// accumulate
+		if constexpr (multiOutput)
+		{
+			auto i_labels = labels + dataPointId * outLen;
+			for (int i = 0; i < outLen; i++)
+			{
+				T diff = i_labels[i] - s_outs[i];
+				if constexpr (useMSE)
+					fit += diff * diff;
+				else
+					fit += std::abs(diff);
+			}
+		}
+		else
+		{
+			T diff = labels[dataPointId] - stack[--top];
+            // std::cout << "diff: " << diff << std::endl << "val: " << stack[top] << std::endl;
+            // printf("diff: %f, val: %f\n", diff, stack[top]);
+        	if constexpr (useMSE)
+				fit = diff * diff;
+			else
+				fit = std::abs(diff);
+		}
+	}
+	sharedFitness[threadId] = fit;
+	__syncthreads();
+
+	for (unsigned int size = SR_BLOCK_SIZE / 2; size > 0; size >>= 1){
+        if (threadId < size)
+        {
+            sharedFitness[threadId] += sharedFitness[threadId + size];
+        }
+        __syncthreads();
+    }
+
+	if(threadIdx.x == 0){
+		block_fitness_space[blockIdx.x] = sharedFitness[0];
+	}
+}
+
+
+template<typename T>
+inline void constant_SR_fitness_kernel(cudaStream_t stream, const TreeGPSRDescriptor& d, const void* gps, const void* variables, const void* labels, void* fitnesses, void* block_fitness_space)
+{
+    const unsigned int threadBlocks = (d.dataPoints - 1) / SR_BLOCK_SIZE + 1;  // 计算每个个体所需的block数量
+    auto err = cudaMemsetAsync(fitnesses, 0, d.popSize * sizeof(T), stream); // clear fitnesses
+    
+	std::vector<T> host_fitness(0.0);
+    for (unsigned int i = 0; i < d.popSize; ++i)
+    {
+        // 为每棵树加载到constant memory
+		err = cudaMemcpyToSymbolAsync(_constGP, ((const GPNode<T>*)gps) + i * d.gpLen, MAX_STACK * sizeof(GPNode<T>), 0, cudaMemcpyHostToDevice, stream);
+
+        // // 等待constant memory加载完成
+        // cudaStreamSynchronize(stream);
+        
+        // 调用核函数计算当前树的适应度
+		if (d.outLen > 1)
+		{
+			if (d.useMSE)
+				constant_TreeGPRegressionFitnessKernel<T, true, true><<<threadBlocks, SR_BLOCK_SIZE, 0, stream>>>((const T*)variables, (const T*)labels, (T*)fitnesses + i, (T*)block_fitness_space, d.dataPoints, d.gpLen, d.varLen, d.outLen);   
+			else
+				constant_TreeGPRegressionFitnessKernel<T, true, false><<<threadBlocks, SR_BLOCK_SIZE, 0, stream>>>((const T*)variables, (const T*)labels, (T*)fitnesses + i, (T*)block_fitness_space, d.dataPoints, d.gpLen, d.varLen, d.outLen);
+		}
+		else
+		{
+			if (d.useMSE)
+				constant_TreeGPRegressionFitnessKernel<T, false, true><<<threadBlocks, SR_BLOCK_SIZE, 0, stream>>>((const T*)variables, (const T*)labels, (T*)fitnesses + i, (T*)block_fitness_space, d.dataPoints, d.gpLen, d.varLen, 0);
+			else
+				constant_TreeGPRegressionFitnessKernel<T, false, false><<<threadBlocks, SR_BLOCK_SIZE, 0, stream>>>((const T*)variables, (const T*)labels, (T*)fitnesses + i, (T*)block_fitness_space, d.dataPoints, d.gpLen, d.varLen, 0);
+		}
+		// create cpu block_finess_space
+		T* host_block_fitness_space = (T*)malloc(threadBlocks * sizeof(T));
+		err = cudaMemcpyAsync(host_block_fitness_space, block_fitness_space, threadBlocks * sizeof(T), cudaMemcpyDeviceToHost, stream);
+		cudaDeviceSynchronize();
+
+		T fit = thrust::reduce(thrust::cuda::par.on(stream), (T*)block_fitness_space, (T*)block_fitness_space + threadBlocks, T{0}, thrust::plus<T>());
+		// printf("threadBlocks: %d, fit: %f\n", threadBlocks, fit);
+		host_fitness.push_back(fit / d.dataPoints);
+    }
+	err = cudaMemcpyAsync(fitnesses, host_fitness.data(), d.popSize * sizeof(T), cudaMemcpyHostToDevice, stream);
+	// // average fitness value
+	// unsigned int averagethreadBlocks = (d.popSize - 1) / SR_BLOCK_SIZE + 1;
+	// averageFitnessValueKernel<T><<<averagethreadBlocks, SR_BLOCK_SIZE, 0, stream>>>((T*)fitnesses, d.popSize, d.dataPoints);
+}
+
+
+void constant_treeGP_SR_fitness(cudaStream_t stream, void** buffers, const char* opaque, size_t opaque_len)
+{
+	const TreeGPSRDescriptor& d = *UnpackDescriptor<TreeGPSRDescriptor>(opaque, opaque_len);
+	const void* gps = (const void*)(buffers[0]);
+	const void* variables = (const void*)(buffers[1]);
+	const void* labels = (const void*)(buffers[2]);
+	void* fitnesses = (void*)(buffers[3]);
+	void* block_fitness_space = (void*)(buffers[4]);
+#ifdef TEST
+	Timer t;
+	for (int i = 0; i < 1; i++)
+	{
+#endif
+		switch (d.type)
+		{
+		case ElementType::F32:
+			constant_SR_fitness_kernel<float>(stream, d, gps, variables, labels, fitnesses, block_fitness_space);
+			break;
+		case ElementType::F64:
+			constant_SR_fitness_kernel<double>(stream, d, gps, variables, labels, fitnesses, block_fitness_space);
 			break;
 		default:
 			throw std::runtime_error("Unsupported data type");
