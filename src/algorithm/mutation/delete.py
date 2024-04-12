@@ -10,6 +10,7 @@ from src.utils import sub_arr
 class DeleteMutation(Mutation):
     """
     Delete the node of specific index and replace it with its random child
+    It's too slow
     """
     def __init__(self):
         super().__init__()
@@ -66,7 +67,7 @@ class DeleteMutation(Mutation):
             output_indices, 
             config["num_outputs"])
         """"""
-
+        
         return mutation(
             trees,
             indices,

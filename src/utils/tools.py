@@ -5,6 +5,22 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
+def dict2prob(prob_dict):
+    # Probability Dictionary to Distribution Function
+    assert len(prob_dict) > 0, "Empty probability dictionary"
+
+    prob = np.zeros(len(FUNCS))
+
+    for key, val in prob_dict.items():
+        assert key in FUNCS_NAMES, f"Unknown function name: {key}, total functions are {FUNCS_NAMES}"
+        idx = FUNCS_NAMES.index(key)
+        prob[idx] = val
+
+    # normalize
+    prob = prob / prob.sum()
+
+    return prob
+
 def dict2cdf(prob_dict):
     # Probability Dictionary to Cumulative Distribution Function
     assert len(prob_dict) > 0, "Empty probability dictionary"

@@ -26,11 +26,12 @@ from src.problem.func_fit import GeneralFuncFit
 import time
 
 import os
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.5"
 
 def main():
     alg = GP(
-        pop_size=80,
+        pop_size=1000,
         num_inputs=2,
         num_outputs=1,
         max_len=1024,
@@ -39,14 +40,9 @@ def main():
         crossover_rate=0.9,
         mutation=(
             BasicMutation(),
-            HoistMutation(),
-            SinglePointMutation(),
-            LambdaPointMutation(0.9),
-            InsertMutation(),
-            DeleteMutation(),
         ),
-        mutation_rate=(0.5, 0.8, 0.9, 0.05, 0.1, 0.1),
-        selection=TournamentSelection(50, 0.9, False),
+        mutation_rate=(0.1,),
+        selection=TournamentSelection(20, 0.9, False),
         const=DiscreteConst(
             jax.numpy.array(
                 [-5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0]

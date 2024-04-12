@@ -413,6 +413,32 @@ def _gp_sr_fitness_fwd_cuda_lowering(ctx, prefixGPs, data_points, targets, use_M
     )
     return out
 
+def _gp_sr_fitness_fwd_cuda_lowering(ctx, prefixGPs, data_points, targets, use_MSE):
+    gp_info = ir.RankedTensorType(prefixGPs.type)
+    dp_info = ir.RankedTensorType(data_points.type)
+    t_info = ir.RankedTensorType(targets.type)
+
+    opaque = gpu_ops.create_gp_sr_descriptor(
+        gp_info.shape[0],
+        dp_info.shape[0],
+        gp_info.shape[1],
+        dp_info.shape[1],
+        0 if len(t_info.shape) == 1 or t_info.shape[1] == 1 else t_info.shape[1],
+        element_type_to_descriptor_type(t_info.element_type),
+        use_MSE,
+    )
+    out_shape = (gp_info.shape[0],)
+    out = custom_call(
+        b"gp_sr_fitness_forward",
+        out_types=[
+            ir.RankedTensorType.get(out_shape, t_info.element_type),
+        ],
+        operands=[prefixGPs, data_points, targets],
+        backend_config=opaque,
+        operand_layouts=default_layouts(gp_info.shape, dp_info.shape, t_info.shape),
+        result_layouts=default_layouts(out_shape),
+    )
+    return out
 
 def _gp_generate_fwd_cuda_lowering(
     ctx,

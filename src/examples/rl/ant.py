@@ -1,22 +1,27 @@
+import sys
+
+sys.path.append("/home/kelvin/test/TensorGP")
 import jax
 import numpy as np
 from src.algorithm import GeneticProgramming as GP
-from src.algorithm import DiscreteConst, BasicSelection, BasicCrossover, BasicMutation
+from src.algorithm import DiscreteConst, BasicSelection, BasicCrossover, BasicMutation, TournamentSelection
 from src.pipeline import General
 from src.problem.rl_env import BraxEnv
 
 
 def main():
     alg = GP(
-        pop_size=1000,
+        pop_size=10000,
         num_inputs=27,
         num_outputs=8,
         crossover=BasicCrossover(),
-        mutation=BasicMutation(),
-        selection=BasicSelection(
-            elite_rate=0.1,
-            survivor_rate=0.4,
+        crossover_rate=0.9,
+        mutation=(
+            BasicMutation(),
+
         ),
+        mutation_rate=(0.1,),
+        selection=TournamentSelection(20, 0.9, False),
         const=DiscreteConst(
             jax.numpy.array([-1., 0., 1.])
         ),
@@ -35,7 +40,7 @@ def main():
 
     jit_step = jax.jit(pipeline.step)
 
-    for i in range(100):
+    for i in range(1000):
         state, fitnesses = jit_step(state)
 
         fitnesses = jax.device_get(fitnesses)

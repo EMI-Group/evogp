@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from src.utils import State, dict2cdf
+from src.utils import State, dict2cdf, dict2prob
 from src.cuda.operations import generate
 from . import Mutation, Crossover, Selection, Const
 
@@ -19,7 +19,7 @@ class GeneticProgramming:
             mutation_rate: tuple,
             selection: Selection,
             const: Const,
-            max_len: int = 1024,
+            max_len: int = 4096,
             max_sub_tree_len: int = 32,
             leaf_prob: list = None,
             output_prob: float = 0.5,
@@ -48,6 +48,7 @@ class GeneticProgramming:
             "leaf_prob": jnp.array(leaf_prob, dtype=jnp.float32),
             "output_prob": output_prob,
             "const_prob": const_prob,
+            "func_prob": dict2prob(func_prob_dict),
             "func_prob_cdf": dict2cdf(func_prob_dict),
         }
 
