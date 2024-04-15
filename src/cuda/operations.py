@@ -1,6 +1,6 @@
 from functools import partial
 import jax
-from .gp_kernel_bind import gp_generate_, gp_crossover_, gp_mutation_, gp_eval_, gp_sr_fitness_
+from .gp_kernel_bind import gp_generate_, gp_crossover_, gp_mutation_, gp_eval_, gp_sr_fitness_, constant_gp_sr_fitness_
 
 
 @partial(jax.jit, static_argnames=[
@@ -163,3 +163,27 @@ def sr_fitness(prefixTrees, data_points, targets):
 
     """
     return gp_sr_fitness_(prefixTrees, data_points, targets, use_MSE=True)
+
+
+@jax.jit
+def constant_sr_fitness(prefixTrees, data_points, targets):
+    """
+    Similar to sr_fitness. With trees are stored in constant memory.
+    Evaluating the fitness values in Symbolic Regression (SR) for a population of (possibly different) GPs with
+    given data points.
+
+    args:
+        prefixTrees: GP Trees in CUDA.
+    data_points : jax.Array(shape=(data_size, var_len), dtype=(jnp.float32 | jnp.float64))
+        The corresponding data point arrays, must be of same dtype as `prefixGPs`.
+    targets : jax.Array(shape=(data_size, ), dtype=(jnp.float32 | jnp.float64))
+        The corresponding target values, must be of same dtype as `prefixGPs`.
+
+    output:
+        fitness: jax.Array(shape=(pop_size, ))
+            The fitness values of each GP in the population.
+
+    """
+    fitnesses, aux = constant_gp_sr_fitness_(prefixTrees, data_points, targets, use_MSE=True)
+    return fitnesses
+

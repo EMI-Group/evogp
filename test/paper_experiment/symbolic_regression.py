@@ -26,7 +26,7 @@ import time
 
 def main():
     alg = GP(
-        pop_size=50,
+        pop_size=10000,
         num_inputs=2,
         num_outputs=1,
         max_len=1024,
@@ -35,9 +35,6 @@ def main():
         crossover_rate=0.9,
         mutation=(
             BasicMutation(),
-            HoistMutation(),
-            SinglePointMutation(),
-            LambdaPointMutation(0.9),
         ),
         mutation_rate=(0.5, 0.8, 0.9, 0.05),
         selection=TournamentSelection(3, 1, False),
@@ -59,7 +56,7 @@ def main():
     )
     prob.generate(
         method="sample",
-        num_samples=256 * 256,
+        num_samples=64 * 64,
     )
 
     pipeline = General(alg, prob)
@@ -69,20 +66,20 @@ def main():
 
     jit_step = jax.jit(pipeline.step)
     # jit_step = pipeline.step
-
+    state_, fitnesses = jit_step(state)
     print("--------initialization finished--------")
     start_time = time.time()
-    for i in range(20):
+    for i in range(200):
         state, fitnesses = jit_step(state)
 
-        fitnesses = jax.device_get(fitnesses)
-        print(f"gen:{i}, max: {np.max(fitnesses)},", end=" ")
-        from src.cuda.utils import tree_size, from_cuda_node
-
-        trees = pipeline.algorithm.ask(state.alg_state)
-        print(f"mean_size: {np.mean(jax.vmap(tree_size)(trees))}")
+        # fitnesses = jax.device_get(fitnesses)
+        # print(f"gen:{i}, max: {np.max(fitnesses)},", end=" ")
+        # from src.cuda.utils import tree_size, from_cuda_node
+        #
+        # trees = pipeline.algorithm.ask(state.alg_state)
+        # print(f"mean_size: {np.mean(jax.vmap(tree_size)(trees))}")
         # print(from_cuda_node(trees))
-
+    fitnesses.block_until_ready()
     end_time = time.time()
     print(f"Execution time: {end_time - start_time} seconds")
 

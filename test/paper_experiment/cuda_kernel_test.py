@@ -5,7 +5,7 @@ from src.problem.func_fit import GeneralFuncFit
 from src.cuda.operations import generate, sr_fitness
 from src.utils import dict2cdf
 
-STEP_CNT = 32
+STEP_CNT = 64
 LOW_BOUNDS = jax.numpy.array([-5.0, -5.0])
 UPPER_BOUNDS = jax.numpy.array([5.0, 5.0])
 
@@ -32,22 +32,22 @@ def main():
     trees = generate(
         key=jax.random.PRNGKey(42),
         leaf_prob=jnp.array(
-            [0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=jnp.float32
+            [0.0, 0.0, 0, 0, 0, 0, 1.0, 1.0, 1.0, 1.0], dtype=jnp.float32
         ),
+
         funcs_prob_acc=dict2cdf({"+": 0.25, "-": 0.25, "*": 0.25, "/": 0.25}),
         const_samples=jax.numpy.array([-1., 0., 1.]),
-        pop_size=10000000,
-        max_len=8,
+        pop_size=10000,
+        max_len=128,
         num_inputs=2,
         num_outputs=1,
     )
 
-    print(trees)
     import time
 
     tic = time.time()
     jax_sr_fitness = jax.jit(sr_fitness)
-    for _ in range(50):
+    for _ in range(200):
         fitnesses = jax_sr_fitness(
             trees,
             prob.data_inputs,

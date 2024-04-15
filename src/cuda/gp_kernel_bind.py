@@ -29,6 +29,10 @@ _gp_sr_fitness_fwd_p = core.Primitive("gp_sr_fitness_fwd")
 _gp_sr_fitness_fwd_p.multiple_results = False
 _gp_sr_fitness_fwd_p.def_impl(partial(xla.apply_primitive, _gp_sr_fitness_fwd_p))
 
+_constant_gp_sr_fitness_fwd_p = core.Primitive("constant_gp_sr_fitness_fwd")
+_constant_gp_sr_fitness_fwd_p.multiple_results = True
+_constant_gp_sr_fitness_fwd_p.def_impl(partial(xla.apply_primitive, _constant_gp_sr_fitness_fwd_p))
+
 _gp_generate_fwd_p = core.Primitive("gp_generate_fwd")
 _gp_generate_fwd_p.multiple_results = False
 _gp_generate_fwd_p.def_impl(partial(xla.apply_primitive, _gp_generate_fwd_p))
@@ -64,7 +68,6 @@ def gp_eval_(
     """
     results = _gp_eval_fwd_p.bind(prefixGPs, variables, result_length=result_length)
     return results
-
 
 def gp_crossover_(
     prefixGPs: jax.Array,
@@ -106,7 +109,6 @@ def gp_crossover_(
     )
     return results
 
-
 def gp_mutation_(
     prefixGPs: jax.Array,
     node_indices: jax.Array,
@@ -145,7 +147,6 @@ def gp_mutation_(
     )
     return results
 
-
 def gp_sr_fitness_(
     prefixGPs: jax.Array,
     data_points: jax.Array,
@@ -181,6 +182,46 @@ def gp_sr_fitness_(
     Note that none of the array contents (except the multi-output indices) are checked for performance issues. Hence, make sure that the max stack size do not exceed [MAX_STACK](src/cuda/gpdefs.h).
     """
     results = _gp_sr_fitness_fwd_p.bind(
+        prefixGPs, data_points, targets, use_MSE=use_MSE
+    )
+    return results
+
+def constant_gp_sr_fitness_(
+    prefixGPs: jax.Array,
+    data_points: jax.Array,
+    targets: jax.Array,
+    use_MSE: bool = True,
+) -> jax.Array:
+    """
+    Similar to `gp_sr_fitness_`, but the fitness values are calculated with the assumption that the GPs are stored in constant memory.
+    The (forward) function for evaluating the fitness values in Symbolic Regression (SR) for a population of (possibly different) GPs with given data points in parallel using CUDA.
+
+    Parameters
+    ----------
+    `prefixGPs` : `jax.Array(shape=(pop_size, max_len))`
+        The prefix arrays of all GPs in the population, storing all functions (see [cuda.gpdefs.Function](src/cuda/utils.py)), constants and variable indices as floating point type and corresponding node types and subtree sizes
+
+    `data_points` : `jax.Array(shape=(data_size, var_len), dtype=(jnp.float32 | jnp.float64))`
+        The corresponding data point arrays, must be of same dtype as `prefixGPs`
+
+    `targets` : `jax.Array(shape=(data_size, var_len), dtype=(jnp.float32 | jnp.float64))`
+        The target (label) array corresponding to the input `data_points`. Must be of same type as `data_points`.
+
+    `use_MSE` : `bool`
+        Whether the output fitness values are Mean Squared Errors (MSE) or Mean Absolute Errors (MAE).
+
+    Raises
+    ------
+    AssertionError
+        If the dtypes or shapes are inconsistent
+
+    Return
+    ------
+    A `jax.Array(shape=data_size, dtype=targets.dtype)` as the fitness values of all the GPs in the population.
+
+    Note that none of the array contents (except the multi-output indices) are checked for performance issues. Hence, make sure that the max stack size do not exceed [MAX_STACK](src/cuda/gpdefs.h).
+    """
+    results = _constant_gp_sr_fitness_fwd_p.bind(
         prefixGPs, data_points, targets, use_MSE=use_MSE
     )
     return results
@@ -276,6 +317,8 @@ for _name, _value in gpu_ops.get_gp_crossover_registrations().items():
 for _name, _value in gpu_ops.get_gp_mutation_registrations().items():
     xla_client.register_custom_call_target(_name, _value, platform="gpu")
 for _name, _value in gpu_ops.get_gp_sr_fitness_registrations().items():
+    xla_client.register_custom_call_target(_name, _value, platform="gpu")
+for _name, _value in gpu_ops.get_constant_gp_sr_fitness_registrations().items():
     xla_client.register_custom_call_target(_name, _value, platform="gpu")
 for _name, _value in gpu_ops.get_gp_generate_registrations().items():
     xla_client.register_custom_call_target(_name, _value, platform="gpu")
@@ -413,32 +456,40 @@ def _gp_sr_fitness_fwd_cuda_lowering(ctx, prefixGPs, data_points, targets, use_M
     )
     return out
 
-def _gp_sr_fitness_fwd_cuda_lowering(ctx, prefixGPs, data_points, targets, use_MSE):
+# This seems to be important.
+def _constant_gp_sr_fitness_fwd_cuda_lowering(ctx, prefixGPs, data_points, targets, use_MSE):
     gp_info = ir.RankedTensorType(prefixGPs.type)
     dp_info = ir.RankedTensorType(data_points.type)
     t_info = ir.RankedTensorType(targets.type)
 
     opaque = gpu_ops.create_gp_sr_descriptor(
-        gp_info.shape[0],
-        dp_info.shape[0],
-        gp_info.shape[1],
-        dp_info.shape[1],
-        0 if len(t_info.shape) == 1 or t_info.shape[1] == 1 else t_info.shape[1],
-        element_type_to_descriptor_type(t_info.element_type),
-        use_MSE,
+        gp_info.shape[0],  # pop_size
+        dp_info.shape[0],  # dataPoints
+        gp_info.shape[1],  # gpLen
+        dp_info.shape[1],  # varLen
+        0 if len(t_info.shape) == 1 or t_info.shape[1] == 1 else t_info.shape[1],  # outLen
+        element_type_to_descriptor_type(t_info.element_type),  # type
+        use_MSE,  # useMSE
     )
-    out_shape = (gp_info.shape[0],)
+    
+    SR_BLOCK_SIZE = 1024
+    block_fitness_space_size = (dp_info.shape[0] - 1) // SR_BLOCK_SIZE + 1
+    block_fitness_space_shape = (block_fitness_space_size, )
+
+    out_shape = (gp_info.shape[0], )
     out = custom_call(
-        b"gp_sr_fitness_forward",
+        b"constant_gp_sr_fitness_forward",
         out_types=[
             ir.RankedTensorType.get(out_shape, t_info.element_type),
+            ir.RankedTensorType.get(block_fitness_space_shape, t_info.element_type),
         ],
         operands=[prefixGPs, data_points, targets],
         backend_config=opaque,
         operand_layouts=default_layouts(gp_info.shape, dp_info.shape, t_info.shape),
-        result_layouts=default_layouts(out_shape),
+        result_layouts=default_layouts(out_shape, block_fitness_space_shape),
     )
     return out
+
 
 def _gp_generate_fwd_cuda_lowering(
     ctx,
@@ -510,6 +561,12 @@ mlir.register_lowering(
 mlir.register_lowering(
     _gp_sr_fitness_fwd_p,
     _gp_sr_fitness_fwd_cuda_lowering,
+    platform="gpu",
+)
+
+mlir.register_lowering(
+    _constant_gp_sr_fitness_fwd_p,
+    _constant_gp_sr_fitness_fwd_cuda_lowering,
     platform="gpu",
 )
 
@@ -613,6 +670,43 @@ def _gp_sr_fitness_fwd_abstract(prefixGPs, data_points, targets, use_MSE=False):
         named_shape=targets.named_shape,
     )
 
+# important
+def _constant_gp_sr_fitness_fwd_abstract(prefixGPs, data_points, targets, use_MSE=False):
+    gp_type = dtypes.canonicalize_dtype(prefixGPs.dtype)
+    gp_shape = prefixGPs.shape
+    dp_type = dtypes.canonicalize_dtype(data_points.dtype)
+    dp_shape = data_points.shape
+    t_type = dtypes.canonicalize_dtype(targets.dtype)
+    t_shape = targets.shape
+
+    assert len(gp_shape) == 2
+    assert len(dp_shape) == 2
+    assert len(t_shape) == 1 or len(t_shape) == 2
+    assert dp_shape[0] == t_shape[0]
+    assert gp_type in [jnp.complex64, jnp.complex128]
+    assert dp_type in [jnp.float32, jnp.float64] and dp_type == t_type
+    assert (
+        dp_type == jnp.float32 if gp_type == jnp.complex64 else dp_type == jnp.float64
+    )
+
+    SR_BLOCK_SIZE = 1024
+    block_fitness_space_size = (dp_shape[0] - 1) // SR_BLOCK_SIZE + 1
+    block_fitness_space_shape = (block_fitness_space_size, )
+
+    return (
+        ShapedArray(
+            (gp_shape[0],),  # popsize
+            t_type,  # datatype?
+            named_shape=targets.named_shape,
+        ),
+        ShapedArray(
+            block_fitness_space_shape, 
+            t_type,  # datatype?
+            named_shape=targets.named_shape,
+        ),
+    )
+
+
 
 def _gp_generate_fwd_abstract(
     key,
@@ -659,4 +753,5 @@ _gp_eval_fwd_p.def_abstract_eval(_gp_eval_fwd_abstract)
 _gp_crossover_fwd_p.def_abstract_eval(_gp_crossover_fwd_abstract)
 _gp_mutation_fwd_p.def_abstract_eval(_gp_mutation_fwd_abstract)
 _gp_sr_fitness_fwd_p.def_abstract_eval(_gp_sr_fitness_fwd_abstract)
+_constant_gp_sr_fitness_fwd_p.def_abstract_eval(_constant_gp_sr_fitness_fwd_abstract)
 _gp_generate_fwd_p.def_abstract_eval(_gp_generate_fwd_abstract)
