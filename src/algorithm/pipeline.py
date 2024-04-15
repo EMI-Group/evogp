@@ -15,7 +15,6 @@ from .operations import *
 
 from src.cuda.utils import *
 
-
 class Pipeline:
     def __init__(self, conf: Config, problem_type: Type[Problem]):
         assert problem_type.jitable, "problem must be jitable"
