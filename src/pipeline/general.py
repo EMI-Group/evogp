@@ -18,9 +18,9 @@ class General:
         )
 
     def step(self, state):
-        trees = pmap(self.algorithm.ask)(state.alg_state)
-        fitness = pmap(self.problem.evaluate)(state.randkey, trees)
-        alg_state = pmap(self.algorithm.tell)(state.alg_state, fitness)
+        trees = self.algorithm.ask(state.alg_state)
+        fitness = self.problem.evaluate(state.randkey, trees)
+        alg_state = self.algorithm.tell(state.alg_state, fitness)
         return state.update(
             alg_state=alg_state,
             generation=state.generation + 1,

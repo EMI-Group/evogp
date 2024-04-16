@@ -2,7 +2,7 @@ import jax.numpy as jnp
 
 from ..problem import Problem
 
-from src.cuda.operations import sr_fitness
+from src.cuda.operations import sr_fitness, constant_sr_fitness
 
 class FuncFit(Problem):
     def __init__(self, error_method="mse"):
@@ -11,7 +11,7 @@ class FuncFit(Problem):
         self.error_method = error_method
 
     def evaluate(self, randkey, trees):
-        res = sr_fitness(
+        res = constant_sr_fitness(
             trees,
             data_points=self.inputs.astype(jnp.float32),
             targets=self.targets.astype(jnp.float32),
