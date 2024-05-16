@@ -20,6 +20,7 @@ class General:
     def step(self, state):
         trees = self.algorithm.ask(state.alg_state)
         fitness = self.problem.evaluate(state.randkey, trees)
+        # fitness = jax.numpy.arange(self.algorithm.config["pop_size"])/100
         alg_state = self.algorithm.tell(state.alg_state, fitness)
         return state.update(
             alg_state=alg_state,

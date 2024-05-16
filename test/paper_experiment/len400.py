@@ -24,25 +24,48 @@ from src.algorithm import (
 from src.pipeline import General
 from src.problem.func_fit import GeneralFuncFit
 import time
+import pandas as pd
 
 import os
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.9"
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
+
+def update_csv(file_path, pop_size, datapoint, mse, time):
+    df = pd.read_csv(file_path, index_col='pop')
+    
+    mse_column = f'{datapoint}^2 MSE'
+    time_column = f'{datapoint}^2 Time'
+    
+    if pop_size in df.index:
+        df.at[pop_size, mse_column] = mse
+        df.at[pop_size, time_column] = time
+    else:
+        new_row = pd.DataFrame({mse_column: [mse], time_column: [time]}, index=[pop_size])
+        df = pd.concat([df, new_row])
+
+    df.to_csv(file_path, index_label='pop')
 
 def main():
+    try:
+        with open(f"len400_{sys.argv[3]}.csv", 'x') as file:
+            file.write('pop')
+    except:
+        pass
+
+    datapoint = int(sys.argv[2])
     alg = GP(
-        pop_size=200,
+        pop_size=int(sys.argv[1]),
         num_inputs=2,
         num_outputs=1,
-        max_len=1024,
+        max_len=400,
         max_sub_tree_len=128,
         crossover=BasicCrossover(),
         crossover_rate=0.9,
         mutation=(
             BasicMutation(
-                max_sub_tree_len=128,
-                leaf_prob=[0, 0, 0,  0, 0.1, 0.2,   1,   1,   1,    1],
+                max_sub_tree_len=64,
+                leaf_prob=[0, 0, 0,  0, 0.1,   1,   1,   1,   1,    1],
                 # size   =[1, 3, 7, 15,  31,  63, 127, 255, 511, 1023]
                 ),
         ),
@@ -53,8 +76,8 @@ def main():
                 [-5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
             )
         ),
-        leaf_prob=[0, 0, 0,  0, 0.1, 0.2, 0.4,   1,   1],
-        # size   =[2, 4, 8, 16, 32,  64, 128, 256, 512, 1024]
+        leaf_prob=[0, 0, 0,  0, 0.1, 0.2,   1,   1,   1],
+        # size   =[1, 3, 7, 15,  31,  63, 127, 255, 511, 1023]
     )
 
     # create general function fitting problem and then initialize it
@@ -64,18 +87,18 @@ def main():
         low_bounds=jax.numpy.array([-5, -5]),
         upper_bounds=jax.numpy.array([5, 5]),
     )
-    # prob.generate(
-    #     method="sample",
-    #     num_samples=8 * 8,
-    # )
     prob.generate(
-        method="grid",
-        step_size=jax.numpy.array([2.5, 2.5]),
+        method="sample",
+        num_samples=datapoint * datapoint,
     )
+    # prob.generate(
+    #     method="grid",
+    #     step_size=jax.numpy.array([2.5, 2.5]),
+    # )
 
     pipeline = General(alg, prob)
 
-    key = jax.random.PRNGKey(1)
+    key = jax.random.PRNGKey(int(sys.argv[3]))
     state = pipeline.setup(key)
 
     jit_step = jax.jit(pipeline.step)
@@ -90,7 +113,7 @@ def main():
     print("--------initialization finished--------")
 
     start_time = time.time()
-    for i in range(20):
+    for i in range(50):
         state, fitnesses = jit_step(state)
         print(i)
 
@@ -109,6 +132,7 @@ def main():
     fitnesses = jax.device_get(fitnesses)
     print(f"pop:{alg.config['pop_size']}, max: {-np.max(fitnesses)},", end=" ")
 
+    update_csv(f"len400_{sys.argv[3]}.csv", alg.config['pop_size'], datapoint, -np.max(fitnesses), end_time - start_time)
     # start_time = time.time()
     # for i in range(20):
     #     state, fitnesses = jit_step(state)

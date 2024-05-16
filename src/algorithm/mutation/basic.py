@@ -1,4 +1,5 @@
 import jax
+import jax.numpy as jnp
 
 from .base import Mutation
 from src.cuda.utils import tree_size
@@ -9,8 +10,10 @@ class BasicMutation(Mutation):
     """
     Mutate with a randomly generated subtree
     """
-    def __init__(self):
+    def __init__(self, max_sub_tree_len, leaf_prob):
         super().__init__()
+        self.max_sub_tree_len = max_sub_tree_len
+        self.leaf_prob = jnp.array(leaf_prob, dtype=jnp.float32)
 
     def __call__(self, key, trees, const, config) -> jax.Array:  # prefix_trees (in cuda)
         tree_sizes = jax.vmap(tree_size)(trees)
@@ -19,11 +22,11 @@ class BasicMutation(Mutation):
         consts = const(k1)
         sub_trees = generate(
             key=k2,
-            leaf_prob=config["leaf_prob"],
+            leaf_prob=self.leaf_prob,
             funcs_prob_acc=config["func_prob_cdf"],
             const_samples=consts,
             pop_size=config["pop_size"],
-            max_len=config["max_sub_tree_len"],
+            max_len=self.max_sub_tree_len,
             num_inputs=config["num_inputs"],
             num_outputs=config["num_outputs"],
             output_prob=config["output_prob"],

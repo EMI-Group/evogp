@@ -38,9 +38,7 @@ _gp_generate_fwd_p.multiple_results = False
 _gp_generate_fwd_p.def_impl(partial(xla.apply_primitive, _gp_generate_fwd_p))
 
 
-def gp_eval_(
-    prefixGPs: jax.Array, variables: jax.Array, result_length: int = 1
-) -> jax.Array:
+def gp_eval_(prefixGPs: jax.Array, variables: jax.Array, result_length: int = 1) -> jax.Array:
     """
     The (forward) function for evaluating (inference) a population of (possibly different) GPs with corresponding population of input variables in parallel using CUDA.
 
@@ -68,6 +66,7 @@ def gp_eval_(
     """
     results = _gp_eval_fwd_p.bind(prefixGPs, variables, result_length=result_length)
     return results
+
 
 def gp_crossover_(
     prefixGPs: jax.Array,
@@ -104,10 +103,9 @@ def gp_crossover_(
 
     Note that the `left_perms` are not checked and assumed to be within the range of [0, `pop_size`), while output GP(s) with invalid `right_perms` is/are direct copies of `algorithm[left_perms[i]]`. Besides, any crossover(s) that may cause size overflow is/are ignored as well.
     """
-    results = _gp_crossover_fwd_p.bind(
-        prefixGPs, left_perms, right_perms, left_right_node_indices
-    )
+    results = _gp_crossover_fwd_p.bind(prefixGPs, left_perms, right_perms, left_right_node_indices)
     return results
+
 
 def gp_mutation_(
     prefixGPs: jax.Array,
@@ -147,6 +145,7 @@ def gp_mutation_(
     )
     return results
 
+
 def gp_sr_fitness_(
     prefixGPs: jax.Array,
     data_points: jax.Array,
@@ -181,10 +180,9 @@ def gp_sr_fitness_(
 
     Note that none of the array contents (except the multi-output indices) are checked for performance issues. Hence, make sure that the max stack size do not exceed [MAX_STACK](src/cuda/gpdefs.h).
     """
-    results = _gp_sr_fitness_fwd_p.bind(
-        prefixGPs, data_points, targets, use_MSE=use_MSE
-    )
+    results = _gp_sr_fitness_fwd_p.bind(prefixGPs, data_points, targets, use_MSE=use_MSE)
     return results
+
 
 def constant_gp_sr_fitness_(
     prefixGPs: jax.Array,
@@ -221,9 +219,7 @@ def constant_gp_sr_fitness_(
 
     Note that none of the array contents (except the multi-output indices) are checked for performance issues. Hence, make sure that the max stack size do not exceed [MAX_STACK](src/cuda/gpdefs.h).
     """
-    results = _constant_gp_sr_fitness_fwd_p.bind(
-        prefixGPs, data_points, targets, use_MSE=use_MSE
-    )
+    results = _constant_gp_sr_fitness_fwd_p.bind(prefixGPs, data_points, targets, use_MSE=use_MSE)
     return results
 
 
@@ -351,11 +347,7 @@ def _gp_eval_fwd_cuda_lowering(ctx, prefixGPs, variables, result_length):
         result_length,
         element_type_to_descriptor_type(var_info.element_type),
     )
-    out_shape = (
-        (var_info.shape[0],)
-        if result_length == 1
-        else (var_info.shape[0], result_length)
-    )
+    out_shape = (var_info.shape[0],) if result_length == 1 else (var_info.shape[0], result_length)
     out = custom_call(
         b"gp_eval_forward",
         out_types=[
@@ -369,9 +361,7 @@ def _gp_eval_fwd_cuda_lowering(ctx, prefixGPs, variables, result_length):
     return out
 
 
-def _gp_crossover_fwd_cuda_lowering(
-    ctx, prefixGPs, left_perms, right_perms, left_right_node_idx
-):
+def _gp_crossover_fwd_cuda_lowering(ctx, prefixGPs, left_perms, right_perms, left_right_node_idx):
     gp_info = ir.RankedTensorType(prefixGPs.type)
     lp_info = ir.RankedTensorType(left_perms.type)
     rp_info = ir.RankedTensorType(right_perms.type)
@@ -391,9 +381,7 @@ def _gp_crossover_fwd_cuda_lowering(
         ],
         operands=[prefixGPs, left_perms, right_perms, left_right_node_idx],
         backend_config=opaque,
-        operand_layouts=default_layouts(
-            gp_info.shape, lp_info.shape, rp_info.shape, lr_info.shape
-        ),
+        operand_layouts=default_layouts(gp_info.shape, lp_info.shape, rp_info.shape, lr_info.shape),
         result_layouts=default_layouts(gp_info.shape),
     )
     return out
@@ -456,6 +444,7 @@ def _gp_sr_fitness_fwd_cuda_lowering(ctx, prefixGPs, data_points, targets, use_M
     )
     return out
 
+
 # This seems to be important.
 def _constant_gp_sr_fitness_fwd_cuda_lowering(ctx, prefixGPs, data_points, targets, use_MSE):
     gp_info = ir.RankedTensorType(prefixGPs.type)
@@ -471,12 +460,12 @@ def _constant_gp_sr_fitness_fwd_cuda_lowering(ctx, prefixGPs, data_points, targe
         element_type_to_descriptor_type(t_info.element_type),  # type
         use_MSE,  # useMSE
     )
-    
+
     SR_BLOCK_SIZE = 1024
     block_fitness_space_size = (dp_info.shape[0] - 1) // SR_BLOCK_SIZE + 1
-    block_fitness_space_shape = (block_fitness_space_size, )
+    block_fitness_space_shape = (block_fitness_space_size,)
 
-    out_shape = (gp_info.shape[0], )
+    out_shape = (gp_info.shape[0],)
     out = custom_call(
         b"constant_gp_sr_fitness_forward",
         out_types=[
@@ -615,9 +604,7 @@ def _gp_crossover_fwd_abstract(prefixGPs, left_perms, right_perms, left_right_no
     assert len(lp_shape) == 1 and len(rp_shape) == 1
     assert len(lr_shape) == 2 and lr_shape[1] == 2
     pop_size = gp_shape[0]
-    assert (
-        pop_size == lp_shape[0] and pop_size == rp_shape[0] and pop_size == lr_shape[0]
-    )
+    assert pop_size == lp_shape[0] and pop_size == rp_shape[0] and pop_size == lr_shape[0]
     assert gp_type in [jnp.complex64, jnp.complex128]
     assert lp_type in [jnp.int32, jnp.int32] and rp_type in [jnp.int32, jnp.int32]
     assert lr_type in [jnp.int16, jnp.uint16]
@@ -660,15 +647,14 @@ def _gp_sr_fitness_fwd_abstract(prefixGPs, data_points, targets, use_MSE=False):
     assert dp_shape[0] == t_shape[0]
     assert gp_type in [jnp.complex64, jnp.complex128]
     assert dp_type in [jnp.float32, jnp.float64] and dp_type == t_type
-    assert (
-        dp_type == jnp.float32 if gp_type == jnp.complex64 else dp_type == jnp.float64
-    )
+    assert dp_type == jnp.float32 if gp_type == jnp.complex64 else dp_type == jnp.float64
 
     return ShapedArray(
         (gp_shape[0],),
         t_type,
         named_shape=targets.named_shape,
     )
+
 
 # important
 def _constant_gp_sr_fitness_fwd_abstract(prefixGPs, data_points, targets, use_MSE=False):
@@ -685,13 +671,11 @@ def _constant_gp_sr_fitness_fwd_abstract(prefixGPs, data_points, targets, use_MS
     assert dp_shape[0] == t_shape[0]
     assert gp_type in [jnp.complex64, jnp.complex128]
     assert dp_type in [jnp.float32, jnp.float64] and dp_type == t_type
-    assert (
-        dp_type == jnp.float32 if gp_type == jnp.complex64 else dp_type == jnp.float64
-    )
+    assert dp_type == jnp.float32 if gp_type == jnp.complex64 else dp_type == jnp.float64
 
     SR_BLOCK_SIZE = 1024
     block_fitness_space_size = (dp_shape[0] - 1) // SR_BLOCK_SIZE + 1
-    block_fitness_space_shape = (block_fitness_space_size, )
+    block_fitness_space_shape = (block_fitness_space_size,)
 
     return (
         ShapedArray(
@@ -700,12 +684,11 @@ def _constant_gp_sr_fitness_fwd_abstract(prefixGPs, data_points, targets, use_MS
             named_shape=targets.named_shape,
         ),
         ShapedArray(
-            block_fitness_space_shape, 
+            block_fitness_space_shape,
             t_type,  # datatype?
             named_shape=targets.named_shape,
         ),
     )
-
 
 
 def _gp_generate_fwd_abstract(
@@ -740,7 +723,12 @@ def _gp_generate_fwd_abstract(
     if output_len > 1:
         assert output_prob > 0 and output_prob < 1
     assert const_prob >= 0 and const_prob <= 1
-    assert random_generator in [gpu_ops.RandomEngine.Default, gpu_ops.RandomEngine.RANLUX24, gpu_ops.RandomEngine.RANLUX48, gpu_ops.RandomEngine.TAUS88]
+    assert random_generator in [
+        gpu_ops.RandomEngine.Default,
+        gpu_ops.RandomEngine.RANLUX24,
+        gpu_ops.RandomEngine.RANLUX48,
+        gpu_ops.RandomEngine.TAUS88,
+    ]
 
     return ShapedArray(
         (pop_size, max_prefix_len),

@@ -11,7 +11,7 @@ import pandas as pd
 
 import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.5"
 
 def update_csv(file_path, gen, max, min, mean):
@@ -30,8 +30,8 @@ def update_csv(file_path, gen, max, min, mean):
 def main():
     alg = GP(
         pop_size=1000,
-        num_inputs=27,
-        num_outputs=8,
+        num_inputs=18,
+        num_outputs=6,
         crossover=BasicCrossover(),
         crossover_rate=0.9,
         mutation=(
@@ -50,8 +50,8 @@ def main():
     )
     prob = BraxEnv(
         output_transform=lambda x: jax.numpy.tanh(x),
-        output_length=8,
-        env_name='ant',
+        output_length=6,
+        env_name='halfcheetah',
     )
 
     pipeline = General(alg, prob)
@@ -66,7 +66,7 @@ def main():
 
         fitnesses = jax.device_get(fitnesses)
         print(f'max: {np.max(fitnesses)}, min: {np.min(fitnesses)}, mean: {np.mean(fitnesses)}')
-        update_csv("ant.csv", i, np.max(fitnesses), np.min(fitnesses), np.mean(fitnesses))
+        update_csv("halfcheetah.csv", i, np.max(fitnesses), np.min(fitnesses), np.mean(fitnesses))
 
 
 if __name__ == '__main__':

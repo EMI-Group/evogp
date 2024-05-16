@@ -19,7 +19,7 @@ class GeneticProgramming:
             mutation_rate: tuple,
             selection: Selection,
             const: Const,
-            max_len: int = 4096,
+            max_len: int = 2048,
             max_sub_tree_len: int = 32,
             leaf_prob: list = None,
             output_prob: float = 0.5,

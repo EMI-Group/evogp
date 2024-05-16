@@ -11,7 +11,7 @@ class FuncFit(Problem):
         self.error_method = error_method
 
     def evaluate(self, randkey, trees):
-        res = constant_sr_fitness(
+        res = sr_fitness(
             trees,
             data_points=self.inputs.astype(jnp.float32),
             targets=self.targets.astype(jnp.float32),
