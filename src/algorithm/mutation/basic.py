@@ -10,6 +10,7 @@ class BasicMutation(Mutation):
     """
     Mutate with a randomly generated subtree
     """
+
     def __init__(self, max_sub_tree_len, leaf_prob):
         super().__init__()
         self.max_sub_tree_len = max_sub_tree_len
@@ -30,13 +31,11 @@ class BasicMutation(Mutation):
             num_inputs=config["num_inputs"],
             num_outputs=config["num_outputs"],
             output_prob=config["output_prob"],
-            const_prob=config["const_prob"]
+            const_prob=config["const_prob"],
         )
 
         indices = jax.random.randint(k2, (trees.shape[0],), 0, tree_sizes)
 
-        return mutation(
-            trees,
-            indices,
-            sub_trees,
-        )
+        sub_trees = mutation(trees, indices, sub_trees)
+
+        return sub_trees

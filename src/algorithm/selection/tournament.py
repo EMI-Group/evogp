@@ -4,13 +4,14 @@ import jax.numpy as jnp
 from .base import Selection
 from jax import lax
 
+
 class TournamentSelection(Selection):
 
     def __init__(
-            self,
-            tournament_size: int,
-            best_probability: float,
-            replace: bool = True,
+        self,
+        tournament_size: int,
+        best_probability: float,
+        replace: bool = True,
     ):
         super().__init__()
         self.t_size = tournament_size
@@ -19,7 +20,7 @@ class TournamentSelection(Selection):
 
     def __call__(self, key, trees, fitnesses, config) -> Tuple[jax.Array, jax.Array]:
         # returns: (trees, fitness)
-        
+
         def generate_contenders(key):
             pop_size = config["pop_size"]
             t_size = self.t_size
@@ -31,7 +32,7 @@ class TournamentSelection(Selection):
             def choose_once(key):
                 # traverse the entire population for one choice
                 return jax.random.choice(key, jnp.arange(pop_size), shape=(n_choose_once, t_size), replace=self.replace)
-            
+
             return choose_once(keys).reshape(-1, t_size)[:pop_size]
 
         @jax.vmap
@@ -39,11 +40,11 @@ class TournamentSelection(Selection):
             contender_fitness = fitnesses[contenders]
             best_idx = jnp.argmax(contender_fitness)
             return contenders[best_idx]
-        
+
         @jax.vmap
         def t_selection_with_p(key, contenders):
             contender_fitness = fitnesses[contenders]
-            idx_rank = jnp.argsort(contender_fitness)[::-1] # the index of individual from high to low
+            idx_rank = jnp.argsort(contender_fitness)[::-1]  # the index of individual from high to low
             random = jax.random.uniform(key)
             nth_choosed = (jnp.log(1 - random) / jnp.log(1 - self.best_p)).astype(int)
             nth_choosed = lax.cond(nth_choosed >= self.t_size, lambda: 0, lambda: nth_choosed)

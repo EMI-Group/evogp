@@ -26,13 +26,13 @@ from src.problem.func_fit import GeneralFuncFit
 import time
 
 import os
-# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.9"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.8"
 
 def main():
     alg = GP(
-        pop_size=200,
+        pop_size=2000,
         num_inputs=2,
         num_outputs=1,
         max_len=1024,

@@ -6,58 +6,50 @@ import jax.numpy as jnp
 
 from ..problem import Problem
 from src.cuda.operations import forward
+from src.cuda.utils import from_cuda_node
 
 
 class RLEnv(Problem):
 
-    def __init__(self, output_transform: Callable, output_length: int):
+    def __init__(self, output_transform: Callable, output_length: int, max_step: int=1000):
         super().__init__()
         self.output_transform = output_transform
         self.output_length = output_length
+        self.max_step = max_step
 
     def evaluate(self, randkey, trees):
         pop_size = trees.shape[0]
-
         reset_keys = jax.random.split(randkey, pop_size)
         observations, env_states = jax.vmap(self.reset)(reset_keys)
 
         done = jnp.zeros(pop_size, dtype=jnp.bool_)
         fitnesses = jnp.zeros(pop_size)
 
-        # carry: observations, env_states, rng, done, fitnesses
         def cond(carry):
-            _, _, _, d, _ = carry
-            return ~jnp.all(d)
+            _, _, _, d, _, sc = carry
+            return (~jnp.all(d)) & (sc < self.max_step) 
 
         def body(carry):
-            obs, e_s, rng, d, f = carry
-            rng, _ = jax.random.split(rng)
+            obs, e_s, rng, d, f, sc = carry  # sc -> step_cnt
+            rng, k1 = jax.random.split(rng)
             vmap_keys = jax.random.split(rng, pop_size)
             actions = forward(trees, obs, result_length=self.output_length)
             actions = jax.vmap(self.output_transform)(actions)
+            # actions = jax.random.uniform(k1, (pop_size, self.output_length), obs.dtype, minval=-1.0, maxval=1.0)
             obs, e_s, reward, current_done, info = jax.vmap(self.step)(vmap_keys, e_s, actions)
 
-            f += reward * jnp.logical_not(d)
+            f += reward * jnp.logical_not(d) 
             d = jnp.logical_or(d, current_done)
+            sc += 1
+            return obs, e_s, rng, d, f, sc
 
-            return obs, e_s, rng, d, f
-
-        _, _, _, _, fitnesses = jax.lax.while_loop(
+        _, _, _, _, fitnesses, _ = jax.lax.while_loop(
             cond,
             body,
-            (observations, env_states, randkey, done, fitnesses)
+            (observations, env_states, randkey, done, fitnesses, 0)
         )
 
         return fitnesses
-        # while not jnp.all(done):
-        #     randkey, _ = jax.random.split(randkey)
-        #     vmap_keys = jax.random.split(randkey, pop_size)
-        #
-        #     actions = forward(trees, observations, result_length=self.output_length)
-        #     observations, env_states, reward, current_done, _ = jax.vmap(self.step)(vmap_keys, env_states, actions)
-        #
-        #     fitnesses += reward * jnp.logical_not(done)
-        #     done = jnp.logical_or(done, current_done)
 
     @partial(jax.jit, static_argnums=(0,))
     def step(self, randkey, env_state, action):

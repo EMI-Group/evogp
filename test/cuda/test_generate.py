@@ -1,13 +1,13 @@
 import time
+import sys
 
+sys.path.append("/wuzhihong/TensorGP")
 from src.cuda.operations import generate
 from src.cuda.utils import *
 
 
 def test():
-    depth_to_leaf_prob = jnp.array(
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32
-    )
+    depth_to_leaf_prob = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32)
     functions_prob_accumulate = jnp.array(
         [
             0.0,
@@ -75,3 +75,35 @@ def test():
     _, a, b, _ = from_cuda_node(gps)
     print(a[0, : b[0, 0]], a[N // 2, : b[N // 2, 0]], a[N - 1, : b[N - 1, 0]])
     print(b[0, : b[0, 0]], b[N // 2, : b[N // 2, 0]], b[N - 1, : b[N - 1, 0]])
+
+import os
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+
+def test2():
+    k1 = jax.random.PRNGKey(42)
+    for i in range(10000):
+        k1, k2 = jax.random.split(k1, 2)
+        sub_trees = generate(
+            key=k2,
+            leaf_prob=jnp.array([0. , 0. , 0. , 0. , 0.1, 0.2, 1. , 1. , 1. , 1. ]),
+            funcs_prob_acc=jnp.array([0.  , 0.25, 0.5 , 0.75, 1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  ,
+        1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  ]),
+            const_samples=jnp.array([-1.,  0.,  1.]),
+            pop_size=10,
+            max_len=128,
+            num_inputs=27,
+            num_outputs=10,
+            output_prob=0.8,
+            const_prob=0.5,
+        )
+        print(i)
+        node_values, node_types, subtree_sizes, output_indices = from_cuda_node(sub_trees)
+        
+        non_negative_one_indices = jnp.where(output_indices != -1)
+
+        print(non_negative_one_indices)
+
+
+if __name__ == "__main__":
+    test2()

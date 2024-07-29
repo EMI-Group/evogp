@@ -144,3 +144,6 @@ def test():
     _, a, b, _ = from_cuda_node(a)
     print(a[0, : b[0, 0]], a[N // 2, : b[N // 2, 0]], a[N - 1, : b[N - 1, 0]])
     print(b[0, : b[0, 0]], b[N // 2, : b[N // 2, 0]], b[N - 1, : b[N - 1, 0]])
+
+if __name__ == "__main__":
+    test()

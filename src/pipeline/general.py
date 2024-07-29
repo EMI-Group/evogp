@@ -1,6 +1,8 @@
 import jax
 from src.utils import State
 from jax import pmap
+from rich.console import Console
+import jax.numpy as jnp
 
 class General:
 
@@ -17,10 +19,20 @@ class General:
             randkey=k2,
         )
 
+    # def step(self, state):
+    #     console = Console()
+    #     trees = self.algorithm.ask(state.alg_state)
+    #     fitness = self.problem.evaluate(state.randkey, trees)
+    #     alg_state = self.algorithm.tell(state.alg_state, fitness)
+    #     return state.update(
+    #         alg_state=alg_state,
+    #         generation=state.generation + 1,
+    #     ), fitness
+    
     def step(self, state):
+        # console = Console()
         trees = self.algorithm.ask(state.alg_state)
         fitness = self.problem.evaluate(state.randkey, trees)
-        # fitness = jax.numpy.arange(self.algorithm.config["pop_size"])/100
         alg_state = self.algorithm.tell(state.alg_state, fitness)
         return state.update(
             alg_state=alg_state,

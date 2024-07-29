@@ -1124,7 +1124,7 @@ __global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, con
 		NchildDepth cd = childsAndDepth[--top];
 		cd.childs--;
 		NchildDepth cdNew{};
-		GPNode<T> node{};
+		GPNode<T> node{T(0), (typename GPNode<T>::U)(0), (typename GPNode<T>::U)(0)};
 		if (rand(engine) >= leafProbs[cd.depth])
 		{	// generate non-leaf (function) node
 			T r = rand(engine);
@@ -1149,7 +1149,10 @@ __global__ void treeGPGenerate(GPNode<T>* results, const unsigned int* keys, con
 				}
 			}
 			// normal node
-			node = GPNode<T>{ T(k), type, 1 };
+			if (node.subtreeSize == 0)
+			{
+				node = GPNode<T>{ T(k), type, 1 };
+			}
 			cdNew = NchildDepth{ uint16_t(type - 1), uint16_t(cd.depth + 1) };
 		}
 		else

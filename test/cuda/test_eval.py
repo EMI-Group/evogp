@@ -1,8 +1,12 @@
 import time
+import sys
+
+sys.path.append("/wuzhihong/TensorGP")
 
 from src.cuda.operations import forward
 from src.cuda.utils import *
 from src.utils.enum import Func
+
 
 
 def test():
@@ -161,3 +165,6 @@ def test():
     a = forward(gps, variables, result_length=N_outs)
     print(time.time() - t)
     print(a[0], a[N // 2], a[N - 1])
+
+if __name__ == "__main__":
+    test()

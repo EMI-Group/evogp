@@ -19,7 +19,7 @@ class GeneticProgramming:
             mutation_rate: tuple,
             selection: Selection,
             const: Const,
-            max_len: int = 2048,
+            max_len: int = 1024,
             max_sub_tree_len: int = 32,
             leaf_prob: list = None,
             output_prob: float = 0.5,
@@ -55,6 +55,7 @@ class GeneticProgramming:
     def setup(self, randkey, state: State = State()):
         k1, k2, k3 = jax.random.split(randkey, 3)
         consts = self.const(k1)
+        k1, k2 = jax.random.split(k1, 2)
         trees = generate(
             key=k2,
             leaf_prob=self.config["leaf_prob"],
