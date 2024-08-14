@@ -38,8 +38,10 @@ typedef enum Function
 	GE,  // arity: 2, if (a >= b) { return 1 } return -1
 	SIN, // arity: 1, return sin(a)
 	COS, // arity: 1, return cos(a)
+	TAN, // arity: 1, return tan(a)
 	SINH,// arity: 1, return sinh(a)
 	COSH,// arity: 1, return cosh(a)
+	TANH,// arity: 1, return tanh(a)
 	LOG, // arity: 1, return if (a == 0) { return -MAX_VAL } return log(|a|)
 	EXP, // arity: 1, return min(exp(a), MAX_VAL)
 	INV, // arity: 1, if (|a| < DELTA) { return 1 / DELTA * sign(a) } return 1 / a
@@ -50,5 +52,5 @@ typedef enum Function
 } func_t;
 
 /* ALL FUNCTIONS:
-* [IF, ADD, SUB, MUL, DIV, POW, MAX, MIN, LT, GT, LE, GE, SIN, COS, SINH, COSH, LOG, EXP, INV, NEG, ABS, SQRT]
+* [IF, ADD, SUB, MUL, DIV, POW, MAX, MIN, LT, GT, LE, GE, SIN, COS, TAN, SINH, COSH, TANH, LOG, EXP, INV, NEG, ABS, SQRT]
 */

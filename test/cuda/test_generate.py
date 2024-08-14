@@ -1,13 +1,11 @@
 import time
-import sys
 
-sys.path.append("/wuzhihong/TensorGP")
 from src.cuda.operations import generate
 from src.cuda.utils import *
 
 
-def test():
-    depth_to_leaf_prob = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=jnp.float32)
+def test1():
+    depth_to_leaf_prob = jnp.array([0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=jnp.float32)
     functions_prob_accumulate = jnp.array(
         [
             0.0,
@@ -32,12 +30,14 @@ def test():
             0.98,
             0.99,
             1.0,
+            1.0,
+            1.0
         ],
         dtype=jnp.float32,
     )
     const_samples = jnp.array([-2, -1, 0, 1, 2], dtype=jnp.float32)
-    N = 200_000
-    max_prefix_len = 1024
+    N = 10_0000
+    max_prefix_len = 512
     variable_len = 2
     output_len = 4
     output_prob = 0.5
@@ -72,13 +72,15 @@ def test():
         const_prob,
     )
     print(time.time() - t)
-    _, a, b, _ = from_cuda_node(gps)
-    print(a[0, : b[0, 0]], a[N // 2, : b[N // 2, 0]], a[N - 1, : b[N - 1, 0]])
-    print(b[0, : b[0, 0]], b[N // 2, : b[N // 2, 0]], b[N - 1, : b[N - 1, 0]])
 
-import os
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+    graph_start = to_graph(gps[0])
+    graph_middle = to_graph(gps[N // 2])
+    graph_end = to_graph(gps[N - 1])
+
+    to_png(graph_start, "output/graph_start.png")
+    to_png(graph_middle, "output/graph_middle.png")
+    to_png(graph_end, "output/graph_end.png")
+
 
 def test2():
     k1 = jax.random.PRNGKey(42)
@@ -86,10 +88,34 @@ def test2():
         k1, k2 = jax.random.split(k1, 2)
         sub_trees = generate(
             key=k2,
-            leaf_prob=jnp.array([0. , 0. , 0. , 0. , 0.1, 0.2, 1. , 1. , 1. , 1. ]),
-            funcs_prob_acc=jnp.array([0.  , 0.25, 0.5 , 0.75, 1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  ,
-        1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  , 1.  ]),
-            const_samples=jnp.array([-1.,  0.,  1.]),
+            leaf_prob=jnp.array([0.0, 0.0, 0.0, 0.0, 0.1, 0.2, 1.0, 1.0, 1.0, 1.0]),
+            funcs_prob_acc=jnp.array(
+                [
+                    0.0,
+                    0.25,
+                    0.5,
+                    0.75,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                ]
+            ),
+            const_samples=jnp.array([-1.0, 0.0, 1.0]),
             pop_size=10,
             max_len=128,
             num_inputs=27,
@@ -99,11 +125,11 @@ def test2():
         )
         print(i)
         node_values, node_types, subtree_sizes, output_indices = from_cuda_node(sub_trees)
-        
+
         non_negative_one_indices = jnp.where(output_indices != -1)
 
         print(non_negative_one_indices)
 
 
 if __name__ == "__main__":
-    test2()
+    test1()

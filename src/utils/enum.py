@@ -20,36 +20,34 @@ class Func:
     The enumeration class for GP function types.
     """
 
-    # ternary
-    IF = 0  # if (a > 0) { return b } return c
+    IF = 0
 
-    # binary
-    ADD = 1  # return a + b
-    SUB = 2  # return a - b
-    MUL = 3  # return a * b
-    DIV = 4  # if (|b| < DELTA) { return a / DELTA * sign(b) } return a / b
-    POW = 5  # |a|^b
-    MAX = 6  # if (a > b) { return a } return b
-    MIN = 7  # if (a < b) { return a } return b
-    LT = 8  # if (a < b) { return 1 } return -1
-    GT = 9  # if (a > b) { return 1 } return -1
-    LE = 10  # if (a <= b) { return 1 } return -1
-    GE = 11  # if (a >= b) { return 1 } return -1
+    ADD = 1
+    SUB = 2
+    MUL = 3
+    DIV = 4
+    POW = 5
+    MAX = 6
+    MIN = 7
+    LT = 8
+    GT = 9
+    LE = 10
+    GE = 11
 
-    # unary
-    SIN = 12  # return sin(a)
-    COS = 13  # return cos(a)
-    SINH = 14  # return sinh(a)
-    COSH = 15  # return cosh(a)
-    LOG = 16  # return if (a == 0) { return -MAX_VAL } return log(|a|)
-    EXP = 17  # return min(exp(a), MAX_VAL)
-    INV = 18  # if (|a| < DELTA) { return 1 / DELTA * sign(a) } return 1 / a
-    NEG = 19  # return -a
-    ABS = 20  # return |a|
-    SQRT = 21  # return sqrt(|a|)
+    SIN = 12
+    COS = 13
+    TAN = 14
+    SINH = 15
+    COSH = 16
+    TANH = 17
+    LOG = 18
+    EXP = 19
+    INV = 20
+    NEG = 21
+    ABS = 22
+    SQRT = 23
 
 
-# Total Function Pool
 FUNCS = [
     Func.IF,
     Func.ADD,
@@ -65,8 +63,10 @@ FUNCS = [
     Func.GE,
     Func.SIN,
     Func.COS,
+    Func.TAN,
     Func.SINH,
     Func.COSH,
+    Func.TANH,
     Func.LOG,
     Func.EXP,
     Func.INV,
@@ -75,29 +75,29 @@ FUNCS = [
     Func.SQRT,
 ]
 
-
-# String Representation of Functions
 FUNCS_NAMES = [
-    "if",
-    "+",
-    "-",
-    "*",
-    "/",
-    "pow",
-    "max",
-    "min",
-    "<",
-    ">",
-    "<=",
-    ">=",
-    "sin",
-    "cos",
-    "sinh",
-    "cosh",
-    "log",
-    "exp",
-    "inv",
-    "neg",
-    "abs",
-    "sqrt",
+    "if", # 0
+    "+", # 1
+    "-", # 2
+    "*", # 3
+    "/", # 4
+    "pow", # 5
+    "max", # 6
+    "min", # 7
+    "<", # 8
+    ">", # 9
+    "<=", # 10
+    ">=", # 11
+    "sin", # 12
+    "cos", # 13
+    "tan", # 14
+    "sinh", # 15
+    "cosh", # 16
+    "tanh", # 17
+    "log", # 18
+    "exp", # 19
+    "inv", # 20
+    "neg", # 21
+    "abs", # 22
+    "sqrt", # 23
 ]

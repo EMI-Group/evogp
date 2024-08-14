@@ -105,9 +105,17 @@ __device__ inline void _treeGPEvalByStack(const GPNode<T>* i_gps, const T* i_var
 			{
 				top_val = std::sinh(var1);
 			}
+			else if (function == Function::TAN)
+			{
+				top_val = std::tan(var1);
+			}
 			else if (function == Function::COSH)
 			{
 				top_val = std::cosh(var1);
+			}
+			else if (function == Function::TANH)
+			{
+				top_val = std::tanh(var1);
 			}
 			else if (function == Function::LOG)
 			{

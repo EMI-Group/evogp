@@ -36,14 +36,16 @@ function_set = [
     Function(operator.ge, 2, "≥"),  # 11
     Function(sympy.sin, 1),  # 12
     Function(sympy.cos, 1),  # 13
-    Function(sympy.sinh, 1),  # 14
-    Function(sympy.cosh, 1),  # 15
-    Function(sympy.log, 1),  # 16
-    Function(sympy.exp, 1),  # 17
-    Function(operator.inv, 1),  # 18
-    Function(operator.neg, 1, "-"),  # 19
-    Function(operator.abs, 1),  # 20
-    Function(sympy.sqrt, 1, "√"),  # 21
+    Function(sympy.tan, 1),  # 14
+    Function(sympy.sinh, 1),  # 15
+    Function(sympy.cosh, 1),  # 16
+    Function(sympy.tanh, 1),  # 17
+    Function(sympy.log, 1),  # 18
+    Function(sympy.exp, 1),  # 19
+    Function(operator.inv, 1, "1/"),  # 20
+    Function(operator.neg, 1, "-"),  # 21
+    Function(operator.abs, 1),  # 22
+    Function(sympy.sqrt, 1, "√"),  # 23
 ]
 
 
