@@ -42,7 +42,7 @@ def main():
     sys.argv.append("0")
 
     try:
-        with open(f"output/halfcheetah_{sys.argv[1]}.csv", "x") as file:
+        with open(f"output/swimmer_{sys.argv[1]}.csv", "x") as file:
             file.write("gen")
     except Exception:
         pass
@@ -50,8 +50,8 @@ def main():
     alg = GP(
         max_len=32,
         pop_size=2000,
-        num_inputs=18,
-        num_outputs=6,
+        num_inputs=8,
+        num_outputs=2,
         crossover=BasicCrossover(),
         crossover_rate=0.7,
         mutation=(
@@ -94,8 +94,8 @@ def main():
     )
     prob = BraxEnv(
         output_transform=lambda x: jax.numpy.tanh(x),
-        output_length=6,
-        env_name="halfcheetah",
+        output_length=2,
+        env_name="swimmer",
     )
 
     pipeline = General(alg, prob)
@@ -170,7 +170,7 @@ def main():
             f"gen: {i}, max: {np.max(fitnesses)}, min: {np.min(fitnesses)}, mean: {np.mean(fitnesses)}, time_per_gen: {time_per_gen}, env_time: {env_time}"
         )
         update_csv(
-            f"output/halfcheetah_{sys.argv[1]}.csv",
+            f"output/swimmer_{sys.argv[1]}.csv",
             i,
             np.max(fitnesses),
             np.min(fitnesses),
@@ -182,13 +182,14 @@ def main():
     def save_the_top10(trees, fitnesses):
         idx = jnp.argsort(fitnesses)[::-1]
         top10_t = trees[idx[:10]]
-        np.save(f"output/halfcheetah_{sys.argv[1]}_top10.npy", top10_t)
+        np.save(f"output/swimmer_{sys.argv[1]}_top10.npy", top10_t)
         top10_f = fitnesses[idx[:10]]
         for i in range(10):
             graph_i = to_graph(top10_t[i])
-            to_png(graph_i, f"output/halfcheetah{i}_fitness{top10_f[i]}.png")
+            to_png(graph_i, f"output/swimmer{i}_fitness{top10_f[i]}.png")
 
     save_the_top10(state.trees, fitnesses)
+
 
 if __name__ == "__main__":
     main()
