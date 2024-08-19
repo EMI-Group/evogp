@@ -75,61 +75,61 @@ def to_string(node_type, node_val):
 """ Recursive Traversal """
 
 
-def fillout_graph(graph: nx.DiGraph, type_list, val_list):
+def fillout_graph(graph: nx.DiGraph, type_list, val_list, output_list):
+    """Recursive Traversal"""
     node_id = graph.node_count
-    node_type, node_val = type_list[node_id], val_list[node_id]
+    node_type, node_val, output_index = (
+        type_list[node_id],
+        val_list[node_id],
+        output_list[node_id],
+    )
     if node_type == NType.CONST:
         node_label = str(node_val)
-        node_func = float(node_val)
         child_remain = 0
     elif node_type == NType.VAR:
         node_label = chr(ord("A") + int(node_val))
-        node_func = sympy.Symbol(node_label)
         child_remain = 0
     elif node_type == NType.UFUNC:
         node_label = FUNCS_NAMES[int(node_val)]
-        node_func = function_set[int(node_val)]
         child_remain = 1
     elif node_type == NType.BFUNC:
         node_label = FUNCS_NAMES[int(node_val)]
-        # if node_val in [8, 9, 10, 11]:
-        #     node_func = sympy.Symbol(node_label)
-        # else:
-        node_func = function_set[int(node_val)]
         child_remain = 2
     elif node_type == NType.TFUNC:
         node_label = FUNCS_NAMES[int(node_val)]
-        node_func = sympy.Symbol(node_label)
         child_remain = 3
 
-    graph.add_node(node_id, label=node_label, func=node_func)
+    if output_index == -1:
+        graph.add_node(node_id, label=node_label)
+    else:
+        graph.add_node(
+            node_id, label=node_label, xlabel=f"out[{output_index}]", color="red"
+        )
 
     for i in range(child_remain):
         graph.node_count += 1
         graph.add_edge(graph.node_count, node_id, order=i)
-        fillout_graph(graph, type_list, val_list)
+        fillout_graph(graph, type_list, val_list, output_list)
 
 
 def to_graph(tree):
-    node_val, node_type, node_size, _ = from_cuda_node(tree)
-    node_type, node_val = list(node_type[: node_size[0]]), list(
-        node_val[: node_size[0]]
+    node_val, node_type, subtree_size, output_index = from_cuda_node(tree)
+    node_type, node_val, output_index = (
+        list(node_type[: subtree_size[0]]),
+        list(node_val[: subtree_size[0]]),
+        list(output_index[: subtree_size[0]]),
     )
     graph = nx.DiGraph()
     graph.node_count = 0
-    fillout_graph(graph, node_type, node_val)
+    fillout_graph(graph, node_type, node_val, output_index)
     graph.node_count += 1
     return graph
 
 
 def to_png(graph, fname):
     from networkx.drawing.nx_agraph import to_agraph
+    import pygraphviz
 
-    try:
-        import pygraphviz
-    except ImportError:
-        # raise ImportError("requires pygraphviz " "http://pygraphviz.github.io/")
-        return
     agraph: pygraphviz.agraph.AGraph = to_agraph(graph)
     agraph.graph_attr.update(rankdir="BT")
     agraph.graph_attr["label"] = f"size: {graph.node_count}"

@@ -160,7 +160,7 @@ def main():
     pipeline.step = types.MethodType(new_step, pipeline)
     prob.evaluate = types.MethodType(new_evaluate, prob)
 
-    for i in range(1000):
+    for i in range(200):
         start_time = time.time()
         state, fitnesses, env_time = pipeline.step(state)
         time_per_gen = time.time() - start_time
@@ -188,7 +188,8 @@ def main():
             graph_i = to_graph(top10_t[i])
             to_png(graph_i, f"output/halfcheetah{i}_fitness{top10_f[i]}.png")
 
-    save_the_top10(state.trees, fitnesses)
+    save_the_top10(state.alg_state.trees, fitnesses)
+
 
 if __name__ == "__main__":
     main()
