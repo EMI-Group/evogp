@@ -71,6 +71,25 @@ def to_string(node_type, node_val):
         res += " "
     return res
 
+def to_infix(num, node_type, node_val):
+    node_type, node_val = list(node_type[:num][::-1]), list(node_val[:num][::-1])
+    stack = []
+    for t, v in zip(node_type, node_val):
+        if t == NType.VAR:
+            stack.append(f"in[{int(v)}]")
+        elif t == NType.CONST:
+            stack.append(f"{v}")
+        elif t == NType.UFUNC:
+            stack.append(f"{FUNCS_NAMES[int(v)]}({stack.pop()})")
+        elif t == NType.BFUNC:
+            if int(v) in [5, 6, 7]:
+                stack.append(f"{FUNCS_NAMES[int(v)]}({stack.pop()},{stack.pop()})")
+            else:
+                stack.append(f"({stack.pop()}{FUNCS_NAMES[int(v)]}{stack.pop()})")
+        elif t == NType.TFUNC:
+            stack.append(f"{FUNCS_NAMES[int(v)]}({stack.pop()},{stack.pop()},{stack.pop()})")
+    return stack.pop()
+
 
 """ Recursive Traversal """
 

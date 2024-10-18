@@ -6,7 +6,7 @@ from src.cuda.utils import tree_size
 from src.cuda.operations import mutation, generate
 
 
-class BasicMutation(Mutation):
+class SubtreesMutation(Mutation):
     """
     Mutate with a randomly generated subtree
     """

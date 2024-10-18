@@ -42,7 +42,7 @@ class DeleteMutation(Mutation):
             return row, new_idx
 
         def process_row(row, init_idx, jumps):
-            _, final_idx = jax.lax.fori_loop(0, jumps, jump_fn, (row, init_idx))
+            _, final_idx = jax.lax.fori_loop(0, jumps, lambda n: n + I.s[n], (row, init_idx))
             return final_idx
 
         child_indices = jax.vmap(process_row)(subtree_sizes, indices + 1, nth_childs)

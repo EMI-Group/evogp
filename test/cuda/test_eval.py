@@ -69,7 +69,9 @@ def test1():
     t = time.time()
     a = forward(gps, variables)
     a.block_until_ready()
+    print("\033[31m", end="")
     print(time.time() - t)
+    print("\033[0m", end="")
     print(a[0], a[N // 2], a[N - 1])
 
     # #####################
@@ -137,7 +139,9 @@ def test2():
     t = time.time()
     a = forward(gps, variables)
     a.block_until_ready()
+    print("\033[31m", end="")
     print(time.time() - t)
+    print("\033[0m", end="")
     print(a[0], a[N // 2], a[N - 1])
 
     # #####################
@@ -167,4 +171,5 @@ def test2():
 
 
 if __name__ == "__main__":
+    test1()
     test2()
