@@ -2,9 +2,9 @@ import sys
 sys.path.append("/home/skb/TensorGP/")
 import time
 
-from src.cuda.operations import sr_fitness
-from src.cuda.utils import *
-from src.utils.enum import Func
+from evogp.cuda.operations import sr_fitness
+from evogp.cuda.utils import *
+from evogp.utils.enum import Func
 
 
 def test():

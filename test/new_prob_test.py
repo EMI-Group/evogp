@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from src.cuda.operations import forward, sr_fitness
+from evogp.cuda.operations import forward, sr_fitness
 
 target_name = "Smax"
 

@@ -1,8 +1,8 @@
 import time
 
-from src.cuda.operations import mutation
-from src.cuda.utils import *
-from src.utils.enum import Func
+from evogp.cuda.operations import mutation
+from evogp.cuda.utils import *
+from evogp.utils.enum import Func
 
 
 def test():

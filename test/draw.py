@@ -1,5 +1,5 @@
 import numpy as np
-from src.cuda.utils import *
+from evogp.cuda.utils import *
 
 def main():
     top10_t = np.load(f"output/output16/halfcheetah_0_top10.npy")

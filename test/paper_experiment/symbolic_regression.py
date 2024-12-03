@@ -4,23 +4,23 @@ sys.path.append("/home/kelvin/test/TensorGP")
 import jax
 import jax.numpy as jnp
 import numpy as np
-from src.algorithm import DiscreteConst, GeneticProgramming as GP
-from src.algorithm import BasicCrossover
-from src.algorithm import (
+from evogp.algorithm import DiscreteConst, GeneticProgramming as GP
+from evogp.algorithm import BasicCrossover
+from evogp.algorithm import (
     BasicMutation,
     HoistMutation,
     SinglePointMutation,
     LambdaPointMutation,
 )
-from src.algorithm import (
+from evogp.algorithm import (
     BasicSelection,
     TruncationSelection,
     RouletteSelection,
     RankSelection,
     TournamentSelection,
 )
-from src.pipeline import General
-from src.problem.func_fit import GeneralFuncFit
+from evogp.pipeline import General
+from evogp.problem.func_fit import GeneralFuncFit
 import time
 
 
@@ -74,7 +74,7 @@ def main():
 
         # fitnesses = jax.device_get(fitnesses)
         # print(f"gen:{i}, max: {np.max(fitnesses)},", end=" ")
-        # from src.cuda.utils import tree_size, from_cuda_node
+        # from evogp.cuda.utils import tree_size, from_cuda_node
         #
         # trees = pipeline.algorithm.ask(state.alg_state)
         # print(f"mean_size: {np.mean(jax.vmap(tree_size)(trees))}")

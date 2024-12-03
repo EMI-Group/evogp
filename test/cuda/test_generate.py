@@ -1,7 +1,7 @@
 import time
 
-from src.cuda.operations import generate
-from src.cuda.utils import *
+from evogp.cuda.operations import generate
+from evogp.cuda.utils import *
 
 
 def test1():

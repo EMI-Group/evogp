@@ -1,9 +1,9 @@
 from timer import timer
 
 import numpy as np
-from src.cuda.operations import sr_fitness, generate, forward, constant_sr_fitness
-from src.cuda.utils import *
-from src.utils import dict2cdf
+from evogp.cuda.operations import sr_fitness, generate, forward, constant_sr_fitness
+from evogp.cuda.utils import *
+from evogp.utils import dict2cdf
 
 POP_SIZE = int(100)
 DEPTH_TO_LEAF_PROB = jnp.array(

@@ -1,8 +1,8 @@
 import jax
-from src.algorithm import GeneticProgramming as GP
-from src.algorithm import DiscreteConst, BasicSelection, BasicCrossover, BasicMutation
-from src.pipeline.symbolic_regression import SymbolicRegression
-from src.problem.rl_env import GymNaxEnv
+from evogp.algorithm import GeneticProgramming as GP
+from evogp.algorithm import DiscreteConst, BasicSelection, BasicCrossover, BasicMutation
+from evogp.pipeline.symbolic_regression import SymbolicRegression
+from evogp.problem.rl_env import GymNaxEnv
 
 
 def main():

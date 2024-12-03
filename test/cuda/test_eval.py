@@ -1,8 +1,8 @@
 import time
 
-from src.utils.enum import Func
-from src.cuda.operations import forward
-from src.cuda.utils import *
+from evogp.utils.enum import Func
+from evogp.cuda.operations import forward
+from evogp.cuda.utils import *
 
 
 def test1():

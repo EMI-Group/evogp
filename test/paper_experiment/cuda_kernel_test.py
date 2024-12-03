@@ -1,9 +1,9 @@
 import jax
 import jax.numpy as jnp
 
-from src.problem.func_fit import GeneralFuncFit
-from src.cuda.operations import generate, sr_fitness
-from src.utils import dict2cdf
+from evogp.problem.func_fit import GeneralFuncFit
+from evogp.cuda.operations import generate, sr_fitness
+from evogp.utils import dict2cdf
 
 STEP_CNT = 64
 LOW_BOUNDS = jax.numpy.array([-5.0, -5.0])

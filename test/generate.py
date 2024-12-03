@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 
-from src.cuda import generate, from_cuda_node
-from src.utils.tools import dict2cdf
+from evogp.cuda import generate, from_cuda_node
+from evogp.utils.tools import dict2cdf
 
 
 key = jax.random.PRNGKey(0)
