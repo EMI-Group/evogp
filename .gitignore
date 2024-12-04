@@ -10,8 +10,8 @@
 *.userosscache
 *.sln.docstates
 *.sh
-!src/cuda/build.sh
-!src/cuda/build_test.sh
+!src/evogp/cuda/build.sh
+!src/evogp/cuda/build_test.sh
 src/cuda/build/
 .vscode/
 output/
