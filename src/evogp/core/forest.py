@@ -43,98 +43,12 @@ class Forest:
         gp_len: int,
         input_len: int,
         output_len: int,
+        out_prob: float,
         const_prob: float,
-        out_prob: Optional[float] = None,
-        depth2leaf_probs: Optional[Tensor] = None,
-        roulette_funcs: Optional[Tensor] = None,
-        const_samples: Optional[Tensor] = None,
-        func_prob: Optional[dict] = None,
-        max_layer_cnt: Optional[int] = None,
-        layer_leaf_prob: Optional[float] = None,
-        const_range: Optional[Tuple[float, float]] = None,
-        sample_cnt: Optional[int] = None,
+        depth2leaf_probs: Tensor,
+        roulette_funcs: Tensor,
+        const_samples: Tensor,
     ) -> "Forest":
-        """
-        Randomly generate a forest.
-
-        Args:
-            pop_size: The population size of the forest.
-            gp_len: The length of each GP.
-            input_len: The number of inputs of each GP.
-            output_len: The number of outputs of each GP.
-            const_prob: The probability of generating a constant node.
-            out_prob (optional): The probability of generating an output node.
-            depth2leaf_probs (optional): The probability of generating a leaf node at each depth.
-            roulette_funcs (optional): The probability of generating each function.
-            const_samples (optional): The samples of constant values.
-            func_prob (optional): The probability of generating each function.
-            max_layer_cnt (optional): The maximum number of layers of the GP.
-            layer_leaf_prob (optional): The probability of generating a leaf node at each layer.
-            const_range (optional): The range of constant values.
-            sample_cnt (optional): The number of samples of constant values.
-
-        Returns:
-            A Forest object.
-        """
-        assert (
-            gp_len <= MAX_STACK
-        ), f"gp_len={gp_len} is too large, MAX_STACK={MAX_STACK}"
-
-        if depth2leaf_probs is None:
-            assert (
-                max_layer_cnt is not None
-            ), "max_layer_cnt should not be None when depth2leaf_probs is None"
-            assert (
-                layer_leaf_prob is not None
-            ), "layer_leaf_prob should not be None when depth2leaf_probs is None"
-            assert (
-                2**max_layer_cnt <= gp_len
-            ), f"max_layer_cnt is too large for gp_len={gp_len}"
-
-            depth2leaf_probs = torch.tensor(
-                [layer_leaf_prob] * max_layer_cnt
-                + [1.0] * (MAX_FULL_DEPTH - max_layer_cnt),
-                device="cuda",
-                requires_grad=False,
-            )
-        if roulette_funcs is None:
-            assert (
-                func_prob is not None
-            ), "func_prob should not be None when roulette_funcs is None"
-            roulette_funcs = torch.tensor(
-                dict2cdf(func_prob),
-                dtype=torch.float32,
-                device="cuda",
-                requires_grad=False,
-            )
-        if const_samples is None:
-            assert (
-                const_range is not None
-            ), "const_range should not be None when const_samples is None"
-            assert (
-                sample_cnt is not None
-            ), "sample_cnt should not be None when const_samples is None"
-            const_samples = (
-                torch.rand(sample_cnt, device="cuda", requires_grad=False)
-                * (const_range[1] - const_range[0])
-                + const_range[0]
-            )
-
-        if output_len > 1:
-            assert (
-                out_prob is not None
-            ), "out_prob should not be None when output_len > 1"
-
-        assert depth2leaf_probs.shape == (
-            MAX_FULL_DEPTH,
-        ), f"depth2leaf_probs shape should be ({MAX_FULL_DEPTH}), but got {depth2leaf_probs.shape}"
-        assert roulette_funcs.shape == (
-            Func.END,
-        ), f"roulette_funcs shape should be ({Func.END}), but got {roulette_funcs.shape}"
-        assert (
-            const_samples.dim() == 1
-        ), f"const_samples dim should be 1, but got {const_samples.dim()}"
-
         keys = torch.randint(
             low=0,
             high=1000000,
@@ -365,6 +279,21 @@ class Forest:
         )
 
         return res
+
+    def clone(self) -> "Forest":
+        """
+        Clone the current forest.
+
+        Returns:
+            A new Forest object.
+        """
+        return Forest(
+            self.input_len,
+            self.output_len,
+            self.batch_node_value.clone(),
+            self.batch_node_type.clone(),
+            self.batch_subtree_size.clone(),
+        )
 
     def __getitem__(self, index):
         if isinstance(index, int):

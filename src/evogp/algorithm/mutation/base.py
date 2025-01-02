@@ -1,4 +1,4 @@
-from evogp.tree import Forest
+from evogp.core import Forest
 
 class BaseMutation:
     def __call__(self, forest: Forest):

@@ -1,6 +1,6 @@
 import torch
 import evogp.evogp_cuda
-from evogp.tree.utils import str_tree
+from evogp.core.utils import str_tree
 import numpy as np
 
 pop_size = 10

@@ -42,8 +42,10 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Ignore generated trees
-tree_structure.txt
+# Ignore output files
+output/
+*.csv
 
-# Ignore any local test data
-test*.pyc
+# Ignore test files
+test/
+playground.ipynb

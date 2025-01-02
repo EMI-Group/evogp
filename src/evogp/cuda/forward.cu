@@ -272,6 +272,10 @@ __device__ inline void _treeGPEvalByStack(
 		s_vals[top++] = top_val;
 	}
 	
+	if (top != 1)
+	{
+		printf("top: %d\n", top);
+	}
 	assert (top == 1);  // my personal guess
 }
 

@@ -27,7 +27,7 @@ inline void _gpTreeReplace(
 	int16_t* subtree_size_stack = (int16_t*)alloca(MAX_STACK * sizeof(int16_t));
 
 	// copy previous part
-	for (int i = 0; i < old_node_idx; i++)
+	for (int i = 0; i <= old_node_idx; i++)
 	{	
 		value_stack[i] = value_old[i];
 		type_stack[i] = type_old[i];
@@ -60,14 +60,14 @@ inline void _gpTreeReplace(
 			}
 			break;
 		case NodeType::TFUNC:
-			midTreeIndex = subtree_size_stack[current] + current;
+			midTreeIndex = current + subtree_size_stack[current];
 			if (old_node_idx < midTreeIndex)
 			{	
 				// at left subtree
 				// do nothing
 				break;
 			}
-			rightTreeIndex = subtree_size_stack[midTreeIndex] + midTreeIndex;
+			rightTreeIndex = midTreeIndex + subtree_size_stack[midTreeIndex];
 			if (old_node_idx < rightTreeIndex)  // midTreeIndex <= old_node_idx &&
 			{	// at mid subtree
 				current = midTreeIndex;

@@ -1,5 +1,5 @@
 from typing import Tuple
-from evogp.tree import Forest
+from evogp.core import Forest
 
 
 class BaseSelection:
