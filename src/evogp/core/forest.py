@@ -8,6 +8,9 @@ from . import Tree
 
 
 class Forest:
+
+    debug_mode = False
+
     def __init__(
         self,
         input_len,
@@ -36,6 +39,9 @@ class Forest:
         self.batch_node_value = batch_node_value
         self.batch_node_type = batch_node_type
         self.batch_subtree_size = batch_subtree_size
+
+        if self.debug_mode:
+            self.using_debug_mode()
 
     @staticmethod
     def random_generate(
@@ -280,6 +286,63 @@ class Forest:
 
         return res
 
+    @classmethod
+    def set_debug_mode(cls, debug_mode: bool = True):
+        assert isinstance(debug_mode, bool)
+        if debug_mode:
+            print("Debug mode on Forest is enabled.")
+        else:
+            print("Debug mode on Forest is disabled.")
+
+        cls.debug_mode = debug_mode
+
+    def using_debug_mode(self):
+        def debug_wrapper(func):
+            def wrapper(*args, **kwargs):
+
+                # check each tree in forest valid
+                # for tree in self:
+                #     tree.assert_valid()
+
+                saved_args = []
+                saved_kwargs = {}
+                for arg in args:
+                    if isinstance(arg, Tensor):
+                        saved_args.append(arg.cpu().numpy())
+                    else:
+                        saved_args.append(arg)
+
+                for key, value in kwargs.items():
+                    if isinstance(value, Tensor):
+                        saved_kwargs[key] = value.cpu().numpy()
+
+                from datetime import datetime
+
+                kernel_info = {
+                    "func_name": func.__name__,
+                    "execute_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "forest": self,
+                    "status": "error",
+                    "args": saved_args,
+                    "kwargs": saved_kwargs,
+                }
+                np.save("kernel_info", kernel_info)
+                # synchronize after
+                torch.cuda.synchronize()
+                res = func(*args, **kwargs)
+
+                kernel_info["status"] = "success"
+                np.save("kernel_info", kernel_info)
+
+                return res
+
+            return wrapper
+
+        self.forward = debug_wrapper(self.forward)
+        self.crossover = debug_wrapper(self.crossover)
+        self.mutate = debug_wrapper(self.mutate)
+        self.SR_fitness = debug_wrapper(self.SR_fitness)
+
     def clone(self) -> "Forest":
         """
         Clone the current forest.
@@ -399,3 +462,28 @@ class Forest:
 
     def __radd__(self, other):
         return self.__add__(other)
+
+    def __getstate__(self):
+        return {
+            "input_len": self.input_len,
+            "output_len": self.output_len,
+            "batch_node_value": self.batch_node_value.cpu().numpy(),
+            "batch_node_type": self.batch_node_type.cpu().numpy(),
+            "batch_subtree_size": self.batch_subtree_size.cpu().numpy(),
+        }
+
+    def __setstate__(self, state):
+        self.input_len = state["input_len"]
+        self.output_len = state["output_len"]
+        self.pop_size, self.gp_len = state["batch_node_value"].shape
+        self.batch_node_value = (
+            torch.from_numpy(state["batch_node_value"]).to("cuda").requires_grad_(False)
+        )
+        self.batch_node_type = (
+            torch.from_numpy(state["batch_node_type"]).to("cuda").requires_grad_(False)
+        )
+        self.batch_subtree_size = (
+            torch.from_numpy(state["batch_subtree_size"])
+            .to("cuda")
+            .requires_grad_(False)
+        )

@@ -102,6 +102,95 @@ class Tree:
 
         return res
 
+    def python_forward(self, inputs: np.ndarray) -> np.ndarray:
+        assert inputs.shape == (self.input_len,)
+        assert self.output_len == 1
+        value, node_type, subtree_size = to_numpy(
+            [self.node_value, self.node_type, self.subtree_size]
+        )
+        tree_size = subtree_size[0]
+        operents = []
+        for i in range(tree_size - 1, -1, -1):
+            if node_type[i] == NType.VAR:
+                operents.append(inputs[int(value[i])])
+            elif node_type[i] == NType.CONST:
+                operents.append(value[i])
+            else:
+                op1 = operents.pop(-1)  # right child
+                op2 = operents.pop(-1)  # left child
+                if value[i] == Func.ADD:
+                    res = op2 + op1
+                elif value[i] == Func.SUB:
+                    res = op2 - op1
+                elif value[i] == Func.MUL:
+                    res = op2 * op1
+                elif value[i] == Func.DIV:
+                    if np.allclose(op1, 0.0):
+                        res = op2
+                    else:
+                        res = op2 / op1
+                else:
+                    raise NotImplementedError
+                operents.append(res)
+
+        # check sucess
+        assert len(operents) == 1
+        return operents[0]
+
+    def assert_valid(self):
+        value, node_type, subtree_size = to_numpy(
+            [self.node_value, self.node_type, self.subtree_size]
+        )
+        # check forward success
+        dummy_input = np.array([0.0] * self.input_len)
+        self.python_forward(dummy_input)
+
+        # check subtree size valid
+        needed_length, idx = 1, 0
+        while True:
+            needed_length -= 1
+            if node_type[idx] == NType.UFUNC:
+                needed_length += 1
+            elif node_type[idx] == NType.BFUNC:
+                needed_length += 2
+            elif node_type[idx] == NType.TFUNC:
+                needed_length += 3
+
+            idx += 1
+            if needed_length == 0:
+                break
+
+        root_real_size = idx
+
+        assert subtree_size[0] == root_real_size
+        # check subsize valid
+        operents = []
+        for i in range(root_real_size - 1, -1, -1):
+            if node_type[i] == NType.VAR:
+                size = 1
+            elif node_type[i] == NType.CONST:
+                size = 1
+            elif node_type[i] == NType.UFUNC:
+                op1 = operents.pop(-1)
+                size = op1 + 1
+            elif node_type[i] == NType.BFUNC:
+                op1 = operents.pop(-1)
+                op2 = operents.pop(-1)
+                size = op1 + op2 + 1
+            elif node_type[i] == NType.TFUNC:
+                op1 = operents.pop(-1)
+                op2 = operents.pop(-1)
+                op3 = operents.pop(-1)
+                size = op1 + op2 + op3 + 1
+            else:
+                raise NotImplementedError
+            operents.append(size)
+            assert subtree_size[i] == size
+
+        assert len(operents) == 1
+
+        assert True
+
     def __str__(self):
         value, node_type, subtree_size = to_numpy(
             [self.node_value, self.node_type, self.subtree_size]

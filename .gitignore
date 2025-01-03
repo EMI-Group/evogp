@@ -45,6 +45,7 @@ Thumbs.db
 # Ignore output files
 output/
 *.csv
+*.npy
 
 # Ignore test files
 test/
