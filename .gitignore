@@ -49,7 +49,7 @@ test*.pyc
 
 # Ignore npy file
 *.npy
-experiment/*
+# experiment/*
 experiment/data/*
 src/evogp/cuda/forward_new.cu
 .env
