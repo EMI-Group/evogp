@@ -51,5 +51,6 @@ test*.pyc
 *.npy
 # experiment/*
 experiment/data/*
+experiment/brax_task_old/*
 src/evogp/cuda/forward_new.cu
 .env

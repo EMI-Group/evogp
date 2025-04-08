@@ -109,6 +109,42 @@ class Forest:
             batch_subtree_size,
         )
 
+    def expand(self, max_tree_len):
+        """
+        Expand the size of the trees in the forest to a new maximum length.
+
+        Args:
+            max_tree_len: The new maximum length for the trees.
+
+        Returns:
+            A new Forest object with expanded trees.
+        """
+        assert (
+            max_tree_len > self.max_tree_len
+        ), "max_tree_len should be greater than current max_tree_len"
+
+        batch_node_value = torch.zeros(
+            (self.pop_size, max_tree_len), dtype=torch.float32, device="cuda"
+        )
+        batch_node_type = torch.zeros(
+            (self.pop_size, max_tree_len), dtype=torch.int16, device="cuda"
+        )
+        batch_subtree_size = torch.zeros(
+            (self.pop_size, max_tree_len), dtype=torch.int16, device="cuda"
+        )
+
+        batch_node_value[:, : self.max_tree_len] = self.batch_node_value
+        batch_node_type[:, : self.max_tree_len] = self.batch_node_type
+        batch_subtree_size[:, : self.max_tree_len] = self.batch_subtree_size
+
+        return Forest(
+            self.input_len,
+            self.output_len,
+            batch_node_value,
+            batch_node_type,
+            batch_subtree_size,
+        )
+
     def forward(self, x: Tensor) -> Tensor:
         """
         Evaluate the expression forest.

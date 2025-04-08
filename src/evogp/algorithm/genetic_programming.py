@@ -11,6 +11,21 @@ class ParetoFront:
             (size,), float("-inf"), dtype=torch.float32, device="cuda"
         )
         self.solution = Forest.zero_generate(size, *forest_descriptor)
+        self.max_tree_len = self.fitness.shape[0]
+        self.forest_descriptor = forest_descriptor
+
+    def expand(self, size):
+        self.forest_descriptor[0] = size
+        self.fitness = torch.cat(
+            (
+                self.fitness,
+                torch.full((size - self.max_tree_len,), float("-inf"), device="cuda"),
+            )
+        )
+        self.solution = self.solution.expand(size) + Forest.zero_generate(
+            size - self.max_tree_len, *self.forest_descriptor
+        )
+        self.max_tree_len = self.fitness.shape[0]
 
     def __str__(self):
         result = []
@@ -43,11 +58,11 @@ class GeneticProgramming:
         if enable_pareto_front:
             self.pareto_front = ParetoFront(
                 self.forest.max_tree_len,
-                (
+                [
                     self.forest.max_tree_len,
                     self.forest.input_len,
                     self.forest.output_len,
-                ),
+                ],
             )
 
     def for_update_pareto_front(self, fitness, solution: Forest):
@@ -64,6 +79,8 @@ class GeneticProgramming:
 
     def vmap_update_pareto_front(self, fitness: Tensor, solution: Forest):
         max_tree_len = solution.max_tree_len
+        if max_tree_len > self.pareto_front.max_tree_len:
+            self.pareto_front.expand(max_tree_len)
         size = solution.batch_subtree_size[:, 0]
         fitness_expanded = fitness.broadcast_to(max_tree_len, -1)
         size_expanded = size.broadcast_to(max_tree_len, -1)
