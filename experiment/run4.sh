@@ -1,0 +1,1 @@
+export PYTHONPATH='/wuzhihong/evogp2/evogp/src'; cd /wuzhihong/evogp2/evogp; /root/anaconda3/envs/torch/bin/python /wuzhihong/evogp2/evogp/experiment/brax_task.py --config experiment/data/configs/20250409_120758.yaml

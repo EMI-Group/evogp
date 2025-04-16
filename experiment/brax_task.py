@@ -157,6 +157,6 @@ def run_experiment(config_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="experiment/data/configs/20250409_000204.yaml")
+    parser.add_argument("--config", type=str, default="experiment/data/configs/test.yaml")
     args = parser.parse_args()
     run_experiment(args.config)
