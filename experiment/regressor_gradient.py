@@ -3,7 +3,7 @@ import torch
 torch.random.manual_seed(0)
 torch.cuda.manual_seed(0)
 
-from evogp.pipeline import StandardPipeline
+from evogp.pipeline import GradientPipeline
 from evogp.tree import Forest, GenerateDescriptor
 from evogp.algorithm import (
     GeneticProgramming,
@@ -22,7 +22,7 @@ def func(x):
 
 
 problem = SymbolicRegression(
-    func=func, num_inputs=2, num_data=256, lower_bounds=-5, upper_bounds=5
+    func=func, num_inputs=2, num_data=100, lower_bounds=-5, upper_bounds=5
 )
 
 descriptor = GenerateDescriptor(
@@ -37,7 +37,7 @@ descriptor = GenerateDescriptor(
 
 
 algorithm = GeneticProgramming(
-    initial_forest=Forest.random_generate(pop_size=10_0000, descriptor=descriptor),
+    initial_forest=Forest.random_generate(pop_size=1000, descriptor=descriptor),
     crossover=DefaultCrossover(),
     mutation=CombinedMutation(
         [
@@ -51,20 +51,15 @@ algorithm = GeneticProgramming(
     enable_pareto_front=False,
 )
 
-pipeline = StandardPipeline(
+pipeline = GradientPipeline(
     algorithm,
     problem,
-    generation_limit=100,
+    generation_limit=300,
 )
 
 best = pipeline.run()
 
-import numpy as np
-eval_time = np.mean(np.array(pipeline.eval_time))
-genetic_time = np.mean(np.array(pipeline.genetic_time))
-print(f"eval_time: {eval_time}, genetic_time: {genetic_time}")
-
 sympy_expression = best.to_sympy_expr()
 print(sympy_expression)
 
-# print(algorithm.pareto_front)
+print(algorithm.pareto_front)

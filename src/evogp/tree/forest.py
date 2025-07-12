@@ -210,6 +210,13 @@ class Forest:
         res = assist_res.reshape(self.pop_size, batch_size, self.output_len)
 
         return res
+    
+    # (input_len, n_dims) -> (pop_size, output_len, n_dims)
+    def vector_forward(self, x: Tensor) -> Tensor:
+        assist_x = x.permute(1, 0) # (input_len, n_dims) -> (batch_size, input_len)
+        assist_res = self.batch_forward(assist_x)
+        res = assist_res.permute(0, 2, 1) # (pop_size, batch_size, output_len) -> (pop_size, output_len, n_dims)
+        return res
 
     def mutate(self, replace_pos: Tensor, new_sub_forest: "Forest") -> "Forest":
         """

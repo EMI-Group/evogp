@@ -55,7 +55,7 @@ def build_single_mutation(name, params, descriptor):
     elif name == "InsertMutation":
         return InsertMutation(descriptor=descriptor, **params)
     elif name == "DeleteMutation":
-        return DeleteMutation(descriptor=descriptor, **params)
+        return DeleteMutation(**params)
     elif name == "DefaultMutation":
         return DefaultMutation(descriptor=descriptor, **params)
     else:
@@ -108,7 +108,7 @@ def run_experiment(config_path):
     # 日志记录初始化
     os.makedirs("experiment/data/results", exist_ok=True)
     os.makedirs("experiment/data/configs", exist_ok=True)
-    result_path = f"experiment/data/results/{config_id}.csv"
+    result_path = f"experiment/data/results/{config_id}11.csv"
     log_headers = [
         "generation", "best_fitness", "mean_fitness",
         "max_tree_size", "mean_tree_size", "min_tree_size",
@@ -157,6 +157,6 @@ def run_experiment(config_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="experiment/data/configs/test.yaml")
+    parser.add_argument("--config", type=str, default="experiment/data/configs/test_halfcheetah.yaml")
     args = parser.parse_args()
     run_experiment(args.config)
