@@ -1,0 +1,12 @@
+torch
+scikit_learn
+sympy
+numpy
+networkx
+
+# pygraphvi  # optional, for visualize tree
+# jax  # optional, for jax-based problem
+# brax  # optional, for brax benchmark
+
+
+

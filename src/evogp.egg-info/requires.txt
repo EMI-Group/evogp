@@ -1,0 +1,12 @@
+torch
+numpy
+scikit_learn
+networkx
+sympy
+
+[brax]
+jax
+brax
+
+[visualize]
+pygraphviz
