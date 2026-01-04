@@ -32,6 +32,7 @@ class StandardPipeline(BasePipeline):
 
         self.best_tree = None
         self.best_fitness = float("-inf")
+        self.fitness = None
         self.generation_timestamp = None
 
     def step(self):
@@ -42,8 +43,8 @@ class StandardPipeline(BasePipeline):
         fitnesses[torch.isnan(fitnesses)] = -torch.inf
 
         # update best tree info
-        cpu_fitness = fitnesses.cpu().numpy()
-        best_idx, best_fitness = int(np.argmax(cpu_fitness)), np.max(cpu_fitness)
+        cpu_fitness = fitnesses.cpu()
+        best_idx, best_fitness = int(torch.argmax(cpu_fitness)), torch.max(cpu_fitness)
         if best_fitness > self.best_fitness:
             self.best_fitness = best_fitness
             self.best_tree = self.algorithm.forest[best_idx]
@@ -61,10 +62,10 @@ class StandardPipeline(BasePipeline):
             if self.is_show_details:
                 start_time = time.time()
 
-            cpu_fitness = self.step()
+            self.fitness = self.step()
 
             if self.is_show_details:
-                self.show_details(start_time, generation_cnt, cpu_fitness)
+                self.show_details(start_time, generation_cnt, self.fitness)
 
             if (
                 self.fitness_target is not None

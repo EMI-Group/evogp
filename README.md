@@ -369,6 +369,15 @@ pipeline.run()
 
 Detailed examples for the above tasks are available in the [**examples**](https://github.com/EMI-Group/evogp/tree/main/example).
 
+## Experiments in Paper
+
+The following scripts in the `example/` directory are the main experimental scripts used in our paper:
+
+- `example/uci_sr.py`: Main experimental script for Symbolic Regression tasks.
+- `example/custom_sr.py`: Main experimental script for Custom Symbolic Regression tasks.
+- `example/uci_classifier.py`: Main experimental script for Classification tasks.
+- `example/brax_task.py`: Main experimental script for Reinforcement Learning (RL) tasks.
+
 ## Community & Support
 
 EvoGP is a new project, and we will continue to maintain it in the future. We warmly welcome suggestions for improvement!

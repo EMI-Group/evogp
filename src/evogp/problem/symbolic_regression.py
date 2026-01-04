@@ -16,7 +16,7 @@ class SymbolicRegression(BaseProblem):
         num_data: Optional[int] = 100,
         lower_bounds: Optional[Tensor] = -1,
         upper_bounds: Optional[Tensor] = 1,
-        execute_mode: str = "hybrid parallel",
+        execute_mode: str = "auto",
     ):
 
         assert execute_mode in [
