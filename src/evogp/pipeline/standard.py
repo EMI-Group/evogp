@@ -95,8 +95,8 @@ class StandardPipeline(BasePipeline):
         max_f, min_f, mean_f, std_f = (
             max(valid_fitness),
             min(valid_fitness),
-            np.mean(valid_fitness),
-            np.std(valid_fitness),
+            torch.mean(valid_fitness),
+            torch.std(valid_fitness),
         )
         cost_time = time.time() - start_time
 
