@@ -3,7 +3,9 @@
 #include "defs.h"
 
 #include <cuda_runtime.h>
+#ifndef USE_ROCM
 #include "device_launch_parameters.h"
+#endif
 
 #include <thrust/random.h>
 

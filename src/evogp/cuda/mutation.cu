@@ -22,9 +22,9 @@ inline void _gpTreeReplace(
 )
 {
 	// create stack memory
-	float* value_stack = (float*)alloca(MAX_STACK * sizeof(float));
-	int16_t* type_stack = (int16_t*)alloca(MAX_STACK * sizeof(int16_t));
-	int16_t* subtree_size_stack = (int16_t*)alloca(MAX_STACK * sizeof(int16_t));
+	float value_stack[MAX_STACK];
+	int16_t type_stack[MAX_STACK];
+	int16_t subtree_size_stack[MAX_STACK];
 
 	// copy previous part
 	for (int i = 0; i < old_node_idx; i++)

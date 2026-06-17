@@ -107,6 +107,22 @@ pip install git+https://github.com/EMI-Group/evogp.git --no-build-isolation
 python -m evogp.sr_test
 ```
 
+### Building for AMD GPUs (ROCm)
+
+EvoGP also runs on AMD GPUs through ROCm/HIP. The CUDA kernels are compiled with HIP automatically by PyTorch's build system, so the steps mirror the CUDA flow above with two substitutions:
+
+1. Instead of the NVIDIA CUDA Toolkit, install [ROCm](https://rocm.docs.amd.com/) (including `hipcc`).
+2. Install a ROCm build of PyTorch, for example:
+   ```bash
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm7.2
+   ```
+3. Install EvoGP the same way:
+   ```bash
+   pip install git+https://github.com/EMI-Group/evogp.git --no-build-isolation
+   ```
+
+PyTorch detects the ROCm backend and routes the kernels through HIP; no source changes are required. The same `cuda` device strings used throughout the examples select the AMD GPU under ROCm. To target a specific AMD GPU architecture, set `PYTORCH_ROCM_ARCH` before installing (for example `export PYTORCH_ROCM_ARCH=gfx1100`); by default PyTorch builds for the architecture of the GPU it detects.
+
 ## Basic API Usage
 
 Start your journey with EvoGP in a few simple steps:
