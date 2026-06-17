@@ -53,8 +53,8 @@ __global__ void treeGPGenerate(
 	}
 
 	// stack memory for node generation
-	GPNode* gp = (GPNode*)alloca(MAX_STACK * sizeof(GPNode));  // result gp array
-	NchildDepth* childsAndDepth = (NchildDepth*)alloca(MAX_STACK * sizeof(NchildDepth));  // stack
+	GPNode gp[MAX_STACK];  // result gp array
+	NchildDepth childsAndDepth[MAX_STACK];  // stack
 	childsAndDepth[0] = { 1, 0 };  // Start with the root node, {child, depth}
 	int topGP = 0, top = 1;
 

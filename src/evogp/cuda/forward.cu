@@ -323,8 +323,8 @@ __global__ void treeGPEvalKernel(
         assert(varLen <= MAX_STACK / 2); // varible will load into infos
     }
     // init
-    float *stack = (float *)alloca(MAX_STACK * sizeof(float));           // the stack to store the operants
-    int16_t *infos = (int16_t *)alloca(2 * MAX_STACK * sizeof(int16_t)); // extra stack memory to load some info
+    float stack[MAX_STACK];        // the stack to store the operants
+    int16_t infos[2 * MAX_STACK];  // extra stack memory to load some info
 
     // current tree
     auto i_value = value + n * maxGPLen;
@@ -437,8 +437,8 @@ __global__ void treeGPRegressionFitnessKernel(
     float fit = .0f;
 
     if (dataPointId < dataPoints) {
-        float *stack = (float *)alloca(MAX_STACK * sizeof(float));
-        int16_t *infos = (int16_t *)alloca(2 * MAX_STACK * sizeof(int16_t));
+        float stack[MAX_STACK];
+        int16_t infos[2 * MAX_STACK];
 
         // current tree
         auto i_value = value + nGP * maxGPLen;
@@ -616,8 +616,8 @@ __global__ void constant_tree_treeGPRegressionFitnessKernel(
 
     // init
     float fit = .0f;
-    float *stack = (float *)alloca(MAX_STACK * sizeof(float));
-    int16_t *infos = (int16_t *)alloca(2 * MAX_STACK * sizeof(int16_t));
+    float stack[MAX_STACK];
+    int16_t infos[2 * MAX_STACK];
 
     // current data point
     auto i_vars = variables + dataPointId * varLen;
@@ -761,8 +761,8 @@ __global__ void constant_vars_treeGPRegressionFitnessKernel(
 
     // init
     float fit = .0f;
-    float *stack = (float *)alloca(MAX_STACK * sizeof(float));
-    int16_t *infos = (int16_t *)alloca(2 * MAX_STACK * sizeof(int16_t));
+    float stack[MAX_STACK];
+    int16_t infos[2 * MAX_STACK];
 
     // current tree
     auto i_value = value + treeId * maxGPLen;

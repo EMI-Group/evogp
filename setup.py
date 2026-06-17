@@ -1,4 +1,5 @@
 import os
+import torch
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import CUDAExtension, BuildExtension
 from setuptools.command.install import install
@@ -8,6 +9,26 @@ if cpu_count:
     os.environ["MAX_JOBS"] = str(cpu_count)
 else:
     os.environ["MAX_JOBS"] = "1"
+
+# The device-compiler flag list differs by backend. On ROCm the device
+# compiler is hipcc, which rejects the nvcc/ptxas-only flags below
+# (--ptxas-options, -Xptxas, -lineinfo, -maxrregcount, -lcudart) and uses a
+# different spelling for relaxed-constexpr and fast math. torch's hipify
+# rewrites source, not these compile args, so they would reach hipcc verbatim.
+# CUDAExtension keeps the "nvcc" key for the device compiler on both backends.
+if torch.version.hip is not None:
+    device_compile_args = ["-O3"]
+else:
+    device_compile_args = [
+        "-O3",
+        "--expt-relaxed-constexpr",
+        "--ptxas-options=-v",
+        "-Xptxas=-O3",
+        "-lineinfo",
+        "-lcudart",
+        "-use_fast_math",
+        "-maxrregcount=32",
+    ]
 
 with open("README.md", "r", encoding="utf-8") as f:
     long_description = f.read()
@@ -45,16 +66,7 @@ setup(
             ],
             extra_compile_args={
                 "cxx": ["-O3"],
-                "nvcc": [
-                    "-O3",
-                    "--expt-relaxed-constexpr",
-                    "--ptxas-options=-v",
-                    "-Xptxas=-O3",
-                    "-lineinfo",
-                    "-lcudart",
-                    "-use_fast_math",
-                    "-maxrregcount=32",
-                ],
+                "nvcc": device_compile_args,
             },
         )
     ],
