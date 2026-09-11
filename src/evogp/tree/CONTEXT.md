@@ -124,6 +124,6 @@ This directory has **no child subdirectories** — the layer is the files listed
 - `splicing.py` → pure-torch `mutate` / `crossover` splices.
 - `etl_engine.py` → decode + ETL `evaluate` + `sr_fitness` + `CACHE` / `cache_stats()` / `clear_cache()`.
 - `tree.py` / `forest.py` → the public wrappers re-exported by `__init__.py`.
-- `combined_forest.py` / `combined_tree.py` → `data_info`-driven multi-output model.
+- `combined_forest.py` / `combined_tree.py` → `data_info`-driven multi-output model (`normalize_inputs` holds the shared input-shape contract).
 - `ENGINE_SPEC.md` → authoritative semantics spec (incl. historical Appendices).
 Siblings (read-only from here — escalate any needed write to the parent `./src/evogp`): `../algorithm/` (operators that splice via `Forest.mutate` / `Forest.crossover` and write OUT_NODE tags), `../problem/` (SR / classification / robotics problems), `../pipeline/` (training loop), `../tests/` (the pytest regression gate for this engine), `../../../test/`, `../../../example/`, `../../../tutorial/`.
