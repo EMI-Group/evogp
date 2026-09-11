@@ -44,7 +44,7 @@ All CUDA call sites (`torch.ops.evogp_cuda.*`) live ONLY in `tree/tree.py` and `
 
 ## Known Issues
 Cross-cutting problems only; per-directory detail lives in the child CONTEXT.md files.
-- The library has essentially no automated test coverage: `test/` holds ad-hoc scripts and notebooks, everything requires a GPU plus a successful kernel build, and the multi-output CUDA instantiations are exercised by no test at all.
+- The library has essentially no automated test coverage: `test/` holds ad-hoc scripts and notebooks, everything requires a GPU plus a successful kernel build, and no automated test drives the multi-output CUDA instantiations (`out_len > 1`, reachable at runtime only via `example/classifier.py`, the robotics examples, or `CombinedForest`-based code).
 - The multi-output / `CombinedForest` path is partly bit-rotted: `SymbolicRegression.evaluate` still reads `forest.share_input` (removed) and is incompatible with the dict-based `CombinedForest`, and `example/combined_sr.py` / `tutorial/combined_gp.ipynb` still use the removed `formula=` / `share_input=` API. `CombinedTree.forward` ends by indexing a dict → `KeyError`, and there is no `CombinedTree.to_sympy_expr`.
 - Container/operator mismatch is never validated: nothing checks that `CombinedDefaultCrossover`/`CombinedDefaultMutation` are paired with a `CombinedForest`, nor that `descriptor.input_len/output_len` match `problem.problem_dim/solution_dim` (the pipeline's dimension asserts are commented out).
 - Some shipped problems are broken or stubs: `MujocoProblem.__init__` raises `NameError` (locals imported without `global`), `GenesisProblem.evaluate` returns `None` and its `go2_env` helper needs URDFs absent from the repo, `CustomLoss` is unreachable from `problem/__init__.py`.

@@ -3,7 +3,7 @@
 ## Intent
 This is the **foundation layer** of EvoGP: the GP individual (`Tree`), the population of individuals (`Forest`), the multi-output variants (`CombinedTree` / `CombinedForest`), the random-generation blueprint (`GenerateDescriptor`), and the enums/helpers they share.
 Everything the rest of the library manipulates (fitness, selection, crossover, mutation, visualization) is expressed in terms of the tensor representation defined here.
-This package imports **nothing** from other `evogp` subpackages — the dependency direction is strictly `tree/` → `algorithm/` → `problem/` → `pipeline/` (no cycles).
+This package imports **nothing** from other `evogp` subpackages — it is the root of the package DAG: `algorithm/` and `problem/` are its two independent consumers and `pipeline/` sits above both (no cycles).
 All heavy work is batched and lives on the GPU; there is no CPU fallback anywhere in this layer.
 
 ## Representation (the schema every other module depends on)
