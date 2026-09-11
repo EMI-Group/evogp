@@ -34,7 +34,7 @@ Tensor contract enforced by the extension (`../cuda/torch_wrapper.cu`): values `
 `utils.py` — flat module of shared constants/enums/helpers (all imported by `algorithm/` too):
 - `MAX_STACK = 1024`, `MAX_FULL_DEPTH = 10`, `DELTA`, `MAXVAL`.
 - `NType` (VAR/CONST/UFUNC/BFUNC/TFUNC, `TYPE_MASK`, `OUT_NODE`, `*_OUT`), `Func` (TF 0 `IF`; BF 1..13 `ADD..GE`; UF 14..28 `SIN..LOOSE_SQRT`; `END = 29`), `FUNCS`, `FUNCS_NAMES` (index == function id), `FUNCS_DISPLAY` (unicode minus for `-`), `SYMPY_MAP`, `LooseDiv`/`LooseInv`/`LooseLog` (sympy `sp.Function`s).
-- `dict2prob(prob_dict)` → normalized torch cdf over the 29 slots; `to_numpy(li)`; `check_tensor(x)`; `str_tree(value, node_type, subtree_size)`; `randint(size, low, high, dtype=torch.int32, device="cuda")`; `inspect_function(func)` (returns the parameter names of a callable, rejects defaults).
+- `dict2prob(prob_dict)` → normalized probability vector over the 29 function slots (the caller does the `cumsum`); `to_numpy(li)`; `check_tensor(x)`; `str_tree(value, node_type, subtree_size)`; `randint(size, low, high, dtype=torch.int32, device="cuda")`; `inspect_function(func)` (returns the parameter names of a callable, rejects defaults).
 
 `tree.py` — `Tree(input_len, output_len, node_value, node_type, subtree_size)`:
 - `Tree.random_generate(descriptor)` (delegates to `Forest.random_generate(pop_size=1)[0]`), `to_forest()`.
