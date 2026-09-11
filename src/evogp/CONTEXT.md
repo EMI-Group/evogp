@@ -58,7 +58,6 @@ Cross-cutting problems only; per-directory detail lives in the child CONTEXT.md 
 - `algorithm/__init__.py` uses star imports with no `__all__`, so `evogp.algorithm.base` / `evogp.algorithm.default` resolve to the SELECTION submodules (last star import wins) — import the concrete subpackage (`evogp.algorithm.crossover.base`) instead.
 - `GenerateDescriptor.update(**kwargs)` returns a new descriptor but also mutates the receiver's captured params (kwargs are sticky) and re-draws `const_samples`; `MAX_STACK` overflow / malformed indices are now caught by the host-side decode (`ValueError`) rather than silently corrupting a kernel run.
 - Sympy rendering is a display artifact with documented edge gaps (e.g. `LOOSE_POW(0,0)` renders `1` while the engine computes `0`, `LOG(0)` renders `zoo` while the engine returns `-inf`); see `tree/CONTEXT.md`.
-- The repo-root `test/` scripts (`test_bind_success.py`, …) still drive the deleted extension's custom torch ops and can no longer run; they are outside this node.
 
 ## `sr_test.py` (top of this node)
 Standalone install-validation smoke script documented in README §5 as `python -m evogp.sr_test`; it is NOT a unit test and is not pytest-collected.
