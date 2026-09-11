@@ -15,7 +15,7 @@ From the repository root:
 `PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -m pytest src/evogp/tests -x -q`
 (Single file: replace the path; `-x` stops at the first failure. Perf probe: `PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python src/evogp/tests/perf_probe.py --quick`.)
 ## Constraints
-- No test may depend on a compiled extension (`evogp_cuda` no longer exists) and the reference path must not require a GPU.
+- No test may depend on a compiled extension (there is none any more) and the reference path must not require a GPU.
 - `reference_eval.py` stays independent: no imports from `evogp.tree.etl_engine` (it is the oracle the engine is checked against).
 - RNG semantics intentionally differ from the old kernels (torch-RNG sampling, distribution-equivalent, not bit-exact) — tests must not assert exact sampled values.
 - Semantics authority: `../tree/ENGINE_SPEC.md` (durable spec extracted from the kernels) and `../tree/CONTEXT.md`.

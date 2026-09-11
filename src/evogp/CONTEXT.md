@@ -57,7 +57,7 @@ Cross-cutting problems only; per-directory detail lives in the child CONTEXT.md 
 - `algorithm/__init__.py` uses star imports with no `__all__`, so `evogp.algorithm.base` / `evogp.algorithm.default` resolve to the SELECTION submodules (last star import wins) — import the concrete subpackage (`evogp.algorithm.crossover.base`) instead.
 - `GenerateDescriptor.update(**kwargs)` returns a new descriptor but also mutates the receiver's captured params (kwargs are sticky) and re-draws `const_samples`; `MAX_STACK` overflow / malformed indices are now caught by the host-side decode (`ValueError`) rather than silently corrupting a kernel run.
 - Sympy rendering is a display artifact with documented edge gaps (e.g. `LOOSE_POW(0,0)` renders `1` while the engine computes `0`, `LOG(0)` renders `zoo` while the engine returns `-inf`); see `tree/CONTEXT.md`.
-- The repo-root `test/` scripts (`test_bind_success.py`, …) still drive the deleted `torch.ops.evogp_cuda.*` ops and can no longer run; they are outside this node.
+- The repo-root `test/` scripts (`test_bind_success.py`, …) still drive the deleted extension's custom torch ops and can no longer run; they are outside this node.
 
 ## `sr_test.py` (top of this node)
 Standalone install-validation smoke script documented in README §5 as `python -m evogp.sr_test`; it is NOT a unit test and is not pytest-collected.
@@ -71,7 +71,7 @@ It has module-level side effects and NO `if __name__ == "__main__"` guard, so an
 - `MAX_STACK` / `MAX_FULL_DEPTH` / `NType` / `Func` are defined only in `tree/utils.py`; function ids are positional across `Func`, `FUNCS_NAMES`, `FUNCS_DISPLAY`, `SYMPY_MAP`, so adding an operator means touching all four.
 - Determinism comes from torch's global RNG: `generation.py` draws with `torch.rand`/`randint` and the splices use plain torch ops, so `torch.manual_seed(0)` makes generation reproducible (distribution-equivalent to the legacy taus88 stream, not bit-identical).
 - Trees returned by `Forest.__getitem__` (int/slice) are views into the population tensors while `Tensor`/`ndarray` indexing returns copies — the algorithm rebinds `self.forest` each generation, so old buffers are never rewritten, but do not mutate a snapshot or write through a copy.
-- Never reintroduce a compiled extension or the `evogp_cuda` name; the tree layer is deliberately extension-free and `tree/ENGINE_SPEC.md`'s Appendices are the only place where the legacy op schemas are kept, explicitly as historical reference.
+- Never reintroduce a compiled extension: the tree layer is deliberately extension-free and `tree/ENGINE_SPEC.md`'s Appendices are the only place where the legacy op schemas are kept, explicitly as historical reference.
 - This node owns only these CONTEXT.md files; do not modify source code here (source changes belong to the specific child node's task).
 
 ## Test Strategy
