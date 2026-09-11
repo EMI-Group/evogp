@@ -15,8 +15,10 @@ def from_jax_array(x) -> torch.Tensor:
 
 def import_jax_based_package(jax_pre_allocate_memory):
     import os
+
     os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = f"{jax_pre_allocate_memory}"
 
+    global jax, jnp, MjxEnv, registry
     import jax
     import jax.numpy as jnp
     from mujoco_playground import MjxEnv, registry
