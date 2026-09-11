@@ -8,6 +8,26 @@ from .descriptor import GenerateDescriptor
 from . import etl_engine
 
 
+def _comparison_as_value(res):
+    """Render a comparison the way the engine evaluates it.
+
+    ``SYMPY_MAP`` renders ``< > <= >=`` (``Func`` ids 10-13) as sympy relations, but
+    the engine returns exactly ``1.0`` when the comparison holds and ``-1.0`` when it
+    does not - including for any NaN operand (ENGINE_SPEC section 3) - so a bare
+    relation (or the boolean it folds to) would evaluate to ``True``/``False``, i.e.
+    1/0, in numeric use. Sympy's ``Boolean`` is also the base class of plain
+    ``Symbol``, hence the mapping keys on ``Relational`` and the boolean atoms only.
+    Anything else is returned untouched.
+    """
+    if getattr(res, "is_Relational", False):
+        return sp.Piecewise((1, res), (-1, True))
+    if res is sp.true:
+        return sp.S(1)
+    if res is sp.false:
+        return sp.S(-1)
+    return res
+
+
 class Tree:
     def __init__(
         self,
@@ -275,7 +295,7 @@ class Tree:
                         mid = expr_stack.pop(-1)
                         right = expr_stack.pop(-1)
                         res = SYMPY_MAP[v](left, mid, right)
-                    expr_stack.append(res)
+                    expr_stack.append(_comparison_as_value(res))
             return expr_stack[0]
         if self.output_len > 1:
             # Multi-output protocol (ENGINE_SPEC sections 2.3 / 4.3): each output is the
@@ -318,18 +338,9 @@ class Tree:
                         # `if`; refuse instead of rendering something misleading
                         raise NotImplementedError(f"unknown node type {t} at node {i}")
 
+                    # out-of-range output indices are dropped
                     if 0 <= out_idx < self.output_len:
-                        # The engine evaluates the comparisons to +-1 while SYMPY_MAP
-                        # renders them as symbolic relations. Note that sympy's
-                        # ``Boolean`` is also the base class of plain ``Symbol``, so the
-                        # mapping must key on ``Relational`` / the Boolean atoms only.
-                        if getattr(res, "is_Relational", False):
-                            res = sp.Piecewise((1, res), (-1, True))
-                        elif res is sp.true:
-                            res = 1
-                        elif res is sp.false:
-                            res = -1
-                        expr[out_idx] += res  # out-of-range indices are dropped
+                        expr[out_idx] += _comparison_as_value(res)
                     expr_stack.append(right)
             return expr
 
