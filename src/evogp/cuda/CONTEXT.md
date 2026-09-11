@@ -94,7 +94,7 @@ Output rows are allocated with `torch::empty`, so bytes beyond `subtree_size[0]`
 The device-side `assert`s (the `assert(top == 1)` interpreter canary at `forward.cu:301/588/735`, plus the varLen/outLen capacity asserts) are only active when `NDEBUG` is undefined — never rely on them as input validation, and note that a tripped device assert prints `top: %d` and then traps, poisoning the context.
 `evaluate()` (`forward.cu:363`) computes occupancy for the `<false>` instantiation even when it launches `<true>`; it and `generateExecuteKernel`/`mutate`/`crossover` only grow the grid (`if (gridSize * blockSize < popSize)`) from the occupancy-suggested value.
 `-maxrregcount=32` (CUDA-only flag) plus 4-8 KB of per-thread local arrays forces local-memory spills — that is why block sizes are occupancy-derived, and why the local arrays are the dominant occupancy cost.
-`kernel.h` still includes `<malloc.h>` and `<iostream>` from the pre-`alloca` era; they are vestigial.
+`kernel.h` still includes `<malloc.h>` and `<iostream>` from before the fixed-array change, and declares `LeftRightIdx` which nothing uses — all vestigial.
 
 ## Notes for Agents
 Nothing in this directory is generated — but under ROCm, torch's build produces a hipified mirror at `src/evogp/hip/` (gitignored, regenerated on every build): **never edit that mirror**, edit these `.cu` files and rebuild.
