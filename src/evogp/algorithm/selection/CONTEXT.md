@@ -86,7 +86,7 @@ That is the same index space the crossover fallback produces via `survivor_indic
 - Ignore `../selection/`'s apparent helpers: there is no shared utility module for rank/roulette/tournament math, only duplicated copies.
 
 ## Test Strategy
-- No automated test instantiates selection directly: `DefaultSelection` is exercised only indirectly by the optimizer smoke `../../tests/test_convergence_smoke.py`, and the four non-default `*Selection` classes plus both `*Selector` families have no automated test at all. `test/` holds the legacy CUDA-extension script `test_bind_success.py`, the unrelated `test_torch_env.py` env check, notebooks and `fix_bug.py`, and `test/*.py` never mention selection.
+- No automated test instantiates selection directly: `DefaultSelection` is exercised only indirectly by the optimizer smoke `../../tests/test_convergence_smoke.py`, and the four non-default `*Selection` classes plus both `*Selector` families have no automated test at all. The repo-root `test/` directory is scratch material (notebooks, scripts; a separate task owns it).
 - `src/evogp/sr_test.py` is a stray runnable script inside the package (not a pytest test) and uses `DefaultSelection`.
 - Practical verification is manual: `example/basic.py`, `example/regressor.py`, `example/classifier.py`, `example/transformer.py`, `example/combined_sr.py`, `example/brax_task.py`, `example/mjx_task.py`, `example/uci_sr.py` (the latter three plus `example/custom_sr.py` exercise `TournamentSelection`), plus `tutorial/evogp_intro.ipynb`.
 - All of those require a CUDA GPU, so any fix touching the non-default classes cannot be regression-tested with `DefaultSelection`-based examples.
