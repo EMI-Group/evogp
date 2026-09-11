@@ -143,6 +143,6 @@ The `sr_test.py` target is genuinely hard and slow to converge: at pop 200 the b
 Known coverage gaps: no test for `CustomLoss`, for `Classification(multi_output=False)`, for `Transformation.new_feature`, for the robotics problems, or for `SymbolicRegression.evaluate`'s `use_MSE=False`/five-`execute_mode` paths (verified ad hoc only).
 
 ## See Also
-`../tree/CONTEXT.md` for `Forest.batch_forward`/`SR_fitness` shapes and the CUDA kernel entry points (`src/evogp/cuda/forward.cu`).
+`../tree/CONTEXT.md` for `Forest.batch_forward`/`SR_fitness` shapes and the ETL engine entry points (`src/evogp/tree/etl_engine.py`; `src/evogp/tree/ENGINE_SPEC.md` is the engine's reference document).
 `../pipeline/CONTEXT.md` for the best-tree/NaN handling around `problem.evaluate`.
 `README.md` "Supported Benchmarks" section for the user-facing description of `SymbolicRegression`, `Classification`, `Transformation` and `BraxProblem`.
