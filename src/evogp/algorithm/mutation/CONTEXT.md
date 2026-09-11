@@ -51,7 +51,7 @@ All work happens on the GPU (CUDA/ROCm via `torch.ops.evogp_cuda.tree_mutate`); 
 ## Constraints
 - Subclasses implement `__call__(self, forest)` and must keep `pop_size` unchanged (`GeneticProgramming.step` concatenates the elites immediately afterwards).
 - All tensors are CUDA: the package hardcodes `device="cuda"` 21 times across `default.py`, `delete.py`, `single_*.py`, `multi_*.py`, `mutation_utils.py`; the device is never derived from the input forest.
-- The descriptor must match the forest: `Forest.mutate` asserts equal `input_len`, `output_len` and `max_tree_len`, so mutation descriptors are normally obtained via `descriptor.update(max_layer_cnt=3)`, which keeps `max_tree_len` while shrinking generated subtree depth (`f237870`).
+- The descriptor must match the forest: `Forest.mutate` asserts equal `input_len`, `output_len` and `max_tree_len`, so mutation descriptors are normally obtained via `descriptor.update(max_layer_cnt=3)`, which keeps `max_tree_len` while shrinking generated subtree depth.
 - `replace_pos` must be a CUDA **int32** tensor of shape `(pop_size,)` because `tree_mutate` reads it via `data_ptr<int>()`; `delete.py` and `insert.py` explicitly `.to(torch.int32)` before calling.
 - Imports flow one way: this package imports `evogp.tree` (`Forest`, `CombinedForest`, `GenerateDescriptor`, `NType`, `MAX_STACK`, `randint`); only `evogp.pipeline` (and examples/tutorials) may import `evogp.algorithm`.
 - For `CombinedForest` sub-forests, each descriptor's `output_len` must be 1.
