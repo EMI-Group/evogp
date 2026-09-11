@@ -171,33 +171,44 @@ FUNCS_DISPLAY = [
 ]
 
 
+def _loose_quotient(x, y):
+    """``x / y`` with the divisor clamp of the "loose" operators applied.
+
+    ``loose_div`` and ``loose_inv`` replace a divisor whose magnitude is at most
+    ``DELTA`` by ``copy_sign(DELTA, y)`` *before* dividing (ENGINE_SPEC section 3,
+    ids 5 and 24), so ``x / 0`` is a finite ``1e9 * x`` and never an unbounded
+    quotient. In float32 - which is what the engine evaluates in - ``1 / DELTA``
+    rounds to exactly ``MAX_VAL = 1e9``, so the clamped case is rendered as
+    ``x * copy_sign(MAXVAL, y)`` and keeps the clean ``1e9`` placeholder (``x / 1e-9``
+    would render ``1e9 * x`` as 999999999.9999999 in float64). Symbolic and larger
+    divisors are left as a plain ``x / y``.
+    """
+    if y.is_number and abs(y) <= DELTA:
+        # The engine keeps the sign of the clamped divisor, but sympy has no negative
+        # zero (``sympify(-0.0)`` is ``Zero``), so an exact zero divisor renders
+        # positive here.
+        return x * (sp.Float(MAXVAL) if y >= 0 else sp.Float(-MAXVAL))
+    return x / y
+
+
 class LooseDiv(sp.Function):
     @classmethod
     def eval(cls, x, y):
-        if isinstance(y, (float, int)) and y == 0:
-            return sp.S(MAXVAL)
-        if y == 0:
-            return sp.S(MAXVAL)
-        return x / y
+        return _loose_quotient(x, y)
 
 
 class LooseInv(sp.Function):
     @classmethod
     def eval(cls, x):
-        if isinstance(x, (float, int)) and x == 0:
-            return sp.S(MAXVAL)
-        if x == 0:
-            return sp.S(MAXVAL)
-        return 1 / x
+        return _loose_quotient(1, x)
 
 
 class LooseLog(sp.Function):
     @classmethod
     def eval(cls, x):
-        if isinstance(x, (float, int)) and x == 0:
-            return sp.S(MAXVAL)
         if x == 0:
-            return sp.S(MAXVAL)
+            # ENGINE_SPEC section 3 id 21: the zero case is ``-MAX_VAL``, i.e. -1e9
+            return sp.S(-MAXVAL)
         return sp.log(sp.Abs(x))
 
 
