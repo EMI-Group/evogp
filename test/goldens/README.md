@@ -78,8 +78,9 @@ PYTHONPATH=src $PY test/golden_capture.py capture --stage sr_fitness --out "$TMP
 ```
 
 The script warns when `--out` resolves to this directory, because `capture` would replace the frozen
-reference numbers. On the numpy backend a stage takes seconds; the training stage (200 individuals x
-12 generations, one JIT build per distinct tree) takes minutes instead of the legacy ~7 s.
+reference numbers. On the numpy backend the whole set (all four stages, 96 arrays) re-captures in
+~11 s and `verify`es bitwise against such a capture - the numbers are different from the legacy ones,
+not less reproducible.
 
 `verify` exits non-zero on any mismatch (integer/string arrays exactly, floats with
 `rtol=1e-4, atol=1e-4, equal_nan=True`) and reports per array whether the re-run was *bitwise*
@@ -93,11 +94,12 @@ array must differ (see caveat 2 below), while the descriptor/header/input arrays
 committed set reproduce bitwise across processes (`verify`: `bitwise=96 within-tolerance=0
 mismatch=0`), including the 12-generation training trajectory and both `-inf`/NaN patterns.
 
-**Current engine** — re-running the same public API calls is deterministic per build the same way, but
-the *values* differ from the legacy ones wherever the generator's RNG stream is involved (population
-structure, mutation/crossover outcomes, training trajectory); on a `verify --out test/goldens` run of
-`--stage forest_random` the 15 descriptor/header/input arrays came out bitwise identical and the three
-`forest__node_*` arrays were reported as MISMATCH.
+**Current engine** — a fresh `capture --out <scratch>` re-run `verify`s with exactly the same headline
+(`bitwise=96 within-tolerance=0 mismatch=0`), so today's generator/engine pipeline is deterministic
+under the same seeding; the *values* differ from the legacy ones wherever the generator's RNG stream is
+involved (population structure, mutation/crossover outcomes, training trajectory). On a
+`verify --out test/goldens --stage forest_random` run the 15 descriptor/header/input arrays came out
+bitwise identical and the three `forest__node_*` arrays were reported as MISMATCH.
 
 Two caveats:
 
@@ -267,18 +269,30 @@ positions as equal only when both sides agree.
    `forest__node_value/_node_type/_subtree_size` from any stage, rebuild a `Forest`
    from them and check `tree_forward`, `forest_forward`, `forest_batch_forward` and
    every `*_sr_fitness__*` array on the stored `x`/`x_small`/`labels`. This validates
-   the evaluation semantics on fixed input with no RNG involved; the current engine
-   reproduces them as correctly-rounded float32 rather than the legacy `-use_fast_math`
-   kernels, hence the `rtol=atol=1e-4` recommendation.
+   the evaluation semantics on fixed input with no RNG involved.
+   *Measured for the current (ETL) engine* against exactly these arrays: `forward`,
+   `batch_forward`, `tree_forward` and all eight `forest_sr_fitness__*` values agree
+   with max abs diff ≤ `2.29e-05`, max rel diff ≤ `4.0e-07` and identical
+   NaN/±inf placement, i.e. comfortably inside the recommended `rtol=atol=1e-4`
+   (the rewrite evaluates as correctly-rounded float32 instead of with the legacy
+   kernels' `-use_fast_math`).
 3. **Problem level** — check `problem_evaluate__*` (including the `torch` path,
    which must match the engine path to ≈1e-7 rel).
-4. **Trajectory** — reproduce `initial_fitness` **from the stored
-   `initial_forest*` + `datapoints`/`labels`** (bitwise on the same GPU; within
-   tolerance otherwise; mind the `-inf` NaN replacement). Reaching the same
-   *generation-by-generation* `generation_fitness` would additionally require an
-   identical RNG-consumption order, which the rewrite deliberately does not have —
-   treat `best_fitness_per_generation` as a *behavioural* reference: generation 1
-   must be ≥ `-0.23594594`, and the final best tree should be no worse.
+4. **Problem level / initial population** — `SymbolicRegression.evaluate` on the stored
+   `initial_forest__*` with the stored `datapoints`/`labels` must reproduce
+   `initial_fitness`. Mind the pipeline's NaN→`-inf` replacement: the 9 `-inf`
+   entries are exactly the individuals whose loss comes out NaN.
+   *Measured for the current engine*: identical NaN/±inf placement on those 9 and
+   `allclose(rtol=atol=1e-4)` on the 191 finite entries (max rel diff `5.0e-05`,
+   max abs diff `6.6e+04` where the values reach ~1e9 through the legacy `MAXVAL`
+   clamp) — not bitwise, because f32 accumulation over such magnitudes differs.
+5. **Trajectory** — a full 12-generation re-run is *behaviourally* comparable, not
+   equal: today's run reproduces the generation-0 best exactly (`-0.251097`) and
+   ends better (`-0.22567974` vs the legacy `-0.23594594`, both a single constant
+   tree), while the per-individual `generation_fitness`/`initial_fitness` arrays
+   differ because the RNG stream does. Use `best_fitness_per_generation` as a
+   reference (generation 1 ≥ `-0.23594594`, final best no worse) and the stored
+   structures for the numeric checks above.
 
 ## Relation to the pytest suite
 
