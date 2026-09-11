@@ -39,7 +39,7 @@ Tensor contract enforced by the extension (`../cuda/torch_wrapper.cu`): values `
 `tree.py` — `Tree(input_len, output_len, node_value, node_type, subtree_size)`:
 - `Tree.random_generate(descriptor)` (delegates to `Forest.random_generate(pop_size=1)[0]`), `to_forest()`.
 - `forward(x)` — `(input_len,)` → `(output_len,)`; `(batch, input_len)` → `(batch, output_len)`.
-- `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → scalar-ish tensor (pop_size=1).
+- `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → `(1,)` tensor (pop_size=1).
 - `to_sympy_expr(symbol_names=None)` — sympy expr for `output_len == 1`, a **list** of exprs for `output_len > 1`; moves to CPU.
 - `to_infix()`, `to_png(fname)`, `__repr__` (== sympy repr), `_fillout_graph(graph)`.
 - There is **no** `Tree.batch_forward` (only `Forest`/`CombinedForest` have one).
