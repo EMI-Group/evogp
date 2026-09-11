@@ -130,7 +130,7 @@ Robotics rollout results come back through DLPack from an immutable jax buffer w
 
 ## Notes for Agents
 `problem/` depends on `tree/` and nothing inside `evogp` depends on `problem/` except `pipeline/standard.py` — so changes here cannot ripple into `tree/` or `algorithm/` (do not "fix" the interface to fit an example; fix the caller).
-`problem/__init__.py` is the single source of truth for the public API; `CustomLoss` and `Go2Env` are intentionally (or accidentally) outside it.
+`problem/__init__.py` is the single source of truth for the public API; `Go2Env` is intentionally outside it.
 `Classification(multi_output, dataset="iris")` in `example/classifier.py` passes `multi_output` **positionally**, where it lands in `datapoints`; it only works because `labels` is then `None` and the sklearn branch runs, and `multi_output` stays at its default `True`. Use keyword arguments.
 `Classification` expects integer class indices in a 1-D float tensor (see `example/uci_classifier.py`, which slices `y_torch[:, 0]`); `SymbolicRegression` expects 2-D labels. Getting this wrong shows up as a broadcast error inside `evaluate`, not at construction time.
 To add a benchmark, subclass `BaseProblem`, return a `(pop_size,)` maximized-cuda tensor from `evaluate`, expose int `problem_dim`/`solution_dim`, keep any new heavy import inside a function, and add the class to `__init__.py`.
