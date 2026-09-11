@@ -78,7 +78,7 @@ Importable as `from evogp.problem import CustomLoss` (and via the deep path); it
 - `mujoco_playground.py` → MuJoCo Playground control (`MujocoProblem`); duplicated from brax module.
 - `genesis_problem.py` → Genesis/Go2 control stub + `get_cfgs()` configs.
 - `go2_env.py` → Genesis `Go2Env` simulator wrapper (not exported, top-level `import genesis`).
-- `custom_loss.py` → user-defined loss adapter (`CustomLoss`, not exported).
+- `custom_loss.py` → user-defined loss adapter (`CustomLoss`, re-exported).
 
 Sibling directories (read-only for this node — escalate writes to the parent `./src/evogp`):
 - `../tree/` → `Forest`/`CombinedForest`/`Tree`, `GenerateDescriptor`, `check_tensor`, `inspect_function`; owns `batch_forward`, `forward`, `SR_fitness` and the ETL engine call sites this layer uses.
