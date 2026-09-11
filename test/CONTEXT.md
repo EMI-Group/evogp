@@ -50,5 +50,5 @@ This directory is the closest thing the repo has to an install smoke test, but i
 ## See Also / Routing
 - `../src/evogp/cuda/` → kernel + `TORCH_LIBRARY` schema registry that this directory's smoke tests exercise (sibling — read-only, escalate writes to parent).
 - `../src/evogp/sr_test.py` → README-documented install validation entry point (`python -m evogp.sr_test`) (sibling — read-only, escalate writes to parent).
-- `../example/` → maintained end-to-end usage scripts (`basic.py`, `regressor.py`, `classifier.py`, `combined_sr.py`, ROCm/brax variants) serving as the canonical runnable examples (sibling — read-only, escalate writes to parent).
+- `../example/` → maintained end-to-end usage scripts (`basic.py`, `regressor.py`, `classifier.py`, `combined_sr.py`, `custom_sr.py`, `brax_task.py`, `mjx_task.py`, `transformer.py`, `uci_sr.py`, `uci_classifier.py`) serving as the canonical runnable examples (sibling — read-only, escalate writes to parent).
 - `../tutorial/` → curated presentation notebooks (`evogp_intro.ipynb`, `forest_intro.ipynb`, `combined_gp.ipynb`) — polished counterparts of the scratch notebooks here (sibling — read-only, escalate writes to parent).
