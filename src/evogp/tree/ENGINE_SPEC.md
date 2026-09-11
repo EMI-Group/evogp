@@ -1,11 +1,12 @@
 # ENGINE_SPEC.md — EvoGP tree engine: evaluation, fitness, generation, splicing
 
-Self-contained semantics spec for the GPU tree engine that backs `evogp.tree`.
-Distilled from the CUDA/HIP kernel sources that used to live in `src/evogp/cuda/`
+Self-contained semantics spec for the EvoGP tree engine.
+It was distilled from the CUDA/HIP kernel sources that used to live in `src/evogp/cuda/`
 (`forward.cu`, `generate.cu`, `mutation.cu`, `defs.h`, `kernel.h`, `torch_wrapper.cu`)
-at repository snapshot `8a487f19171a40823d5a3ae85c3738cc1bc9483a`.
-Those files are the historical source of truth; this document is intended to be
-sufficient to reimplement (or replace) the engine without them.
+at repository snapshot `8a487f19171a40823d5a3ae85c3738cc1bc9483a`, and it is the durable
+record of the semantics reproduced by the current extension-free Python implementation
+(`etl_engine.py` for evaluation/fitness, `generation.py` / `splicing.py` for the operators).
+Legacy-only tables and notes are marked as such where they can no longer guide code.
 Line references of the form `forward.cu:181` point into that snapshot.
 
 Notation: `value` = `batch_node_value` (float32), `type` = `batch_node_type` (int16),
@@ -17,7 +18,8 @@ Notation: `value` = `batch_node_value` (float32), `type` = `batch_node_type` (in
 
 - An individual is a **prefix (pre-order) expression**: node 0 is the root; a node's
   children follow depth-first, left to right, recursively (`_treeGPEvalByStack`, generate.cu:123).
-- Three parallel row tensors, all shape `[pop_size, max_tree_len]`, all row-major contiguous on CUDA:
+- Three parallel row tensors, all shape `[pop_size, max_tree_len]`, all row-major contiguous on CUDA
+  (CUDA + contiguity was the legacy-op requirement; the current Python engine reads them from any device):
   `value` float32, `type` int16, `size` int16 (`torch_wrapper.cu:63-66`).
 - `size[i]` = number of nodes in the subtree rooted at node `i` (`generate.cu:130-158`).
   It is a **relative** count (not an absolute end index), so a subtree can be copied verbatim.
@@ -195,7 +197,10 @@ Rules that follow from the dispatch structure (`forward.cu:118-224`):
 - The fitness buffer is cleared with `cudaMemsetAsync` at the start of each driver. The kernels
   accumulate (`+=` / `atomicAdd`), so they must not be invoked twice without a clear.
 
-### 5.1 `kernel_type` dispatch (`SR_fitness`, forward.cu:827-856)
+### 5.1 Legacy `kernel_type` dispatch (`SR_fitness`, forward.cu:827-856)
+
+*Historical: the rewritten wrappers no longer map `execute_mode` to a `kernel_type`; they accept all
+five mode strings and evaluate every one of them through the same Python engine path. The table below is the old dispatch.*
 
 | id | name | host driver | launch shape |
 | --- | --- | --- | --- |
@@ -390,9 +395,11 @@ One thread per **offspring** `n < pop_size_new = len(left_indices)`; `left = lef
 - RNG = `thrust::random::taus88`, seeded per tree with `hash(n, keys[0], keys[1])`.
 - `hash` is FNV-1a (offset basis `14695981039346656037`, prime `1099511628211`, 64-bit accumulator)
   over the 12 raw little-endian bytes of the array `{n, keys[0], keys[1]}`, truncated to `unsigned int`.
-- `keys` is drawn in Python per call: `torch.randint(low=0, high=1000000, size=(2,), dtype=torch.uint32,
-  device="cuda", requires_grad=False)` (`forest.py:51-58`), so a full run is reproducible via
-  `torch.manual_seed` / `torch.cuda.manual_seed` but generation consumes no per-op torch CUDA RNG stream.
+- `keys` was drawn in Python per call: `torch.randint(low=0, high=1000000, size=(2,), dtype=torch.uint32,
+  device="cuda", requires_grad=False)` (`forest.py:51-58` in that snapshot), so a full run was reproducible
+  via `torch.manual_seed` / `torch.cuda.manual_seed` but generation consumed no per-op torch CUDA RNG stream.
+  The current pure-torch generator draws from torch's global RNG instead: seed-reproducible, but not
+  bit-exact with the legacy taus88 stream (`generation.py` documents the distribution-equivalent deviations).
 - `engine() % k` (used for constants, variables and the out index) is an unbiased-unaware modulo of the
   raw 32-bit state output.
 
@@ -400,11 +407,13 @@ One thread per **offspring** `n < pop_size_new = len(left_indices)`; `left = lef
 
 ## 9. Limits, edge cases and undefined behavior
 
-- `MAX_STACK = 1024`, `MAX_FULL_DEPTH = 10` (`defs.h:5`) are duplicated in Python
-  (`utils.py:10-11`); both copies must agree because the kernels size per-thread arrays with them.
-- No kernel validates tree length against `max_tree_len` or `MAX_STACK`: undersized
-  `max_tree_len` / `max_layer_cnt > 10` / `layer_leaf_prob = 0` produce silent memory corruption, not
-  exceptions. The Python-side asserts in `GenerateDescriptor` / `check_tree_length` are the only guard.
+- `MAX_STACK = 1024`, `MAX_FULL_DEPTH = 10` were duplicated between `defs.h:5` and `utils.py:10-11`
+  because the kernels sized per-thread arrays with them; the current code defines them only in
+  `tree/utils.py`, which is the single source of truth.
+- The legacy kernels did not validate tree length against `max_tree_len` or `MAX_STACK`: undersized
+  `max_tree_len` / `max_layer_cnt > 10` / `layer_leaf_prob = 0` produced silent memory corruption, not
+  exceptions (the Python-side asserts in `GenerateDescriptor` / `check_tree_length` were the only guard).
+  The current generator raises `RuntimeError` on a length overflow instead of corrupting memory.
 - `top != 1` after an evaluation is only a debug `assert` plus a `printf`; in release builds evaluation
   continues and the single-output read `stack[--top]` takes the wrong slot.
 - Out-of-range variable indices read outside the per-thread variable scratch; out-of-range function
@@ -448,25 +457,26 @@ returned tuple is `(value, node_type, subtree_size)`.
   reinterpreted as garbage.
 - Output tensors are always freshly allocated `torch::empty` with `requires_grad=False`; tail entries
   beyond `size[0]` are uninitialized in every op that returns tree rows.
-- `forest.py` / `tree.py` map the human-readable `execute_mode` to `kernel_type` (section 5.1);
-  `forest.py` asserts the string is one of `"hybrid parallel"`, `"data parallel"`, `"tree parallel"`,
-  `"auto"` but never checks that these strings agree between the two wrappers.
+- The current wrappers assert `execute_mode` is one of `"torch"`, `"hybrid parallel"`, `"data parallel"`,
+  `"tree parallel"`, `"auto"` and evaluate all of them through the same Python engine path; the
+  `kernel_type` mapping of section 5.1 is historical.
 
 ---
 
-## 11. Appendix B — Python call-site map (for a reimplementation)
+## 11. Appendix B — Python call-site map
 
 | capability | Python caller (in `src/evogp/tree/`) | notes |
 | --- | --- | --- |
-| generation | `Forest.random_generate(pop_size, descriptor)` (static) | builds `keys`; passes descriptor fields straight through |
+| generation | `Forest.random_generate(pop_size, descriptor)` (static) | pure-torch vectorized generation (`generation.py`); draws from torch's global RNG |
 | evaluation | `Forest.forward`, `Forest.batch_forward`, `Tree.forward` | `Forest.forward` requires `x.shape[0] == pop_size` |
-| SR fitness | `Forest.SR_fitness`, `Tree.SR_fitness` | `execute_mode` -> `kernel_type` (differs for the `"hybrid parallel"` string) |
+| SR fitness | `Forest.SR_fitness`, `Tree.SR_fitness` | accepts the five mode strings; all evaluate through the same Python engine path |
 | mutation | `Forest.mutate(replace_pos, new_sub_forest)` | returns a new `Forest` |
 | crossover | `Forest.crossover(left_indices, right_indices, left_pos, right_pos)` | returns a new `Forest` of size `len(left_indices)` |
 | (not in this engine) | `Forest.zero_generate` (pure torch) | degenerate all-`CONST`-0 trees; needs no kernel |
 
-- Compiled-constant duplication: `MAX_STACK` / `MAX_FULL_DEPTH` in `tree/utils.py` and
-  `NType` / `Func` in `tree/utils.py` mirror `cuda/defs.h`; ids must stay positional.
+- `MAX_STACK` / `MAX_FULL_DEPTH` / `NType` / `Func` are defined only in `tree/utils.py`, the
+  single source of truth; the function ids must stay positional across `Func`,
+  `FUNCS_NAMES`, `FUNCS_DISPLAY` and `SYMPY_MAP`.
 - `descriptor.roulette_funcs` is `cumsum(dict2prob(using_funcs))` over the 29 slots (`descriptor.py:106-111`);
   `roulette_ufuncs` / `roulette_bfuncs` / `roulette_tfuncs` are only used by the torch-side mutation
   operators, not by this engine. `check_tree_length` rejects `max_tree_len` smaller than the
@@ -493,8 +503,11 @@ returned tuple is `(value, node_type, subtree_size)`.
   node's *own* value per `outIndex`, lets every function node pass its right-most child up, and maps
   relational results to the engine's ±1 (sections 2.3 / 4.3).
 - Sympy renderers (`utils.SYMPY_MAP`, the `to_sympy_expr` walkers) are display artifacts, not the
-  semantics: `loose_div` / `loose_inv` / `loose_log` map to `MAXVAL = 1e9` placeholders at zero, and the
-  single-output walk renders `Lt`/`Gt`/`Le`/`Ge` as symbolic relations while the engine returns ±1.
+  semantics. Both walkers map `Lt`/`Gt`/`Le`/`Ge` to the engine's ±1
+  (`Piecewise((1, cond), (-1, True))`). Loose-op rendering matches the engine edge cases:
+  `loose_log(0)` renders `-MAXVAL`, and `loose_div` / `loose_inv` render `x * copy_sign(MAXVAL, y)`
+  for `|y| <= DELTA` (positive for an exact zero divisor, since sympy has no negative zero) and a
+  plain quotient otherwise.
 - Cheap self-consistency checks when reimplementing: (a) compare a new evaluator against an
   independently written CPU prefix-order tree walker (the same `-`/`/` operand order as section 4.1)
   on random inputs for `output_len == 1`, including NaN/inf cases; (b) check `size[0]` against an arity
