@@ -1,55 +1,54 @@
-# EvoGP — GPU-accelerated Tree-based Genetic Programming (repository root)
+# EvoGP — Tree-based Genetic Programming on PyTorch + ETL (repository root)
 ## Intent
-EvoGP is a fully GPU-accelerated Tree-based Genetic Programming (TGP) framework built on PyTorch, using custom CUDA/HIP kernels for tree generation, crossover, mutation and fitness evaluation.
-It targets symbolic regression, classification, feature transformation and robotics-control (Brax / MuJoCo-Playground / Genesis) benchmarks, with multi-output trees for classification and policy optimization.
-It is a sister project of [EvoX](https://github.com/EMI-Group/evox) and is described in the paper at https://arxiv.org/abs/2501.17168.
+EvoGP is a Tree-based Genetic Programming (TGP) framework for symbolic regression, classification, feature transformation and robotics-control benchmarks (Brax / MuJoCo-Playground / Genesis), with multi-output trees for classification and policy optimization.
+Evaluation is a "true jit" over ETL (EvoX Tensor Library): the tree layer decodes population tensors host-side into per-tree static programs and specializes each structure into a cached `etl.build_cached` graph; there is NO custom CUDA/HIP kernel and no compiled extension to build.
+It is a sister project of EvoX and is described in the paper at https://arxiv.org/abs/2501.17168.
 This repository is the development root (source tree + examples + paper experiment scripts + notebooks), not a docs site.
-The repository is ORIGINAL upstream code from EMI-Group; see `git log` for its public history.
-
+It is ORIGINAL upstream code from EMI-Group; see `git log` for its public history (the pre-ETL CUDA-kernel era stays visible in history and is documented in `test/goldens/README.md`).
 ## Repository structure & routing table
-- `src/evogp/` → The entire library: `tree/` (data model, foundation layer), `algorithm/` (GP loop + crossover/mutation/selection), `problem/` (benchmarks & task layers), `pipeline/` (training loop), `cuda/` (kernel sources), plus the `sr_test.py` install-validation script. Start here.
+- `src/evogp/` → The entire library: `tree/` (data model + ETL engine, foundation layer), `algorithm/` (GP loop + crossover/mutation/selection), `problem/` (benchmarks & task layers), `pipeline/` (training loop), `tests/` (the pytest suite + frozen golden fixtures), plus `sr_test.py` (install-validation smoke). Start here.
 - `src/` → Thin src-layout wrapper; contains only `evogp/`. See `src/CONTEXT.md`.
-- `example/` → 10 runnable end-to-end scripts showing how to wire the public API; four of them are the paper's experiment scripts (`uci_sr.py`, `custom_sr.py`, `uci_classifier.py`, `brax_task.py`). See `example/CONTEXT.md`.
-- `tutorial/` → 3 Jupyter notebooks (`evogp_intro.ipynb`, `forest_intro.ipynb`, `combined_gp.ipynb`) + `best_tree.png`; narrative walkthrough of the API, not automated. See `tutorial/CONTEXT.md`.
-- `test/` → ad-hoc scripts and notebooks for manual verification; NOT a test suite (no pytest/unittest, no assertions, no CI). See `test/CONTEXT.md`.
-- `imgs/` → static assets only: README figures (`SymbolicRegression.svg`, `Classification.svg`, `Halfcheetah.svg`, EvoX brand/logo files) plus the committed outputs `classifier_tree.png`, `sr_tree.png`, `xor_tree.png`. No code; do not look here for logic.
-
-## Root files (build & packaging metadata)
-- `setup.py` — the build entry point. Declares `name="evogp"`, `version="0.1.0"`, `packages=find_packages(where="src")` + `package_dir={"": "src"}` (hence the `evogp` import root), and one `CUDAExtension` named `evogp.evogp_cuda` whose sources are exactly the four `.cu` files under `src/evogp/cuda/` (listed by hand — a new `.cu` must be added here, there is no glob). Device compile flags are chosen per backend: a long nvcc flag list for CUDA, only `-O3` under `torch.version.hip is not None` (ROCm/hipcc rejects the nvcc/ptxas-only flags). `install_requires = torch, numpy, scikit_learn, networkx, sympy`; `extras_require = {"visualize": ["pygraphviz"], "brax": ["jax", "brax"]}`; `python_requires >= 3.9`. `MAX_JOBS` is set to the CPU count.
-- `pyproject.toml` — build-system only (`setuptools`, `wheel`, `torch`; backend `setuptools.build_meta`). No tool config, no lint/format/test config anywhere in the repo.
-- `requirements.txt` — mirrors `install_requires` (`torch`, `scikit_learn`, `sympy`, `numpy`, `networkx`); `pygraphviz` and `jax`/`brax` are listed only as comments.
-- `MANIFEST.in` — ships `README.md` and `recursive-include src/evogp/cuda *.cu *.h` (the kernel sources must stay in the sdist/wheel).
-- `README.md` — installation (CUDA and ROCm), validation, and the canonical API walkthrough; it is the primary user-facing doc and is used as the `long_description`.
-- `LICENSE` — Apache 2.0. `.gitignore` — build artifacts, `__pycache__`, `*.so`, ninja logs, and the generated `src/evogp/hip/` hipify mirror, plus `experiment/*`, `example/new_exp.py`, `src/evogp/cuda/forward_new.cu`.
-
+- `example/` → 10 runnable end-to-end scripts; four are the paper's experiment scripts (`uci_sr.py`, `custom_sr.py`, `uci_classifier.py`, `brax_task.py`). Per-script run status table in `example/CONTEXT.md`.
+- `tutorial/` → 3 Jupyter notebooks (`evogp_intro.ipynb`, `forest_intro.ipynb`, `combined_gp.ipynb`) + `best_tree.png`; narrative walkthrough, stored outputs re-executed against the current library. See `tutorial/CONTEXT.md`.
+- `test/` → scratch tooling, NOT a suite: legacy-golden capture (`golden_capture.py` + frozen `goldens/`), the ETL build/run economics probe (`etl_jit_probe.py`), an assertion-based public-API regression script (`fix_bug.py`), and 3 notebooks. See `test/CONTEXT.md`.
+- `imgs/` → static assets only: README figures plus committed example-output PNGs. No code; do not look here for logic.
+## Root files (packaging metadata)
+- `setup.py` — the packaging entry point. `name="evogp"`, `version="0.1.0"`, `packages=find_packages(where="src")` + `package_dir={"": "src"}`; pure-Python (no extension modules, no compile flags); `python_requires=">=3.11"`; `install_requires = torch, numpy, scikit_learn, networkx, sympy`; extras: `visualize` (pygraphviz), `brax` (jax+brax), `iree` (iree-base-compiler/runtime ~3.11), `dev` (pytest). `etl` is required at runtime but deliberately NOT declared (sibling-project checkout install); no extra exists for `mujoco_playground`/`genesis`.
+- `pyproject.toml` — build-system only (`setuptools`, `wheel`, `setuptools.build_meta`). No tool config anywhere in the repo (no lint/format/CI config).
+- `requirements.txt` — mirrors `install_requires`; the ETL checkout-install note and optional extras are comments; nothing is pinned.
+- `MANIFEST.in` — ships `README.md` only.
+- `README.md` — primary user-facing doc (also the `long_description`): true-jit explanation, ETL-from-checkout installation, backend/performance/environment-variable tables, validation section.
+- `LICENSE` — Apache 2.0. `.gitignore` — build artifacts, `__pycache__`, `*.so`, logs, plus `experiment/*` and `example/new_exp.py`.
 ## Global invariants & constraints
-- A successful extension build is a hard prerequisite: `src/evogp/tree/__init__.py` does `import evogp.evogp_cuda`, so nothing in the library is importable until that shared library exists. Build with `pip install . --no-build-isolation` (README §4); the C++/CUDA toolchain is required, and a missing/broken build surfaces as an `ImportError`/dlopen error from `evogp.tree`.
-- There is no CPU fallback: `device="cuda"` is hard-coded across the library, examples, notebooks and tests. The same `"cuda"` strings also select AMD GPUs under ROCm/HIP.
-- `evogp.evogp_cuda` is a GENERATED artifact — never edit it; the sources of truth are the four `.cu` files plus `cuda/defs.h` / `cuda/kernel.h`, wired through `setup.py`.
-- Compile-time constants are duplicated across the Python/C++ boundary (`MAX_STACK`, `MAX_FULL_DEPTH`, `NType`, `Func` in `src/evogp/tree/utils.py` ⇄ `src/evogp/cuda/defs.h`); changing one requires editing the other AND recompiling.
-- The package DAG is strict: `tree/` is the foundation (`algorithm/` and `problem/` depend on it, `pipeline/` depends on both and is imported by nothing); preserve the direction when adding modules.
-- `src/evogp/__init__.py` is empty by design — all imports go through submodules (`from evogp.tree import ...`, `from evogp.algorithm import ...`, `from evogp.pipeline import ...`, `from evogp.problem import ...`).
-- Fitness contract used repo-wide: `evaluate(forest)` returns a `(pop_size,)` float32 CUDA tensor that is MAXIMIZED (losses are negated) and mutated in place by the pipeline.
-- Most entry points run at import time: the `example/` scripts and `src/evogp/sr_test.py` have no `if __name__ == "__main__"` guard, so importing any of them starts a full training run (and needs a GPU).
-- Optional heavy dependencies (`jax`/`brax`, `mujoco_playground`, `genesis`) are imported lazily inside constructors; none of them are declared in `setup.py` extras except brax.
-- Never edit `src/evogp/hip/` — it is torch-hipify's generated build-time mirror and is gitignored.
-
+- No build step: `import evogp.<submodule>` works from a plain checkout; the only engine requirement is an importable `etl` (installed editable from the sibling checkout in the dev venv).
+- Device policy: the ETL engine itself is device-agnostic, but everything above it hard-codes `device="cuda"` (the same string selects AMD GPUs under ROCm); a full training run needs a CUDA-visible device.
+- `src/evogp/__init__.py` is empty by design — all imports go through submodules (`from evogp.tree import ...`, `from evogp.algorithm import ...`, `from evogp.pipeline import StandardPipeline`, `from evogp.problem import ...`).
+- Fitness contract used repo-wide: `evaluate(forest)` returns a `(pop_size,)` float32 CUDA tensor that is MAXIMIZED (losses negated) and mutated in place by the pipeline.
+- Most entry points run at import time (no `if __name__ == "__main__"` guard): the `example/` scripts, `test/fix_bug.py` and `src/evogp/sr_test.py` start work when imported.
+- The package DAG is strict: `tree/` is the foundation (`algorithm/`, `problem/` depend on it; `pipeline/` depends on both and is imported by nothing); preserve the direction when adding modules.
+- Engine economics: per-structure compilation is memoized in one in-memory `etl.CompileCache` (`EVOGP_ETL_CACHE_SIZE`, default 4096; nothing persists across processes); a fresh population is a cold miss per distinct tree structure, duplicates/elites hit. Backend defaults to numpy (CPU reference interpreter; ms builds); IREE is opt-in (`EVOGP_ETL_BACKEND=iree`, `EVOGP_ETL_IREE_DEVICE`, `EVOGP_ETL_IREE_OPT_LEVEL` — only O0/O1) and expensive at population scale; `ETL_DISABLE_LOCATIONS=1` speeds tracing up ~4x and is recommended for real runs (not part of the cache key).
+- `MAX_STACK` / `MAX_FULL_DEPTH` / `NType` / `Func` are single-sourced in `src/evogp/tree/utils.py` (the old Python/C++ duplication is gone).
+- Optional heavy dependencies (jax/brax, mujoco_playground, genesis, scikit-learn, pygraphviz) are imported lazily inside constructors; only brax is declared as a `setup.py` extra.
+- Legacy numeric parity: the engine reproduces the deleted CUDA kernels' semantics (semantics of record: `src/evogp/tree/ENGINE_SPEC.md`) and is cross-validated against frozen goldens; generation RNG is distribution-equivalent to the legacy taus88 stream, not bit-identical.
 ## Known Issues
 Cross-cutting problems only; the owning node documents the details.
-- No automated test suite and no CI in the repo: `test/` contains ad-hoc printing scripts/notebooks with zero assertions, and nothing can run without a GPU plus a successful kernel build. The de-facto validation is `python -m evogp.sr_test` (README §5) and `python test/test_bind_success.py`.
-- The multi-output / `CombinedForest` path is broken end-to-end: `SymbolicRegression.evaluate` still reads the removed `forest.share_input`, `CombinedTree.forward` ends in a `KeyError`, and `CombinedTree`/`CombinedForest` expose no `to_sympy_expr`. This same stale API (`formula=`, `share_input=`) is still used by `example/combined_sr.py`, `tutorial/combined_gp.ipynb` and `test/combined_test.ipynb`, so those three files cannot run as shipped.
-- Several shipped entry points are stale or unrunnable without extra setup: `example/mjx_task.py` imports a non-existent module, `example/custom_sr.py` requires CSV data not present in the repo, `tutorial/forest_intro.ipynb` uses the pre-descriptor `Forest.random_generate` API, and `MujocoProblem` raises `NameError`. Documentation is consistently ahead of the code in the multi-output area.
-- No dimension validation exists between `GenerateDescriptor.input_len/output_len` and `problem.problem_dim/solution_dim` (the pipeline's asserts are commented out), so mismatches fail deep inside the kernels.
-
+- No CI. The pytest suite lives at `src/evogp/tests/` (307 passed / 4 skipped on the validation box, ~107 s); the repo-root `test/` directory remains scratch tooling and is not part of the suite.
+- Robotics problems cannot be verified on the validation box (third-party environment boundary, not library defects): dm_control-suite MuJoCo envs need `mujoco-warp` and jax's CUDA backend hits the CuDNN 9.1-vs-9.8 mismatch; `GenesisProblem.evaluate` is a stub returning `None`; only the lazy-import binding of `MujocoProblem` is covered by tests.
+- Multi-output `CombinedForest` path: the engine and the single/batched `forward`/`batch_forward` contract are implemented and tested, but the containers still lack `SR_fitness`/`to_sympy_expr`, `CombinedForest.__next__` never advances, and `SymbolicRegression.evaluate` rejects a `CombinedForest` — the supported route is `evogp.problem.CustomLoss` (`example/combined_sr.py` runs end to end).
+- No dimension validation exists between `GenerateDescriptor.input_len/output_len` and `problem.problem_dim/solution_dim` (the pipeline's asserts are commented out), so mismatches fail inside the tree layer/engine instead of at wiring time.
+- `test/goldens/*.npz` are frozen outputs of the deleted CUDA engine (bitwise-reproducible captures, no longer re-capturable) — treat as read-only fixtures; comparisons use 1e-4 rtol/atol because the old kernels used fast-math.
 ## Test Strategy
-There is no test runner. The supported sequence is: build the extension → `python -m evogp.sr_test` (synthetic symbolic-regression convergence check, the documented install validation) → `python test/test_bind_success.py` (raw `torch.ops.evogp_cuda.*` bind check) → run the relevant `example/*.py` from the repository root (relative asset paths such as `imgs/` are CWD-dependent).
-Known coverage gaps: the multi-output CUDA instantiations, non-default crossover/mutation/selection operators, and the robotics-control problems.
-
+Supported sequence on the validation box (repo root as CWD, `PYTHONPATH=src`, venv `/mnt/local-ssd/bchuang/evox/.venv/bin/python`; `ETL_DISABLE_LOCATIONS=1` recommended):
+1. Import check (no build needed): `PYTHONPATH=src <venv>/bin/python -c "import evogp.tree"`.
+2. `PYTHONPATH=src <venv>/bin/python -m evogp.sr_test` — synthetic SR convergence smoke (~30 s; best fitness ≈ −0.17).
+3. `PYTHONPATH=src <venv>/bin/python -m pytest src/evogp/tests -q` — full suite (~107 s); `--ignore=src/evogp/tests/test_equivalence.py` for the fast subset (~119 tests), `-k golden` for the 6 legacy-golden cross-checks.
+4. Run the relevant `example/*.py` from the repository root (relative asset paths such as `imgs/` are CWD-dependent); `test/fix_bug.py` is a script (`python test/fix_bug.py`), not pytest.
+Known coverage gaps: IREE numeric parity per shape, robotics rollouts, `CustomLoss` end to end, multi-output `CombinedForest` training route.
 ## Notes for Agents
-- Read `src/evogp/CONTEXT.md` first; it is the entry point to the whole library and carries the API surface, dependency DAG and the runtime gotchas.
-- The repo has no Python tooling config (no ruff/black/mypy/pytest config), so match the surrounding style manually when editing.
-- Symbolic names in the codebase lag reality in places (`evogp_cuda` ops are used on AMD too, "cuda" is a device alias for all backends); do not infer portability from names.
-- The most valuable single place to look for a bug in numerical results is the boundary between `src/evogp/tree/` (Python-side tensor schema, CUDA op call sites) and `src/evogp/cuda/` (kernel semantics).
-
+- Read `src/evogp/CONTEXT.md` first; it is the entry point to the library (API surface, dependency DAG, engine constraints).
+- Never reintroduce a compiled extension or hand-written kernels; legacy op semantics are preserved as documentation only (`src/evogp/tree/ENGINE_SPEC.md` appendices, `test/goldens/README.md`).
+- The most valuable single place to look for a numeric bug is the boundary between `tree/` (tensor schema, host-side decode) and the ETL engine (`tree/etl_engine.py`); the independent plain-torch oracle `src/evogp/tests/reference_eval.py` is the reference to diff against.
+- `python`/`python3` on PATH lack torch — always use the project venv; that venv has no `pip` and no jupyter/nbconvert (notebook re-execution uses the stdlib-json runner recipe in `tutorial/CONTEXT.md`).
+- Determinism comes from torch's global RNG: `torch.manual_seed(0)` makes generation reproducible (distribution-equivalent to the legacy stream, not bit-identical).
 ## See Also
-- Foreign repositories configured for this task (absolute paths): `/mnt/local-ssd/bchuang/etl` (EvoX Tensor Library) and `/mnt/local-ssd/bchuang/evox`. No file in this repository imports from either; EvoGP's relationship with EvoX is conceptual (sister project) and acknowledged in `README.md` only. Read-only delegation into them is unrestricted; write-capable delegation is root-agent-only and must be serialized.
+- Foreign repositories configured for this task (absolute paths): `/mnt/local-ssd/bchuang/etl` (EvoX Tensor Library — the evaluation-engine dependency; `etl/build_cache.py` is the "true jit" API) and `/mnt/local-ssd/bchuang/evox`. EvoGP's relationship with EvoX is conceptual (sister project) and technical (ETL engine). Read-only delegation into them is unrestricted; write-capable delegation is root-agent-only and must be serialized.
