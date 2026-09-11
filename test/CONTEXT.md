@@ -68,12 +68,13 @@ Consumption:
 * RNG-independent and therefore the strongest check — rebuild a `Forest` from the stored
   `forest__node_value`/`_node_type`/`_subtree_size` and compare `forward` / `batch_forward` /
   `SR_fitness` against the stored `tree_forward` / `forest_forward` / `forest_batch_forward` /
-  `*_sr_fitness__*` arrays (recipe in `goldens/README.md` §"How to use these goldens").
+  `*_sr_fitness__*` arrays (recipe in `goldens/README.md` §"How to use these goldens with the current
+  (ETL) engine").
 * RNG-dependent — the generated structures (`forest__node_*`, `initial_forest__*`, `final_forest__*`),
   the mutation/crossover outcomes and the training trajectory follow the legacy generator's RNG stream
   and are NOT reproducible by today's torch-RNG generator: use them as structural/behavioural
-  reference only (trees must be legal and decode; generation 1 must be no worse than
-  `best_fitness_per_generation[1]`).
+  reference only (trees must be legal and decode; generation 1 no worse than
+  `best_fitness_per_generation[1] = -0.23594594`).
 
 Regeneration: `golden_capture.py` still works, but it drives *whatever engine is installed*:
 `capture` would overwrite the frozen legacy numbers with current-engine values (the script prints a
