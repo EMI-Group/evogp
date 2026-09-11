@@ -81,7 +81,7 @@ Reachable only via `from evogp.problem.custom_loss import CustomLoss`; there is 
 - `custom_loss.py` → user-defined loss adapter (`CustomLoss`, not exported).
 
 Sibling directories (read-only for this node — escalate writes to the parent `./src/evogp`):
-- `../tree/` → `Forest`/`CombinedForest`/`Tree`, `GenerateDescriptor`, `check_tensor`, `inspect_function`; owns `batch_forward`, `forward`, `SR_fitness` and the CUDA kernel bindings this layer calls.
+- `../tree/` → `Forest`/`CombinedForest`/`Tree`, `GenerateDescriptor`, `check_tensor`, `inspect_function`; owns `batch_forward`, `forward`, `SR_fitness` and the ETL engine call sites this layer uses.
 - `../pipeline/standard.py` → the only in-repo consumer of `BaseProblem.evaluate`; defines the NaN→`-inf` and best-tree bookkeeping.
 - `../algorithm/genetic_programming.py` → asserts `fitness.shape == (forest.pop_size,)`, consumes the tensor returned here.
 - `../../example/` → de-facto usage documentation/smoke tests (`basic.py`, `regressor.py`, `classifier.py`, `transformer.py`, `brax_task.py`, `combined_sr.py`, `mjx_task.py`, `custom_sr.py`).
