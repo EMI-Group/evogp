@@ -55,7 +55,7 @@ All work happens on the GPU (CUDA/ROCm via `torch.ops.evogp_cuda.tree_mutate`); 
 - `replace_pos` must be a CUDA **int32** tensor of shape `(pop_size,)` because `tree_mutate` reads it via `data_ptr<int>()`; `delete.py` and `insert.py` explicitly `.to(torch.int32)` before calling.
 - Imports flow one way: this package imports `evogp.tree` (`Forest`, `CombinedForest`, `GenerateDescriptor`, `NType`, `MAX_STACK`, `randint`); only `evogp.pipeline` (and examples/tutorials) may import `evogp.algorithm`.
 - For `CombinedForest` sub-forests, each descriptor's `output_len` must be 1.
-- `MAX_STACK` is the hard ceiling on tree length (`descriptor.max_tree_len <= MAX_STACK`), which is why `default.py` and `insert.py` use it as a safe random bound.
+- `MAX_STACK` is the hard ceiling on tree length (`descriptor.max_tree_len <= MAX_STACK`), which is why `default.py` uses it as a safe random position bound.
 
 ## Design Decisions
 - Descriptor-based construction (`f237870 change the mutation api to descriptor`): strategies need the function/terminal pools to synthesize or re-draw nodes, so they hold a `GenerateDescriptor` instead of loose `input_len`/`using_funcs`/`const_samples` arguments.
