@@ -58,6 +58,7 @@ Tensor contract enforced by the extension (`../cuda/torch_wrapper.cu`): values `
 - `CombinedForest(forests: List[Forest], data_info: dict[str, list[str]])` where `data_info[output_name] = [input_name, ...]` selects which columns of the input dict feed that sub-forest.
 - `CombinedForest.random_generate(pop_size, data_info, descriptors)` (one `GenerateDescriptor` per output — a single descriptor is broadcast; each must have `output_len == 1` and `input_len == len(data_info[out_name])`).
 - `forward(x: dict[str, 1-D len == pop_size])` → `dict[out_name, (pop_size, 1)]`; `batch_forward(x: dict[str, 1-D len == batch])` → `dict[out_name, (pop_size, batch, 1)]` (inputs are column-ized with `[:, None]` and concatenated in `data_info` order).
+- Neither `CombinedForest` nor `CombinedTree` defines `SR_fitness`, and `CombinedForest` has no `share_input` attribute (only prose references remain, in the stale consumers `problem/symbolic_regression.py` and the examples); its `forward`/`batch_forward` accept the `dict[str, Tensor]` protocol only — a raw tensor raises a Python indexing error on the first string key.
 - `CombinedTree(trees, data_info)` exposes each sub-tree as an attribute named after the output (`best.A.to_sympy_expr()`), `forward(x: dict)` (delegates through a temporary pop_size=1 `CombinedForest`), `to_combined_forest()`, `random_generate(descriptors, data_info)`.
 - Both support indexing, iteration, `__setitem__`, `__add__` (must have identical `data_info`).
 
