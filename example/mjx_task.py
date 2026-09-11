@@ -1,4 +1,19 @@
-from problem import MujocoProblem
+"""MuJoCo-Playground policy optimization (the MuJoCo counterpart of ``brax_task.py``).
+
+Evolves a population of trees as the control policy of a MuJoCo-Playground environment:
+``MujocoProblem.evaluate`` rolls every individual out and returns its accumulated episode
+return, which the pipeline maximizes.
+
+Run from the repository root (needs a CUDA-visible device)::
+
+    PYTHONPATH=src python example/mjx_task.py
+
+External requirements: ``jax`` and ``mujoco_playground``. Both are imported lazily by the
+problem constructor, so a missing one fails at start-up with the message below -- note that
+``mujoco_playground`` has NO ``setup.py`` extra (unlike brax), so it must be installed by
+hand. Like ``brax_task.py`` this is a long run (pop 1000 x 100 generations x 1000-step
+episodes): shrink ``pop_size`` / ``generation_limit`` while experimenting.
+"""
 
 import torch
 
@@ -15,11 +30,20 @@ from evogp.algorithm import (
     CombinedMutation,
 )
 from evogp.pipeline import StandardPipeline
+from evogp.problem import MujocoProblem
 
-problem = MujocoProblem(
-    "SwimmerSwimmer6",
-    max_episode_length=1000,
-)
+try:
+    problem = MujocoProblem(
+        "SwimmerSwimmer6",
+        max_episode_length=1000,
+    )
+except ImportError as exc:
+    raise SystemExit(
+        "example/mjx_task.py needs the optional dependencies 'jax' and "
+        "'mujoco_playground' (pip install jax mujoco_playground; evogp declares no extra "
+        f"for them); loading the environment failed with: {exc}"
+    ) from exc
+
 
 descriptor = GenerateDescriptor(
     max_tree_len=256,

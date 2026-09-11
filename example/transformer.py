@@ -1,3 +1,28 @@
+"""Feature-construction demo: evolve new features for a regression data set.
+
+``Transformation.evaluate`` scores every tree by ``|correlation|`` between its output and the
+target; ``Transformation.new_feature(forest, n_best, n_features)`` then keeps the ``n_best``
+trees by fitness and greedily drops the most correlated ones until at most ``n_features``
+remain. Unlike the other examples this one drives evolution by hand (``algorithm.step`` +
+``problem.evaluate``) instead of using ``StandardPipeline``, and finally measures the effect
+with a Ridge regressor -- before and after adding the evolved features.
+
+Run from the repository root (needs a CUDA-visible device)::
+
+    PYTHONPATH=src python example/transformer.py
+
+External requirements: ``scikit-learn`` (``Transformation(dataset="diabetes")`` loads the
+data set and the Ridge estimator comes from sklearn). ``Transformation`` implements neither
+``problem_dim`` nor ``solution_dim``, hence the hand-written ``input_len=10``/``output_len=1``
+in the descriptor.
+
+As shipped (pop 1000 x 100 steps, the original settings) the run takes roughly ten minutes
+with ``ETL_DISABLE_LOCATIONS=1`` -- ETL's tracing-only speed knob, it does not change the
+fitness (measured on an equivalent diabetes-sized workload: ~5.2 s per step at pop 1000,
+which is the per-tree compile cost of the engine -- a fresh random population is compiled
+tree by tree, so ``pop_size`` trades directly against wall time).
+"""
+
 import torch
 
 torch.random.manual_seed(0)

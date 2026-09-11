@@ -1,66 +1,133 @@
-# test/ — scratch scripts & demo notebooks (NOT a test suite)
+# `test/` — hand-run validation tooling around the canonical pytest suite
 
 ## Intent
-Upstream development scratchpad: ad-hoc scripts and Jupyter notebooks used while building/debugging the CUDA kernels and the high-level API.
-Files here were written to be watched by a human (print statements, stored notebook outputs), not to be executed by a test runner.
-This directory is the closest thing the repo has to an install smoke test, but it is not a regression suite.
+Ad-hoc, human-driven validation layer for the repo: one small public-API regression script, the frozen
+**pre-ETL numeric reference** (`goldens/`) plus the script that captured and compares it, a CPU-only
+torch-extension preflight, an ETL economics probe, and three scratch notebooks.
+Nothing here is imported by `evogp`, by the examples or by the pytest suite, and no runner collects these
+files (no CI, no pytest ini in the repo) — every file is executed by hand from the repository root.
+The real regression gate is the pytest suite in `../src/evogp/tests/` (independent plain-torch oracle,
+randomized/adversarial equivalence, operator invariants, API compatibility, convergence smoke): treat
+this directory as the layer *around* it, i.e. legacy cross-checks, environment probes and
+human-watched demos.
+Because there is no test framework here, a green run only means "it ran and its checks held"; only
+`fix_bug.py` (explicit checks that raise `AssertionError`) and the pytest suite verify numbers at all.
 
-## Notes for Agents (read first)
-- There is NO test framework here: no `pytest`/`unittest` imports, no `conftest.py`, no fixtures, no parametrization, no CI workflow anywhere in the repo.
-- There are no Python `assert` statements anywhere under `test/`; every script only prints (the only runtime checks are the `TORCH_CHECK`/`TORCH_INTERNAL_ASSERT` macros inside the inline C++ of `test_torch_env.py`).
-- A green `python test/<file>.py` (exit code 0) means "it ran", not "it is correct"; do not cite these files as regression coverage.
-- All files are flat with no `__init__.py`; they are executed as standalone scripts (`python test/foo.py`), never imported as a package; `test_bind_success.py` has a `__main__` guard that calls `main()`, `fix_bug.py` runs at import.
-- Only `test_torch_env.py` and `sympy_test.ipynb` do not touch evogp; every other file needs a CUDA-visible GPU plus the compiled extension `evogp.evogp_cuda` (built by `setup.py` from `src/evogp/cuda/*.cu`; importing `evogp.tree` pulls it in, and `test_bind_success.py` imports `evogp.evogp_cuda` directly on line 2).
-- Notebooks were last run with a Jupyter/IPython kernel named `evogp312` (Python 3.12.8); stored outputs are stale snapshots from the author's machine, and `vis.ipynb`'s stored outputs mix several sessions.
+## How to run (exact commands)
+Interpreter is the project venv — `python` is not on PATH. Every evogp entry point below needs
+`PYTHONPATH=src` and a CUDA-visible GPU (the public API relocates every tensor to `"cuda"`); add
+`ETL_DISABLE_LOCATIONS=1` to make the ETL tracing ~4x faster (not part of the engine's cache key).
 
-## API Surface (what each file is)
-| File | What it does | Needs GPU? | Assertions? |
+```bash
+PY=/mnt/local-ssd/bchuang/evox/.venv/bin/python        # py3.11, torch 2.6.0+cu124
+
+# 1. small public-API regression check: Tree.forward / SR_fitness across all execute modes (~3 s)
+PYTHONPATH=src $PY test/fix_bug.py                     # exit 0 + three [ok] lines
+
+# 2. the canonical gate, for reference (GPU, ~20 min)
+PYTHONPATH=src $PY -m pytest src/evogp/tests -q
+
+# 3. legacy goldens: inventory, and compare the current engine against the frozen captures
+PYTHONPATH=src $PY test/golden_capture.py manifest
+PYTHONPATH=src $PY test/golden_capture.py verify --out test/goldens      # see "Legacy goldens"
+PYTHONPATH=src $PY test/golden_capture.py capture --out "$TMPDIR/goldens"  # new capture, scratch dir
+
+# 4. CPU-only preflight of torch's C++-extension machinery (legacy, needs ninja + a host compiler)
+$PY test/test_torch_env.py
+
+# 5. ETL "true jit" economics probe (needs the `etl` package; does not import evogp)
+$PY test/etl_jit_probe.py --sections a,b               # ~3-5 min for all sections
+```
+
+Notebooks are not run by anything: launch them by hand from the repository root (relative asset paths
+such as `./imgs/...` are cwd-dependent).
+
+## Contents
+| file | what it is | GPU | asserts |
 |---|---|---|---|
-| `test_bind_success.py` | Op-level bind smoke test: imports `evogp.evogp_cuda` (line 2), then wraps all five raw ops `torch.ops.evogp_cuda.{tree_generate,tree_mutate,tree_crossover,tree_evaluate,tree_SR_fitness}` (helpers lines 15-140) around hand-built tensors; `main()` (lines 221-230) runs generate + `crossover_test` + `evaluate_test` + `SR_fitnesses_test`, printing raw tensors and trees via `evogp.tree.utils.str_tree`. | yes | none (prints only) |
-| `test_torch_env.py` | Environment preflight for the PyTorch C++ extension toolchain: compiles a tiny CPU-only `TORCH_LIBRARY(extension_cpp)` via `torch.utils.cpp_extension.load_inline` and calls `torch.ops.extension_cpp.mymuladd(a, b, 1.0)`; does not import evogp and never touches CUDA (host C++ compiler + torch headers only). | **no** | none (prints only) |
-| `fix_bug.py` | Manual repro: hand-writes an 8-slot `evogp.tree.Tree(input_len=3, output_len=1)` (`node_type` `[3,3,0,0,3,0,0,0]`, `node_value` `[3.,2.,0.,2.,2.,0.,2.,0.]`, `subtree_size` `[7,3,1,1,3,1,1,0]`; preorder decode `(x[0] - x[2]) * (x[0] - x[2])`) and prints `tree.SR_fitness(XOR_INPUTS, XOR_OUTPUTS, execute_mode=...)` for `"hybrid parallel"` (line 43) then `"data parallel"` (line 46); the two values should match. | yes | none (invariant is implicit, by eye) |
-| `combined_test.ipynb` | **Cannot run as shipped** — `CombinedForest` demo on XOR (5000 trees, `pow` combination, 100 generations) written against the pre-`data_info` API (`CombinedForest.random_generate(formula=..., share_input=...)`); see Known Issues for the exact failure points. | yes | none |
-| `vis.ipynb` | End-to-end demo/parameter playground on the current API: full `Forest` + `StandardPipeline` run on XOR (100000 trees, 1000-generation cap, `fitness_target=-0.001`), then `best.SR_fitness`, `forward`, `to_sympy_expr`, `sympy_expression.simplify()`, `to_infix`; `best.to_png("./imgs/xor_tree.png")` is present but commented out (needs the optional `pygraphviz` extra). | yes | none |
-| `sympy_test.ipynb` | 3-cell scratch check that nested `sp.Pow` constructs and renders as expected (it never calls `.simplify()`); pure sympy, no evogp import. | no | none |
-| `etl_jit_probe.py` | ETL "true jit" economics probe (standalone script, `argparse`). Builds a realistic GP step — `@etl.defn _step(x, tree)` whose `tree` static is a nested tuple decoded at trace time into add/sub/mul/div + unary sin/exp/neg + a `select`-based protected divide — through `etl.build_cached` + `etl.CompileCache` on `TensorSpec((N,2), float32)`, and prints one table with per-tree build/run timings, generation-scale extrapolations, parallel-build results, persistence round trip and API-semantics checks. Does NOT import evogp. | yes (iree-cuda sections) | none (asserts are in-script only; prints `PASS`/`FAIL` and exits 1 if any section fails) |
+| `fix_bug.py` | Public-API regression script (name is historical, it was a mode-agreement bug repro). Builds one hand-written 8-node `Tree` that decodes to `(x0 - x2) * (x0 - x2)` with no RNG involved, then checks: `Tree.forward` equals the closed form for a 2-D batch and a 1-D row; `Tree.SR_fitness` MSE/MAE equals the loss recomputed from `forward` with the documented `(1,)` positive-loss convention (never divided by `output_len`); the five `execute_mode` strings (`"torch"`, `"hybrid parallel"`, `"data parallel"`, `"tree parallel"`, `"auto"`) return bit-identical tensors — the legacy `kernel_type` dispatch is gone and all of them map onto one engine path; `Tree.to_forest()` reproduces both; an unknown mode string is rejected. | yes | yes (`AssertionError` + exit 1) |
+| `golden_capture.py` | `argparse` driver for the `.npz` reference set: `capture` / `verify` / `manifest`, `--stage`, `--out`. Drives the installed engine through the public API on a fixed 64-tree / 63-node workload (plus a 200x12-generation training reference). See "Legacy goldens" for what the committed files are and what `capture`/`verify` mean today. | yes | `verify` exits 1 on a mismatch |
+| `goldens/` | Data only: the 4 frozen captures `forest_random.npz`, `forward_eval.npz`, `sr_fitness.npz`, `training.npz` (+ `README.md`). No code; provenance, per-array inventory, tolerances and the historical build recipe live in `goldens/README.md`. | — | — |
+| `test_torch_env.py` | Legacy preflight: compiles a tiny CPU-only `TORCH_LIBRARY(extension_cpp)` through `torch.utils.cpp_extension.load_inline` and calls `torch.ops.extension_cpp.mymuladd(a, b, 1.0)`. It validated the toolchain of the deleted C++/CUDA extension build; nothing in the repo builds a C++ extension any more, it does not import evogp, needs no GPU, and in the project venv it currently raises `RuntimeError: Ninja is required to load C++ extensions`. Kept only as an environment probe. | no | no (prints) |
+| `etl_jit_probe.py` | Standalone ETL economics probe (unrelated to the EvoGP engine — it exercises the `etl` package directly and never imports `evogp`): a realistic GP step built with `@etl.defn` + `etl.build_cached` + `etl.CompileCache`, printing build/run timings, generation-scale extrapolations, parallel builds, persistence and API-semantics checks. | yes (iree-cuda sections) | own `PASS`/`FAIL` checks, exits 1 on failure |
+| `vis.ipynb` | Scratch playground on the current public API (XOR: `Forest.random_generate` -> `GeneticProgramming` -> `StandardPipeline.run` -> `SR_fitness`/`forward`/`to_sympy_expr`/`simplify`/`to_infix`). API usage is current (re-verified against a reduced run), but the shipped budget (100000 trees, 1000 generations) is a legacy-kernel setting that is not runnable with the ETL engine. A banner cell at the top states this and the reduced parameters to use; stored outputs are historical. | yes | no |
+| `combined_test.ipynb` | Multi-output demo written against the removed pre-`data_info` combined API; **cannot run as shipped** (see below). Kept as history with an explanatory banner cell. | yes | no |
+| `sympy_test.ipynb` | 3 pure-sympy cells that build a nested `sp.Pow` expression and render it; no evogp import, no GPU, runs as-is. | no | no |
 
-## How to smoke-test after a build
-1. `python test/test_torch_env.py` — cheapest preflight (CPU only); success = it prints `Input a:`, `Input b:` and `Result:` with a 3-element tensor (`a*b+1`). Failure here means the host C++ extension build path is broken, so `setup.py`'s extension build will also fail; success does not prove a CUDA toolchain exists.
-2. `python test/test_bind_success.py` — the repo's only op-level bind check; success = no exception on `import evogp.evogp_cuda` and printed trees + tensors from `crossover_test()`, `evaluate_test()`, `SR_fitnesses_test()`; failure = `ModuleNotFoundError`/dlopen error (extension not built or wrong torch/ABI) or a `torch.ops.evogp_cuda` "no such operator" error (schemas not registered).
-3. `python test/fix_bug.py` — success = the two printed fitness values are equal (hybrid-parallel vs data-parallel agreement).
-4. `python -m evogp.sr_test` — the validation command actually documented in README "5. Validate Installation" (lives in `src/evogp/sr_test.py`, not here); prefer it when you need the officially supported end-to-end check.
-5. Run the notebooks manually from the repo root if you want visual/API confirmation (`vis.ipynb` references `./imgs/...` relative to cwd, commented out); `combined_test.ipynb` cannot run as shipped.
-6. `etl_jit_probe.py` — the only file here that exercises ETL (the foreign repo `/mnt/local-ssd/bchuang/etl`) instead of evogp, so it needs no kernel build. Exact command (the venv is required; bare `python` is not on PATH):
-   `/mnt/local-ssd/bchuang/evox/.venv/bin/python test/etl_jit_probe.py` (add `--device N` for a CUDA index, `--sections a,b,f` to run a subset, `--reps-build`/`--reps-run`/`--gen-trees`/`--par-trees` to resize).
-   Runtime is ~3-5 min for all sections; results print to stdout as sections (a)-(h) (each row as it is measured, plus a final `SUMMARY TABLE`), scratch files land in `$TMPDIR/etl_jit_probe/run_*/`, and the exit code is 0 unless a section or a `PASS`/`FAIL` check failed. `--device 0` is the default; if that GPU is busy (the host is shared — the header prints `nvidia-smi` utilization) the timings inflate several-fold, so prefer an idle device for quotable numbers.
+## Legacy goldens (`goldens/`)
+Provenance: the four `.npz` files were captured by `golden_capture.py capture` from the **pre-ETL
+engine** — the hand-written CUDA kernels in the (now deleted) `src/evogp/cuda/`, bound through
+`evogp.evogp_cuda`, at revision `b613503` — with nvcc 12.6 / sm_86 / torch 2.6.0+cu124. They are the
+numeric reference the pure-torch/ETL rewrite had to reproduce: evaluation semantics, the SR-fitness
+convention, and the shape of a short training run. `goldens/README.md` is the source of truth for the
+per-array inventory, the deviations worth knowing (fast-math kernels, reduction-order spread ~2.3e-05,
+`-inf` from the pipeline's NaN replacement) and the recommended tolerances (exact for integer/string
+arrays, `rtol=atol=1e-4, equal_nan=True` for floats).
 
-## Constraints
-- `test_bind_success.py` is the only file under `test/` that binds to the raw op surface; it calls the schemas positionally, mirroring `TORCH_LIBRARY(evogp_cuda, ...)` (`src/evogp/cuda/torch_wrapper.cu:291-298`), so it breaks silently if op signatures change even when the public API still works.
-  - `tree_SR_fitness`'s trailing int is the kernel selector (`0` in the test — the same code `Forest.SR_fitness` uses for `"hybrid parallel"`; `Tree.SR_fitness` instead maps `"hybrid parallel"`→3 and both use 1/2/4 for data parallel/tree parallel/auto), and `tree_evaluate`'s `variables` tensor has shape `(pop_size, var_len)`.
-  - `main()` never calls `mutate_test()` (defined lines 143-161), so mutation is exercised only if you invoke it yourself.
-  - Module-level constants (lines 6-12) are shadowed by the helpers' defaults and are effectively unused.
-- `test_bind_success.py` hard-codes `device="cuda"` and `torch.uint32` RNG keys (same dtype used by `Forest.random_generate` in `src/evogp/tree/forest.py`), so it cannot run on CPU-only hosts; device strings stay `"cuda"` under ROCm too.
-- `fix_bug.py` uses only the public API (`evogp.tree.Tree` + hand-built tensors), so it is the one file here that survives removal of the kernels; but 4 of its 8 XOR rows are commented out, its `import evogp` is unused, and its tree does not fit even the active XOR rows — treat it as a repro/equivalence snippet, not a canonical test vector.
+Consumption:
+* RNG-independent and therefore the strongest check — rebuild a `Forest` from the stored
+  `forest__node_value`/`_node_type`/`_subtree_size` and compare `forward` / `batch_forward` /
+  `SR_fitness` against the stored `tree_forward` / `forest_forward` / `forest_batch_forward` /
+  `*_sr_fitness__*` arrays (recipe in `goldens/README.md` §"How to use these goldens with the current
+  (ETL) engine"). Measured for today's engine: agreement within `2.3e-05` abs / `4.0e-07` rel with
+  identical NaN/±inf placement, i.e. inside the documented `rtol=atol=1e-4` — the goldens still are a
+  live numeric reference, not just history.
+* RNG-dependent — the generated structures (`forest__node_*`, `initial_forest__*`, `final_forest__*`),
+  the mutation/crossover outcomes and the training trajectory follow the legacy generator's RNG stream
+  and are NOT reproducible by today's torch-RNG generator: use them as structural/behavioural
+  reference only (trees must be legal and decode; generation 1 no worse than
+  `best_fitness_per_generation[1] = -0.23594594`).
 
-## Known Issues
-- No assertion, tolerance, or expected-value check anywhere in this directory — nothing here can fail a CI job on a numeric regression (and there is no CI job).
-- `combined_test.ipynb` uses the pre-`data_info` combined API and cannot run as shipped: cell 1 calls `CombinedForest.random_generate(formula=..., share_input=True)` (current signature is `random_generate(pop_size, data_info, descriptors)` → `TypeError`), and a fixed call would still hit `SymbolicRegression.evaluate` reading the removed `forest.share_input` (`src/evogp/problem/symbolic_regression.py:73`), a tensor passed to the dict-expecting `CombinedTree.forward`, and missing `CombinedTree.to_sympy_expr` for the `best.A/B.to_sympy_expr()` / `best.to_sympy_expr(lambda A, B: sp.Pow(A, B))` cells.
-- Stored notebook outputs are not ground truth: `combined_test.ipynb`'s recorded (old-API) run did not solve XOR (`[1,1,1,0,0.5,0.5,0,1]` vs expected `[0,1,1,0,1,0,0,1]`), and `vis.ipynb`'s cells carry outputs from several sessions (execution counts 25/26 vs 13/14 show different expressions for `to_sympy_expr` vs `simplify`/`to_infix`).
-- Notebook runs are long and GPU-heavy (`vis.ipynb`: 100000 trees, 1000-generation cap; its stored run stopped early at generation 35 via the fitness target); there is no reduced/fast variant.
-- No golden/reference numeric value is recorded anywhere in this directory; the only expected-value invariant is the implicit hybrid-vs-data-parallel equality in `fix_bug.py`.
-- `vis.ipynb` is the only entry point in the repo that exercises `StandardPipeline(fitness_target=...)` early stopping, and one of the few that exercises `log`/`sqrt`/`pow`/`inv` through `using_funcs`.
-- The (commented) `to_png` call in `vis.ipynb` needs the optional `visualize` extra (`pygraphviz`).
+Regeneration: `golden_capture.py` still works, but it drives *whatever engine is installed*:
+`capture` would overwrite the frozen legacy numbers with current-engine values (the script prints a
+warning when `--out` resolves to `test/goldens/`), and `verify` only compares one build against itself.
+The original recipe (nvcc flags, `TORCH_CUDA_ARCH_LIST`, the `build_ext --inplace` step) is kept in
+`goldens/README.md` as history — it can no longer be executed, because `src/evogp/cuda/` and
+`setup.py`'s `CUDAExtension` are gone. Cross-engine runs are expected to report the descriptor/header/
+input arrays (`descriptor__*`, `x`, `x_small`, `labels`, `*_scalars`, `seed`) as bitwise and every
+RNG-dependent structure/trajectory array as MISMATCH.
+
+Relation to the pytest suite: `../src/evogp/tests/test_equivalence.py::test_golden_fixtures` scans
+`$EVOGP_GOLDEN_DIR`, then `<repo-root>/test/goldens/` (this directory), then its own `goldens/`, and
+requires the flat fixture keys `node_value`, `node_type`, `subtree_size`, `x` plus `expected` or
+`expected_fitness`. The 7 fixtures in `src/evogp/tests/goldens/` use that schema; the raw captures here
+are keyed `forest__node_value`/… and are *not* in it.
+
+## Known Issues / cross-node notes
+- `src/evogp/tests/test_equivalence.py::test_golden_fixtures` is the one failure of the canonical suite
+  (last full run: 1 failed / 286 passed / 3 skipped): the loader `pytest.fail`s on the first `*.npz` it
+  finds in `test/goldens/` because the raw legacy captures miss the flat fixture keys. The mismatch can be
+  resolved on either side — the tests node can skip/warn on files that are not in the fixture schema
+  (they are still valid `npz` data), or `goldens/` can gain derived flat-key fixtures
+  (`forest__node_*` -> `node_value`/`node_type`/`subtree_size`, `x`/`labels` as-is, `expected_fitness` =
+  `forest_sr_fitness__hybrid_parallel__mse` for `sr_fitness.npz`). The latter is deliberately not done
+  here: `goldens/**` is frozen reference data and `golden_capture.py verify` compares key sets exactly.
+- `test_torch_env.py` is dead tooling against the current repo: nothing builds a C++ extension any more and
+  it fails in the project venv without ninja (`RuntimeError: Ninja is required to load C++ extensions`).
+  It is the one file here that no current workflow needs — a deletion candidate, kept (with the warning in
+  its row above) because it is harmless and needs no GPU.
+- The multi-output combined model is only exercised by `../src/evogp/tests/test_api_compat.py`. The
+  removed `formula=` / `share_input=` API is still called by `example/combined_sr.py` and
+  `tutorial/combined_gp.ipynb` (both outside this node) and by `combined_test.ipynb` here.
+- No numeric assertions in the notebooks, no golden values for anything outside the four captures, no
+  coverage of the robotics/classification problems, and nothing in this directory is wired into CI.
+- `etl_jit_probe.py` is bound to the `etl` package in the read-only foreign repo
+  `/mnt/local-ssd/bchuang/etl`; it needs an idle GPU for quotable timings (the host is shared).
 
 ## Test Strategy
-- Current state: manual smoke testing only (procedure above); no automated tests, no coverage measurement, no CI.
-- Coverage gaps: no numeric check of `tree_generate`/`tree_mutate`/`tree_crossover`/`tree_evaluate`/`tree_SR_fitness` against a reference; no agreement check across `execute_mode` variants ("torch" / "data parallel" / "tree parallel" / "hybrid parallel" / "auto"); no behavioral checks of `Forest`/`Tree`/`CombinedForest`, `problem`, `algorithm`, `pipeline`, or determinism/seeding.
-- Lowest-friction path to a real suite: turn `fix_bug.py`'s public-API `Tree` case into an assertion-based equivalence test and add assertion-based smoke tests around `Forest.random_generate`/`forward`/`SR_fitness`; a reduced version of `vis.ipynb` (tiny pop/generation count) is the natural end-to-end test.
-- If the kernels are replaced: no golden numeric values exist here, so capture expected outputs from the current implementation first (e.g. `fix_bug.py`'s Tree under each `execute_mode`) and assert the replacement matches them.
+- Manual smoke sequence for a post-rewrite change: `test/fix_bug.py` (public-API numerics, ~3 s) ->
+  `pytest src/evogp/tests -q` (the real gate) -> `test/golden_capture.py verify --out test/goldens` if
+  you touched evaluation semantics and want the pre-ETL diff (expect the RNG-dependent arrays to differ).
+- `test/test_torch_env.py` and `test/etl_jit_probe.py` are independent of evogp's engine and are not part
+  of that sequence.
+- Coverage gaps: the raw legacy captures are not converted into the pytest fixture schema (see Known
+  Issues), and there is no automated execution of the notebooks.
 
-## See Also / Routing
-- `etl_jit_probe.py` (this directory) → ETL "true jit" (`etl.build_cached` + `etl.CompileCache`) economics for decoding GP trees into static structures and compiling them; the ETL library source of truth is the READ-ONLY foreign repo `/mnt/local-ssd/bchuang/etl` (never write there; its own meta-programming coverage is `tests/test_meta_programming.py`, which the probe copies into `$TMPDIR` and runs).
-- `../src/evogp/cuda/` → kernel + `TORCH_LIBRARY` schema registry that `test_bind_success.py` exercises (sibling — read-only, escalate writes to parent).
-- `../src/evogp/tree/` → current `Tree`/`Forest`/`CombinedForest` (`data_info`) contracts behind `fix_bug.py` and the notebooks (sibling — read-only, escalate writes to parent).
-- `../src/evogp/sr_test.py` → README-documented install validation entry point (`python -m evogp.sr_test`) (sibling — read-only, escalate writes to parent).
-- `../example/` → maintained end-to-end usage scripts (`basic.py`, `regressor.py`, `classifier.py`, `combined_sr.py`, `custom_sr.py`, `brax_task.py`, `mjx_task.py`, `transformer.py`, `uci_sr.py`, `uci_classifier.py`) serving as the canonical runnable examples (sibling — read-only, escalate writes to parent).
-- `../tutorial/` → curated presentation notebooks (`evogp_intro.ipynb`, `forest_intro.ipynb`, `combined_gp.ipynb`) — polished counterparts of the scratch notebooks here (sibling — read-only, escalate writes to parent).
+## Routing Table / See Also
+No code subdirectories: `goldens/` is data only (documented by its own `README.md`), so do not look for
+sub-nodes to delegate to here.
+Sibling paths (read-only from this node — escalate any needed write to the parent `./`):
+`../src/evogp/` (library; `../src/evogp/tests/` is the canonical pytest suite and the golden-fixture
+loader), `../example/` and `../tutorial/` (maintained runnable examples / curated notebooks),
+`../src/evogp/tree/ENGINE_SPEC.md` (engine semantics of record, incl. the legacy op schemas).
+Foreign repo `etl` (`/mnt/local-ssd/bchuang/etl`) via `etl_jit_probe.py` (read-only).
