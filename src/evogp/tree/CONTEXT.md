@@ -27,7 +27,7 @@ Tensor contract enforced by the extension (`../cuda/torch_wrapper.cu`): values `
 ## API Surface
 `descriptor.py`
 - `GenerateDescriptor(max_tree_len, input_len, output_len, const_prob=0.5, out_prob=0.5, depth2leaf_probs=None, roulette_funcs=None, const_samples=None, using_funcs=None, max_layer_cnt=None, layer_leaf_prob=0.2, const_range=None, sample_cnt=None)`.
-- Validates inputs (see Constraints) and materializes GPU tensors: `depth2leaf_probs [MAX_FULL_DEPTH]` (per-depth probability of emitting a *function* node), `roulette_funcs [Func.END]` (cumulative cdf used by the CUDA generator), `roulette_ufuncs/roulette_bfuncs/roulette_tfuncs [Func.END]` (cdfs used only by the torch-side mutation operators), `const_samples [sample_cnt]`.
+- Validates inputs (see Constraints) and materializes GPU tensors: `depth2leaf_probs [MAX_FULL_DEPTH]` (probability that a node at depth `d` is a *leaf*; the kernel takes the function branch when `rand >= depth2leaf_probs[depth]`), `roulette_funcs [Func.END]` (cumulative cdf used by the CUDA generator), `roulette_ufuncs/roulette_bfuncs/roulette_tfuncs [Func.END]` (cdfs used only by the torch-side mutation operators), `const_samples [sample_cnt]`.
 - `update(**kwargs)` → a **new** descriptor with kwargs applied (see Known Issues).
 - `check_tree_length()` (module function) derives `depth2leaf_probs` and asserts `max_tree_len` is big enough for the worst-case full tree of `max_layer_cnt` layers over the given `using_funcs`.
 
