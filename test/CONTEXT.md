@@ -69,7 +69,9 @@ Consumption:
   `forest__node_value`/`_node_type`/`_subtree_size` and compare `forward` / `batch_forward` /
   `SR_fitness` against the stored `tree_forward` / `forest_forward` / `forest_batch_forward` /
   `*_sr_fitness__*` arrays (recipe in `goldens/README.md` §"How to use these goldens with the current
-  (ETL) engine").
+  (ETL) engine"). Measured for today's engine: agreement within `2.3e-05` abs / `4.0e-07` rel with
+  identical NaN/±inf placement, i.e. inside the documented `rtol=atol=1e-4` — the goldens still are a
+  live numeric reference, not just history.
 * RNG-dependent — the generated structures (`forest__node_*`, `initial_forest__*`, `final_forest__*`),
   the mutation/crossover outcomes and the training trajectory follow the legacy generator's RNG stream
   and are NOT reproducible by today's torch-RNG generator: use them as structural/behavioural
