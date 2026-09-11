@@ -5,6 +5,7 @@ import sympy as sp
 
 from .utils import *
 from .descriptor import GenerateDescriptor
+from . import etl_engine
 
 
 class Tree:
@@ -54,26 +55,20 @@ class Tree:
             x.shape[1] == self.input_len
         ), f"x shape should be {self.input_len}, but got {x.shape[1]}"
 
-        batch_size = x.shape[0]
-        batch_node_value = self.node_value.repeat(batch_size, 1)
-        batch_node_type = self.node_type.repeat(batch_size, 1)
-        batch_subtree_size = self.subtree_size.repeat(batch_size, 1)
-
-        res = torch.ops.evogp_cuda.tree_evaluate(
-            batch_size,
-            self.max_tree_len,
+        pop = etl_engine.decode_population(
+            self.node_value.unsqueeze(0),
+            self.node_type.unsqueeze(0),
+            self.subtree_size.unsqueeze(0),
             self.input_len,
             self.output_len,
-            batch_node_value,
-            batch_node_type,
-            batch_subtree_size,
-            x,
         )
 
-        if is_expand_input:
-            return res[0]
-        else:
-            return res
+        # A 1-D input is the single tree evaluated on one row (per_row); an
+        # explicit 2-D input evaluates the tree on every row of the batch.  The
+        # population axis (always 1 here) is dropped from the result either way.
+        res = etl_engine.evaluate(pop, x, per_row=is_expand_input)
+
+        return res[0]
 
     def SR_fitness(
         self,
@@ -85,21 +80,16 @@ class Tree:
         inputs = check_tensor(inputs)
         labels = check_tensor(labels)
 
+        # The former kernel_type ids are gone; every mode string (including "torch")
+        # evaluates through the same ETL engine path.
         assert execute_mode in [
+            "torch",
             "hybrid parallel",
             "data parallel",
             "tree parallel",
             "auto",
-        ], f"execute_mode should be one of ['hybrid parallel', 'data parallel', 'tree parallel', 'auto'], but got {execute_mode}"
+        ], f"execute_mode should be one of ['torch', 'hybrid parallel', 'data parallel', 'tree parallel', 'auto'], but got {execute_mode}"
 
-        if execute_mode == "hybrid parallel":
-            execute_code = 3
-        elif execute_mode == "data parallel":
-            execute_code = 1
-        elif execute_mode == "tree parallel":
-            execute_code = 2
-        elif execute_mode == "auto":
-            execute_code = 4
         batch_size = inputs.shape[0]
 
         assert inputs.shape == (
@@ -112,22 +102,15 @@ class Tree:
             self.output_len,
         ), f"outputs shape should be ({batch_size}, {self.output_len}), but got {labels.shape}"
 
-        res = torch.ops.evogp_cuda.tree_SR_fitness(
-            1,
-            batch_size,
-            self.max_tree_len,
-            self.input_len,
-            self.output_len,
-            use_MSE,
+        pop = etl_engine.decode_population(
             self.node_value[None, :],
             self.node_type[None, :],
             self.subtree_size[None, :],
-            inputs,
-            labels,
-            execute_code,
+            self.input_len,
+            self.output_len,
         )
 
-        return res
+        return etl_engine.sr_fitness(pop, inputs, labels, use_MSE=use_MSE)
 
     def to_forest(self):
         from .forest import Forest

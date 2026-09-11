@@ -1,5 +1,4 @@
 import torch
-import evogp.evogp_cuda
 from .descriptor import GenerateDescriptor
 from .tree import Tree
 from .forest import Forest
