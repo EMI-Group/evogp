@@ -101,7 +101,6 @@ Nothing in this directory is generated — but under ROCm, torch's build produce
 Do not try to compile this directory ad hoc or with a hand-written nvcc/hipcc line: the only supported build is `pip install . --no-build-isolation` via `setup.py` (there is no CMake/Makefile), and `MAX_JOBS` is forced to the CPU count; a full rebuild takes minutes.
 The compiled extension is imported as `evogp.evogp_cuda` (module name, not a package) — a build failure breaks `import evogp.tree` for every consumer, including pure-Python tests.
 `.gitignore` anticipates a scratch `src/evogp/cuda/forward_new.cu`; it is not currently present and, being absent from `setup.py`'s `sources`, would not be compiled.
-`.gitignore` also ignores `experiment/*` and `src/evogp/cuda/forward_new.cu` — treat any such tree as scratch, not part of the build.
 Build-config knowledge lives in the repo-root `setup.py`, not here: CUDA gets `["-O3","--expt-relaxed-constexpr","--ptxas-options=-v","-Xptxas=-O3","-lineinfo","-lcudart","-use_fast_math","-maxrregcount=32"]`, ROCm (`torch.version.hip is not None`) gets `["-O3"]` only because hipcc rejects the ptxas/nvcc-only flags; cxx args are `["-O3"]` on both.
 No child directories — this node is a leaf; do not delegate.
 
