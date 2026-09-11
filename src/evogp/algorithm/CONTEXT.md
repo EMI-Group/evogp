@@ -68,6 +68,7 @@ Fitness is assumed non-decreasing-in-quality (higher is better) and the front is
 
 ## Notes for Agents
 - Read `genetic_programming.py` (121 lines) first — it is the whole contract; then open only the operator module you need (each is 50–140 lines and self-contained).
+- Kernel contact-point inventory: no file in this node references `torch.ops.evogp_cuda` directly; custom kernels are reached only indirectly via `Forest.random_generate` (`../tree/forest.py:64`), `Forest.mutate` (`:214`) and `Forest.crossover` (`:280`). The Pareto-front path is kernel-free: `ParetoFront.__init__` calls `Forest.zero_generate` (pure `torch.zeros`, `../tree/forest.py:87`) and `vmap_update_pareto_front` is pure torch (`broadcast_to`/`where`/`max`/indexing) — both still hardcode `device="cuda"`.
 - To add an operator: new module in the right subpackage, subclass the `Base*` class, implement `__call__`, add the import line to that subpackage's `__init__.py`; the star import at `evogp.algorithm` makes it public automatically (no `__all__` to update).
 - Never reorder `algorithm/__init__.py`; keep the three star imports above the `genetic_programming` import.
 - `DefaultSelection` + `DefaultCrossover` + `DefaultMutation` is the only combination documented end-to-end in README/examples, and is the only selection that works on CPU — use it as the reference when reasoning about semantics.
