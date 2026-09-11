@@ -15,8 +15,8 @@ NaN/`inf` are tolerated (NaN is remapped to `-inf` by the pipeline); returning `
 Absolute scale is irrelevant, only monotonicity matters — `StandardPipeline(fitness_target=...)` and its printed stats must be interpreted in the problem's own units (e.g. `0.0` for MSE, `1.0` for correlation/accuracy).
 
 ## API Surface
-`__init__.py` re-exports exactly: `BaseProblem`, `SymbolicRegression`, `Classification`, `Transformation`, `BraxProblem`, `GenesisProblem`, `MujocoProblem` (in that order).
-`CustomLoss` and `Go2Env` are **not** re-exported (see module map below).
+`__init__.py` re-exports exactly: `BaseProblem`, `SymbolicRegression`, `Classification`, `Transformation`, `BraxProblem`, `GenesisProblem`, `MujocoProblem`, `CustomLoss` (in that order).
+`Go2Env` is **not** re-exported (see module map below).
 
 ### `base.py` — `BaseProblem` (abstract contract)
 Plain class, no ABC/metaclass; declares `evaluate(self, forest)`, `problem_dim` (property) and `solution_dim` (property), all raising `NotImplementedError`.
