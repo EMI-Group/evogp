@@ -91,8 +91,8 @@ requires the flat fixture keys `node_value`, `node_type`, `subtree_size`, `x` pl
 are keyed `forest__node_value`/… and are *not* in it.
 
 ## Known Issues / cross-node notes
-- `src/evogp/tests/test_equivalence.py::test_golden_fixtures` is currently the single failing test of the
-  canonical suite (1 failed / 286 passed / 3 skipped): the loader `pytest.fail`s on the first `*.npz` it
+- `src/evogp/tests/test_equivalence.py::test_golden_fixtures` is the one failure of the canonical suite
+  (last full run: 1 failed / 286 passed / 3 skipped): the loader `pytest.fail`s on the first `*.npz` it
   finds in `test/goldens/` because the raw legacy captures miss the flat fixture keys. The mismatch can be
   resolved on either side — the tests node can skip/warn on files that are not in the fixture schema
   (they are still valid `npz` data), or `goldens/` can gain derived flat-key fixtures
