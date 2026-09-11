@@ -79,14 +79,16 @@ One ``.npz`` per case with:
 
 *b) legacy-capture schema* -- ``test/goldens/*.npz``, the frozen outputs of the
 deleted custom CUDA kernels (``test/golden_capture.py``; array names, semantics
-and tolerances are documented in ``test/goldens/README.md``). The population is
-stored per stage as ``forest__node_value``/``forest__node_type``/
-``forest__subtree_size`` and the expectations as ``tree_forward`` /
-``forest_forward`` / ``forest_batch_forward`` / ``forest_sr_fitness__<mode>__<mse|nonmse>``
-/ ``tree_sr_fitness__*`` / ``problem_evaluate__*``. Rebuilding the ``Forest`` from
-those arrays involves no RNG, so this is the strongest available cross-check of
-the new engine against the kernels it replaced (floats rtol=atol=1e-4, structural
-arrays exact, NaN/±inf placement exact).
+and tolerances are documented in ``test/goldens/README.md``). Each stage stores
+its population as a ``<prefix>__node_value``/``__node_type``/``__subtree_size``
+triple (``forest`` for the evaluation stages, ``initial_forest``/``final_forest``/
+``best_tree`` for the training stage) and its expectations as ``tree_forward`` /
+``forest_forward`` / ``forest_batch_forward`` /
+``forest_sr_fitness__<mode>__<mse|nonmse>`` / ``tree_sr_fitness__*`` /
+``problem_evaluate__*``. Rebuilding the ``Forest`` from those arrays involves no
+RNG, so this is the strongest available cross-check of the new engine against the
+kernels it replaced (floats rtol=atol=1e-4, structural arrays exact, NaN/±inf
+placement exact).
 
 Anything else in a golden directory is reported through a ``warnings.warn`` (with
 the keys that were found and the keys that were expected) and never fails the suite.
