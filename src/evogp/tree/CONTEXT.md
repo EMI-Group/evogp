@@ -46,7 +46,7 @@ Evaluation is a "true jit": `decode_population` walks a population **host-side**
 - `Tree.random_generate(descriptor)` delegates to `Forest.random_generate(pop_size=1)[0]`; `to_forest()` wraps a single tree as a `Forest`.
 - `forward(x)` — 1-D `(input_len,)` → `(output_len,)`; 2-D `(batch, input_len)` → `(batch, output_len)`; evaluated through the ETL engine.
 - `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → `(1,)` positive loss.
-- `to_sympy_expr(symbol_names=None)` — sympy expr for `output_len == 1`, a list of exprs for `output_len > 1`; comparisons render as the engine's ±1 (`Piecewise((1, cond), (-1, True))`) and loose ops follow the engine's zero-clamp conventions.
+- `to_sympy_expr(symbol_names=None)` — sympy expr for `output_len == 1`, a list of exprs for `output_len > 1`; comparisons render as the engine's ±1 (`Piecewise((1, cond), (-1, True))`), loose ops follow the engine's zero-clamp conventions, and every leaf is sympified (a constant-only tree returns a sympy `Float`, never a raw numpy scalar).
 - `to_infix()` (single-output; warns and returns one string for multi-output), `to_png(fname)`, `__repr__` (== sympy repr).
 - `__python_forward` — name-mangled, debug-only, full-semantics pure-Python reference evaluator (single-output) used as the in-repo cross-check oracle; `__assert_valid` is likewise debug-only.
 
@@ -71,9 +71,11 @@ Vectorized level-wise torch that reproduces the descriptor-driven decision struc
 Pure-torch scalar-free splices: `_splice` updates ancestor `subtree_size` cells with the closed form `(j < pos) & (j + size[j] > pos)`, copies the donor subtree verbatim and shifts the tail; an invalid position or overflow copies the row UNCHANGED (silent, matching the legacy op); index tensors may be int8/16/32/64; out-of-range `left_indices` → `ValueError`; `pop_size_new == 0` → `ValueError`.
 
 ### `combined_forest.py` / `combined_tree.py` — the `data_info`-driven multi-output model
-`CombinedForest(forests, data_info)`; `CombinedForest.random_generate(pop_size, data_info, descriptors)`; `forward(dict) → dict[out_name, (pop,1)]`; `batch_forward(dict) → (pop, N, 1)`.
-`CombinedTree(trees, data_info)` exposes each sub-tree by output name (`best.A.to_sympy_expr()`); `forward` returns `{out_name: result}`.
-Neither defines `SR_fitness`, and neither has a `share_input` attribute; the `dict[str, Tensor]` input protocol is the only accepted form.
+`CombinedForest(forests, data_info)` with `data_info = {out_name: [input_name, ...]}`; `CombinedForest.random_generate(pop_size, data_info, descriptors)` (one descriptor per sub-forest, each with `output_len == 1`).
+The input-dict contract is single-sourced in `combined_forest.normalize_inputs` (its docstring is the contract of record, mirrored by all three forward docstrings): every required name must hold a scalar/0-D number, a 1-D `(K,)` tensor or a 2-D `(K, 1)` tensor; all names must agree on `K`; values are never broadcast; extra `x` keys are ignored completely (so e.g. `CustomLoss` can pass its `existing_data` including `"target"`); wrong shapes/keys raise `ValueError` naming the offending key, its shape and the sub-forest (no bare asserts); Python lists and `ndim >= 1` numpy arrays are rejected.
+`CombinedForest.forward(dict) → {out_name: (pop_size, out_len_sub)}` is single-point only (a `K > 1` value raises and points to `batch_forward`); `CombinedForest.batch_forward(dict) → {out_name: (pop_size, K, out_len_sub)}`.
+`CombinedTree(trees, data_info)` exposes each sub-tree by output name (`best.A.to_sympy_expr()`); its `forward` routes on `K`: `{out_name: (out_len_sub,)}` for `K == 1` (one point shared by the whole population) and `{out_name: (K, out_len_sub)}` for `K > 1` (the one-individual forest's pop dim is stripped).
+Neither defines `SR_fitness`/`to_sympy_expr`, and neither has a `share_input` attribute; the dict input protocol is the only accepted form.
 
 ### `execute_mode` mapping
 `Tree.SR_fitness`, `Forest.SR_fitness` (and the problem layer) accept the five strings `"torch"`, `"hybrid parallel"`, `"data parallel"`, `"tree parallel"`, `"auto"`.
@@ -101,7 +103,7 @@ The legacy `kernel_type` dispatch is gone and **all five map to the same ETL eng
 ## Known Issues / Notes for Agents
 - The cache is per *(structure, shape)*: a fresh random population is a miss per individual (pop=1000 ≈ 5.5 s cold), constant trees never compile, duplicate structures hit; changing batch size or tree shape re-compiles — keep shapes stable in hot loops.
 - IREE is wired but experimental: not numerically verified for every shape, and O2/O3 are buggy on cuda — use O0/O1 only.
-- Sympy rendering is a display artifact with documented edge gaps: `LOOSE_POW(0,0)` renders `1` (engine `0`), `DIV`/`INV` at a literal zero render numpy `inf` vs engine NaN, `LOG(0)` renders `zoo` vs −inf, `MAX`/`MIN` with a NaN literal raise, and a negative-zero divisor loses its sign in loose ops (sympy has no −0.0).
+- Sympy rendering is a display artifact with documented edge gaps: `LOOSE_POW(0,0)` renders `1` (engine `0`), `DIV`/`INV` at a literal zero render sympy `zoo` while the engine computes NaN, `LOG(0)` renders `zoo` vs −inf, `MAX`/`MIN` with a NaN literal raise, and a negative-zero divisor loses its sign in loose ops (sympy has no −0.0).
 - `repr(Forest)` / `str(forest)` build a sympy expr per individual (CPU sync, slow); `__iter__` is not reentrant; `Forest[int]`/`[slice]` views vs `Tensor`-indexing copies — writes through copies are lost.
 - `GenerateDescriptor.update(**kwargs)` returns a new descriptor but also mutates the receiver's captured params (kwargs are sticky) and re-draws `const_samples` from `const_range` when the original had `const_samples=None`.
 - `randint` truncates toward zero after `torch.rand` (biased for negative `low`); `dict2prob` is torch-only now and validates names against `FUNCS_NAMES`.
@@ -112,7 +114,7 @@ The legacy `kernel_type` dispatch is gone and **all five map to the same ETL eng
 ## Test Strategy
 - No pytest suite inside this node; the validation stack is: (a) `ENGINE_SPEC.md` §12 self-consistency (compare against `Tree.__python_forward`, arity walks, splice identities); (b) the pytest suite under `../../tests/` — the primary regression gate (independent plain-torch oracle, randomized/adversarial equivalence, operator and API-compat tests, convergence smoke, plus the in-repo `goldens/` fixtures cross-validated against the legacy kernels before deletion).
 - Run everything with the project venv (`/mnt/local-ssd/bchuang/evox/.venv/bin/python`), from the repo root, `PYTHONPATH=src`, and `ETL_DISABLE_LOCATIONS=1` for speed.
-- Coverage gaps: IREE numeric parity per shape, non-default selection/crossover operators, robotics problems, and multi-output pipelines.
+- Coverage gaps: IREE numeric parity per shape, non-default selection/crossover operators, robotics problems, and the multi-output training pipeline (the combined `forward`/`batch_forward` contract itself is covered by `../tests/test_combined_forward.py`).
 
 ## Routing Table
 This directory has **no child subdirectories** — the layer is the files listed here; do not look for sub-nodes to delegate to.
@@ -122,6 +124,6 @@ This directory has **no child subdirectories** — the layer is the files listed
 - `splicing.py` → pure-torch `mutate` / `crossover` splices.
 - `etl_engine.py` → decode + ETL `evaluate` + `sr_fitness` + `CACHE` / `cache_stats()` / `clear_cache()`.
 - `tree.py` / `forest.py` → the public wrappers re-exported by `__init__.py`.
-- `combined_forest.py` / `combined_tree.py` → `data_info`-driven multi-output model.
+- `combined_forest.py` / `combined_tree.py` → `data_info`-driven multi-output model (`normalize_inputs` holds the shared input-shape contract).
 - `ENGINE_SPEC.md` → authoritative semantics spec (incl. historical Appendices).
 Siblings (read-only from here — escalate any needed write to the parent `./src/evogp`): `../algorithm/` (operators that splice via `Forest.mutate` / `Forest.crossover` and write OUT_NODE tags), `../problem/` (SR / classification / robotics problems), `../pipeline/` (training loop), `../tests/` (the pytest regression gate for this engine), `../../../test/`, `../../../example/`, `../../../tutorial/`.

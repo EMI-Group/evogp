@@ -6,13 +6,15 @@ These tests are the regression gate: an independent plain-torch reference evalua
 - `reference_eval.py` — independent plain-torch oracle (slow, obviously-correct) implementing the original `_process_node` semantics; must NOT import the engine it verifies.
 - `test_equivalence.py` — randomized + adversarial engine-vs-reference equivalence through the public `Forest`/`Tree` API; also owns the golden-fixture discovery, schema dispatch and every golden comparison (see "Golden fixtures" below).
 - `test_operators.py` — generation validity/reproducibility + mutate/crossover splice invariants and silent-copy edge cases (int32 index tensors).
-- `test_api_compat.py` — import surface, indexing/pickle/concat/sympy, execute_mode string compatibility.
+- `test_api_compat.py` — import surface (incl. the `CustomLoss` re-export), indexing/pickle/concat/sympy (incl. constant-only tree repr/sympy), execute_mode string compatibility.
+- `test_combined_forward.py` — input-dict shape-contract regression for `CombinedForest.forward`/`batch_forward` and `CombinedTree.forward`: hand-checked single-point/batch values, batch==per-row equivalence, column-form equivalence and the exact rejection messages (12 tests).
+- `test_mujoco_problem.py` — `MujocoProblem` lazy-import binding (module globals `jax`/`jnp`/`registry`/`MjxEnv` after `import_jax_based_package`) plus a construction smoke that skips at the third-party `mujoco-warp`/CuDNN boundary.
 - `test_convergence_smoke.py` — tiny end-to-end symbolic-regression run; asserts best fitness improves.
 - `perf_probe.py` — standalone ETL build/run economics probe (numpy vs iree); NOT a pytest module; run directly.
 - `goldens/` — data only: 7 committed `.npz` golden fixtures (`01_random_single_out` … `07_deep_skew`) in the **engine schema** plus `README.md` documenting each case and the format. Loaded by `test_equivalence.py`; not a Python package.
 ## How to run
 From the repository root (`ETL_DISABLE_LOCATIONS=1` speeds tracing up ~4× and is what the counts below were measured with):
-- Whole suite: `ETL_DISABLE_LOCATIONS=1 PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -m pytest src/evogp/tests -q` → **292 passed, 3 skipped, 6 warnings in ~1m45s** (the 3 skips are pre-existing: `test_api_compat.py`'s pygraphviz/`to_png` guard and the two "`forward` exposes no `execute_mode`" guards).
+- Whole suite: `ETL_DISABLE_LOCATIONS=1 PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -m pytest src/evogp/tests -q` → **307 passed, 4 skipped, 6 warnings in ~1m45s** (3 pre-existing skips: `test_api_compat.py`'s pygraphviz/`to_png` guard and the two "`forward` exposes no `execute_mode`" guards; plus `test_mujoco_problem.py`'s construction smoke, which skips at the third-party `mujoco-warp`/CuDNN environment boundary while its binding test passes).
 - Golden cross-checks only: append `-k golden` (6 tests, ~6 s).
 - Single file: replace the path (`-x` stops at the first failure; the heavy file is `test_equivalence.py`, ~1m40s of the total).
 - Perf probe: `PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python src/evogp/tests/perf_probe.py --quick`.

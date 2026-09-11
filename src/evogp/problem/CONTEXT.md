@@ -15,8 +15,8 @@ NaN/`inf` are tolerated (NaN is remapped to `-inf` by the pipeline); returning `
 Absolute scale is irrelevant, only monotonicity matters — `StandardPipeline(fitness_target=...)` and its printed stats must be interpreted in the problem's own units (e.g. `0.0` for MSE, `1.0` for correlation/accuracy).
 
 ## API Surface
-`__init__.py` re-exports exactly: `BaseProblem`, `SymbolicRegression`, `Classification`, `Transformation`, `BraxProblem`, `GenesisProblem`, `MujocoProblem` (in that order).
-`CustomLoss` and `Go2Env` are **not** re-exported (see module map below).
+`__init__.py` re-exports exactly: `BaseProblem`, `SymbolicRegression`, `Classification`, `Transformation`, `BraxProblem`, `GenesisProblem`, `MujocoProblem`, `CustomLoss` (in that order).
+`Go2Env` is **not** re-exported (see module map below).
 
 ### `base.py` — `BaseProblem` (abstract contract)
 Plain class, no ABC/metaclass; declares `evaluate(self, forest)`, `problem_dim` (property) and `solution_dim` (property), all raising `NotImplementedError`.
@@ -58,16 +58,16 @@ Fitness is in `[0, 1]` (higher is better); constant/zero-variance tree outputs m
 Returns the per-tree accumulated (undiscounted) episodic reward as a torch tensor via DLPack, higher is better; `pop_size` is latched from the first `evaluate` call (`len(forest)`).
 `problem_dim = env.observation_size`, `solution_dim = env.action_size`.
 `mujoco_playground.py` — `MujocoProblem(env_name, max_episode_length, seed=42, pop_size=None, output_transform=torch.tanh, jax_pre_allocate_memory=0.5)`: same rollout logic, env from `mujoco_playground.registry.load(env_name)`, plus a pytree-observation unwrap (`obs["state"]`, otherwise `ImportError("This Pytree observation space is not supported yet"))`.
-It is a near-copy of `brax_problem.py` (`to_jax_array`/`from_jax_array` are byte-identical duplicates) and is currently non-functional — see Known Issues.
+It is a near-copy of `brax_problem.py` (`to_jax_array`/`from_jax_array` are byte-identical duplicates); its `import_jax_based_package` binds `jax`/`jnp`/`MjxEnv`/`registry` as module globals like the brax original (`global jax, jnp, MjxEnv, registry`), so construction reaches the jax/mujoco layer — actually loading an env is blocked by third-party environment boundaries in the current validation venv (see Known Issues).
 `genesis_problem.py` — `GenesisProblem(env_name, max_episode_length, seed=42, pop_size=None, backend=None, output_transform=torch.tanh, jax_pre_allocate_memory=0.5)`: a **stub**. `import_genesis_based_package` lazily `import genesis` (local scope, argument ignored), `evaluate` is `pass` (returns `None`), no `self.env` is ever assigned, and every constructor argument except being accepted is unused.
 `get_cfgs()` in the same file returns the Go2 quadruped `(env_cfg, obs_cfg, reward_cfg, command_cfg)` dicts consumed by `go2_env.Go2Env`.
 `go2_env.py` — `Go2Env`, a Genesis simulator wrapper for the Go2 robot (PD control, observation assembly, command resampling, termination checks, `_reward_*` functions). Not imported by `__init__.py` and not referenced anywhere else in the repo; it is scaffolding for the unfinished `GenesisProblem`.
 
-### `custom_loss.py` — `CustomLoss` (not exported)
+### `custom_loss.py` — `CustomLoss` (re-exported from `__init__.py`)
 `CustomLoss(existing_data: dict, loss_func: Callable)` wraps a user-written loss so that arbitrary named variables can be optimized.
 `inspect_function` (from `evogp.tree.utils`) extracts the loss function's parameter names; `torch.vmap(loss_func, in_dims=(None * len(existing_data)) + (0 * (len(parameters) - len(existing_data))))` maps over the parameters that are *not* keys of `existing_data`.
 `evaluate(forest)` calls `forest.batch_forward(existing_data)` (so it requires a `CombinedForest`), squeezes each output's last dim, binds the parameters in signature order (`existing_data[name]` if present, otherwise the forest output), and returns `-loss` (higher is better).
-Reachable only via `from evogp.problem.custom_loss import CustomLoss`; there is currently **no** example, notebook, README section or test using it.
+Importable as `from evogp.problem import CustomLoss` (and via the deep path); it is the supported route for `CombinedForest` problems — `example/combined_sr.py` uses it via the deep import and runs end to end, and `tutorial/combined_gp.ipynb` documents the same route. No numeric test yet (only the re-export is asserted in `../tests/test_api_compat.py`).
 
 ## Module map / routing
 - `base.py` → `BaseProblem` abstract contract every class here inherits.
@@ -78,7 +78,7 @@ Reachable only via `from evogp.problem.custom_loss import CustomLoss`; there is 
 - `mujoco_playground.py` → MuJoCo Playground control (`MujocoProblem`); duplicated from brax module.
 - `genesis_problem.py` → Genesis/Go2 control stub + `get_cfgs()` configs.
 - `go2_env.py` → Genesis `Go2Env` simulator wrapper (not exported, top-level `import genesis`).
-- `custom_loss.py` → user-defined loss adapter (`CustomLoss`, not exported).
+- `custom_loss.py` → user-defined loss adapter (`CustomLoss`, re-exported).
 
 Sibling directories (read-only for this node — escalate writes to the parent `./src/evogp`):
 - `../tree/` → `Forest`/`CombinedForest`/`Tree`, `GenerateDescriptor`, `check_tensor`, `inspect_function`; owns `batch_forward`, `forward`, `SR_fitness` and the ETL engine call sites this layer uses.
@@ -113,12 +113,12 @@ Submodules must keep heavy optional dependencies **inside functions** (establish
 The problem layer owns data generation (`SymbolicRegression.generate_data`, sklearn loaders) so tests/examples are one-liners.
 Fitness is *always* maximized (errors negated at the problem boundary) so selection operators can uniformly sort descending.
 Robotics problems keep the simulator on the jax side and the GP trees on the torch side, bridging per step with zero-copy DLPack (`to_jax_array`/`from_jax_array`); `output_transform=torch.tanh` squashes raw tree outputs into the nominal action range.
-Optional heavy packages are imported lazily inside functions so that `import evogp.problem` works on a plain torch install — this covers scikit-learn (inside `generate_data`) and the jax/brax/mujoco imports (inside `import_jax_based_package`; only `brax_problem.py` binds them with `global jax, brax, jnp`, the mujoco copy is missing the `global` statement). The only module importing a heavy package at module level is `go2_env.py` (`import genesis`), which is why it is excluded from `__init__.py`.
+Optional heavy packages are imported lazily inside functions so that `import evogp.problem` works on a plain torch install — this covers scikit-learn (inside `generate_data`) and the jax/brax/mujoco imports (inside `import_jax_based_package`, which binds them as module globals with a `global` declaration in both `brax_problem.py` and `mujoco_playground.py`). The only module importing a heavy package at module level is `go2_env.py` (`import genesis`), which is why it is excluded from `__init__.py`.
 Classification solves multi-class by giving one tree multiple outputs (softmax over `output_len = num_classes`) rather than by composing several trees, which keeps a single `Forest` and the CUDA batch path usable.
 
 ## Known Issues
-`MujocoProblem` (and `mujoco_playground.py`'s `to_jax_array`) is broken: `import_jax_based_package` imports `jax`/`jnp`/`MjxEnv`/`registry` as *locals* without a `global` declaration and the module never binds them globally, so `__init__` raises `NameError: name 'registry' is not defined` at `registry.load(...)` (`mujoco_playground.py:37`; the `jax.jit` at `:39` and `jnp.zeros` at `:56` would fail next), and module-level `to_jax_array` references the undefined global `jax` as well.
-`SymbolicRegression.evaluate` rejects a `CombinedForest` with `NotImplementedError` by design (see API surface); `example/combined_sr.py`, `tutorial/combined_gp.ipynb` and `test/combined_test.ipynb` still call the removed `CombinedForest.random_generate(formula=..., share_input=...)` API and remain unrunnable — the supported route for combined problems is `evogp.problem.custom_loss.CustomLoss`.
+`MujocoProblem` env construction cannot be exercised in the current validation venv (a third-party environment boundary, not a library defect): dm_control-suite envs default to `impl="warp"` and `mujoco-warp` is not installed, so `registry.load(env_name)` fails inside `mujoco/mjx/_src/io.py` with `AttributeError: type object 'int' has no attribute 'WARP'`; behind that sits the CuDNN 9.1-vs-9.8 `JaxRuntimeError ... dnn_support != nullptr` wall that also hits `example/brax_task.py`. The lazy-import binding itself (module globals `jax`/`jnp`/`MjxEnv`/`registry`, `to_jax_array`) is regression-tested in `../tests/test_mujoco_problem.py`.
+`SymbolicRegression.evaluate` rejects a `CombinedForest` with `NotImplementedError` by design (see API surface); the supported route for combined problems is `CustomLoss` (`example/combined_sr.py` runs end to end through it; `tutorial/combined_gp.ipynb` documents the same route).
 `SymbolicRegression.generate_data` has a copy/paste bug in its scalar-bound checks (`if isinstance(upper_bounds, int) or isinstance(lower_bounds, float)`), so e.g. `lower_bounds=-1` (int) with `upper_bounds=1.0` (float) skips conversion and then fails on `1.0[None, :]`; also the `func`/`num_inputs` assertion is reached whenever only one of `datapoints`/`labels` is supplied, producing a confusing error.
 `GenesisProblem` is a stub: `evaluate` returns `None`, `self.env` is never assigned (so `problem_dim`/`solution_dim` raise `AttributeError`), and all rollout arguments are ignored — do not advertise it as a working benchmark.
 `go2_env.py` has a top-level `import genesis as gs`, so importing it fails without genesis (it is excluded from `__init__.py`, which is the only reason `import evogp.problem` still works); it also loads URDFs from relative paths (`urdf/plane/plane.urdf`, `urdf/go2/urdf/go2.urdf`) that do not exist in this repository, and its `_reward_tracking_lin_vel`/`_reward_base_height` read `reward_cfg["tracking_sigma"]`/`["base_height_target"]`, keys absent from `get_cfgs()`.
@@ -130,17 +130,17 @@ Robotics rollout results come back through DLPack from an immutable jax buffer w
 
 ## Notes for Agents
 `problem/` depends on `tree/` and nothing inside `evogp` depends on `problem/` except `pipeline/standard.py` — so changes here cannot ripple into `tree/` or `algorithm/` (do not "fix" the interface to fit an example; fix the caller).
-`problem/__init__.py` is the single source of truth for the public API; `CustomLoss` and `Go2Env` are intentionally (or accidentally) outside it.
+`problem/__init__.py` is the single source of truth for the public API; `Go2Env` is intentionally outside it.
 `Classification(multi_output, dataset="iris")` in `example/classifier.py` passes `multi_output` **positionally**, where it lands in `datapoints`; it only works because `labels` is then `None` and the sklearn branch runs, and `multi_output` stays at its default `True`. Use keyword arguments.
 `Classification` expects integer class indices in a 1-D float tensor (see `example/uci_classifier.py`, which slices `y_torch[:, 0]`); `SymbolicRegression` expects 2-D labels. Getting this wrong shows up as a broadcast error inside `evaluate`, not at construction time.
 To add a benchmark, subclass `BaseProblem`, return a `(pop_size,)` maximized-cuda tensor from `evaluate`, expose int `problem_dim`/`solution_dim`, keep any new heavy import inside a function, and add the class to `__init__.py`.
 
 ## Test Strategy
 `src/evogp/tests/` holds the pytest suite of the ETL-engine rewrite; `src/evogp/tests/test_convergence_smoke.py` is the one test that drives this layer end to end (`SymbolicRegression` + `GenerateDescriptor` + `GeneticProgramming` + `StandardPipeline`, pop 64, 15 generations, fixed seeds). It asserts the fitness contract — `evaluate` gives a `(pop_size,)` float32 maximized tensor, a tree matching the labels scores exactly 0, the best fitness strictly improves and stays `<= 0`. Run: `PYTHONPATH=src <venv>/bin/python -m pytest src/evogp/tests/test_convergence_smoke.py -q`.
-Root-level `test/` is NOT a suite (`test_bind_success.py`, `test_torch_env.py`, notebooks, scratch scripts; none exercise `evogp.problem`). The other de-facto smoke tests are `example/basic.py`, `example/regressor.py`, `example/classifier.py`, `example/transformer.py`, `example/brax_task.py` and `python -m evogp.sr_test` (README §5).
+The repo-root `test/` directory is not part of this suite (scratch scripts/notebooks; a separate task owns it). The other de-facto smoke tests are `example/basic.py`, `example/regressor.py`, `example/classifier.py`, `example/transformer.py`, `example/brax_task.py` and `python -m evogp.sr_test` (README §5).
 Every entry point needs a GPU (constructors touch `device="cuda"` unconditionally, so nothing here instantiates on CPU-only machines) and float32 data on device; the robotics examples additionally need jax/brax/mujoco_playground/genesis.
 The `sr_test.py` target is genuinely hard and slow to converge: at pop 200 the best fitness sits at about -0.2511 for ~40 generations, first improves at generation 43 and reaches -0.1707 after 100 generations (~0.2 s/generation early, >10 s at generation 99); `python -m evogp.sr_test` (pop 1000) converges the same way (-0.2511 → -0.1849 by generation 27) but takes tens of minutes, because the per-generation cost grows with the population's total node count inside `Forest.SR_fitness` (tree/engine layer, not this one; `algorithm.step` itself stays at ~9 ms).
-Known coverage gaps: no test for `CustomLoss`, for `Classification(multi_output=False)`, for `Transformation.new_feature`, for the robotics problems, or for `SymbolicRegression.evaluate`'s `use_MSE=False`/five-`execute_mode` paths (verified ad hoc only).
+Known coverage gaps: no numeric/end-to-end test for `CustomLoss` (only its re-export is asserted), `Classification(multi_output=False)`, `Transformation.new_feature`, or the robotics rollouts (only `MujocoProblem`'s lazy-import binding is tested), and no test for `SymbolicRegression.evaluate`'s `use_MSE=False`/five-`execute_mode` paths (verified ad hoc only).
 
 ## See Also
 `../tree/CONTEXT.md` for `Forest.batch_forward`/`SR_fitness` shapes and the ETL engine entry points (`src/evogp/tree/etl_engine.py`; `src/evogp/tree/ENGINE_SPEC.md` is the engine's reference document).

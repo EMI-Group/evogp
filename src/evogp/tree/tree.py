@@ -281,7 +281,9 @@ class Tree:
                 if t == NType.VAR:
                     expr_stack.append(x[int(v)])
                 elif t == NType.CONST:
-                    expr_stack.append(v)
+                    # sympify the raw numpy scalar: a constant-only tree would otherwise
+                    # render (and return) ``np.float32(...)`` instead of a sympy number
+                    expr_stack.append(sp.sympify(v))
                 else:  # Function
                     if t == NType.UFUNC:
                         mid = expr_stack.pop(-1)
@@ -312,7 +314,9 @@ class Tree:
                 if t == NType.VAR:
                     expr_stack.append(x[int(v)])
                 elif t == NType.CONST:
-                    expr_stack.append(v)
+                    # sympify as in the single-output branch, so a constant reached from a
+                    # tagged node keeps the output a sympy expression
+                    expr_stack.append(sp.sympify(v))
                 else:  # Function
                     if node_type[i] & NType.OUT_NODE:
                         # tagged value: bit-reinterpretation of {function, outIndex}
