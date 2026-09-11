@@ -98,7 +98,7 @@ Keep CONTEXT.md at the level of this directory; do not modify source here from a
 
 ## Known Issues / Gotchas
 `utils.check_tensor(x)` returns **None** when given a non-tensor (the fallback branch has no `return`) — `x = check_tensor(x)` silently nulls lists/ints. Always pass torch tensors.
-`check_tensor` also does `.to("cuda").detach().requires_grad_(False)`, so inputs never carry autograd and any input graph is broken.
+`check_tensor` also does `.to("cuda").detach().requires_grad_(False)` (it does **not** cast dtype or enforce float32), so inputs never carry autograd, any input graph is broken, and a CPU `float64` tensor arrives as a CUDA `float64` tensor.
 `utils.py` defines `dict2prob` twice (a numpy version, then a torch version); the torch one wins, the numpy one is dead code.
 `GenerateDescriptor.update(**kwargs)` returns a **new** descriptor but also mutates the receiver's private `__params`, so kwargs are **sticky** across successive `update()` calls on the same object. Worse, `__params` captured the *parameter* values before substitution, so updating a descriptor whose original had `const_samples=None` re-draws fresh random constants from `const_range` — the initial and mutated populations then use different constant sets.
 `Forest.forward` asserts `x.shape[0] == pop_size`; for arbitrary batch sizes use `batch_forward`. `Tree.forward` accepts 1-D or 2-D input but returns the batch dimension unless the input was 1-D.
