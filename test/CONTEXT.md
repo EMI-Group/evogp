@@ -30,6 +30,9 @@ This directory is the closest thing the repo has to an install smoke test, but i
 3. `python test/fix_bug.py` — success = the two printed fitness values are equal (hybrid-parallel vs data-parallel agreement).
 4. `python -m evogp.sr_test` — the validation command actually documented in README "5. Validate Installation" (lives in `src/evogp/sr_test.py`, not here); prefer it when you need the officially supported end-to-end check.
 5. Run the notebooks manually from the repo root if you want visual/API confirmation (`vis.ipynb` references `./imgs/...` relative to cwd, commented out); `combined_test.ipynb` cannot run as shipped.
+6. `etl_jit_probe.py` — the only file here that exercises ETL (the foreign repo `/mnt/local-ssd/bchuang/etl`) instead of evogp, so it needs no kernel build. Exact command (the venv is required; bare `python` is not on PATH):
+   `/mnt/local-ssd/bchuang/evox/.venv/bin/python test/etl_jit_probe.py` (add `--device N` for a CUDA index, `--sections a,b,f` to run a subset, `--reps-build`/`--reps-run`/`--gen-trees`/`--par-trees` to resize).
+   Runtime is ~3-5 min for all sections; results print to stdout as sections (a)-(h) (each row as it is measured, plus a final `SUMMARY TABLE`), scratch files land in `$TMPDIR/etl_jit_probe/run_*/`, and the exit code is 0 unless a section or a `PASS`/`FAIL` check failed. `--device 0` is the default; if that GPU is busy (the host is shared — the header prints `nvidia-smi` utilization) the timings inflate several-fold, so prefer an idle device for quotable numbers.
 
 ## Constraints
 - `test_bind_success.py` is the only file under `test/` that binds to the raw op surface; it calls the schemas positionally, mirroring `TORCH_LIBRARY(evogp_cuda, ...)` (`src/evogp/cuda/torch_wrapper.cu:291-298`), so it breaks silently if op signatures change even when the public API still works.
