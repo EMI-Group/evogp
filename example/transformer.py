@@ -16,11 +16,11 @@ data set and the Ridge estimator comes from sklearn). ``Transformation`` impleme
 ``problem_dim`` nor ``solution_dim``, hence the hand-written ``input_len=10``/``output_len=1``
 in the descriptor.
 
-As shipped (pop 200 x 100 steps) the run takes roughly two minutes with
-``ETL_DISABLE_LOCATIONS=1`` (ETL's tracing-only speed knob; it does not change the fitness);
-``pop_size`` is right-sized for the ETL evaluation engine, at the CUDA-scale ``pop_size=1000``
-of the original settings it costs about an hour. ``new_feature`` asks for the best
-``min(n_best, pop_size)`` trees, so keep ``pop_size >= n_best``.
+As shipped (pop 1000 x 100 steps, the original settings) the run takes roughly ten minutes
+with ``ETL_DISABLE_LOCATIONS=1`` -- ETL's tracing-only speed knob, it does not change the
+fitness (measured on an equivalent diabetes-sized workload: ~5.2 s per step at pop 1000,
+which is the per-tree compile cost of the engine -- a fresh random population is compiled
+tree by tree, so ``pop_size`` trades directly against wall time).
 """
 
 import torch
@@ -62,7 +62,7 @@ descriptor = GenerateDescriptor(
 )
 
 algorithm = GeneticProgramming(
-    initial_forest=Forest.random_generate(pop_size=200, descriptor=descriptor),
+    initial_forest=Forest.random_generate(pop_size=1000, descriptor=descriptor),
     crossover=DefaultCrossover(),
     mutation=DefaultMutation(
         mutation_rate=0.2, descriptor=descriptor.update(max_layer_cnt=3)

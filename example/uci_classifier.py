@@ -16,8 +16,14 @@ fitness). ``Classification`` expects 1-D contiguous class indices starting at 0,
 """
 
 import time
-import pandas as pd
 
+try:
+    import pandas as pd
+except ImportError as exc:
+    raise SystemExit(
+        "example/uci_classifier.py converts the downloaded table with pandas "
+        "(pip install pandas)."
+    ) from exc
 seed = 1
 pop_size = 100
 problem_id = 109
