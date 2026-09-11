@@ -4,9 +4,12 @@ sympy
 numpy
 networkx
 
-# pygraphvi  # optional, for visualize tree
-# jax  # optional, for jax-based problem
-# brax  # optional, for brax benchmark
-
-
-
+# ETL (EvoX Tensor Library) is required at runtime. It is a sibling project,
+# not a PyPI dependency of EvoGP, so install it from its source checkout, e.g.
+#   pip install /path/to/etl
+#
+# Optional extras:
+#   iree-base-compiler / iree-base-runtime (~3.11.x)  # compiled (GPU/accelerated) ETL backends
+#   pygraphviz  # optional, for visualize tree
+#   jax  # optional, for jax-based problem
+#   brax  # optional, for brax benchmark
