@@ -22,6 +22,7 @@ This directory is the closest thing the repo has to an install smoke test, but i
 | `combined_test.ipynb` | **Cannot run as shipped** — `CombinedForest` demo on XOR (5000 trees, `pow` combination, 100 generations) written against the pre-`data_info` API (`CombinedForest.random_generate(formula=..., share_input=...)`); see Known Issues for the exact failure points. | yes | none |
 | `vis.ipynb` | End-to-end demo/parameter playground on the current API: full `Forest` + `StandardPipeline` run on XOR (100000 trees, 1000-generation cap, `fitness_target=-0.001`), then `best.SR_fitness`, `forward`, `to_sympy_expr`, `sympy_expression.simplify()`, `to_infix`; `best.to_png("./imgs/xor_tree.png")` is present but commented out (needs the optional `pygraphviz` extra). | yes | none |
 | `sympy_test.ipynb` | 3-cell scratch check that nested `sp.Pow` constructs and renders as expected (it never calls `.simplify()`); pure sympy, no evogp import. | no | none |
+| `etl_jit_probe.py` | ETL "true jit" economics probe (standalone script, `argparse`). Builds a realistic GP step — `@etl.defn _step(x, tree)` whose `tree` static is a nested tuple decoded at trace time into add/sub/mul/div + unary sin/exp/neg + a `select`-based protected divide — through `etl.build_cached` + `etl.CompileCache` on `TensorSpec((N,2), float32)`, and prints one table with per-tree build/run timings, generation-scale extrapolations, parallel-build results, persistence round trip and API-semantics checks. Does NOT import evogp. | yes (iree-cuda sections) | none (asserts are in-script only; prints `PASS`/`FAIL` and exits 1 if any section fails) |
 
 ## How to smoke-test after a build
 1. `python test/test_torch_env.py` — cheapest preflight (CPU only); success = it prints `Input a:`, `Input b:` and `Result:` with a 3-element tensor (`a*b+1`). Failure here means the host C++ extension build path is broken, so `setup.py`'s extension build will also fail; success does not prove a CUDA toolchain exists.
@@ -29,6 +30,9 @@ This directory is the closest thing the repo has to an install smoke test, but i
 3. `python test/fix_bug.py` — success = the two printed fitness values are equal (hybrid-parallel vs data-parallel agreement).
 4. `python -m evogp.sr_test` — the validation command actually documented in README "5. Validate Installation" (lives in `src/evogp/sr_test.py`, not here); prefer it when you need the officially supported end-to-end check.
 5. Run the notebooks manually from the repo root if you want visual/API confirmation (`vis.ipynb` references `./imgs/...` relative to cwd, commented out); `combined_test.ipynb` cannot run as shipped.
+6. `etl_jit_probe.py` — the only file here that exercises ETL (the foreign repo `/mnt/local-ssd/bchuang/etl`) instead of evogp, so it needs no kernel build. Exact command (the venv is required; bare `python` is not on PATH):
+   `/mnt/local-ssd/bchuang/evox/.venv/bin/python test/etl_jit_probe.py` (add `--device N` for a CUDA index, `--sections a,b,f` to run a subset, `--reps-build`/`--reps-run`/`--gen-trees`/`--par-trees` to resize).
+   Runtime is ~3-5 min for all sections; results print to stdout as sections (a)-(h) (each row as it is measured, plus a final `SUMMARY TABLE`), scratch files land in `$TMPDIR/etl_jit_probe/run_*/`, and the exit code is 0 unless a section or a `PASS`/`FAIL` check failed. `--device 0` is the default; if that GPU is busy (the host is shared — the header prints `nvidia-smi` utilization) the timings inflate several-fold, so prefer an idle device for quotable numbers.
 
 ## Constraints
 - `test_bind_success.py` is the only file under `test/` that binds to the raw op surface; it calls the schemas positionally, mirroring `TORCH_LIBRARY(evogp_cuda, ...)` (`src/evogp/cuda/torch_wrapper.cu:291-298`), so it breaks silently if op signatures change even when the public API still works.
@@ -54,6 +58,7 @@ This directory is the closest thing the repo has to an install smoke test, but i
 - If the kernels are replaced: no golden numeric values exist here, so capture expected outputs from the current implementation first (e.g. `fix_bug.py`'s Tree under each `execute_mode`) and assert the replacement matches them.
 
 ## See Also / Routing
+- `etl_jit_probe.py` (this directory) → ETL "true jit" (`etl.build_cached` + `etl.CompileCache`) economics for decoding GP trees into static structures and compiling them; the ETL library source of truth is the READ-ONLY foreign repo `/mnt/local-ssd/bchuang/etl` (never write there; its own meta-programming coverage is `tests/test_meta_programming.py`, which the probe copies into `$TMPDIR` and runs).
 - `../src/evogp/cuda/` → kernel + `TORCH_LIBRARY` schema registry that `test_bind_success.py` exercises (sibling — read-only, escalate writes to parent).
 - `../src/evogp/tree/` → current `Tree`/`Forest`/`CombinedForest` (`data_info`) contracts behind `fix_bug.py` and the notebooks (sibling — read-only, escalate writes to parent).
 - `../src/evogp/sr_test.py` → README-documented install validation entry point (`python -m evogp.sr_test`) (sibling — read-only, escalate writes to parent).

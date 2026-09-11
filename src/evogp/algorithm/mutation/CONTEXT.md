@@ -4,7 +4,7 @@
 Tree-mutation operators for EvoGP: given the freshly crossed offspring `Forest`, perturb a random subset of individuals and return the mutated population.
 Every operator is a plain Python class (no `nn.Module`, no registered parameters, no `device` attribute) implementing the duck-typed `BaseMutation.__call__(forest)` contract.
 This subpackage is stage 3 of `GeneticProgramming.step`: `selection → crossover → mutation → elite concat`.
-All work happens on the GPU (CUDA/ROCm via `torch.ops.evogp_cuda.tree_mutate`); there is no CPU path.
+Structural work is a pure-torch prefix splice (`Forest.mutate` → `../../tree/splicing.py`), but every operator's randomness and index tensors are hardcoded to the `"cuda"` device string, so there is no CPU path.
 
 ## API Surface
 
@@ -52,7 +52,7 @@ All work happens on the GPU (CUDA/ROCm via `torch.ops.evogp_cuda.tree_mutate`); 
 - Subclasses implement `__call__(self, forest)` and must keep `pop_size` unchanged (`GeneticProgramming.step` concatenates the elites immediately afterwards).
 - All tensors are CUDA: the package hardcodes `device="cuda"` 21 times across `default.py`, `delete.py`, `single_*.py`, `multi_*.py`, `mutation_utils.py`; the device is never derived from the input forest.
 - The descriptor must match the forest: `Forest.mutate` asserts equal `input_len`, `output_len` and `max_tree_len`, so mutation descriptors are normally obtained via `descriptor.update(max_layer_cnt=3)`, which keeps `max_tree_len` while shrinking generated subtree depth.
-- `replace_pos` must be a CUDA **int32** tensor of shape `(pop_size,)` because `tree_mutate` reads it via `data_ptr<int>()`; `delete.py` and `insert.py` explicitly `.to(torch.int32)` before calling.
+- `replace_pos` must have shape `(pop_size,)` but NOT a specific dtype: `check_tensor` only relocates it to `"cuda"` (`../../tree/utils.py:275-283`) and the splice accepts any integer dtype (converted to `long` internally), so int64/int16 positions work too; `delete.py` and `insert.py` nonetheless still `.to(torch.int32)` before calling.
 - Imports flow one way: this package imports `evogp.tree` (`Forest`, `CombinedForest`, `GenerateDescriptor`, `NType`, `MAX_STACK`, `randint`); only `evogp.pipeline` (and examples/tutorials) may import `evogp.algorithm`.
 - For `CombinedForest` sub-forests, each descriptor's `output_len` must be 1.
 - `MAX_STACK` is the hard ceiling on tree length (`descriptor.max_tree_len <= MAX_STACK`), which is why `default.py` uses it as a safe random position bound.
@@ -68,28 +68,28 @@ All work happens on the GPU (CUDA/ROCm via `torch.ops.evogp_cuda.tree_mutate`); 
 ## Known Issues
 - Every operator mutates its argument in place and returns the same object, so running two operators on one `Forest` double-mutates it; the `if mutate_indices.sum() == 0: return forest` early exit returns the original object, it is not a copy.
 - `HoistMutation` reads `subtree_positions` as an **absolute** position in the flat node array, not as an offset relative to `mutate_positions`; the hoisted subtree therefore usually lies outside the selected subtree (the two coincide only when `mutate_positions == 0`).
-- `InsertMutation` draws the graft position in `[1, size[T])`; if the generator produced a single-leaf tree (`size == 1`, possible because the root may become a leaf when `rand < depth2leaf_probs[0]`), `randint(low=1, high=1)` returns 1, which is out of range, and `tree_mutate` silently copies the tree unchanged via its `old_node_idx >= old_size` guard.
+- `InsertMutation` draws the graft position in `[1, size[T])`; if the generator produced a single-leaf tree (`size == 1`, possible because the root may become a leaf when `rand < depth2leaf_probs[0]`), `randint(low=1, high=1)` returns 1, which is out of range, and the splice silently copies the target row unchanged because the position lies outside its real tree length (`../../tree/splicing.py`).
 - `Forest.mutate` also silently copies the tree unchanged when the replacement would exceed `max_tree_len`, so oversized generated subtrees are dropped without warning.
 - `DeleteMutation`'s `max_mutatable_size` is absent from the class docstring: it zeroes the selection weight of slots whose subtree size exceeds the threshold, and a fully masked row falls back to `argmax` = position 0 (the root).
 - `SingleConstMutation` uses the same masked-argmax fallback: in a tree without CONST nodes position 0 is picked, but the final `torch.where(node_type == NType.CONST, ...)` guard makes the individual silently unchanged.
 - `default.py` samples positions with `torch.randint(low=0, high=MAX_STACK)` and then takes `% tree_size`, so the pool is `MAX_STACK` wide; every other module imports `MAX_STACK` without using it (as with `Optional`, `Tuple`, `Tensor`).
 - Selection masks are created on the default (CPU) device in most operators (`torch.rand(forest.pop_size)`), while only `delete.py` pins them with `device="cuda"`, so the code relies on PyTorch accepting CPU index tensors for CUDA operands.
-- `single_point.py`/`multi_point.py` assume the multi-output node encoding stores the output index in the upper 16 bits of the float32 value (`output_index << 16`), matching `generate.cu`; changing that layout breaks these operators.
+- `single_point.py`/`multi_point.py` assume the multi-output node encoding stores the output index in the upper 16 bits of the float32 value (`output_index << 16`), matching the packing specified in `../../tree/ENGINE_SPEC.md` §2.3 (the `OUT_NODE` tag constant lives in `../../tree/utils.py`); changing that layout breaks these operators.
 - `CombinedDefaultMutation` is stateful: `load_pattern_num` rewrites `self.descriptors` into a list and caches `self.pattern_num` on the first call, then asserts the sub-forest count stays the same.
 - `randint` (`evogp.tree.utils`) is `low + rand*(high-low)` truncated to an integer dtype, not a true integer RNG; it is only approximately uniform and a `low == high` call silently returns `low`.
 - The usage example inside `combined.py`'s docstring is stale: it constructs `MultiPointMutation(mutation_rate=0.2, mutation_intensity=0.3)` without the required `descriptor` argument.
 
 ## Notes for Agents
 - Read `base.py` (6 lines) plus `GeneticProgramming.step` (`../genetic_programming.py`, line ~117) for the call contract; each operator is 50–140 lines and self-contained.
-- Verifying runtime behavior requires a CUDA/ROCm GPU and the compiled `evogp_cuda` extension; nothing here can be executed on CPU.
+- Verifying runtime behavior requires a CUDA/ROCm GPU (the operators hardcode `device="cuda"`); there is no compiled extension and nothing to build, so the device is the only missing ingredient on a CPU-only machine.
 - To add an operator: subclass `BaseMutation`, give it its own module, and add the import to `__init__.py` — `from .mutation import *` in `evogp/algorithm/__init__.py` makes it public automatically.
 - Trust the code over the docstrings for `hoist`, `delete` and `insert`: the docstrings describe canonical GP semantics, while the implementations work on the flat contiguous subtree layout.
 
 ## Test Strategy
-- No unit tests cover this directory; `test/` holds ad-hoc GPU smoke scripts (`test_bind_success.py`, `fix_bug.py`) and notebooks, and `fix_bug.py` targets tree evaluation only.
+- No test inside this directory and no test that instantiates the structural/node operators: `DefaultMutation` is the only one covered automatically, indirectly, through the optimizer smoke `../../tests/test_convergence_smoke.py`; `test/` holds the legacy GPU smoke scripts (`test_bind_success.py`, which drives the deleted extension, and `fix_bug.py`, which targets tree evaluation only) plus notebooks.
 - Real coverage is end-to-end: `example/basic.py`, `example/regressor.py`, `example/classifier.py`, `example/brax_task.py`, `example/mjx_task.py`, `example/combined_sr.py` plus `tutorial/evogp_intro.ipynb` and `tutorial/combined_gp.ipynb`.
 - `CombinedDefaultMutation` is exercised only by `example/combined_sr.py` and `tutorial/combined_gp.ipynb`; the README operator table lists `CombinedMutation` but not `CombinedDefaultMutation`.
-- Any new test needs a GPU and the built extension, so mutation tests are effectively integration tests.
+- Any new test needs a GPU (the operators build their tensors on `"cuda"`; nothing has to be built), so mutation tests are effectively integration tests; the pytest suite at `../../tests/` covers the underlying `Forest.mutate` splice through `test_operators.py`.
 
 ## Routing Table
 - `base.py` → the mutation contract (`BaseMutation`).
@@ -105,5 +105,5 @@ All work happens on the GPU (CUDA/ROCm via `torch.ops.evogp_cuda.tree_mutate`); 
 ## See Also
 - `../CONTEXT.md` — `algorithm` package (`GeneticProgramming`, `crossover/`, `selection/`).
 - `../../tree/CONTEXT.md` — `Forest` (incl. `mutate`/`random_generate`), `CombinedForest`, `GenerateDescriptor`, `NType`, `randint`, `MAX_STACK`.
-- `../../cuda/CONTEXT.md` — `mutation.cu` and `torch_wrapper.cu` implement `tree_mutate`.
+- `../../tree/splicing.py` (behind `../../tree/CONTEXT.md`) — the pure-torch `mutate` splice that `Forest.mutate` calls.
 - `../crossover/` and `../selection/` — siblings producing/consuming the population around mutation (read-only; escalate writes to the parent node).

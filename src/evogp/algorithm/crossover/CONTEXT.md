@@ -4,7 +4,7 @@
 The crossover (recombination) operator subpackage of EvoGP, the GPU-accelerated Tree-based GP framework built on PyTorch.
 Each module here implements one interchangeable parent-selection + subtree-swap strategy behind a single `BaseCrossover` interface.
 A strategy takes the current `Forest` (whole population) plus the indices of the survivors chosen by the `selection/` subpackage, and returns a brand-new `Forest` of exactly `target_cnt` offspring.
-All heavy lifting is delegated to the CUDA op `Forest.crossover` (`torch.ops.evogp_cuda.tree_crossover`); this subpackage only decides *which* trees and *which* subtree positions to recombine.
+All heavy lifting is delegated to `Forest.crossover`, the pure-torch prefix splice in `../../tree/splicing.py`; this subpackage only decides *which* trees and *which* subtree positions to recombine.
 
 ## API Surface
 Public classes (no `__all__` anywhere; `crossover/__init__.py` imports all five, and `algorithm/__init__.py` does `from .crossover import *`, so every name below is reachable as `evogp.algorithm.<Name>` and importable from `evogp.algorithm.crossover`):
@@ -29,13 +29,13 @@ Therefore a strategy MUST:
 - Read only when a selector is supplied: `DiversityCrossover` (`diversity.py:63`, `diversity.py:78`) and `LeafBiasedCrossover` (`leaf_biased.py:67`, `leaf_biased.py:80`) forward it as `self.<x>_selector(fitness, crossover_cnt)` with the same tensor object; with the default `recipient_selector=None`/`donor_selector=None` they never touch `fitness` either. No `fitness[...] = ...`, augmented assignment, in-place `*_` op, `out=` or `.cuda()/.to()/.cpu()` on `fitness` exists anywhere in this subpackage.
 - No retention: the only instance attributes ever assigned are `crossover_rate`/`leaf_bias`/`recipient_selector`/`donor_selector` (`diversity.py:33-35`, `leaf_biased.py:37-40`); there is no `self.fitness` and no global holding it, and the selectors likewise store only hyperparameters (`../selection/selection_utils.py:22,43,60-68,119-120`). A caller-recycled fitness buffer is therefore safe for crossover — it is sampled synchronously within the single `GeneticProgramming.step` call (`../genetic_programming.py:110-116`).
 - Shape/dtype: this subpackage makes no assert, `.size(0)` or sort assumption on `fitness`; the only shape guarantee is `GeneticProgramming.step`'s `fitness.shape == (pop_size,)` assert (`../genetic_programming.py:103-105`). Selector output must be full-population indices because `DiversityCrossover`/`LeafBiasedCrossover` index `forest` (not `survivor_indices`) with them (`diversity.py:91-111`; `leaf_biased.py:109-138`).
-- Device: all fitness device handling happens inside the selectors (`.cuda()` at `../selection/selection_utils.py:26,47,82,97-98,126`), never here; `RankSelector`/`TruncationSelector`/`TournamentSelector` gather from fitness-device tensors indexed by CUDA index tensors (`selection_utils.py:33,87,93,130`) so they are consistent only for an already-CUDA `fitness`, while `RouletteSelector` copies the probability tensor to CUDA first (`selection_utils.py:46-47`) but requires float, non-negative, finite fitness. Selector output must be CUDA `int32`: it feeds `size_tensor[indices, 0]` and `forest.crossover` (`diversity.py:95-111`; `leaf_biased.py:117-138`), and `Forest.crossover` runs `check_tensor` (`.to("cuda")`, no dtype cast — `../../tree/utils.py:280-285`) before asserting 1-D equal-length args (`../../tree/forest.py:261-272`).
+- Device: all fitness device handling happens inside the selectors (`.cuda()` at `../selection/selection_utils.py:26,47,82,97-98,126`), never here; `RankSelector`/`TruncationSelector`/`TournamentSelector` gather from fitness-device tensors indexed by CUDA index tensors (`selection_utils.py:33,87,93,130`) so they are consistent only for an already-CUDA `fitness`, while `RouletteSelector` copies the probability tensor to CUDA first (`selection_utils.py:46-47`) but requires float, non-negative, finite fitness. Selector output must be a 1-D integer index tensor feeding `size_tensor[indices, 0]` and `forest.crossover` (`diversity.py:95-111`; `leaf_biased.py:117-138`): `Forest.crossover` runs `check_tensor` on all four arguments — which only relocates them to `"cuda"` and detaches, without any dtype cast (`../../tree/utils.py:275-283`) — and then asserts each is 1-D of length `res_forest_size` (`../../tree/forest.py:217-228`); the splice itself converts any integer dtype to `long` internally, so an `int64` selector output is fine.
 
 ## Constraints
 - Subclass `BaseCrossover` and implement `__call__` with the four keyword names `forest`, `survivor_indices`, `target_cnt`, `fitness` (argument *order* must not be relied on — see Known Issues).
 - CUDA is assumed everywhere: every strategy calls `torch.randint(..., device="cuda")` explicitly, and the `randint` helper imported from `...tree` defaults to `device="cuda"` as well; this subpackage cannot run on CPU.
 - Only touch the parent forest through its public API (`forest[indices]`, `forest.crossover(...)`, `forest + forest`); never mutate `batch_node_value` / `batch_node_type` / `batch_subtree_size` in place.
-- Offspring are produced by the CUDA kernel only; do not reimplement subtree swapping in Python.
+- Offspring are produced only by the `Forest.crossover` splice (`../../tree/splicing.py`); do not reimplement subtree swapping in this subpackage.
 - Unlike the `selection/` classes, no strategy here validates its hyperparameter ranges (`crossover_rate`, `leaf_bias`) with asserts.
 
 ## Design Decisions
@@ -61,21 +61,21 @@ Therefore a strategy MUST:
 - `crossover_rate` is annotated `int` but used as a float ratio; it is unvalidated, and `crossover_rate > 1` makes `target_cnt - crossover_cnt` negative, which makes `torch.randint` raise.
 - `choose_leaf_pos` guarantees a leaf only probabilistically: it returns `torch.argmax` of a masked random score, so if every leaf score ties at 0 the returned position 0 is a non-leaf node.
 - `MAX_STACK` is imported from `...tree` in `default.py`, `diversity.py` and `leaf_biased.py` but never used (dead import).
-- Importing this subpackage transitively imports `evogp.tree`, which imports the compiled extension `evogp.evogp_cuda` at import time — without a built extension/GPU even importing fails.
+- Importing this subpackage transitively imports `evogp.tree`, which needs only torch and the `etl` package — there is nothing to build, so importing always succeeds; only *executing* a strategy needs a CUDA-visible device.
 
 ## Notes for Agents
 - To add a strategy: copy `default.py`, subclass `BaseCrossover`, slice `forest[survivor_indices]`, and return exactly `target_cnt` offspring (never include the elites).
 - Keep the `survivor_indices`-relative indexing convention used by `default.py` (`survivor_forest = forest[survivor_indices]` then index the slice) rather than indexing `forest` directly.
 - Always pass `device="cuda"` when creating new tensors here, matching the rest of the codebase.
 - Do not "fix" the `combined_dafault.py` filename in isolation: `crossover/__init__.py` is the only importer, but external user code may import the misspelled module path.
-- Any real run needs a CUDA device and the compiled `evogp_cuda` extension; there is no CPU fallback for the random draws.
+- Any real run needs a CUDA device (every index/position tensor is created on `"cuda"`); no compiled extension and no build step are involved, but there is still no CPU fallback for the random draws.
 
 ## Test Strategy
 - There are no test files inside this directory and the repository has no CI workflow (`.github/workflows` is absent).
-- `test/test_bind_success.py` (`crossover_test`) tests the raw CUDA binding `torch.ops.evogp_cuda.tree_crossover` on hand-built tensors and only prints trees — manual/visual, no assertions, and it bypasses these strategy classes.
+- `test/test_bind_success.py` is a legacy CUDA-extension script outside this node (it drives a deleted raw binding), only prints trees, has no assertions and can no longer run; the automated replacement is `../../tests/test_operators.py` (`Forest.crossover` splice invariants and silent-copy edge cases) plus `../../tests/test_equivalence.py` (evaluation).
 - `test/combined_test.ipynb`, `test/vis.ipynb`, `tutorial/combined_gp.ipynb`, `tutorial/evogp_intro.ipynb` exercise `CombinedDefaultCrossover` / `DefaultCrossover` / `LeafBiasedCrossover` end-to-end inside a full pipeline.
 - `src/evogp/sr_test.py` is a runnable end-to-end smoke script using `DefaultCrossover` (needs CUDA).
-- Coverage gaps: `DiversityCrossover` with selectors and `LeafBiasedCrossover` have no automated test; a cheap check for a new strategy is to build a small `Forest.random_generate(...)` and assert the returned `forest.pop_size == target_cnt`.
+- Coverage gaps: `DiversityCrossover` with selectors and `LeafBiasedCrossover` have no automated test (`../../tests/test_operators.py` exercises only the `Forest.crossover` splice they call); a cheap check for a new strategy is to build a small `Forest.random_generate(...)` and assert the returned `forest.pop_size == target_cnt` (needs a CUDA device).
 
 ## Routing Table
 This directory has no child subdirectories — route by file:
@@ -88,5 +88,5 @@ This directory has no child subdirectories — route by file:
 Related paths (read-only from here — escalate writes to the parent node):
 - `../selection/selection_utils.py` → `BaseSelector`/`RankSelector`/`RouletteSelector`/`TournamentSelector`/`TruncationSelector`, the `recipient_selector`/`donor_selector` implementations consumed here.
 - `../genetic_programming.py` → the only in-tree caller of `BaseCrossover.__call__`.
-- `../../tree/forest.py`, `../../tree/combined_forest.py`, `../../tree/utils.py` → `Forest`/`CombinedForest`, `crossover()`, `randint`, `MAX_STACK`.
-- `../../../../example/`, `../../../../tutorial/`, `../../../../test/` → usage examples, notebooks and the manual CUDA-binding test.
+- `../../tree/forest.py`, `../../tree/combined_forest.py`, `../../tree/utils.py`, `../../tree/splicing.py` → `Forest`/`CombinedForest`, `crossover()`, `randint`, `MAX_STACK`, and the pure-torch splice `crossover()` calls.
+- `../../../../example/`, `../../../../tutorial/`, `../../../../test/` → usage examples, notebooks and the legacy CUDA-extension scripts.

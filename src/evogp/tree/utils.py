@@ -7,6 +7,9 @@ import sympy as sp
 DELTA = 1e-9
 MAXVAL = 1e9
 
+# Tree engine limits: ``max_tree_len`` (the row stride of a population) must not
+# exceed ``MAX_STACK``, and the depth -> leaf-probability schedule has exactly
+# ``MAX_FULL_DEPTH`` entries.
 MAX_STACK = 1024
 MAX_FULL_DEPTH = 10
 
@@ -168,33 +171,44 @@ FUNCS_DISPLAY = [
 ]
 
 
+def _loose_quotient(x, y):
+    """``x / y`` with the divisor clamp of the "loose" operators applied.
+
+    ``loose_div`` and ``loose_inv`` replace a divisor whose magnitude is at most
+    ``DELTA`` by ``copy_sign(DELTA, y)`` *before* dividing (ENGINE_SPEC section 3,
+    ids 5 and 24), so ``x / 0`` is a finite ``1e9 * x`` and never an unbounded
+    quotient. In float32 - which is what the engine evaluates in - ``1 / DELTA``
+    rounds to exactly ``MAX_VAL = 1e9``, so the clamped case is rendered as
+    ``x * copy_sign(MAXVAL, y)`` and keeps the clean ``1e9`` placeholder (``x / 1e-9``
+    would render ``1e9 * x`` as 999999999.9999999 in float64). Symbolic and larger
+    divisors are left as a plain ``x / y``.
+    """
+    if y.is_number and abs(y) <= DELTA:
+        # The engine keeps the sign of the clamped divisor, but sympy has no negative
+        # zero (``sympify(-0.0)`` is ``Zero``), so an exact zero divisor renders
+        # positive here.
+        return x * (sp.Float(MAXVAL) if y >= 0 else sp.Float(-MAXVAL))
+    return x / y
+
+
 class LooseDiv(sp.Function):
     @classmethod
     def eval(cls, x, y):
-        if isinstance(y, (float, int)) and y == 0:
-            return sp.S(MAXVAL)
-        if y == 0:
-            return sp.S(MAXVAL)
-        return x / y
+        return _loose_quotient(x, y)
 
 
 class LooseInv(sp.Function):
     @classmethod
     def eval(cls, x):
-        if isinstance(x, (float, int)) and x == 0:
-            return sp.S(MAXVAL)
-        if x == 0:
-            return sp.S(MAXVAL)
-        return 1 / x
+        return _loose_quotient(1, x)
 
 
 class LooseLog(sp.Function):
     @classmethod
     def eval(cls, x):
-        if isinstance(x, (float, int)) and x == 0:
-            return sp.S(MAXVAL)
         if x == 0:
-            return sp.S(MAXVAL)
+            # ENGINE_SPEC section 3 id 21: the zero case is ``-MAX_VAL``, i.e. -1e9
+            return sp.S(-MAXVAL)
         return sp.log(sp.Abs(x))
 
 
@@ -232,25 +246,6 @@ SYMPY_MAP = {
 }
 
 
-def dict2prob(prob_dict):
-    # Probability Dictionary to Distribution Function
-    assert len(prob_dict) > 0, "Empty probability dictionary"
-
-    prob = np.zeros(len(FUNCS))
-
-    for key, val in prob_dict.items():
-        assert (
-            key in FUNCS_NAMES
-        ), f"Unknown function name: {key}, total functions are {FUNCS_NAMES}"
-        idx = FUNCS_NAMES.index(key)
-        prob[idx] = val
-
-    # normalize
-    prob = prob / prob.sum()
-
-    return prob
-
-
 def to_numpy(li):
     for idx, e in enumerate(li):
         if type(e) == torch.Tensor:
@@ -279,10 +274,13 @@ def dict2prob(prob_dict):
 
 def check_tensor(x):
     if not isinstance(x, torch.Tensor):
-        x = torch.tensor(x, dtype=torch.float32, device="cuda", requires_grad=False)
-    else:
-        x = x.to("cuda").detach().requires_grad_(False)
-        return x
+        # The old fallback built a tensor and then returned None, silently turning every
+        # ``x = check_tensor(x)`` call into ``x = None``; fail loudly instead.
+        raise TypeError(
+            f"check_tensor expects a torch.Tensor, but got {type(x).__name__}; "
+            "convert lists / numpy arrays with torch.tensor(...) first"
+        )
+    return x.to("cuda").detach().requires_grad_(False)
 
 
 def str_tree(value, node_type, subtree_size):

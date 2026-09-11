@@ -1,11 +1,11 @@
 from typing import Optional, Tuple
-import time
 import torch
 from torch import Tensor
 import numpy as np
 from .utils import *
 from .tree import Tree
 from .descriptor import GenerateDescriptor
+from . import etl_engine, generation, splicing
 
 
 class Forest:
@@ -48,32 +48,13 @@ class Forest:
             isinstance(pop_size, int) and pop_size > 0
         ), "pop_size should be a positive integer"
 
-        keys = torch.randint(
-            low=0,
-            high=1000000,
-            size=(2,),
-            dtype=torch.uint32,
-            device="cuda",
-            requires_grad=False,
-        )
-
+        # Pure-torch vectorized generation (replaces the former `tree_generate` kernel);
+        # the tensors live on the descriptor's device, i.e. on "cuda" as before.
         (
             batch_node_value,
             batch_node_type,
             batch_subtree_size,
-        ) = torch.ops.evogp_cuda.tree_generate(
-            pop_size,
-            descriptor.max_tree_len,
-            descriptor.input_len,
-            descriptor.output_len,
-            descriptor.const_samples.shape[0],
-            descriptor.out_prob,
-            descriptor.const_prob,
-            keys,
-            descriptor.depth2leaf_probs,
-            descriptor.roulette_funcs,
-            descriptor.const_samples,
-        )
+        ) = generation.generate_population(pop_size, descriptor, device=None)
 
         return Forest(
             descriptor.input_len,
@@ -126,18 +107,14 @@ class Forest:
             self.input_len,
         ), f"x shape should be ({self.pop_size}, {self.input_len}), but got {x.shape}"
 
-        res = torch.ops.evogp_cuda.tree_evaluate(
-            self.pop_size,
-            self.max_tree_len,
-            self.input_len,
-            self.output_len,
+        pop = etl_engine.decode_population(
             self.batch_node_value,
             self.batch_node_type,
             self.batch_subtree_size,
-            x,
+            self.input_len,
+            self.output_len,
         )
-
-        return res
+        return etl_engine.evaluate(pop, x, per_row=True)
 
     # (batch_size, input_len) -> (pop_size, batch_size, output_len)
     def batch_forward(self, x: Tensor) -> Tensor:
@@ -147,33 +124,14 @@ class Forest:
             x.shape[1] == self.input_len
         ), f"x shape[1] should be {self.input_len}, but got {x.shape[1]}"
 
-        batch_size = x.shape[0]
-        assist_batch_node_value = self.batch_node_value.repeat_interleave(
-            batch_size, dim=0
-        )
-        assist_batch_node_type = self.batch_node_type.repeat_interleave(
-            batch_size, dim=0
-        )
-        assist_batch_subtree_size = self.batch_subtree_size.repeat_interleave(
-            batch_size, dim=0
-        )
-
-        assist_x = x.repeat(self.pop_size, 1)
-
-        assist_res = torch.ops.evogp_cuda.tree_evaluate(
-            self.pop_size * batch_size,
-            self.max_tree_len,
+        pop = etl_engine.decode_population(
+            self.batch_node_value,
+            self.batch_node_type,
+            self.batch_subtree_size,
             self.input_len,
             self.output_len,
-            assist_batch_node_value,
-            assist_batch_node_type,
-            assist_batch_subtree_size,
-            assist_x,
         )
-
-        res = assist_res.reshape(self.pop_size, batch_size, self.output_len)
-
-        return res
+        return etl_engine.evaluate(pop, x, per_row=False)
 
     def mutate(self, replace_pos: Tensor, new_sub_forest: "Forest") -> "Forest":
         """
@@ -206,14 +164,12 @@ class Forest:
             self.max_tree_len == new_sub_forest.max_tree_len
         ), f"max_tree_len should be {self.max_tree_len}, but got {new_sub_forest.max_tree_len}"
 
-        # Perform mutation operation using CUDA
+        # Perform mutation operation in vectorized pure torch (formerly a CUDA op)
         (
             batch_node_value,
             batch_node_type,
             batch_subtree_size,
-        ) = torch.ops.evogp_cuda.tree_mutate(
-            self.pop_size,
-            self.max_tree_len,
+        ) = splicing.mutate(
             self.batch_node_value,
             self.batch_node_type,
             self.batch_subtree_size,
@@ -273,14 +229,12 @@ class Forest:
 
         res_forest_size = left_indices.shape[0]
 
+        # Perform crossover operation in vectorized pure torch (formerly a CUDA op)
         (
             batch_node_value,
             batch_node_type,
             batch_subtree_size,
-        ) = torch.ops.evogp_cuda.tree_crossover(
-            self.pop_size,
-            res_forest_size,
-            self.max_tree_len,
+        ) = splicing.crossover(
             self.batch_node_value,
             self.batch_node_type,
             self.batch_subtree_size,
@@ -312,6 +266,9 @@ class Forest:
             inputs (Tensor): inputs to the GP trees
             labels (Tensor): labels to compute the fitness
             use_MSE (bool, optional): whether to use the Mean Squared Error (MSE) as the fitness metric. Defaults to True.
+            execute_mode (str, optional): one of the five accepted mode strings. They are kept for
+                backwards compatibility only: the former `kernel_type` ids are gone and every mode
+                (including "torch") evaluates through the same ETL engine path. Defaults to "auto".
 
         Returns:
             Tensor: a tensor of shape (pop_size,) containing the fitness values
@@ -330,40 +287,25 @@ class Forest:
             self.output_len,
         ), f"outputs shape should be ({batch_size}, {self.output_len}), but got {labels.shape}"
 
+        # "torch" is the (previously rejected) alias of the same ETL engine path; the old
+        # kernel_type dispatch is gone, so all five strings behave identically.
         assert execute_mode in [
+            "torch",
             "hybrid parallel",
             "data parallel",
             "tree parallel",
             "auto",
-        ], f"execute_mode should be one of ['hybrid parallel', 'data parallel', 'tree parallel', 'auto'], but got {execute_mode}"
+        ], f"execute_mode should be one of ['torch', 'hybrid parallel', 'data parallel', 'tree parallel', 'auto'], but got {execute_mode}"
 
-        if execute_mode == "hybrid parallel":
-            execute_code = 0
-        elif execute_mode == "data parallel":
-            execute_code = 1
-        elif execute_mode == "tree parallel":
-            execute_code = 2
-        elif execute_mode == "auto":
-            execute_code = 4
-        batch_size = inputs.shape[0]
-
-        # Perform SR fitness computation using CUDA
-        res = torch.ops.evogp_cuda.tree_SR_fitness(
-            self.pop_size,
-            batch_size,
-            self.max_tree_len,
-            self.input_len,
-            self.output_len,
-            use_MSE,
+        pop = etl_engine.decode_population(
             self.batch_node_value,
             self.batch_node_type,
             self.batch_subtree_size,
-            inputs,
-            labels,
-            execute_code,
+            self.input_len,
+            self.output_len,
         )
 
-        return res
+        return etl_engine.sr_fitness(pop, inputs, labels, use_MSE=use_MSE)
 
     def __getitem__(self, index):
         if isinstance(index, int) or (hasattr(index, "shape") and index.shape == ()):
