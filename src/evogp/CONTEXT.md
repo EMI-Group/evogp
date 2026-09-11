@@ -87,4 +87,4 @@ Known coverage gaps: IREE numeric parity per shape, the robotics-control rollout
 - `src/evogp/pipeline/` → Training-loop layer: `BasePipeline`, `StandardPipeline` (fitness handling, best-tree tracking, termination).
 - `src/evogp/tests/` → The pytest suite, golden fixtures and the perf probe (see its CONTEXT.md).
 - `src/evogp/sr_test.py` → install-validation smoke script (see above).
-- Sibling paths (read-only from here — escalate writes to this node's parent): `../../setup.py` (build config, packaging, extras), `../../requirements.txt`, `../../README.md` (installation + API docs), `../../example/` (runnable end-to-end scripts), `../../tutorial/` (notebooks), `../../test/` (legacy ad-hoc scripts targeting the deleted extension).
+- Sibling paths (read-only from here — escalate writes to this node's parent): `../../setup.py` (build config, packaging, extras), `../../requirements.txt`, `../../README.md` (installation + API docs), `../../example/` (runnable end-to-end scripts), `../../tutorial/` (notebooks), `../../test/` (ad-hoc scratch scripts/notebooks; a separate task's domain).
