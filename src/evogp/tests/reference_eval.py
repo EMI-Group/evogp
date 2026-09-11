@@ -20,6 +20,27 @@ Design rules (do not break them):
   (prefix decoding, evaluation order, what ends up in the result tensor) and
   ``forward.cu::calculate_fit`` + ``averageFitnessValueKernel`` (SR fitness).
 
+**Correctly-rounded float32 semantics.** Every node result is the CORRECTLY
+ROUNDED float32 value of the operation applied to its (already float32)
+operands, and it is stored back as float32 -- exactly the per-node storage
+contract of the kernels (ENGINE_SPEC section 2).
+
+Each node's operation is evaluated on its float32 operands widened to float64
+and the result is rounded back to float32 (``op(a.double()).float()``). float64
+is enough for that double rounding to be innocuous -- ``+ - * /`` and ``sqrt``
+are correctly rounded from float32 operands whenever the intermediate precision
+is at least ``2p + 2 = 50`` bits -- and it is *required* for the operations
+whose float32 kernels are not correctly rounded: measured on this platform,
+torch's float32 ``sqrt`` disagrees with the correctly rounded value on 17% of
+random inputs, and its ``exp``/``sin``/``cos``/``tan`` on 5-17% (SLEEF ``u10``
+vector kernels). Only the comparisons and the ``if`` select stay in float32:
+they are exact there and must keep returning bit-exact ``+-1``.
+
+Without this the oracle is itself up to one ulp off on ``sqrt`` and on the
+transcendentals, and a one-ulp difference at an interior node is amplified by
+the next node's derivative when the tree cancels or divides by it -- which
+showed up as >1e-4 relative differences against a correctly rounded engine.
+
 Semantics implemented here (see the docstrings of the individual helpers for
 the exact placement of NaN/±inf):
 
@@ -364,10 +385,17 @@ def _cr(a: torch.Tensor) -> torch.Tensor:
 def _apply(kind: int, function_id: int, args, n: int) -> torch.Tensor:
     """One node of ``forward.cu::_process_node`` (``args`` = left-most first).
 
-    Every result is the correctly rounded float32 value of the operation on the
-    float32 operands: the software transcendentals go through float64 (their
-    float32 kernels are not correctly rounded), the hardware-exact ops stay in
-    float32. See the module docstring.
+    Every *value* result is the correctly rounded float32 value of the operation
+    applied to the float32 operands: the operands are widened to float64, the
+    operation runs there and the result is rounded back to float32.  float64 is
+    enough for the double rounding to be innocuous (``+ - * /`` and ``sqrt`` are
+    correctly rounded from float32 operands whenever the intermediate precision
+    is at least ``2p + 2 = 50`` bits), and it is *required* for ``sqrt`` and the
+    transcendentals, whose float32 kernels are not correctly rounded (measured on
+    this platform: torch's float32 ``sqrt`` disagrees with the correctly rounded
+    value on 17% of random inputs, its ``exp``/``sin``/``cos``/``tan`` on
+    5-17%).  The comparisons and the ``if`` select are the exception: they are
+    exact in float32 and must stay bit-exact (``±1``).
     """
     if kind == UFUNC:
         a = args[0]
@@ -393,34 +421,34 @@ def _apply(kind: int, function_id: int, args, n: int) -> torch.Tensor:
         if function_id == EXP:
             return _cr(torch.exp(_f64(a)))
         if function_id == INV:
-            return torch.where(a == 0.0, _full(n, float("nan")), 1.0 / a)
+            return torch.where(a == 0.0, _full(n, float("nan")), _cr(1.0 / _f64(a)))
         if function_id == LOOSE_INV:
             b = torch.where(torch.abs(a) <= DELTA, torch.copysign(_full(n, DELTA), a), a)
-            return 1.0 / b
+            return _cr(1.0 / _f64(b))
         if function_id == NEG:
             return -a
         if function_id == ABS:
             return torch.abs(a)
         if function_id == SQRT:
-            return torch.sqrt(a)  # SQRT(neg) -> NaN
+            return _cr(torch.sqrt(_f64(a)))  # SQRT(neg) -> NaN
         if function_id == LOOSE_SQRT:
             b = torch.where(a <= 0.0, torch.abs(a), a)
-            return torch.sqrt(b)
+            return _cr(torch.sqrt(_f64(b)))
         return torch.zeros(n, dtype=torch.float32)
 
     if kind == BFUNC:
         a, b = args[0], args[1]
         if function_id == ADD:
-            return a + b
+            return _cr(_f64(a) + _f64(b))
         if function_id == SUB:
-            return a - b
+            return _cr(_f64(a) - _f64(b))
         if function_id == MUL:
-            return a * b
+            return _cr(_f64(a) * _f64(b))
         if function_id == DIV:
-            return torch.where(b == 0.0, _full(n, float("nan")), a / b)
+            return torch.where(b == 0.0, _full(n, float("nan")), _cr(_f64(a) / _f64(b)))
         if function_id == LOOSE_DIV:
             b2 = torch.where(torch.abs(b) <= DELTA, torch.copysign(_full(n, DELTA), b), b)
-            return a / b2
+            return _cr(_f64(a) / _f64(b2))
         if function_id == POW:
             # pow(0,0)=1, pow(-2,3)=-8, pow(-2,0.5)=NaN (float64 then rounded)
             return _cr(torch.pow(_f64(a), _f64(b)))

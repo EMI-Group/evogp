@@ -510,6 +510,12 @@ def curated_edge_population():
         fn(LOOSE_INV, fn(SINH, const(-0.0))),
         fn(LOOSE_INV, fn(SINH, const(0.0))),
         fn(EXP, fn(SINH, const(-0.0))),
+        # ... on the SYMBOLIC path too (a constant operand is folded on the host):
+        # x0 = +0.0 -> neg -> -0.0 -> sinh -> -0.0 -> 1 / -1e-9 = -1e9
+        fn(LOOSE_INV, fn(SINH, fn(NEG, var(0)))),
+        fn(LOOSE_INV, fn(SINH, var(0))),
+        fn(EXP, fn(SINH, fn(NEG, var(0)))),
+        fn(LOOSE_DIV, const(1.0), fn(SINH, fn(NEG, var(0)))),
     ]
 
 

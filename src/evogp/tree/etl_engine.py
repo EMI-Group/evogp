@@ -580,12 +580,23 @@ def _emit_unary(func_id: int, a: Any) -> Any:
     if func_id == Func.TAN:
         return _round32(etl.tan(_to_f64(a)))
     if func_id == Func.SINH:  # composed: ETL has no sinh
+        # The composition ``(exp(x) - exp(-x)) / 2`` cannot keep the sign of
+        # zero (``exp(-0.0) == exp(0.0) == 1`` gives ``+0.0``) and loses
+        # relative accuracy for tiny ``|x|`` -- both are observable through the
+        # next node (``loose_inv(-0.0) = -1e9``, ``loose_inv(+0.0) = +1e9``, and
+        # ``(exp(x)-exp(-x))/2`` for |x| < 1e-4 differs from ``x`` by less than a
+        # ulp of ``x``, so the correctly rounded float32 result is exactly ``x``,
+        # signed zero included).  Keep ``x`` below that threshold, exactly like
+        # ``_fold_unary`` does for a constant operand.
         w = _to_f64(a)
-        return _round32(
+        composed = _round32(
             etl.multiply(
                 etl.subtract(etl.exp(w), etl.exp(etl.negate(w))),
                 _trace_const_f64(_HALF),
             )
+        )
+        return etl.select(
+            etl.less(etl.abs(a), _trace_const(_SINH_LINEAR_BELOW)), a, composed
         )
     if func_id == Func.COSH:  # composed: ETL has no cosh
         w = _to_f64(a)
