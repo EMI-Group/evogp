@@ -46,18 +46,20 @@ Tensor contract enforced by the extension (`../cuda/torch_wrapper.cu`): values `
 
 `forest.py` — `Forest(input_len, output_len, batch_node_value, batch_node_type, batch_subtree_size)`:
 - `pop_size, max_tree_len = batch_node_value.shape`; all three tensors must be exactly `(pop_size, max_tree_len)`.
-- `Forest.random_generate(pop_size, descriptor)` (CUDA `tree_generate`), `zero_generate(pop_size, max_tree_len, input_len, output_len)` (degenerate `CONST=0` trees).
+- Public attributes are exactly `input_len`, `output_len`, `pop_size`, `max_tree_len`, `batch_node_value`, `batch_node_type`, `batch_subtree_size` — there is **no** `.device` and no `.trees` (use `batch_node_value.device`; `.trees` lives on `CombinedTree`, `.forests` on `CombinedForest`).
+- `Forest.random_generate(pop_size, descriptor)` — a `@staticmethod`, routes to CUDA `tree_generate`; `zero_generate(pop_size, max_tree_len, input_len, output_len)` (degenerate `CONST=0` trees, pure torch).
 - `forward(x)` — `(pop_size, input_len)` → `(pop_size, output_len)`; asserts `x.shape[0] == pop_size`.
 - `batch_forward(x)` — `(batch, input_len)` → `(pop_size, batch, output_len)` (expands tensors with `repeat`/`repeat_interleave`; memory-heavy, uses torch ops for the reshaping).
 - `mutate(replace_pos, new_sub_forest)` → **new** `Forest`; `replace_pos` is an int tensor `[pop_size]`, and row `i` of `new_sub_forest` is spliced as a whole subtree at that position (ancestor subtree sizes fixed by the kernel).
 - `crossover(left_indices, right_indices, left_pos, right_pos)` → **new** `Forest` of size `left_indices.shape[0]`.
-- `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → `(pop_size,)` fitness (CUDA).
-- Dunders: `__getitem__` (int → `Tree` view, slice/tensor/ndarray → `Forest` view), `__setitem__` (**in-place** row/slice assignment), `__iter__`/`__next__` (yields `Tree`s), `__len__`, `__add__`/`__radd__` (concat along dim 0 with `Forest` or `Tree`), `__str__`/`__repr__` (renders every individual as a sympy expr — slow), `__getstate__`/`__setstate__` (pickle via CPU numpy; unpickling moves back to `cuda`).
+- `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → `(pop_size,)` fitness (CUDA); `use_MSE=False` selects absolute error (MAE per data point), not RMSE.
+- Dunders: `__getitem__` (int or 0-dim tensor → `Tree` view; slice → `Forest` view; 1-D `Tensor`/`ndarray` incl. LongTensor/bool mask → `Forest` **copy**, advanced indexing), `__setitem__` (**in-place** row/slice assignment), `__iter__`/`__next__` (yields `Tree`s), `__len__`, `__add__`/`__radd__` (concat along dim 0 with `Forest` or `Tree`), `__str__`/`__repr__` (renders every individual as a sympy expr — slow), `__getstate__`/`__setstate__` (pickle via CPU numpy; unpickling moves back to `cuda`).
 
 `combined_forest.py` / `combined_tree.py` — the data-driven multi-output model:
 - `CombinedForest(forests: List[Forest], data_info: dict[str, list[str]])` where `data_info[output_name] = [input_name, ...]` selects which columns of the input dict feed that sub-forest.
 - `CombinedForest.random_generate(pop_size, data_info, descriptors)` (one `GenerateDescriptor` per output — a single descriptor is broadcast; each must have `output_len == 1` and `input_len == len(data_info[out_name])`).
 - `forward(x: dict[str, 1-D len == pop_size])` → `dict[out_name, (pop_size, 1)]`; `batch_forward(x: dict[str, 1-D len == batch])` → `dict[out_name, (pop_size, batch, 1)]` (inputs are column-ized with `[:, None]` and concatenated in `data_info` order).
+- Neither `CombinedForest` nor `CombinedTree` defines `SR_fitness`, and `CombinedForest` has no `share_input` attribute (only prose references remain, in the stale consumers `problem/symbolic_regression.py` and the examples); its `forward`/`batch_forward` accept the `dict[str, Tensor]` protocol only — a raw tensor raises a Python indexing error on the first string key.
 - `CombinedTree(trees, data_info)` exposes each sub-tree as an attribute named after the output (`best.A.to_sympy_expr()`), `forward(x: dict)` (delegates through a temporary pop_size=1 `CombinedForest`), `to_combined_forest()`, `random_generate(descriptors, data_info)`.
 - Both support indexing, iteration, `__setitem__`, `__add__` (must have identical `data_info`).
 
@@ -104,7 +106,7 @@ Keep CONTEXT.md at the level of this directory; do not modify source here from a
 `CombinedForest.__add__(CombinedTree)` reads `other.tree[i]` (attribute is `trees`) → `AttributeError`.
 `CombinedForest.input_names` is built with `list(set(...))`, so its order is not deterministic across processes; it is only used for counting today, but do not rely on its ordering.
 `Forest.__iter__` stores `iter_index` on the instance: iteration is not reentrant, so nested `for` loops over the same `Forest` (and `str(forest)`, which iterates) misbehave. `repr(Forest)` builds a sympy expression per individual — extremely slow for large populations.
-`Forest[int]`/`Forest[...]` return views sharing the parent's storage; `tree.node_value[...] = ...` writes into the forest. `__setitem__` mutates in place, while `mutate`/`crossover` return new forests.
+`Forest[int]` and `Forest[slice]` return views sharing the parent's storage; `forest[i].node_value[...] = ...` writes into the forest. Indexing with a `Tensor`/`ndarray` (incl. LongTensor / bool mask, e.g. `forest[best][worthy]` in `problem/transformation.py`) uses PyTorch advanced indexing and returns a **copy**, so writes through it are lost. `__setitem__` mutates in place, while `mutate`/`crossover` return new forests.
 `Forest.random_generate` seeds each individual with `hash(individual_index, keys[0], keys[1])` where the two uint32 keys come from the torch CUDA RNG — reproducibility needs `torch.cuda.manual_seed` (or torch's seeded RNG), and generation does not consume torch's per-op RNG stream.
 `randint(size, low, high, ...)` truncates toward zero after `torch.rand`, so negative `low` values give a biased distribution; it defaults to `device="cuda"`, `dtype=torch.int32`.
 The combined API is mid-migration: `problem/symbolic_regression.py` still reads `forest.share_input` (no longer an attribute of `CombinedForest`), and `example/combined_sr.py`, `tutorial/combined_gp.ipynb`, `test/combined_test.ipynb` still use the removed `formula=`/`share_input=` signature. `problem/custom_loss.py` is the consumer that matches the current `data_info` API.
