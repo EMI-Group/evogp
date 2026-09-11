@@ -4,7 +4,7 @@ EvoGP's multi-output model is a *combined forest*: instead of one tree with seve
 every named variable of a model gets its own sub-forest over its own named inputs, described
 by a ``data_info`` dict (``output_name -> [input_name, ...]``). The model is then a plain
 Python function of those variables, so it is trained by handing it to
-``evogp.problem.custom_loss.CustomLoss``: the loss function's ``existing_data`` parameters
+``evogp.problem.CustomLoss``: the loss function's ``existing_data`` parameters
 (the data) stay shared while its remaining parameters receive the sub-forest outputs.
 ``CustomLoss`` is the supported route for a ``CombinedForest`` -- ``SymbolicRegression``
 rejects one with ``NotImplementedError`` (its ``formula=``/``share_input=``-style API was
@@ -41,7 +41,7 @@ from evogp.algorithm import (
     CombinedDefaultMutation,
     CombinedDefaultCrossover,
 )
-from evogp.problem.custom_loss import CustomLoss
+from evogp.problem import CustomLoss
 from evogp.pipeline import StandardPipeline
 
 XOR_INPUTS = torch.tensor(
