@@ -5,8 +5,6 @@ from torch import Tensor
 from . import BaseProblem
 from evogp.tree import Forest
 
-from sklearn.datasets import load_iris, load_wine, load_breast_cancer, load_digits
-
 
 class Classification(BaseProblem):
     def __init__(
@@ -33,6 +31,15 @@ class Classification(BaseProblem):
         self.onehot_labels.scatter_(1, self.labels.long().unsqueeze(1), 1)
 
     def generate_data(self, dataset: str):
+        # scikit-learn is only needed when a built-in dataset is actually requested;
+        # importing it lazily keeps `import evogp.problem` working without it.
+        from sklearn.datasets import (
+            load_breast_cancer,
+            load_digits,
+            load_iris,
+            load_wine,
+        )
+
         if dataset == "iris":
             X, y = load_iris(return_X_y=True)
         elif dataset == "wine":

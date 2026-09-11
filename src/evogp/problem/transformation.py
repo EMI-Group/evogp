@@ -5,8 +5,6 @@ from torch import Tensor
 from . import BaseProblem
 from evogp.tree import Forest
 
-from sklearn.datasets import load_diabetes
-
 
 class Transformation(BaseProblem):
     def __init__(
@@ -25,6 +23,10 @@ class Transformation(BaseProblem):
             self.datapoints, self.labels = self.generate_data(dataset)
 
     def generate_data(self, dataset: str):
+        # scikit-learn is only needed when the built-in dataset is actually requested;
+        # importing it lazily keeps `import evogp.problem` working without it.
+        from sklearn.datasets import load_diabetes
+
         if dataset == "diabetes":
             X, y = load_diabetes(return_X_y=True)
         else:

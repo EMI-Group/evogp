@@ -66,26 +66,26 @@ class SymbolicRegression(BaseProblem):
         self,
         forest: Forest,
         use_MSE: bool = True,
-
     ):
         if isinstance(forest, CombinedForest):
-            assert self.execute_mode == "torch", "execute_mode should be 'torch' when using CombinedForest"
-            if not forest.share_input:
-                assert False, "Currently, combinedForest with share_input=False is not supported"
-
-        if self.execute_mode == "torch":
-            # shape (pop_size, datapoints, output_len)
-            pred = forest.batch_forward(self.datapoints)
-            if use_MSE:
-                return -torch.mean((pred - self.labels[None, :, :]) ** 2, dim=(1, 2))
-
-        else:
-            return -forest.SR_fitness(
-                self.datapoints,
-                self.labels,
-                use_MSE,
-                self.execute_mode,
+            raise NotImplementedError(
+                "SymbolicRegression.evaluate does not support CombinedForest: the "
+                "multi-output combined path is driven by the data_info dict API (see "
+                "evogp.problem.custom_loss.CustomLoss) and the removed formula=/"
+                "share_input= API no longer exists. Use CustomLoss for a combined "
+                "problem, or a plain Forest whose output_len covers all outputs."
             )
+
+        # Every execute_mode string routes through the same engine entry point; it
+        # returns the POSITIVE loss (sum of the squared/absolute errors over all data
+        # points and outputs, divided by the number of data points -- never by
+        # output_len), so negating it yields the maximized fitness the pipeline expects.
+        return -forest.SR_fitness(
+            self.datapoints,
+            self.labels,
+            use_MSE,
+            self.execute_mode,
+        )
 
     @property
     def problem_dim(self):
