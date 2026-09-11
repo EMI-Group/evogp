@@ -71,9 +71,11 @@ Vectorized level-wise torch that reproduces the descriptor-driven decision struc
 Pure-torch scalar-free splices: `_splice` updates ancestor `subtree_size` cells with the closed form `(j < pos) & (j + size[j] > pos)`, copies the donor subtree verbatim and shifts the tail; an invalid position or overflow copies the row UNCHANGED (silent, matching the legacy op); index tensors may be int8/16/32/64; out-of-range `left_indices` → `ValueError`; `pop_size_new == 0` → `ValueError`.
 
 ### `combined_forest.py` / `combined_tree.py` — the `data_info`-driven multi-output model
-`CombinedForest(forests, data_info)`; `CombinedForest.random_generate(pop_size, data_info, descriptors)`; `forward(dict) → dict[out_name, (pop,1)]`; `batch_forward(dict) → (pop, N, 1)`.
-`CombinedTree(trees, data_info)` exposes each sub-tree by output name (`best.A.to_sympy_expr()`); `forward` returns `{out_name: result}`.
-Neither defines `SR_fitness`, and neither has a `share_input` attribute; the `dict[str, Tensor]` input protocol is the only accepted form.
+`CombinedForest(forests, data_info)` with `data_info = {out_name: [input_name, ...]}`; `CombinedForest.random_generate(pop_size, data_info, descriptors)` (one descriptor per sub-forest, each with `output_len == 1`).
+The input-dict contract is single-sourced in `combined_forest.normalize_inputs` (its docstring is the contract of record, mirrored by all three forward docstrings): every required name must hold a scalar/0-D number, a 1-D `(K,)` tensor or a 2-D `(K, 1)` tensor; all names must agree on `K`; values are never broadcast; extra `x` keys are ignored completely (so e.g. `CustomLoss` can pass its `existing_data` including `"target"`); wrong shapes/keys raise `ValueError` naming the offending key, its shape and the sub-forest (no bare asserts); Python lists and `ndim >= 1` numpy arrays are rejected.
+`CombinedForest.forward(dict) → {out_name: (pop_size, out_len_sub)}` is single-point only (a `K > 1` value raises and points to `batch_forward`); `CombinedForest.batch_forward(dict) → {out_name: (pop_size, K, out_len_sub)}`.
+`CombinedTree(trees, data_info)` exposes each sub-tree by output name (`best.A.to_sympy_expr()`); its `forward` routes on `K`: `{out_name: (out_len_sub,)}` for `K == 1` (one point shared by the whole population) and `{out_name: (K, out_len_sub)}` for `K > 1` (the one-individual forest's pop dim is stripped).
+Neither defines `SR_fitness`/`to_sympy_expr`, and neither has a `share_input` attribute; the dict input protocol is the only accepted form.
 
 ### `execute_mode` mapping
 `Tree.SR_fitness`, `Forest.SR_fitness` (and the problem layer) accept the five strings `"torch"`, `"hybrid parallel"`, `"data parallel"`, `"tree parallel"`, `"auto"`.
