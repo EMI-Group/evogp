@@ -72,7 +72,7 @@ Therefore a strategy MUST:
 
 ## Test Strategy
 - There are no test files inside this directory and the repository has no CI workflow (`.github/workflows` is absent).
-- `test/test_bind_success.py` is a legacy CUDA-extension script outside this node (it drives a deleted raw binding), only prints trees, has no assertions and can no longer run; the automated replacement is `../../tests/test_operators.py` (`Forest.crossover` splice invariants and silent-copy edge cases) plus `../../tests/test_equivalence.py` (evaluation).
+- The automated regression gate is `../../tests/test_operators.py` (`Forest.crossover` splice invariants and silent-copy edge cases) plus `../../tests/test_equivalence.py` (evaluation).
 - `test/combined_test.ipynb`, `test/vis.ipynb`, `tutorial/combined_gp.ipynb`, `tutorial/evogp_intro.ipynb` exercise `CombinedDefaultCrossover` / `DefaultCrossover` / `LeafBiasedCrossover` end-to-end inside a full pipeline.
 - `src/evogp/sr_test.py` is a runnable end-to-end smoke script using `DefaultCrossover` (needs CUDA).
 - Coverage gaps: `DiversityCrossover` with selectors and `LeafBiasedCrossover` have no automated test (`../../tests/test_operators.py` exercises only the `Forest.crossover` splice they call); a cheap check for a new strategy is to build a small `Forest.random_generate(...)` and assert the returned `forest.pop_size == target_cnt` (needs a CUDA device).
