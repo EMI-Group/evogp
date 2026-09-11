@@ -100,9 +100,10 @@ are keyed `forest__node_value`/… and are *not* in it.
   (`forest__node_*` -> `node_value`/`node_type`/`subtree_size`, `x`/`labels` as-is, `expected_fitness` =
   `forest_sr_fitness__hybrid_parallel__mse` for `sr_fitness.npz`). The latter is deliberately not done
   here: `goldens/**` is frozen reference data and `golden_capture.py verify` compares key sets exactly.
-- `test_torch_env.py` is dead tooling against the current repo (no C++ extension exists, and it fails in
-  the project venv without ninja). Removal was left to the owner of the surrounding area rather than done
-  here.
+- `test_torch_env.py` is dead tooling against the current repo: nothing builds a C++ extension any more and
+  it fails in the project venv without ninja (`RuntimeError: Ninja is required to load C++ extensions`).
+  It is the one file here that no current workflow needs — a deletion candidate, kept (with the warning in
+  its row above) because it is harmless and needs no GPU.
 - The multi-output combined model is only exercised by `../src/evogp/tests/test_api_compat.py`. The
   removed `formula=` / `share_input=` API is still called by `example/combined_sr.py` and
   `tutorial/combined_gp.ipynb` (both outside this node) and by `combined_test.ipynb` here.
