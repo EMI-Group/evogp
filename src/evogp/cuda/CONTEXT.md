@@ -34,7 +34,7 @@ Schema note: `float` in a TORCH_LIBRARY schema means C++ `double` (matches the `
    - Python call site: `Forest.crossover` (`forest.py:280`).
 4. `tree_evaluate(pop_size, gp_len, var_len, out_len, value, type, subtree_size, variables) -> results`
    - `variables{pop_size,var_len}` f32 → `results{pop_size,out_len}` f32.
-   - `torch_wrapper.cu:193` → `evaluate()` `forward.cu:353` → kernel `treeGPEvalKernel<multiOutput>` `forward.cu:305` → `_treeGPEvalByStack` `forward.cu:247` → `_process_node` `forward.cu:80`.
+   - `torch_wrapper.cu:193` → `evaluate()` `forward.cu:353` (dispatches `outLen > 1` to `treeGPEvalKernel<true>` at `forward.cu:367-370`, whose per-output results are written at `:342-347`) → kernel `treeGPEvalKernel<multiOutput>` `forward.cu:305` → `_treeGPEvalByStack` `forward.cu:247` → `_process_node` `forward.cu:80`.
    - Python call sites: `Forest.forward` (`forest.py:129`), `Forest.batch_forward` (`forest.py:163`, expands to `pop_size*batch_size` rows via `repeat_interleave`), `Tree.forward` (`tree.py:61`, repeats the single tree `batch_size` times).
 5. `tree_SR_fitness(pop_size, data_points, gp_len, var_len, out_len, useMSE, value, type, subtree_size, variables, labels, kernel_type) -> fitness{pop_size}`
    - `torch_wrapper.cu:235` → `SR_fitness()` `forward.cu:827` → `kernel_type` dispatch:
