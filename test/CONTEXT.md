@@ -58,6 +58,7 @@ This directory is the closest thing the repo has to an install smoke test, but i
 - If the kernels are replaced: no golden numeric values exist here, so capture expected outputs from the current implementation first (e.g. `fix_bug.py`'s Tree under each `execute_mode`) and assert the replacement matches them.
 
 ## See Also / Routing
+- `etl_jit_probe.py` (this directory) → ETL "true jit" (`etl.build_cached` + `etl.CompileCache`) economics for decoding GP trees into static structures and compiling them; the ETL library source of truth is the READ-ONLY foreign repo `/mnt/local-ssd/bchuang/etl` (never write there; its own meta-programming coverage is `tests/test_meta_programming.py`, which the probe copies into `$TMPDIR` and runs).
 - `../src/evogp/cuda/` → kernel + `TORCH_LIBRARY` schema registry that `test_bind_success.py` exercises (sibling — read-only, escalate writes to parent).
 - `../src/evogp/tree/` → current `Tree`/`Forest`/`CombinedForest` (`data_info`) contracts behind `fix_bug.py` and the notebooks (sibling — read-only, escalate writes to parent).
 - `../src/evogp/sr_test.py` → README-documented install validation entry point (`python -m evogp.sr_test`) (sibling — read-only, escalate writes to parent).
