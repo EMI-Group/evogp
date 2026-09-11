@@ -14,7 +14,7 @@ Every import in the README, `example/`, `tutorial/` and `sr_test.py` goes throug
 - `from evogp.tree import Forest, CombinedForest, Tree, CombinedTree, GenerateDescriptor` (also `MAX_STACK`, `randint`, `NType`).
 - `from evogp.algorithm import GeneticProgramming, DefaultSelection, DefaultMutation, DefaultCrossover` (plus all `*Crossover` / `*Mutation` / `*Selection` / `*Selector` classes, via star imports).
 - `from evogp.pipeline import StandardPipeline` (and `BasePipeline`).
-- `from evogp.problem import SymbolicRegression, Classification, Transformation, BraxProblem, GenesisProblem, MujocoProblem` (and `BaseProblem`; `CustomLoss` is NOT exported).
+- `from evogp.problem import SymbolicRegression, Classification, Transformation, BraxProblem, GenesisProblem, MujocoProblem, CustomLoss` (plus `BaseProblem`).
 Canonical end-to-end flow (see `example/basic.py`, `sr_test.py`): `problem = <Problem>(...)` → `descriptor = GenerateDescriptor(...)` → `algorithm = GeneticProgramming(initial_forest=Forest.random_generate(pop_size=…, descriptor=…), crossover=…, mutation=…, selection=…)` → `best_tree = StandardPipeline(algorithm, problem, generation_limit=…).run()`.
 
 ## Dependency direction (the key architectural constraint)
