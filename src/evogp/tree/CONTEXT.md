@@ -109,7 +109,7 @@ The legacy `kernel_type` dispatch is gone and **all five map to the same ETL eng
 - The engine is correctness-first: the numpy backend does one `etl.run` per tree per call — profile before assuming throughput.
 
 ## Test Strategy
-- No pytest suite in this node; the de-facto validation stack is: (a) `ENGINE_SPEC.md` §12 self-consistency (compare against `Tree.__python_forward`, arity walks, splice identities); (b) oracle differentials against the legacy compiled extension (scratch space only — needs the old extension and CUDA); (c) scratch harnesses under `$TMPDIR`, e.g. `validate_core.py` (0 failures at last run) and `micro_e2e.py` (pop 64 × 10 gens in 1.21 s); (d) the parallel pytest suite under `../../tests/` (golden `.npz` fixtures; point `$EVOGP_GOLDEN_DIR` at `/tmp/evogp_goldens` until they are placed in-repo).
+- No pytest suite inside this node; the validation stack is: (a) `ENGINE_SPEC.md` §12 self-consistency (compare against `Tree.__python_forward`, arity walks, splice identities); (b) the pytest suite under `../../tests/` — the primary regression gate (independent plain-torch oracle, randomized/adversarial equivalence, operator and API-compat tests, convergence smoke, plus the in-repo `goldens/` fixtures cross-validated against the legacy kernels before deletion).
 - Run everything with the project venv (`/mnt/local-ssd/bchuang/evox/.venv/bin/python`), from the repo root, `PYTHONPATH=src`, and `ETL_DISABLE_LOCATIONS=1` for speed.
 - Coverage gaps: IREE numeric parity per shape, non-default selection/crossover operators, robotics problems, and multi-output pipelines.
 
