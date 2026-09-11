@@ -22,7 +22,7 @@ Node encoding:
 - Multi-output out-node packing: for an out-node, `node_value` is the float32 **bit-reinterpretation** of `struct OutNodeValue { int16_t function; int16_t outIndex; }` (`../cuda/kernel.h`) — hence `outIndex = int32_bits >> 16` and `function = int32_bits & 0xFF` (see `Tree._fillout_graph`, `Tree.to_sympy_expr`, `../cuda/forward.cu:_process_node`).
 - Multi-output semantics (single tree, `output_len > 1`): every out-node's value is **accumulated** (`s_outs[outIdx] += value`) and its right-most child is passed up to the parent. A `Forest` with `output_len > 1` therefore computes a *sum of tagged subtrees* per output, not an independent tree per output.
 
-Tensor contract enforced by the extension (`../cuda/torch_wrapper.cu`): values `float32`, types/sizes `int16`, contiguous, on CUDA, with exact expected shapes (`[pop_size, max_tree_len]`, `[pop_size, input_len]`, …). The C++ `check_tensor` verifies only `is_cuda() && is_contiguous()` + shape — **not dtype** — so a wrong dtype is silently misread as garbage.
+Tensor contract enforced by the extension (`../cuda/torch_wrapper.cu`): values `float32`, types/sizes `int16`, contiguous, on CUDA, with exact expected shapes (`[pop_size, max_tree_len]`, `[pop_size, input_len]`, …). The C++ `check_tensor` (`../cuda/torch_wrapper.cu:7-17`) verifies only `is_cuda() && is_contiguous()` + shape — **not dtype** — so a non-float32/non-int16 input is not rejected at the boundary; the ops then read the storage via `data_ptr<float>()`/`data_ptr<int16_t>()`.
 
 ## API Surface
 `descriptor.py`
