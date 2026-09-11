@@ -5,12 +5,12 @@ torch generation / mutation / crossover.  Everything in this file is asserted
 against the *public* surface that the rest of the library, the examples and the
 tutorials import, so that the rewrite stays drop-in:
 
-* the import surface of ``evogp.tree`` and the empty-``__init__`` semantics of
-  ``import evogp``,
+* the import surface of ``evogp.tree`` and ``evogp.problem`` and the empty-
+  ``__init__`` semantics of ``import evogp``,
 * ``Forest`` container dunders (indexing views, slicing, iteration, concat,
   pickle, repr) and ``zero_generate``,
 * ``Tree`` symbolic export (``to_sympy_expr`` / ``to_infix`` / ``to_png``)
-  cross-checked against ``forward``,
+  cross-checked against ``forward`` (constant-only trees included),
 * the documented ``execute_mode`` strings of ``forward`` / ``SR_fitness``
   (results must agree across modes; unknown strings must raise),
 * module helpers (``randint``, ``MAX_STACK``, ``NType``) and the
@@ -162,6 +162,32 @@ def test_import_evogp_is_side_effect_free():
     assert proc.returncode == 0, f"`import evogp` failed:\n{proc.stderr}"
     loaded = proc.stdout.strip()
     assert loaded == "evogp", f"`import evogp` must not import submodules, got {loaded!r}"
+
+
+def test_problem_layer_import_surface():
+    """``evogp.problem`` must re-export every documented problem class.
+
+    The import is done inside the test (it is not part of this module's top-level
+    surface) and must work without jax/brax/genesis: the robotics problems import
+    those heavy dependencies lazily, inside their constructors only.
+    """
+    problem_module = importlib.import_module("evogp.problem")
+    for name in (
+        "BaseProblem",
+        "SymbolicRegression",
+        "Classification",
+        "Transformation",
+        "BraxProblem",
+        "GenesisProblem",
+        "MujocoProblem",
+        "CustomLoss",
+    ):
+        cls = getattr(problem_module, name, None)
+        assert isinstance(cls, type), f"evogp.problem.{name} is not a class: {cls!r}"
+
+    # the re-export must be the same object as the defining submodule's attribute
+    custom_loss_module = importlib.import_module("evogp.problem.custom_loss")
+    assert problem_module.CustomLoss is custom_loss_module.CustomLoss
 
 
 # --------------------------------------------------------------------------- #
@@ -326,6 +352,30 @@ def test_tree_to_infix_smoke(small_tree):
     infix = small_tree.to_infix()
     assert isinstance(infix, str) and infix
     assert "x" in infix
+
+
+def mk_const(value, input_len=1, max_len=16, device="cuda"):
+    """A single-node (CONST-only) tree: ``subtree_size[0] == 1`` marks the leaf."""
+    nv = torch.zeros(max_len, dtype=torch.float32, device=device)
+    nt = torch.zeros(max_len, dtype=torch.int16, device=device)
+    st = torch.zeros(max_len, dtype=torch.int16, device=device)
+    nv[0], nt[0], st[0] = value, NType.CONST, 1
+    return Tree(input_len, 1, nv, nt, st)
+
+
+def test_tree_constant_only_repr_and_sympy():
+    """A constant-only tree must render as a plain sympy number.
+
+    Regression test: ``to_sympy_expr`` used to push the raw numpy scalar onto the
+    expression stack, so ``repr`` printed ``np.float32(0.25018632)`` and
+    ``to_sympy_expr`` returned a ``numpy.float32`` instead of a sympy object.
+    """
+    tree = mk_const(0.25018632)
+
+    assert repr(tree) == "0.250186"
+    assert "np.float32" not in repr(tree)
+    assert isinstance(tree.to_sympy_expr(), sp.Basic)
+    assert tree.to_infix() == "0.25"
 
 
 @pytest.mark.skipif(
