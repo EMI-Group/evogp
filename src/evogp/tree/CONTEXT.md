@@ -46,7 +46,8 @@ Tensor contract enforced by the extension (`../cuda/torch_wrapper.cu`): values `
 
 `forest.py` — `Forest(input_len, output_len, batch_node_value, batch_node_type, batch_subtree_size)`:
 - `pop_size, max_tree_len = batch_node_value.shape`; all three tensors must be exactly `(pop_size, max_tree_len)`.
-- `Forest.random_generate(pop_size, descriptor)` (CUDA `tree_generate`), `zero_generate(pop_size, max_tree_len, input_len, output_len)` (degenerate `CONST=0` trees).
+- Public attributes are exactly `input_len`, `output_len`, `pop_size`, `max_tree_len`, `batch_node_value`, `batch_node_type`, `batch_subtree_size` — there is **no** `.device` and no `.trees` (use `batch_node_value.device`; `.trees` lives on `CombinedTree`, `.forests` on `CombinedForest`).
+- `Forest.random_generate(pop_size, descriptor)` — a `@staticmethod`, routes to CUDA `tree_generate`; `zero_generate(pop_size, max_tree_len, input_len, output_len)` (degenerate `CONST=0` trees, pure torch).
 - `forward(x)` — `(pop_size, input_len)` → `(pop_size, output_len)`; asserts `x.shape[0] == pop_size`.
 - `batch_forward(x)` — `(batch, input_len)` → `(pop_size, batch, output_len)` (expands tensors with `repeat`/`repeat_interleave`; memory-heavy, uses torch ops for the reshaping).
 - `mutate(replace_pos, new_sub_forest)` → **new** `Forest`; `replace_pos` is an int tensor `[pop_size]`, and row `i` of `new_sub_forest` is spliced as a whole subtree at that position (ancestor subtree sizes fixed by the kernel).
