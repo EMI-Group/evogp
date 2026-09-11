@@ -132,7 +132,7 @@ Instance attributes / results a caller reads:
 
 ## Test Strategy
 
-- **No test file lives in this directory.** The pytest suite under `../tests/` covers it indirectly: `test_convergence_smoke.py` drives `SymbolicRegression` + `GeneticProgramming` + `StandardPipeline` end to end (asserting the fitness contract and that the best fitness improves), and `test_api_compat.py` checks the public import surface. The repo-root `test/` directory is legacy scratch material (`test/fix_bug.py`, `test_bind_success.py`, notebooks) that drove the deleted CUDA extension — none of it imports `pipeline`.
+- **No test file lives in this directory.** The pytest suite under `../tests/` covers it indirectly: `test_convergence_smoke.py` drives `SymbolicRegression` + `GeneticProgramming` + `StandardPipeline` end to end (asserting the fitness contract and that the best fitness improves), and `test_api_compat.py` checks the public import surface. The repo-root `test/` directory is legacy scratch material (`test/fix_bug.py`, notebooks; a separate task owns it).
 - Practical smoke tests, in increasing cost:
   - `PYTHONPATH=src <venv>/bin/python -m pytest src/evogp/tests/test_convergence_smoke.py -q` — the cheap automated end-to-end check of `StandardPipeline`.
   - `python -m evogp.sr_test` — symbolic regression through the pure-Python/ETL engine; the canonical manual end-to-end check of the pipeline + algorithm + problem wiring (needs a CUDA-visible device).
