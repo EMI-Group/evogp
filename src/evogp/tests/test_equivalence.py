@@ -57,11 +57,16 @@ oracle are therefore only the *rounding* differences of two implementations of
 the same correctly rounded function, and any amplification of them by a
 cancelling / dividing parent node is a property of the tree, not of the engine.
 
-Golden fixtures (old-CUDA cross-check hook)
--------------------------------------------
-The loader scans, in order, ``$EVOGP_GOLDEN_DIR``, ``<repo-root>/test/goldens/`` and
-``src/evogp/tests/goldens/`` for ``*.npz`` files and compares the engine against them
-(clean ``pytest.skip`` when none exist). One ``.npz`` per case:
+Golden fixtures (old-CUDA cross-check)
+--------------------------------------
+``*.npz`` files are scanned, in order, in ``$EVOGP_GOLDEN_DIR``,
+``<repo-root>/test/goldens/`` and ``src/evogp/tests/goldens/``. Two independent
+schemas are recognized; files matching neither are SKIPPED with an explicit
+reason (see below). Everything here degrades to a clean ``pytest.skip`` when the
+fixtures (or their individual arrays) are absent.
+
+*a) engine schema* -- ``src/evogp/tests/goldens/*.npz``, captured from this engine.
+One ``.npz`` per case with:
 
 * ``node_value``  (pop, max_tree_len) float32
 * ``node_type``   (pop, max_tree_len) int16
@@ -72,7 +77,19 @@ The loader scans, in order, ``$EVOGP_GOLDEN_DIR``, ``<repo-root>/test/goldens/``
 * ``labels``      (N, out_len) float32        -- optional, needed by expected_fitness
 * ``use_mse``     scalar bool                 -- optional, default True (MAE when false)
 
-so a fixture set produced from the old CUDA build can be dropped in with zero test changes.
+*b) legacy-capture schema* -- ``test/goldens/*.npz``, the frozen outputs of the
+deleted custom CUDA kernels (``test/golden_capture.py``; array names, semantics
+and tolerances are documented in ``test/goldens/README.md``). The population is
+stored per stage as ``forest__node_value``/``forest__node_type``/
+``forest__subtree_size`` and the expectations as ``tree_forward`` /
+``forest_forward`` / ``forest_batch_forward`` / ``forest_sr_fitness__<mode>__<mse|nonmse>``
+/ ``tree_sr_fitness__*`` / ``problem_evaluate__*``. Rebuilding the ``Forest`` from
+those arrays involves no RNG, so this is the strongest available cross-check of
+the new engine against the kernels it replaced (floats rtol=atol=1e-4, structural
+arrays exact, NaN/±inf placement exact).
+
+Anything else in a golden directory is reported through a ``warnings.warn`` (with
+the keys that were found and the keys that were expected) and never fails the suite.
 """
 
 from __future__ import annotations
@@ -122,6 +139,22 @@ requires_engine = pytest.mark.skipif(
     "run the suite again after they are merged.",
 )
 
+# --------------------------------------------------------------------------- #
+# Problem layer (needed by the problem-level golden comparisons only)
+# --------------------------------------------------------------------------- #
+try:
+    from evogp.problem import SymbolicRegression
+
+    _PROBLEM_IMPORT_ERROR = None
+except Exception as exc:  # pragma: no cover - depends on the environment
+    SymbolicRegression = None
+    _PROBLEM_IMPORT_ERROR = exc
+
+requires_problem = pytest.mark.skipif(
+    _PROBLEM_IMPORT_ERROR is not None,
+    reason=f"evogp.problem is not importable ({_PROBLEM_IMPORT_ERROR!r}); "
+    "the problem-level golden comparisons need it",
+)
 def _parse_seeds() -> tuple:
     """Fixed seed list: ``EVOGP_EQ_SEEDS="0,2,5"`` (legacy: ``EVOGP_EQ_SEED=0``)."""
     raw = os.environ.get("EVOGP_EQ_SEEDS")
@@ -1279,71 +1312,533 @@ def test_multi_output_generated_population_vs_reference():
 
 
 # =========================================================================== #
-# 8. Golden fixtures produced from the old CUDA build (optional)
+# 8. Golden fixtures
+#
+#    (a) "engine" schema       -- this package's own fixtures (tests/goldens/*.npz),
+#                                 captured from the ETL engine; see the module
+#                                 docstring for the array names.
+#    (b) "legacy-capture" schema -- <repo-root>/test/goldens/*.npz, the frozen
+#                                 outputs of the deleted custom CUDA kernels
+#                                 (test/golden_capture.py, documented in
+#                                 test/goldens/README.md).  Rebuilding the Forest
+#                                 from the stored arrays and comparing the engine
+#                                 against the stored outputs cross-validates the
+#                                 rewrite against the kernels it replaced.
+#
+#    Files matching neither schema (foreign fixtures dropped into a golden dir)
+#    are reported through a warning with an explicit reason and never fail the
+#    suite; the same holds for individual arrays a fixture does not store.
 # =========================================================================== #
-def golden_paths():
+GOLDEN_SCHEMA_ENGINE = "engine"
+GOLDEN_SCHEMA_LEGACY_CAPTURE = "legacy-capture"
+
+_ENGINE_SCHEMA_TREE_KEYS = ("node_value", "node_type", "subtree_size")
+
+#: Legacy captures store one `(prefix)__node_value/_node_type/_subtree_size` triple per
+#: stage: `forest__*` (evaluation stages), `initial_forest__*`, `final_forest__*` and
+#: `best_tree__*` (training stage).
+_LEGACY_TREE_SUFFIXES = ("__node_value", "__node_type", "__subtree_size")
+
+#: test/goldens/README.md "Recommended comparison tolerances": node_type /
+#: subtree_size / headers exactly, floats with rtol = atol = 1e-4.  The captured
+#: kernels were built with `-use_fast_math` and the four execute modes reduce in
+#: different orders, so bit-equality is explicitly NOT the contract.
+LEGACY_RTOL = 1e-4
+LEGACY_ATOL = 1e-4
+
+#: The four kernel execute modes; the capture spells them with `_` in array names.
+_LEGACY_EXECUTE_MODES = ("hybrid parallel", "data parallel", "tree parallel", "auto")
+
+#: Frozen capture of the pre-ETL engine (test/goldens/).
+_LEGACY_CAPTURE_DIR = _REPO_ROOT / "test" / "goldens"
+
+
+def golden_directories():
+    """Golden directories scanned for fixtures, in priority order and deduplicated."""
     directories = []
     env_dir = os.environ.get("EVOGP_GOLDEN_DIR")
     if env_dir:
         directories.append(pathlib.Path(env_dir))
-    directories.append(_REPO_ROOT / "test" / "goldens")
+    directories.append(_LEGACY_CAPTURE_DIR)
     directories.append(_HERE / "goldens")
-    paths = []
+
+    seen, unique = set(), []
     for directory in directories:
+        key = str(directory.resolve()) if directory.is_dir() else str(directory)
+        if key not in seen:
+            seen.add(key)
+            unique.append(directory)
+    return unique
+
+
+def golden_paths():
+    paths = []
+    for directory in golden_directories():
         if directory.is_dir():
             paths.extend(sorted(directory.glob("*.npz")))
     return paths
 
 
+def _legacy_tree_prefixes(keys):
+    """Tree-tensor prefixes (``forest``, ``initial_forest``, ...) present in a fixture."""
+    prefixes = []
+    for key in keys:
+        if not key.endswith("__node_value"):
+            continue
+        prefix = key[: -len("__node_value")]
+        if all(f"{prefix}{suffix}" in keys for suffix in _LEGACY_TREE_SUFFIXES):
+            prefixes.append(prefix)
+    return sorted(prefixes)
+
+
+def classify_golden_fixture(data):
+    """``(schema, reason)`` of an opened ``.npz``; ``schema`` is ``None`` when unknown.
+
+    The reason is always a non-empty explanation (which keys were found / which are
+    missing) so the caller can report *why* a fixture could not be checked.
+    """
+    keys = set(data.files)
+    if all(key in keys for key in _ENGINE_SCHEMA_TREE_KEYS):
+        found = [key for key in (*_ENGINE_SCHEMA_TREE_KEYS, "x", "labels", "expected",
+                                 "expected_fitness", "use_mse") if key in keys]
+        return GOLDEN_SCHEMA_ENGINE, "engine schema, keys: " + ", ".join(found)
+    prefixes = _legacy_tree_prefixes(keys)
+    if prefixes:
+        return GOLDEN_SCHEMA_LEGACY_CAPTURE, "legacy kernel-capture schema, populations: " + ", ".join(
+            f"{prefix}__*" for prefix in prefixes
+        )
+    listing = sorted(keys)
+    if len(listing) > 12:
+        listing = listing[:12] + ["..."]
+    return None, (
+        "matches neither golden schema (engine keys missing "
+        f"{[key for key in _ENGINE_SCHEMA_TREE_KEYS if key not in keys]}, no "
+        f"'<prefix>{_LEGACY_TREE_SUFFIXES[0]}/{'/'.join(_LEGACY_TREE_SUFFIXES[1:])}' triple either); "
+        f"npz keys = {listing}"
+    )
+
+
+def collect_golden_fixtures():
+    """``[(path, schema_or_None, reason)]`` for every ``*.npz`` on the scan path.
+
+    A file that cannot even be opened is reported as unrecognized (with the
+    exception text) instead of raising: the golden directories may legitimately
+    contain fixtures produced by other tooling.
+    """
+    discovered = []
+    for path in golden_paths():
+        try:
+            with np.load(path) as data:
+                schema, reason = classify_golden_fixture(data)
+        except Exception as exc:  # noqa: BLE001 - foreign/corrupt file: report, never fail
+            schema, reason = None, f"could not be read as an .npz ({exc!r})"
+        discovered.append((path, schema, reason))
+    return discovered
+
+
+def report_unrecognized_fixtures(discovered):
+    """Warn -- never fail -- about every discovered fixture that will not be checked."""
+    for path, schema, reason in discovered:
+        if schema is None:
+            warnings.warn(f"golden fixture {path.name!r} was NOT checked: {reason}", stacklevel=2)
+
+
+class _GoldenOutcome:
+    """Bookkeeping of one golden test: which comparisons ran, which did not (and why).
+
+    ``finish()`` warns about every skipped comparison and turns a test that ran no
+    comparison at all into an explicit ``pytest.skip``, so a fixture can never be
+    ignored silently.
+    """
+
+    def __init__(self, context):
+        self.context = context
+        self.checked = []
+        self.unchecked = []
+
+    def done(self, what):
+        self.checked.append(what)
+
+    def skip(self, what, why):
+        self.unchecked.append(f"{what} ({why})")
+
+    def finish(self):
+        if self.unchecked:
+            warnings.warn(
+                f"{self.context}: {len(self.unchecked)} comparison(s) not performed -- "
+                + "; ".join(self.unchecked),
+                stacklevel=2,
+            )
+        if not self.checked:
+            pytest.skip(f"{self.context}: nothing to compare ({'; '.join(self.unchecked) or 'no fixtures'})")
+        return len(self.checked)
+
+
+def golden_array(data, key, outcome, what=None):
+    """One stored array, or ``None`` (recorded as not compared, with an explicit reason)."""
+    if key in data.files:
+        return np.asarray(data[key])
+    outcome.skip(what or key, f"{key} is not stored in this fixture")
+    return None
+
+
+def golden_tensor(array, dtype):
+    return torch.as_tensor(np.asarray(array), dtype=dtype).to(DEVICE)
+
+
+def load_legacy_capture(filename):
+    """Open one frozen ``test/goldens/*.npz`` capture, or skip with a reason.
+
+    The capture is an *optional* cross-check against the deleted kernels: an absent
+    file, or one that does not carry the documented schema, is a skip (never a
+    failure) and says so explicitly.
+    """
+    path = _LEGACY_CAPTURE_DIR / filename
+    if not path.is_file():
+        pytest.skip(f"legacy kernel capture {path} is not available (optional cross-check)")
+    data = np.load(path)
+    schema, reason = classify_golden_fixture(data)
+    if schema != GOLDEN_SCHEMA_LEGACY_CAPTURE:
+        data.close()
+        pytest.skip(f"legacy kernel capture {path.name} was not recognized: {reason}")
+    return path, data
+
+
+def legacy_forest(data, input_len, output_len, prefix="forest"):
+    """The frozen population of a legacy capture, as a ``Forest`` on ``DEVICE``.
+
+    The capture zero-filled the dead tail of every row (README "Dead region of the
+    tree tensors is normalised"); the engine only reads ``[0, subtree_size[0])``,
+    so the tail is a documented don't-care.
+    """
+    return Forest(
+        input_len,
+        output_len,
+        golden_tensor(data[f"{prefix}__node_value"], torch.float32),
+        golden_tensor(data[f"{prefix}__node_type"], torch.int16),
+        golden_tensor(data[f"{prefix}__subtree_size"], torch.int16),
+    )
+
+
 @requires_engine
-def test_golden_fixtures():
-    paths = golden_paths()
-    if not paths:
+def test_golden_fixture_discovery():
+    """Fixtures are discovered and classified by SCHEMA; nothing here can fail the suite.
+
+    ``test/goldens/`` holds the frozen pre-ETL kernel capture and
+    ``src/evogp/tests/goldens/`` this package's engine fixtures, but the two are told
+    apart by their array names, never by their location: a fixture copied between
+    directories (the two READMEs invite exactly that) is still handled -- or
+    reported -- and never fed to a loader that would mis-read it.  Every file that
+    is *not* going to be compared is listed in the warnings summary with its reason.
+    """
+    discovered = collect_golden_fixtures()
+    if not discovered:
         pytest.skip(
             "no golden fixtures found (searched $EVOGP_GOLDEN_DIR, test/goldens/, src/evogp/tests/goldens/)"
         )
-    checked = 0
-    uncheckable = []
+    report_unrecognized_fixtures(discovered)
+
+    recognized = [(path, schema) for path, schema, _ in discovered if schema is not None]
+    if not recognized:
+        pytest.skip(
+            "golden fixtures found but none matches a known schema: "
+            + "; ".join(f"{path.name} ({reason})" for path, _, reason in discovered)
+        )
+
+    # Directory convention, informational only (see the docstring): the check is
+    # about the fixture set, and a copy in the "wrong" directory is still checked
+    # correctly or reported by this test.
+    conventions = {
+        str(_LEGACY_CAPTURE_DIR.resolve()): GOLDEN_SCHEMA_LEGACY_CAPTURE,
+        str((_HERE / "goldens").resolve()): GOLDEN_SCHEMA_ENGINE,
+    }
+    for path, schema in recognized:
+        wanted = conventions.get(str(path.parent.resolve()))
+        if wanted is not None and schema != wanted:
+            warnings.warn(
+                f"golden fixture {path.name!r} carries the {schema!r} schema but lives in the directory "
+                f"usually reserved for the {wanted!r} schema; it is still handled by schema",
+                stacklevel=2,
+            )
+
+
+@requires_engine
+def test_golden_engine_schema_fixtures():
+    """Engine schema (this package's fixtures): batch_forward / SR_fitness expectations."""
+    paths = [path for path, schema, _ in collect_golden_fixtures() if schema == GOLDEN_SCHEMA_ENGINE]
+    if not paths:
+        pytest.skip("no engine-schema golden fixtures found (looked in $EVOGP_GOLDEN_DIR, tests/goldens/)")
+    outcome = _GoldenOutcome("engine-schema golden fixtures")
     for path in paths:
-        data = np.load(path)
-        try:
-            required = ("node_value", "node_type", "subtree_size", "x")
-            missing = [key for key in required if key not in data]
-            if missing:
-                pytest.fail(f"{path.name}: golden fixture misses {missing}")
-            values = torch.as_tensor(np.asarray(data["node_value"]), dtype=torch.float32)
-            types = torch.as_tensor(np.asarray(data["node_type"]), dtype=torch.int16)
-            sizes = torch.as_tensor(np.asarray(data["subtree_size"]), dtype=torch.int16)
-            x = torch.as_tensor(np.asarray(data["x"]), dtype=torch.float32)
-            labels = torch.as_tensor(np.asarray(data["labels"]), dtype=torch.float32) if "labels" in data else None
+        with np.load(path) as data:
+            x = golden_array(data, "x", outcome, f"{path.name}/x")
+            if x is None:
+                continue
+            x = golden_tensor(x, torch.float32)
+            values = golden_tensor(data["node_value"], torch.float32)
+            types = golden_tensor(data["node_type"], torch.int16)
+            sizes = golden_tensor(data["subtree_size"], torch.int16)
             use_mse = bool(np.asarray(data["use_mse"]).reshape(-1)[0]) if "use_mse" in data else True
 
             if "expected" in data:
-                expected = torch.as_tensor(np.asarray(data["expected"]), dtype=torch.float32)
-                out_len = int(expected.shape[-1])
-                forest = Forest(
-                    int(x.shape[1]), out_len, values.to(DEVICE), types.to(DEVICE), sizes.to(DEVICE)
-                )
+                expected = golden_tensor(data["expected"], torch.float32)
+                forest = Forest(int(x.shape[1]), int(expected.shape[-1]), values, types, sizes)
                 assert_close_with_placement(
-                    forest.batch_forward(x.to(DEVICE)), expected, context=f"golden {path.name}/expected"
+                    forest.batch_forward(x), expected, context=f"golden {path.name}/expected"
                 )
-                checked += 1
+                outcome.done(f"{path.name}/expected")
             if "expected_fitness" in data:
+                labels = golden_array(data, "labels", outcome, f"{path.name}/labels")
                 if labels is None:
-                    uncheckable.append(f"{path.name} (expected_fitness needs labels)")
                     continue
-                expected_fitness = torch.as_tensor(np.asarray(data["expected_fitness"]), dtype=torch.float32)
-                forest = Forest(
-                    int(x.shape[1]), int(labels.shape[1]), values.to(DEVICE), types.to(DEVICE), sizes.to(DEVICE)
-                )
-                got = engine_sr_fitness(forest, x.to(DEVICE), labels.to(DEVICE), use_mse)
+                labels = golden_tensor(labels, torch.float32)
+                expected_fitness = golden_tensor(data["expected_fitness"], torch.float32)
+                forest = Forest(int(x.shape[1]), int(labels.shape[1]), values, types, sizes)
+                got = engine_sr_fitness(forest, x, labels, use_mse)
                 assert_close_with_placement(
                     got, expected_fitness, context=f"golden {path.name}/expected_fitness"
                 )
-                checked += 1
-        finally:
-            data.close()
-    if checked == 0:
-        pytest.skip(f"golden fixtures found but none checkable: {uncheckable}")
-    if uncheckable:
-        warnings.warn(f"skipped uncheckable golden fixtures: {uncheckable}")
+                outcome.done(f"{path.name}/expected_fitness")
+    outcome.finish()
+
+
+@requires_engine
+def test_golden_legacy_capture_forward():
+    """tree/forest/forest-batch forward on the frozen pre-ETL population.
+
+    ``test/goldens/forward_eval.npz`` stores the population the kernels evaluated;
+    rebuilding it involves no RNG, so this compares the new engine against the old
+    kernels on identical inputs (README "How to use these goldens" step 2).  The
+    display strings are captured alongside and pin the same trees' rendering.
+    """
+    path, data = load_legacy_capture("forward_eval.npz")
+    outcome = _GoldenOutcome(f"legacy capture {path.name}")
+    try:
+        x = golden_tensor(data["x"], torch.float32)
+        labels = golden_tensor(data["labels"], torch.float32)
+        forest = legacy_forest(data, int(x.shape[1]), int(labels.shape[1]))
+
+        expected = golden_array(data, "forest_forward", outcome)
+        if expected is not None:
+            assert_close_with_placement(
+                forest.forward(x),
+                golden_tensor(expected, torch.float32),
+                rtol=LEGACY_RTOL,
+                atol=LEGACY_ATOL,
+                context=f"{path.name}/forest_forward",
+            )
+            outcome.done("forest_forward")
+
+        x_small = golden_array(data, "x_small", outcome)
+        expected = golden_array(data, "forest_batch_forward", outcome)
+        if x_small is not None and expected is not None:
+            assert_close_with_placement(
+                forest.batch_forward(golden_tensor(x_small, torch.float32)),
+                golden_tensor(expected, torch.float32),
+                rtol=LEGACY_RTOL,
+                atol=LEGACY_ATOL,
+                context=f"{path.name}/forest_batch_forward",
+            )
+            outcome.done("forest_batch_forward")
+
+        expected = golden_array(data, "tree_forward", outcome)
+        if expected is not None:
+            trees = [forest[i].forward(x) for i in range(int(expected.shape[0]))]
+            assert_close_with_placement(
+                torch.stack(trees, dim=0),
+                golden_tensor(expected, torch.float32),
+                rtol=LEGACY_RTOL,
+                atol=LEGACY_ATOL,
+                context=f"{path.name}/tree_forward",
+            )
+            outcome.done("tree_forward")
+
+        # Display-only strings ("informational" in the README's table), checked
+        # exactly: they are pure functions of the stored rows, so a difference is a
+        # rendering change, not a numeric one.
+        from evogp.tree.utils import str_tree
+
+        renderers = {
+            "tree_infix": lambda tree: tree.to_infix(),
+            "tree_sympy_str": lambda tree: str(tree.to_sympy_expr()),
+            "tree_preorder_str": lambda tree: str_tree(
+                tree.node_value.detach().cpu().numpy(),
+                tree.node_type.detach().cpu().numpy(),
+                tree.subtree_size.detach().cpu().numpy(),
+            ),
+        }
+        for key, render in renderers.items():
+            expected = golden_array(data, key, outcome)
+            if expected is None:
+                continue
+            got = np.array([render(forest[i]) for i in range(len(expected))])
+            assert np.array_equal(got, expected), (
+                f"{path.name}/{key}: display strings differ\n  engine: {list(got)}\n  golden: {list(expected)}"
+            )
+            outcome.done(key)
+    finally:
+        data.close()
+    outcome.finish()
+
+
+@requires_engine
+@requires_problem
+def test_golden_legacy_capture_sr_fitness():
+    """SR_fitness in every kernel execute mode (MSE + MAE) and the problem-level path.
+
+    ``test/goldens/sr_fitness.npz`` stores, per mode, ``forest.SR_fitness`` (64,),
+    the first 8 ``Tree.SR_fitness`` values and ``SymbolicRegression.evaluate`` (64,),
+    plus the mode-independent pure-torch problem path.  README semantics recovered
+    from those arrays: ``SR_fitness`` returns the POSITIVE loss (MSE / MAE of the
+    forward pass) and ``SymbolicRegression.evaluate`` is exactly its negation.  The
+    array names spell the modes with ``_``.
+    """
+    path, data = load_legacy_capture("sr_fitness.npz")
+    outcome = _GoldenOutcome(f"legacy capture {path.name}")
+    try:
+        x = golden_tensor(data["x"], torch.float32)
+        labels = golden_tensor(data["labels"], torch.float32)
+        forest = legacy_forest(data, int(x.shape[1]), int(labels.shape[1]))
+
+        for mode in _LEGACY_EXECUTE_MODES:
+            key = mode.replace(" ", "_")
+            for use_mse, suffix in ((True, "mse"), (False, "nonmse")):
+                what = f"forest_sr_fitness__{key}__{suffix}"
+                expected = golden_array(data, what, outcome)
+                if expected is not None:
+                    assert_close_with_placement(
+                        engine_sr_fitness(forest, x, labels, use_mse, mode),
+                        golden_tensor(expected, torch.float32),
+                        rtol=LEGACY_RTOL,
+                        atol=LEGACY_ATOL,
+                        context=f"{path.name}/{what}",
+                    )
+                    outcome.done(what)
+
+                what = f"tree_sr_fitness__{key}__{suffix}"
+                expected = golden_array(data, what, outcome)
+                if expected is not None:
+                    got = torch.cat(
+                        [
+                            forest[i].SR_fitness(x, labels, use_mse, mode)
+                            for i in range(int(expected.shape[0]))
+                        ]
+                    )
+                    assert_close_with_placement(
+                        got,
+                        golden_tensor(expected, torch.float32),
+                        rtol=LEGACY_RTOL,
+                        atol=LEGACY_ATOL,
+                        context=f"{path.name}/{what}",
+                    )
+                    outcome.done(what)
+
+                # `SymbolicRegression.evaluate` is the negated loss of the same call.
+                for metric, mse in (("mse", True), ("nonmse", False)):
+                    what = f"problem_evaluate__{key}__{metric}"
+                    expected = golden_array(data, what, outcome)
+                    if expected is None:
+                        continue
+                    problem = SymbolicRegression(
+                        datapoints=x.clone(), labels=labels.clone(), execute_mode=mode
+                    )
+                    got = problem.evaluate(forest, use_MSE=mse)
+                    assert_close_with_placement(
+                        got,
+                        golden_tensor(expected, torch.float32),
+                        rtol=LEGACY_RTOL,
+                        atol=LEGACY_ATOL,
+                        context=f"{path.name}/{what}",
+                    )
+                    outcome.done(what)
+
+        what = "problem_evaluate__torch__mse"
+        expected = golden_array(data, what, outcome)
+        if expected is not None:
+            problem = SymbolicRegression(
+                datapoints=x.clone(), labels=labels.clone(), execute_mode="torch"
+            )
+            assert_close_with_placement(
+                problem.evaluate(forest),
+                golden_tensor(expected, torch.float32),
+                rtol=LEGACY_RTOL,
+                atol=LEGACY_ATOL,
+                context=f"{path.name}/{what}",
+            )
+            outcome.done(what)
+    finally:
+        data.close()
+    outcome.finish()
+
+
+@requires_engine
+@requires_problem
+def test_golden_legacy_capture_training():
+    """The RNG-independent parts of the 12-generation reference (``training.npz``).
+
+    README "How to use these goldens" step 4:
+    * ``initial_fitness`` must be reproducible from the stored ``initial_forest__*``
+      + ``datapoints``/``labels`` alone -- checked here through
+      ``SymbolicRegression.evaluate``.  ``generation_fitness`` records what
+      ``StandardPipeline.step`` returned, i.e. *after* its ``NaN -> -inf``
+      replacement, so the same convention is applied before comparing.
+    * the generation-by-generation trajectory (``generation_fitness[1:]``,
+      ``final_forest__*``) additionally needs the legacy kernels' exact
+      RNG-consumption order and is therefore reported, not reproduced;
+    * ``best_tree`` is a stored population row as well, so its fitness must equal
+      the stored final ``best_fitness_per_generation`` -- a second, independent
+      (and much smaller) confirmation of the whole trajectory's endpoint.
+    """
+    path, data = load_legacy_capture("training.npz")
+    outcome = _GoldenOutcome(f"legacy capture {path.name}")
+    try:
+        # Structural invariants of the frozen trajectory (exact, per the README's
+        # tolerance table) -- these must hold before any numbers are compared.
+        generation_fitness = np.asarray(data["generation_fitness"])
+        initial_fitness = np.asarray(data["initial_fitness"])
+        best_fitness = np.asarray(data["best_fitness_per_generation"])
+        assert np.array_equal(initial_fitness, generation_fitness[0]), "initial_fitness != generation_fitness[0]"
+        assert np.all(np.diff(best_fitness.astype(np.float64)) >= 0.0), "best_fitness_per_generation is not monotone"
+        assert not np.isnan(generation_fitness).any(), "the pipeline replaces NaN fitness with -inf; none may remain"
+
+        datapoints = golden_tensor(data["datapoints"], torch.float32)
+        labels = golden_tensor(data["labels"], torch.float32)
+        problem = SymbolicRegression(
+            datapoints=datapoints.clone(), labels=labels.clone(), execute_mode="auto"
+        )
+
+        what = "initial_fitness from initial_forest"
+        forest = legacy_forest(
+            data, int(datapoints.shape[1]), int(labels.shape[1]), prefix="initial_forest"
+        )
+        got = problem.evaluate(forest)
+        got[torch.isnan(got)] = -torch.inf  # StandardPipeline.step's convention
+        assert_close_with_placement(
+            got,
+            golden_tensor(initial_fitness, torch.float32),
+            rtol=LEGACY_RTOL,
+            atol=LEGACY_ATOL,
+            context=f"{path.name}/{what}",
+        )
+        outcome.done(what)
+
+        what = "best_tree fitness vs best_fitness_per_generation[-1]"
+        forest = legacy_forest(data, int(datapoints.shape[1]), int(labels.shape[1]), prefix="best_tree")
+        got = problem.evaluate(forest)
+        assert_close_with_placement(
+            got,
+            golden_tensor(best_fitness[-1:], torch.float32),
+            rtol=LEGACY_RTOL,
+            atol=LEGACY_ATOL,
+            context=f"{path.name}/{what}",
+        )
+        outcome.done(what)
+
+        outcome.skip(
+            "generation_fitness[1:] / final_forest__*",
+            "the legacy RNG-consumption order (torch.randint keys, mutation masks, "
+            "const_samples draws) is not part of the rewrite; README step 4",
+        )
+    finally:
+        data.close()
+    outcome.finish()
