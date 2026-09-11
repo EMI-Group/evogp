@@ -101,7 +101,7 @@ Submodules must keep heavy optional dependencies **inside functions** (establish
 |---|---|---|
 | `base.py`, `custom_loss.py` | torch (+ evogp/tree) | — |
 | `symbolic_regression.py` | torch | — |
-| `classification.py`, `transformation.py` | torch + **scikit-learn at module import time** | — |
+| `classification.py`, `transformation.py` | torch only — scikit-learn is imported lazily inside `generate_data`, so a venv without sklearn can still `import evogp.problem` and use the `datapoints=`/`labels=` path | `scikit-learn` for the built-in `dataset=` loaders only |
 | `brax_problem.py` | torch only (lazy bodies) | `jax`, `brax` (`setup.py` extra `brax = ["jax", "brax"]`) |
 | `mujoco_playground.py` | torch only (lazy bodies) | `jax`, `mujoco_playground` (**no setup.py extra exists**) |
 | `genesis_problem.py` | torch only (lazy body) | `genesis` (**no setup.py extra exists**) |
