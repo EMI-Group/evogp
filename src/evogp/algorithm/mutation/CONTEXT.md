@@ -58,7 +58,7 @@ All work happens on the GPU (CUDA/ROCm via `torch.ops.evogp_cuda.tree_mutate`); 
 - `MAX_STACK` is the hard ceiling on tree length (`descriptor.max_tree_len <= MAX_STACK`), which is why `default.py` uses it as a safe random position bound.
 
 ## Design Decisions
-- Descriptor-based construction (`f237870 change the mutation api to descriptor`): strategies need the function/terminal pools to synthesize or re-draw nodes, so they hold a `GenerateDescriptor` instead of loose `input_len`/`using_funcs`/`const_samples` arguments.
+- Descriptor-based construction: strategies need the function/terminal pools to synthesize or re-draw nodes, so they hold a `GenerateDescriptor` instead of loose `input_len`/`using_funcs`/`const_samples` arguments.
 - `HoistMutation` deliberately takes no descriptor: it only copies subtrees that already exist.
 - The combined variants are separate modules because they operate on different containers — `combined.py` chains operators over a single `Forest`, `combined_default.py` exists for the multi-output `CombinedForest` (one sub-forest per output); they are not interchangeable.
 - `CombinedDefaultMutation` divides `mutation_rate` by `pattern_num` so the number of edited sub-forests per individual stays near the requested rate instead of being multiplied by the output count.
