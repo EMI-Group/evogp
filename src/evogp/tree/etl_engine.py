@@ -1,9 +1,10 @@
 """ETL-backed evaluation & fitness engine for ``evogp.tree`` (the "true jit").
 
 This module is the evaluation/fitness half of the replacement for the five
-custom CUDA ops of ``evogp_cuda``.  It reproduces the semantics of the old
-``tree_evaluate`` / ``tree_SR_fitness`` kernels (``cuda/forward.cu``, distilled
-into :mod:`evogp.tree.ENGINE_SPEC`) with a *per-tree just-in-time* ETL graph:
+custom CUDA ops of the legacy compiled extension.  It reproduces the semantics
+of the old ``tree_evaluate`` / ``tree_SR_fitness`` kernels (``cuda/forward.cu``,
+distilled into :mod:`evogp.tree.ENGINE_SPEC`) with a *per-tree just-in-time* ETL
+graph:
 
 1. :func:`decode_population` walks the population tensors **host-side** and
    turns every individual into a flat, int-only *static program* (a prefix
@@ -159,7 +160,7 @@ Limitations
   ``MAX_STACK``) is fine, but the static program of a large tree makes a large
   cache key (its content is hashed on every lookup).
 * This module only *reads* the population tensors: nothing here writes back,
-  and it never imports ``evogp.evogp_cuda`` or ``torch.ops``.
+  and it never imports the legacy compiled extension or touches ``torch.ops``.
 """
 
 from __future__ import annotations
