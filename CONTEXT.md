@@ -30,7 +30,7 @@ The repository is ORIGINAL upstream code from EMI-Group; see `git log` for its p
 - The package DAG is strict: `tree/` is the foundation (`algorithm/` and `problem/` depend on it, `pipeline/` depends on both and is imported by nothing); preserve the direction when adding modules.
 - `src/evogp/__init__.py` is empty by design — all imports go through submodules (`from evogp.tree import ...`, `from evogp.algorithm import ...`, `from evogp.pipeline import ...`, `from evogp.problem import ...`).
 - Fitness contract used repo-wide: `evaluate(forest)` returns a `(pop_size,)` float32 CUDA tensor that is MAXIMIZED (losses are negated) and mutated in place by the pipeline.
-- Everything is executed at import time: most `example/` scripts, `sr_test.py` and the notebooks have no `__main__` guard — importing them starts a full training run.
+- Most entry points run at import time: the `example/` scripts and `src/evogp/sr_test.py` have no `if __name__ == "__main__"` guard, so importing any of them starts a full training run (and needs a GPU).
 - Optional heavy dependencies (`jax`/`brax`, `mujoco_playground`, `genesis`) are imported lazily inside constructors; none of them are declared in `setup.py` extras except brax.
 - Never edit `src/evogp/hip/` — it is torch-hipify's generated build-time mirror and is gitignored.
 
