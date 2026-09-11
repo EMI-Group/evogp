@@ -515,9 +515,9 @@ on CPU with the default `numpy` backend, while the API/test harness places some 
 expects a CUDA-visible device.
 
 The differential file (`test_equivalence.py`) also validates `.npz` golden fixtures found in `$EVOGP_GOLDEN_DIR`,
-`test/goldens/` and `src/evogp/tests/goldens/`; any fixture added there must use the documented format
-(`node_value`, `node_type`, `subtree_size`, `x`, and either `expected` or `expected_fitness`) — see
-`src/evogp/tests/goldens/README.md`.
+`test/goldens/` and `src/evogp/tests/goldens/`: every `.npz` in those directories must use the documented fixture
+format (`node_value`, `node_type`, `subtree_size`, `x`, and either `expected` or `expected_fitness`), otherwise the
+test reports the offending file — see `src/evogp/tests/goldens/README.md`.
 
 **3. Examples**
 
