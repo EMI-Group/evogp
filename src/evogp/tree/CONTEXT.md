@@ -114,7 +114,7 @@ The legacy `kernel_type` dispatch is gone and **all five map to the same ETL eng
 ## Test Strategy
 - No pytest suite inside this node; the validation stack is: (a) `ENGINE_SPEC.md` §12 self-consistency (compare against `Tree.__python_forward`, arity walks, splice identities); (b) the pytest suite under `../../tests/` — the primary regression gate (independent plain-torch oracle, randomized/adversarial equivalence, operator and API-compat tests, convergence smoke, plus the in-repo `goldens/` fixtures cross-validated against the legacy kernels before deletion).
 - Run everything with the project venv (`/mnt/local-ssd/bchuang/evox/.venv/bin/python`), from the repo root, `PYTHONPATH=src`, and `ETL_DISABLE_LOCATIONS=1` for speed.
-- Coverage gaps: IREE numeric parity per shape, non-default selection/crossover operators, robotics problems, and multi-output pipelines.
+- Coverage gaps: IREE numeric parity per shape, non-default selection/crossover operators, robotics problems, and the multi-output training pipeline (the combined `forward`/`batch_forward` contract itself is covered by `../tests/test_combined_forward.py`).
 
 ## Routing Table
 This directory has **no child subdirectories** — the layer is the files listed here; do not look for sub-nodes to delegate to.
