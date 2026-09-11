@@ -63,7 +63,7 @@ It is a near-copy of `brax_problem.py` (`to_jax_array`/`from_jax_array` are byte
 `get_cfgs()` in the same file returns the Go2 quadruped `(env_cfg, obs_cfg, reward_cfg, command_cfg)` dicts consumed by `go2_env.Go2Env`.
 `go2_env.py` — `Go2Env`, a Genesis simulator wrapper for the Go2 robot (PD control, observation assembly, command resampling, termination checks, `_reward_*` functions). Not imported by `__init__.py` and not referenced anywhere else in the repo; it is scaffolding for the unfinished `GenesisProblem`.
 
-### `custom_loss.py` — `CustomLoss` (not exported)
+### `custom_loss.py` — `CustomLoss` (re-exported from `__init__.py`)
 `CustomLoss(existing_data: dict, loss_func: Callable)` wraps a user-written loss so that arbitrary named variables can be optimized.
 `inspect_function` (from `evogp.tree.utils`) extracts the loss function's parameter names; `torch.vmap(loss_func, in_dims=(None * len(existing_data)) + (0 * (len(parameters) - len(existing_data))))` maps over the parameters that are *not* keys of `existing_data`.
 `evaluate(forest)` calls `forest.batch_forward(existing_data)` (so it requires a `CombinedForest`), squeezes each output's last dim, binds the parameters in signature order (`existing_data[name]` if present, otherwise the forest output), and returns `-loss` (higher is better).
