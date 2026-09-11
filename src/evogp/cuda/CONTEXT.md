@@ -42,8 +42,9 @@ Schema note: `float` in a TORCH_LIBRARY schema means C++ `double` (matches the `
      - `1` `constant_tree_SR_fitness` (`forward.cu:649`) — host loop over the population; each tree is copied into `__constant__` memory per tree (`cudaMemcpyToSymbolAsync`) then one kernel launch per tree (data parallel).
      - `2` `constant_vars_SR_fitness` (`forward.cu:781`) — host loop over data points; variables/labels of one data point go to `__constant__` memory, one thread per tree (tree parallel).
      - `3` `advanced_SR_fitness` (`forward.cu:514`) — same kernel as 0 but `block_size = dataPoints <= 256 ? dataPoints : 1024`.
-     - `4` (C++ default, "auto") — `dataPoints <= getCudaCoreCount() ? 3 : 1`.
-   - Result is the mean per-data-point error (MSE if `useMSE`, else MAE) and is **non-negative**; the problem layer negates it (`src/evogp/problem/symbolic_regression.py:83`).
+     - `4` (C++ default, "auto") — `dataPoints <= getCudaCoreCount() ? 3 : 1` (`forward.cu:849-854`).
+   - Every mode instantiates `multiOutput=true` when `outLen > 1` (`forward.cu:497-507` mode 0, `674-684` mode 1, `808-818` mode 2, `534-544` mode 3), so multi-output trees work for all `execute_code` values.
+   - Result is the mean over **data points only**: per data point `calculate_fit` (`forward.cu:375-400`) sums `diff*diff` (MSE if `useMSE`) or `std::abs(diff)` (MAE) over the `outLen` outputs, then `averageFitnessValueKernel` divides by `dataPoints` (`forward.cu:474-479`) — the output count is never averaged out. It is **non-negative**; the problem layer negates it (`src/evogp/problem/symbolic_regression.py:83`).
    - Python call sites: `Forest.SR_fitness` (`forest.py:351`) maps `hybrid parallel->0, data parallel->1, tree parallel->2, auto->4`; `Tree.SR_fitness` (`tree.py:114`) maps `hybrid parallel->3, data parallel->1, tree parallel->2, auto->4` with `pop_size=1`. The `Tree`/`Forest` mapping of "hybrid parallel" disagrees (3 vs 0) even though 3 is just 0 with an adaptive block size.
 
 ## Python call-site → binding → kernel map (debugging entry point)
