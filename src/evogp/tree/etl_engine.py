@@ -40,8 +40,8 @@ Backend & device policy
 * Default backend: ``"numpy"`` (ETL's reference interpreter, **cpu**).
   Round-2 measurements make this the only sane default: a numpy executable is
   built in ~1-3 ms and runs in ~0.02-0.2 ms per tree, while an IREE executable
-  costs ~0.5-2.5 s to compile per structure (see the round-2 report for the
-  numbers).  ``"numpy"`` needs no GPU at all.
+  costs ~0.4-0.6 s to compile and ~2.4-3.6 ms per run (see the round-2 report
+  for the numbers).  ``"numpy"`` needs no GPU at all.
 * Opt-in IREE: ``backend="iree"`` (or ``EVOGP_ETL_BACKEND=iree``) plus a device
   index (``iree_device_index=`` / ``EVOGP_ETL_IREE_DEVICE``, default 0).  IREE
   runs on the CUDA HAL only: ``etl.core.Device("cuda", index)`` (ETL maps the
@@ -68,8 +68,9 @@ is one LRU entry, so a full-population fitness pass needs up to ``pop_size``
 entries **per input shape**: size the cache at ``>= pop_size + headroom``
 (default :data:`DEFAULT_CACHE_SIZE` = 4096, env ``EVOGP_ETL_CACHE_SIZE``).
 Each entry pins a fully loaded ``Executable`` (graph + lowered program +
-signature + static program) -- measured ~135 KiB per entry for the numpy
-backend, ~0.9 MiB for an IREE executable (round-2 report) -- so a larger cache
+signature + static program) -- measured (tracemalloc, released by
+  ``clear_cache``) ~270 KiB for a 30-node tree and ~478 KiB for a 60-node
+  tree on the numpy backend -- so a larger cache
 only costs memory, never correctness.  Eviction is plain LRU: one-off probes
 with unusual shapes (e.g. every ``N`` in ``per_row=False``) can push out hot
 entries.  :func:`cache_stats` / :func:`clear_cache` expose and reset the table.
@@ -80,7 +81,8 @@ Speed knob: ``ETL_DISABLE_LOCATIONS=1``
 --------------------------------------
 Tracing attaches a source ``ir.Location`` to every op unless the environment
 variable ``ETL_DISABLE_LOCATIONS=1`` is set.  Setting it speeds tracing up by
-roughly 13-30x (measured) at the cost of losing per-op source locations in
+roughly 4x on this workload (54 trees, mean 18 nodes: 1384 ms -> 346 ms; ETL's
+own micro-benchmarks measure 13-30x) at the cost of losing per-op locations in
 tracebacks; it is *not* part of the cache key, so changing it mid-process
 affects only later compilations.  Recommended for production runs.  This
 module does not set it (ETL env knobs are the caller's / operator's choice);
@@ -148,6 +150,11 @@ Limitations
   identical trees -- and any tree re-evaluated with the same shape -- hit.
 * Python-side per-tree work (one ``etl.run`` per tree for the numpy backend)
   dominates; the engine is meant to be correct and re-usable, not yet fast.
+* The opt-in IREE backend is wired and runs, but was NOT validated numerically
+  for every shape: 30-node/N=1 and 60-node/N=100 trees matched numpy
+  only within > 1e-4 (the other measured shapes matched exactly) --
+  treat IREE as experimental.  The default numpy backend is
+  oracle-verified (see the round-2 report).
 * Trees are walked with an explicit stack, so arbitrary depth (up to
   ``MAX_STACK``) is fine, but the static program of a large tree makes a large
   cache key (its content is hashed on every lookup).
