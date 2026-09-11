@@ -122,7 +122,7 @@ Nothing here is device-agnostic: `random_generate`, all forwards, fitness, mutat
 
 ## Test Strategy
 No pytest suite exists for this layer. The closest thing to a unit test is `../../../test/test_bind_success.py`, which calls `torch.ops.evogp_cuda.tree_generate/tree_mutate/tree_crossover/tree_evaluate/tree_SR_fitness` directly with hand-built descriptors and prints trees via `evogp.tree.utils.str_tree` (`python test/test_bind_success.py`).
-Other ad-hoc checks live in `../../../test/fix_bug.py` (`Tree.forward` / `Tree.SR_fitness` smoke test), `../../../test/sympy_test.ipynb`, `../../../test/vis.ipynb` (`to_png`), and `../../../test/combined_test.ipynb` (stale combined API).
+Other ad-hoc checks live in `../../../test/fix_bug.py` (hand-builds a `Tree` from literal `node_value`/`node_type`/`subtree_size` tensors — the clearest example of the encoding — then calls `Tree.SR_fitness` in two `execute_mode`s), `../../../test/vis.ipynb` (visualization scratch notebook, `to_png` call commented out), `../../../test/sympy_test.ipynb` (bare sympy playground, does not import evogp), and `../../../test/combined_test.ipynb` (stale combined API).
 `../../sr_test.py` is the end-to-end smoke test for the descriptor + `Forest` + pipeline path (`python src/evogp/sr_test.py`), and `../../../example/basic.py` is the documented minimal example.
 All of these need a CUDA/HIP GPU and the built extension, so they cannot run in a CPU-only sandbox.
 Cheap self-consistency check when touching the representation: compare `Tree.to_sympy_expr()` / `Tree.to_infix()` against `Tree.forward()` on random inputs, and check `subtree_size[0]` against the node-arity walk done in `Tree.__assert_valid`.
