@@ -362,6 +362,10 @@ _ZERO = np.float32(0.0)
 _ONE = np.float32(1.0)
 _NEG_ONE = np.float32(-1.0)
 _HALF = np.float32(0.5)
+#: ``sinh`` is evaluated as ``x`` below this magnitude: ``sinh`` is not available
+#: in the ETL op set, and for ``|x| < 1e-4`` the correctly rounded float32 result
+#: of ``sinh(x)`` is bit-exactly ``x`` (see ``_emit_unary``).
+_SINH_LINEAR_BELOW = np.float32(1e-4)
 _NaN = np.float32("nan")
 
 #: Sentinel for "this value depends on a variable" during decoding/folding.
@@ -369,30 +373,48 @@ _SV = object()
 
 
 def _f32(value: Any) -> np.float32:
-    """Coerce to ``np.float32`` (all folding arithmetic stays float32)."""
+    """Coerce to ``np.float32`` (the node-value storage of the kernels).
+
+    Applied to the float64 intermediate of every software transcendental, this
+    is the correctly rounded float32 result of the operation -- the same value
+    the ETL graph emits for a non-constant operand (see the comment above
+    ``_F64_DTYPE``).  Arithmetic and ``sqrt``/``1/x`` stay float32 on purpose:
+    IEEE 754 defines them as correctly rounded already.
+    """
     return np.float32(value)
+
+
+def _f64(value: Any) -> np.float64:
+    """Widen to ``np.float64`` (intermediate of a correctly rounded op)."""
+    return np.float64(value)
 
 
 def _fold_unary(func_id: int, a: np.float32) -> np.float32:
     """Host-side evaluation of one unary node; an unmatched id gives 0.0."""
     if func_id == Func.SIN:
-        return np.sin(a)
+        return _f32(np.sin(_f64(a)))
     if func_id == Func.COS:
-        return np.cos(a)
+        return _f32(np.cos(_f64(a)))
     if func_id == Func.TAN:
-        return np.tan(a)
-    if func_id == Func.SINH:
-        return _f32((np.exp(a) - np.exp(-a)) * _HALF)
+        return _f32(np.tan(_f64(a)))
+    if func_id == Func.SINH:  # composed: ETL has no sinh (see _emit_unary)
+        if np.abs(a) < _SINH_LINEAR_BELOW:
+            return _f32(a)  # CR float32 of sinh is x; keeps sinh(-0.0) == -0.0
+        return _f32(
+            (np.exp(_f64(a)) - np.exp(-_f64(a))) * np.float64(0.5)
+        )
     if func_id == Func.COSH:
-        return _f32((np.exp(a) + np.exp(-a)) * _HALF)
+        return _f32(
+            (np.exp(_f64(a)) + np.exp(-_f64(a))) * np.float64(0.5)
+        )
     if func_id == Func.TANH:
-        return np.tanh(a)
+        return _f32(np.tanh(_f64(a)))
     if func_id == Func.LOG:
-        return np.log(a)  # log(0) = -inf, log(neg) = nan
+        return _f32(np.log(_f64(a)))  # log(0) = -inf, log(neg) = nan
     if func_id == Func.LOOSE_LOG:
-        return _NEG_MAX_VAL if a == 0 else np.log(np.abs(a))
+        return _NEG_MAX_VAL if a == 0 else _f32(np.log(np.abs(_f64(a))))
     if func_id == Func.EXP:
-        return np.exp(a)  # overflow -> inf
+        return _f32(np.exp(_f64(a)))  # overflow -> inf
     if func_id == Func.INV:
         return _NaN if a == 0 else _f32(_ONE / a)
     if func_id == Func.LOOSE_INV:
@@ -423,11 +445,12 @@ def _fold_binary(func_id: int, a: np.float32, b: np.float32) -> np.float32:
         d = _f32(np.copysign(_DELTA, b)) if np.abs(b) <= _DELTA else b
         return _f32(a / d)
     if func_id == Func.POW:
-        return np.power(a, b)  # pow(0,0)=1, pow(-2,3)=-8, pow(-2,0.5)=nan
+        # pow(0,0)=1, pow(-2,3)=-8, pow(-2,0.5)=nan
+        return _f32(np.power(_f64(a), _f64(b)))
     if func_id == Func.LOOSE_POW:
         if a == 0 and b == 0:
             return _ZERO
-        return np.power(np.abs(a), b)
+        return _f32(np.power(np.abs(_f64(a)), _f64(b)))
     if func_id == Func.MAX:
         return a if a >= b else b  # ternary: max(v, NaN) = NaN
     if func_id == Func.MIN:
@@ -474,6 +497,37 @@ def _operand(value: Any) -> Any:
     return _trace_const(value)
 
 
+# ---------------------------------------------------------------------------
+# correctly rounded float32 emission of the software transcendentals
+# ---------------------------------------------------------------------------
+#
+# ``np.exp``/``np.log``/``np.sin``/... on float32 arrays are NOT correctly
+# rounded (measured against a float64 reference: ``exp`` answers one ulp low in
+# ~39% of the inputs, ``tanh`` ~33%, ``sinh`` ~26%, ``cosh`` ~22%, ``log`` ~4%,
+# ``sin``/``cos`` ~15-17%, ``pow`` ~0.03%).  A one-ulp error is invisible in a
+# single node value, but it is amplified by the derivative of the next node:
+# ``exp`` feeding a ``tan`` next to a pole (``1 + tan^2`` up to ~1e5) turns a one
+# ulp ``exp`` difference into ~1e-3 relative on the tree output -- orders of
+# magnitude above the 1e-4 equivalence tolerance, and it is *not* reducible by
+# the caller.
+#
+# The kernel contract stores every node value as float32 (ENGINE_SPEC section 2),
+# so the fix is to make each software transcendental CORRECTLY ROUNDED in
+# float32: evaluate it in float64 and round the result back to float32.  That is
+# the best possible float32 answer -- every implementation that is not
+# correctly rounded on its own (numpy's float32 kernels, torch's vectorized
+# ones) is then within one ulp of the engine, and the residual disagreement
+# survives only where the *other* implementation is the inaccurate one.
+#
+# Hardware-exact float32 operations are deliberately left alone (they are
+# already correctly rounded, or exactly defined, and skipping them keeps the
+# graph small): ``+ - * /``, ``sqrt``, ``abs``, ``neg``, ``copysign`` and every
+# comparison/``select`` (which must stay bit-exact ``+-1``).
+
+#: float64 dtype for the intermediate of a correctly rounded float32 op.
+_F64_DTYPE = np.float64
+
+
 def _copysign_delta(value: Any) -> Any:
     """``copysign(DELTA, x)`` for a symbolic ``x`` -- ETL has no ``copysign``.
 
@@ -488,58 +542,92 @@ def _copysign_delta(value: Any) -> Any:
     return etl.select(negative, _trace_const(_NEG_DELTA), _trace_const(_DELTA))
 
 
+def _to_f64(value: Any) -> Any:
+    """Widen a float32 operand to float64 (intermediate of a CR op)."""
+    return etl.cast(value, etl.float64)
+
+
+def _round32(value: Any) -> Any:
+    """Round a float64 intermediate back to the float32 node-value storage.
+
+    The cast is ``astype``-style (round to nearest, ties to even) and preserves
+    NaN / ``+-inf``, so the engine's NaN/inf placement is untouched.
+    """
+    return etl.cast(value, etl.float32)
+
+
+def _trace_const_f64(value: Any) -> Any:
+    """0-d float64 constant operand (the ``* 0.5`` of the sinh/cosh composition)."""
+    return etl.constant(
+        etl.core.tensor(np.asarray(np.float64(value), dtype=np.float64))
+    )
+
+
 def _emit_unary(func_id: int, a: Any) -> Any:
-    """One unary node: fold when the operand is constant, emit ops otherwise."""
+    """One unary node: fold when the operand is constant, emit ops otherwise.
+
+    The software transcendentals (``sin``/``cos``/``tan``/``tanh``/``log``/
+    ``exp``/``sinh``/``cosh``) are emitted as ``round_f32(op(f64(v)))``, i.e.
+    correctly rounded in float32 -- see the comment above ``_F64_DTYPE``.  The
+    hardware-exact ops (``neg``/``abs``/``sqrt``/``1/x``) stay float32.
+    """
     if not isinstance(a, etl.SymbolicTensor):
         return _fold_unary(func_id, a)
-    v = a
     if func_id == Func.SIN:
-        return etl.sin(v)
+        return _round32(etl.sin(_to_f64(a)))
     if func_id == Func.COS:
-        return etl.cos(v)
+        return _round32(etl.cos(_to_f64(a)))
     if func_id == Func.TAN:
-        return etl.tan(v)
+        return _round32(etl.tan(_to_f64(a)))
     if func_id == Func.SINH:  # composed: ETL has no sinh
-        return etl.multiply(
-            etl.subtract(etl.exp(v), etl.exp(etl.negate(v))), _trace_const(_HALF)
+        w = _to_f64(a)
+        return _round32(
+            etl.multiply(
+                etl.subtract(etl.exp(w), etl.exp(etl.negate(w))),
+                _trace_const_f64(_HALF),
+            )
         )
     if func_id == Func.COSH:  # composed: ETL has no cosh
-        return etl.multiply(
-            etl.add(etl.exp(v), etl.exp(etl.negate(v))), _trace_const(_HALF)
+        w = _to_f64(a)
+        return _round32(
+            etl.multiply(
+                etl.add(etl.exp(w), etl.exp(etl.negate(w))),
+                _trace_const_f64(_HALF),
+            )
         )
     if func_id == Func.TANH:
-        return etl.tanh(v)
+        return _round32(etl.tanh(_to_f64(a)))
     if func_id == Func.LOG:
-        return etl.log(v)
+        return _round32(etl.log(_to_f64(a)))
     if func_id == Func.LOOSE_LOG:
         return etl.select(
-            etl.equal(v, _trace_const(_ZERO)),
+            etl.equal(a, _trace_const(_ZERO)),
             _trace_const(_NEG_MAX_VAL),
-            etl.log(etl.abs(v)),
+            _round32(etl.log(etl.abs(_to_f64(a)))),
         )
     if func_id == Func.EXP:
-        return etl.exp(v)
+        return _round32(etl.exp(_to_f64(a)))
     if func_id == Func.INV:
         return etl.select(
-            etl.equal(v, _trace_const(_ZERO)),
+            etl.equal(a, _trace_const(_ZERO)),
             _trace_const(_NaN),
-            etl.divide(_trace_const(_ONE), v),
+            etl.divide(_trace_const(_ONE), a),
         )
     if func_id == Func.LOOSE_INV:
         safe = etl.select(
-            etl.less_equal(etl.abs(v), _trace_const(_DELTA)),
-            _copysign_delta(v),
-            v,
+            etl.less_equal(etl.abs(a), _trace_const(_DELTA)),
+            _copysign_delta(a),
+            a,
         )
         return etl.divide(_trace_const(_ONE), safe)
     if func_id == Func.NEG:
-        return etl.negate(v)
+        return etl.negate(a)
     if func_id == Func.ABS:
-        return etl.abs(v)
+        return etl.abs(a)
     if func_id == Func.SQRT:
-        return etl.sqrt(v)
+        return etl.sqrt(a)
     if func_id == Func.LOOSE_SQRT:
-        return etl.sqrt(etl.abs(v))
+        return etl.sqrt(etl.abs(a))
     return _ZERO  # unmatched branch leaves top_val at its initializer
 
 
@@ -573,7 +661,7 @@ def _emit_binary(func_id: int, a: Any, b: Any) -> Any:
         )
         return etl.divide(_operand(a), safe)
     if func_id == Func.POW:
-        return etl.power(_operand(a), _operand(b))
+        return _round32(etl.power(_to_f64(_operand(a)), _to_f64(_operand(b))))
     if func_id == Func.LOOSE_POW:
         return etl.select(
             etl.logical_and(
@@ -581,7 +669,9 @@ def _emit_binary(func_id: int, a: Any, b: Any) -> Any:
                 etl.equal(_operand(b), _trace_const(_ZERO)),
             ),
             _trace_const(_ZERO),
-            etl.power(etl.abs(_operand(a)), _operand(b)),
+            _round32(
+                etl.power(etl.abs(_to_f64(_operand(a))), _to_f64(_operand(b)))
+            ),
         )
     if func_id == Func.MAX:
         return etl.select(

@@ -1033,7 +1033,9 @@ def test_kernel_arity_fallback_is_preserved():
     x = torch.tensor([[0.0, 2.0, 4.0], [-1.0, 1.0, 0.0]], dtype=torch.float32)
     got = compare_batch_forward(forest, x, context="arity fallback")
     expected = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0, 4.0], dtype=torch.float32)  # last: IF(0,2,4) -> 4
-    torch.testing.assert_close(got[:, 0, 0], expected, rtol=0, atol=0)
+    # the engine runs on DEVICE (cuda when available), the hand-written expectation
+    # is a CPU tensor -- compare through the shared CPU-cast helper
+    torch.testing.assert_close(_to_cpu_float(got[:, 0, 0]), expected, rtol=0, atol=0)
 
 
 # =========================================================================== #

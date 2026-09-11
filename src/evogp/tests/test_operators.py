@@ -700,9 +700,18 @@ def normalize_splice_result(result):
     if isinstance(result, Forest):
         return row_of(result, 0)
     if isinstance(result, tuple) and len(result) == 3:
-        values, types, sizes = result
-        if all(hasattr(part, "tolist") for part in (values, types, sizes)):
-            values, types, sizes = (part.tolist() for part in (values, types, sizes))
+        parts = []
+        for part in result:
+            # a batch-wise hook (one row per call) returns ``[1, max_tree_len]``
+            # tensors -- squash the leading dimension before listing the row
+            if callable(getattr(part, "dim", None)) and part.dim() > 1:
+                part = part.reshape(-1)
+            if hasattr(part, "tolist"):
+                part = part.tolist()
+            parts.append(part)
+        values, types, sizes = parts
+        if not (values and types and sizes):
+            return None
         total = int(sizes[0])
         if min(len(values), len(types), len(sizes)) >= total:
             return Row(values[:total], types[:total], sizes[:total], total)
@@ -734,11 +743,27 @@ def test_internal_splice_hook_matches_reference_when_exposed():
         build_forest([old], max_tree_len), index_tensor([index]),
         build_forest([donor], max_tree_len),
     )
-    for attempt in (row_wise, container_wise):
+    # (value/type/size, pos, donor value/type/size, donor pos, new subtree size)
+    # - the vectorized ``_splice`` convention of ``splicing.py``: full-width
+    # ``[pop_size, max_tree_len]`` tree tensors plus 1-D index tensors
+    def batch_wise():
+        target = build_forest([old], max_tree_len)
+        source = build_forest([donor], max_tree_len)
+        return hook(
+            target.batch_node_value, target.batch_node_type, target.batch_subtree_size,
+            index_tensor([index]),
+            source.batch_node_value, source.batch_node_type, source.batch_subtree_size,
+            index_tensor([0]),
+            source.batch_subtree_size[:, 0].long(),
+        )
+
+    for attempt in (batch_wise, row_wise, container_wise):
         try:
             result = attempt()
         except TypeError:
             continue  # signature does not match this calling convention
+        except AttributeError:
+            continue  # scalar where the hook expects a tensor (e.g. ``.clamp``)
         row = normalize_splice_result(result)
         assert row is not None, f"{path} returned an unsupported result type {type(result)!r}"
         assert_rows_equal(row, expected, path)
