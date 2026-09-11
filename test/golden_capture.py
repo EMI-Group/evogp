@@ -1,23 +1,46 @@
 #!/usr/bin/env python
-"""Golden-value capture for the pre-ETL EvoGP engine (custom CUDA kernels).
+"""Capture / compare engine outputs against the `test/goldens/*.npz` reference.
 
-This script drives the CURRENT implementation (hand-written CUDA kernels under
-`src/evogp/cuda/`, bound through `evogp.evogp_cuda`) on a small, fully
-deterministic workload and stores the resulting numbers under `test/goldens/`.
-Those `.npz` files are the reference a replacement engine (e.g. an ETL/torch
-implementation without custom kernels) has to reproduce.  See
-`test/goldens/README.md` for provenance, the regeneration recipe and the
-recommended comparison tolerances.
+The four committed `.npz` files under `test/goldens/` are **frozen captures of the
+pre-ETL engine** (the hand-written CUDA kernels bound through `evogp.evogp_cuda`,
+revision `b613503`, deleted in the ETL rewrite) and were produced by this script.
+They are the legacy numeric reference the current pure-torch/ETL engine has to
+reproduce.  `test/goldens/README.md` documents their provenance, contents, the
+regeneration environment and the recommended cross-engine tolerances.
 
-Usage (from the repository root; `src/` is added to `sys.path` automatically):
+The script drives whatever engine the interpreter it runs under provides:
 
-    python test/golden_capture.py capture    # (re)build test/goldens/*.npz
-    python test/golden_capture.py verify     # re-run + compare against the files
-    python test/golden_capture.py manifest   # print the inventory of each file
+    python test/golden_capture.py capture    # write <out>/*.npz   (OVERWRITES)
+    python test/golden_capture.py verify     # re-run + diff against <out>/*.npz
+    python test/golden_capture.py manifest   # inventory of <out>/*.npz
 
-`verify` exits non-zero when a golden differs (exact for integer/string arrays,
-`rtol=1e-4 / atol=1e-4` for floats) and reports, per array, whether the re-run
-was bitwise identical - that is the determinism evidence for this engine.
+Two caveats when it is pointed at the committed legacy captures (`--out
+test/goldens`, the default):
+
+* ``capture`` OVERWRITES the files it is given.  Point it at a scratch directory
+  (``--out "$TMPDIR/goldens"``) unless replacing the frozen pre-ETL reference with
+  today's engine output is really intended.
+* ``verify`` validates *one build* against itself (same public API calls, same
+  seeding).  Against the legacy captures the RNG-dependent arrays are expected to
+  differ: the rewrite samples populations from torch's RNG instead of the kernels'
+  generator.  A legacy run therefore reports the descriptor/header/input arrays
+  (``descriptor__*``, ``x``, ``x_small``, ``labels``, ``*_scalars``, ``seed``) as
+  bitwise and the generated-structure and trajectory arrays
+  (``*__node_type``/``*__node_value``/``*__subtree_size``, the fitness and training
+  arrays) as MISMATCH.
+
+  For an RNG-*free* cross-engine check, feed the stored structure arrays to the new
+  engine instead of re-generating them: load ``forest__node_*`` (or
+  ``initial_forest__node_*``) with the stored ``x``/``labels`` and compare
+  ``forward``/``batch_forward``/``SR_fitness`` against the stored ``tree_forward``/
+  ``forest_forward``/``forest_batch_forward``/``*_sr_fitness__*`` arrays within the
+  documented tolerances - the recipe is in `test/goldens/README.md`, and
+  ``src/evogp/tests/test_equivalence.py`` applies exactly this pattern to its own
+  fixtures.
+
+``verify`` exits non-zero when a golden differs (exact for integer/string arrays,
+``rtol=1e-4 / atol=1e-4`` for floats) and reports, per array, whether the re-run
+was bitwise identical.
 """
 
 import argparse
@@ -51,9 +74,11 @@ SEED = 0
 # Fixed, small workload
 # ---------------------------------------------------------------------------
 
-#: `Forest.SR_fitness` / `Tree.SR_fitness` / `SymbolicRegression` accept these
-#: four kernel execute modes ("torch" is the pure-`batch_forward` Python path
-#: exposed by `SymbolicRegression` and has no kernel counterpart).
+#: ``Forest.SR_fitness`` / ``Tree.SR_fitness`` / ``SymbolicRegression`` accept these
+#: four mode strings (``"torch"`` is the pure-``batch_forward`` Python path exposed
+#: by ``SymbolicRegression``).  Since the ETL rewrite they are API-compatibility
+#: aliases that all route to the same engine entry point - the legacy kernels
+#: dispatched on them, and the captured arrays record those kernel differences.
 KERNEL_MODES = ("hybrid parallel", "data parallel", "tree parallel", "auto")
 
 #: pop_size / max_tree_len of the evaluation forest (task spec: 64 x 63).
@@ -131,10 +156,11 @@ def descriptor_arrays(descriptor, prefix="descriptor"):
 def normalize_tree_partition(node_value, node_type, subtree_size):
     """Zero-fill the dead region of every tree row (indices >= subtree_size[j]).
 
-    The kernels only write the first `subtree_size[j]` entries of row `j`; the
-    rest of each (pop_size, max_tree_len) row is uninitialised device memory and
-    is NOT reproducible between processes.  The used prefix is, so the goldens
-    store the prefix as-is and the dead tail as zeros (see test/goldens/README.md).
+    As captured, the legacy kernels only wrote the first `subtree_size[j]` entries
+    of row `j`; the rest of each (pop_size, max_tree_len) row was uninitialised
+    device memory and is NOT reproducible between processes.  The used prefix is, so
+    the goldens store the prefix as-is and the dead tail as zeros (see
+    test/goldens/README.md).  Today's generator zeroes the tail itself.
     """
     sizes = subtree_size[:, 0]
     used = np.arange(node_value.shape[1])[None, :] < sizes[:, None]
@@ -169,7 +195,7 @@ def fixed_case():
 
 
 # ---------------------------------------------------------------------------
-# Stage 1: random forest generation (tree_generate)
+# Stage 1: random forest generation (legacy op `tree_generate`)
 # ---------------------------------------------------------------------------
 
 
@@ -197,15 +223,16 @@ def capture_forest_random():
 
 
 # ---------------------------------------------------------------------------
-# Stage 2: forward evaluation (tree_evaluate)
+# Stage 2: forward evaluation (legacy op `tree_evaluate`)
 # ---------------------------------------------------------------------------
 
 
 def capture_forward_eval():
     # `Tree.forward` / `Forest.forward` / `Forest.batch_forward` take no
-    # execute_mode - they always call `tree_evaluate`. The execute modes only
-    # pick the reduction kernel of `*_SR_fitness` (captured in stage 3); the
-    # "torch" mode is the problem-level `batch_forward` path (also stage 3).
+    # execute_mode - all forward paths go through the one engine entry point. The
+    # execute mode strings only ever selected the legacy reduction kernel of
+    # `*_SR_fitness` (captured in stage 3); the "torch" mode is the problem-level
+    # `batch_forward` path (also stage 3).
     _descriptor, forest, x, labels, x_small = fixed_case()
 
     tree_forward = np.stack(
@@ -245,7 +272,7 @@ def capture_forward_eval():
 
 
 # ---------------------------------------------------------------------------
-# Stage 3: SR fitness (tree_SR_fitness) in every execute mode
+# Stage 3: SR fitness (legacy op `tree_SR_fitness`) in every execute mode
 # ---------------------------------------------------------------------------
 
 
@@ -284,7 +311,8 @@ def capture_sr_fitness():
                 datapoints=x.clone(), labels=labels.clone(), execute_mode=mode
             ).evaluate(forest, use_MSE=False)
         )
-    # the "torch" path is batch_forward + -mean(squared error); no kernel involved
+    # the "torch" path is batch_forward + -mean(squared error); it shares the engine
+    # with the other modes today and only preserves the legacy problem-level mode
     arrays["problem_evaluate__torch__mse"] = to_np(
         SymbolicRegression(
             datapoints=x.clone(), labels=labels.clone(), execute_mode="torch"
@@ -394,6 +422,13 @@ ATOL = 1e-4
 
 def run_capture(stages, out_dir):
     os.makedirs(out_dir, exist_ok=True)
+    if os.path.abspath(out_dir) == os.path.abspath(GOLDENS_DIR):
+        print(
+            f"[capture] WARNING: writing into {os.path.relpath(out_dir)}, which holds "
+            "the frozen pre-ETL goldens (test/goldens/README.md); this REPLACES the "
+            "legacy reference numbers with current-engine values. Use --out <scratch "
+            "dir> unless that is intended."
+        )
     written = []
     for name in stages:
         arrays = STAGES[name]()

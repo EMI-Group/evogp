@@ -2,17 +2,20 @@
 
 ## Purpose
 
-These `.npz` files are **frozen reference numbers** produced by the *current*
-EvoGP engine, i.e. the hand-written CUDA kernels in `src/evogp/cuda/`
-(`generate.cu`, `mutation.cu`, `forward.cu`, `torch_wrapper.cu`) driven through
-the public Python API. They exist so a **replacement engine** (for example an
-ETL/torch implementation that drops the custom kernels and `evogp.evogp_cuda`)
-can be validated numerically against the behaviour it is replacing: feed the
-stored inputs to the new code, compare the outputs against the stored arrays.
+These `.npz` files are **frozen reference numbers** produced by the *legacy* EvoGP engine: the
+hand-written CUDA kernels in `src/evogp/cuda/` (`generate.cu`, `mutation.cu`, `forward.cu`,
+`torch_wrapper.cu`), bound through `evogp.evogp_cuda` and driven through the public Python API.
+Both the kernels and the extension are gone — EvoGP now evaluates trees through the pure-torch/ETL
+engine in `src/evogp/tree/etl_engine.py` — so these files cannot be re-captured from source; they are
+the behaviour the rewrite had to reproduce.
 
-They are *not* a pass/fail test suite by themselves and nothing in the repo runs
-them automatically. `test/golden_capture.py` both (re)generates them and
-re-checks them.
+They exist so an engine can be validated numerically against the behaviour it replaced: feed the
+stored inputs (and, for the RNG-free checks, the stored tree tensors) to the new code and compare the
+outputs against the stored arrays.
+
+They are *not* a pass/fail test suite by themselves. `test/golden_capture.py` (sibling directory)
+captures and compares arrays; the pytest suite's golden-fixture loader also scans this directory, but
+expects a different key schema — see "Relation to the pytest suite" below.
 
 ## Provenance
 
@@ -24,8 +27,12 @@ re-checks them.
 | Toolchain | nvcc 12.6.20 (CUDA 12.6 headers), host `g++` 12.2, PyTorch 2.6.0+cu124, python 3.11.2 |
 | GPU | NVIDIA RTX A6000 (sm_86), 8 visible devices, everything runs on `cuda:0` |
 | Captured by | `test/golden_capture.py` (`capture`), verified by the same script (`verify`) |
+| Status | frozen. The engine that produced them (kernels + `evogp.evogp_cuda` + `setup.py`'s `CUDAExtension`) was deleted in the ETL rewrite, so these exact numbers can no longer be re-captured and the files must not be overwritten |
 
-### Environment recipe used to build and capture (reproducible from scratch)
+### Environment recipe used to build and capture (historical — no longer executable)
+
+Kept for provenance: `src/evogp/cuda/` and the `CUDAExtension` in `setup.py` no longer exist, so the
+build step below cannot run against the current tree.
 
 ```bash
 PYTHON=/mnt/local-ssd/bchuang/evox/.venv/bin/python     # py3.11, torch 2.6.0+cu124
@@ -55,45 +62,62 @@ Note: a *system* nvcc 11.8 exists but is rejected by torch cu124 (major-version
 mismatch), and `cicc`/`ptxas` must come from the CUDA 12.6 install — the
 `CUDA_HOME` above is the conda "targets" layout, which is a complete toolkit.
 
-### Regenerating / verifying
+### Regenerating / verifying (current engine)
+
+`test/golden_capture.py` drives whatever engine is installed in the interpreter it runs under, i.e.
+today the ETL engine. It therefore cannot reproduce these files — it can only *capture* the current
+engine's numbers or *compare* them against the frozen ones:
 
 ```bash
 cd <repo root>
-export PYTHONPATH=$TMPDIR/siteutils            # sklearn only (module-level import in problem/__init__)
-
-python test/golden_capture.py capture          # rewrite test/goldens/*.npz  (~7 s)
-python test/golden_capture.py verify           # re-run everything and diff   (~6 s)
-python test/golden_capture.py manifest         # inventory: shape/dtype/sha1/samples
-python test/golden_capture.py capture --stage training   # single stage
+PY=/mnt/local-ssd/bchuang/evox/.venv/bin/python             # project venv; `python` is not on PATH
+PYTHONPATH=src $PY test/golden_capture.py manifest          # inventory: shape/dtype/sha1/samples
+PYTHONPATH=src $PY test/golden_capture.py verify --out test/goldens    # diff vs the frozen captures
+PYTHONPATH=src $PY test/golden_capture.py capture --out "$TMPDIR/goldens"   # NEW capture, scratch dir
+PYTHONPATH=src $PY test/golden_capture.py capture --stage sr_fitness --out "$TMPDIR/goldens"  # single stage
 ```
 
-`verify` exits non-zero on any mismatch (integer/string arrays exactly, floats
-with `rtol=1e-4, atol=1e-4, equal_nan=True`) and reports per array whether the
-re-run was *bitwise* identical.
+The script warns when `--out` resolves to this directory, because `capture` would replace the frozen
+reference numbers. On the numpy backend a stage takes seconds; the training stage (200 individuals x
+12 generations, one JIT build per distinct tree) takes minutes instead of the legacy ~7 s.
+
+`verify` exits non-zero on any mismatch (integer/string arrays exactly, floats with
+`rtol=1e-4, atol=1e-4, equal_nan=True`) and reports per array whether the re-run was *bitwise*
+identical. Run against these captures it validates one build against itself only: every RNG-dependent
+array must differ (see caveat 2 below), while the descriptor/header/input arrays
+(`descriptor__*`, `x`, `x_small`, `labels`, `*_scalars`, `seed`) are expected bitwise equal.
 
 ## Determinism (measured)
 
-With `torch.manual_seed(0)` + `torch.cuda.manual_seed(0)` **all 96 arrays
-reproduce bitwise across processes** (`verify`: `bitwise=96
-within-tolerance=0 mismatch=0`), including the 12-generation training
-trajectory and both `-inf`/NaN patterns.
+**Legacy engine** — with `torch.manual_seed(0)` + `torch.cuda.manual_seed(0)` all 96 arrays of the
+committed set reproduce bitwise across processes (`verify`: `bitwise=96 within-tolerance=0
+mismatch=0`), including the 12-generation training trajectory and both `-inf`/NaN patterns.
+
+**Current engine** — re-running the same public API calls is deterministic per build the same way, but
+the *values* differ from the legacy ones wherever the generator's RNG stream is involved (population
+structure, mutation/crossover outcomes, training trajectory); on a `verify --out test/goldens` run of
+`--stage forest_random` the 15 descriptor/header/input arrays came out bitwise identical and the three
+`forest__node_*` arrays were reported as MISMATCH.
 
 Two caveats:
 
-1. **Dead region of the tree tensors is normalised.** The kernels only write the
-   first `subtree_size[j]` entries of row `j` of the `(pop_size, max_tree_len)`
-   tensors; the rest is *uninitialised device memory* and is not reproducible
+1. **Dead region of the tree tensors is normalised.** As captured, the kernels only
+   wrote the first `subtree_size[j]` entries of row `j` of the `(pop_size, max_tree_len)`
+   tensors; the rest was *uninitialised device memory* and is not reproducible
    between processes (observed: `node_type` bytes differ, `node_value` differs by
    ~1e-39 denormals). `test/golden_capture.py` therefore zero-fills every entry
    with `index >= subtree_size[j]` before saving. The **used prefix is bitwise
-   deterministic** (proved by the identical fitness/trajectory arrays). A new
-   engine must be compared on the used prefix only — treat the zero tail as
-   "don't care".
+   deterministic** (proved by the identical fitness/trajectory arrays). Any engine
+   must be compared on the used prefix only — treat the zero tail as
+   "don't care" (today's generator zeroes it itself, so this only matters for the
+   stored legacy rows).
 2. Everything is only reproducible **for the same RNG-consumption order**.
    `verify` compares re-runs of *this script*, which always seeds at the start of
-   each stage and calls the API in a fixed order. A rewrite whose kernel/algorithm
-   consumes the torch RNG differently will not reproduce the *generated* forests
-   or the *trajectory* bitwise; that is expected — see "How to use these goldens".
+   each stage and calls the API in a fixed order. The rewrite samples populations,
+   mutation masks and crossover indices from **torch's RNG** instead of the legacy
+   kernels' generator (documented distribution-equivalent, not bit-identical), so it
+   does not reproduce the *generated* forests or the *trajectory* bitwise and is not
+   expected to — see "How to use these goldens".
 
 ## Contents
 
@@ -228,29 +252,52 @@ while still catching real semantic errors. `rtol` alone is unsafe here: the
 arrays contain exact zeros and `±inf`, so use `atol` and treat `inf`/`nan`
 positions as equal only when both sides agree.
 
-## How to use these goldens for a replacement engine
+## How to use these goldens with the current (ETL) engine
 
-0. `verify` against the old build is the ground truth for the files themselves;
-   a rewrite only needs the `.npz` inputs + expected outputs.
-1. **Structure/generation** — feed `descriptor__*` + `seed` to the new generator
-   and compare `forest__node_*`. Only possible if the new generator consumes the
-   same RNG stream (torch `randint` for the keys + per-tree PRNG); otherwise use
-   `*_node_type`/`*_subtree_size` as a *shape/legality* reference only.
+0. The files themselves are ground truth as captured; an engine only needs the `.npz`
+   inputs + expected outputs. `golden_capture.py verify --out test/goldens` shows
+   where today's engine stands.
+1. **Structure/generation** — feed `descriptor__*` + `seed` to the generator and
+   compare `forest__node_*`. The current generator samples from torch's RNG, so its
+   output does not match and is not expected to; use
+   `*_node_type`/`*_subtree_size` as a *shape/legality* reference only (trees must
+   decode, sizes must be consistent, the constants must come from
+   `descriptor__const_samples`).
 2. **Evaluation (RNG-independent, strongest check)** — load
-   `forest__node_value/_node_type/_subtree_size` from any stage and check
-   `tree_forward`, `forest_forward`, `forest_batch_forward`, and every
-   `*_sr_fitness__*` array. This validates the kernels' semantics on fixed input
-   with no RNG involved.
+   `forest__node_value/_node_type/_subtree_size` from any stage, rebuild a `Forest`
+   from them and check `tree_forward`, `forest_forward`, `forest_batch_forward` and
+   every `*_sr_fitness__*` array on the stored `x`/`x_small`/`labels`. This validates
+   the evaluation semantics on fixed input with no RNG involved; the current engine
+   reproduces them as correctly-rounded float32 rather than the legacy `-use_fast_math`
+   kernels, hence the `rtol=atol=1e-4` recommendation.
 3. **Problem level** — check `problem_evaluate__*` (including the `torch` path,
-   which must match the kernel path to ≈1e-7 rel).
-4. **Trajectory** — a new engine must reproduce `initial_fitness` **exactly from
-   the stored `initial_forest*` + `datapoints`/`labels`** (bitwise on the same
-   GPU; within tolerance otherwise). Reaching the same *generation-by-generation*
-   `generation_fitness` additionally requires an identical RNG-consumption order
-   (`torch.randint` key draws, `torch.rand` for mutation masks, `const_samples`
-   draws) — treat `best_fitness_per_generation` as a *behavioural* reference:
-   generation 1 must be ≥ `-0.23594594`, and the final best tree should be no
-   worse.
+   which must match the engine path to ≈1e-7 rel).
+4. **Trajectory** — reproduce `initial_fitness` **from the stored
+   `initial_forest*` + `datapoints`/`labels`** (bitwise on the same GPU; within
+   tolerance otherwise; mind the `-inf` NaN replacement). Reaching the same
+   *generation-by-generation* `generation_fitness` would additionally require an
+   identical RNG-consumption order, which the rewrite deliberately does not have —
+   treat `best_fitness_per_generation` as a *behavioural* reference: generation 1
+   must be ≥ `-0.23594594`, and the final best tree should be no worse.
+
+## Relation to the pytest suite
+
+`src/evogp/tests/test_equivalence.py::test_golden_fixtures` scans `$EVOGP_GOLDEN_DIR`, then
+`<repo-root>/test/goldens/` (this directory), then `src/evogp/tests/goldens/` for `*.npz` fixture files.
+A fixture must carry the flat keys `node_value` (pop, max_tree_len) float32, `node_type` int16,
+`subtree_size` int16 and `x` (N, input_len) float32, plus either `expected` (pop, N, out_len) float32 or
+`expected_fitness` (pop,) float32 (optionally `labels` and `use_mse`).
+
+The 7 files in `src/evogp/tests/goldens/` use that schema; the raw captures here do not (they are keyed
+`forest__node_value`, `initial_forest__node_value`, …). The loader currently `pytest.fail`s on the first
+file that misses the required keys, so `test_golden_fixtures` fails on `forest_random.npz` — the one
+failing test of the suite. Either side can fix it: relax the loader to skip non-fixture `npz` files
+(the data here is legitimate but differently shaped), or derive flat-key fixtures from these captures
+(`forest__node_*` → `node_value`/`node_type`/`subtree_size`, `x`/`labels` as-is, `expected_fitness` =
+`forest_sr_fitness__hybrid_parallel__mse` for `sr_fitness.npz`, `expected` =
+`forest_batch_forward` with `x = x_small` for `forward_eval.npz`). The conversion is deliberately not
+applied here: these files are frozen reference data and `golden_capture.py verify` compares key sets
+exactly.
 
 ## Limitations / known gaps
 
@@ -258,13 +305,14 @@ positions as equal only when both sides agree.
   `+ - * /` operators and a fixed 8-value constant pool. The `if`, comparison,
   unary and `loose_*` operators, multi-output trees and `CombinedForest` are
   **not** covered.
-* Mutations/crossover are exercised only through the training stage (the
-  `tree_mutate`/`tree_crossover` kernels are never compared to a reference on
+* Mutations/crossover are exercised only through the training stage (the legacy
+  `tree_mutate`/`tree_crossover` ops are never compared to a reference on
   fixed tensors), and no golden exists for `to_png`/`to_sympy_expr` beyond the
   informational strings.
-* `Tree.SR_fitness`'s `"hybrid parallel"` maps to `execute_code = 3` while
-  `Forest.SR_fitness`'s maps to `0`; both are captured, but the numbers alone do
-  not pin down the internal selector semantics.
+* `Tree.SR_fitness`'s `"hybrid parallel"` used to map to `execute_code = 3` while
+  `Forest.SR_fitness`'s mapped to `0`; both are captured, but the numbers alone do
+  not pin down the legacy selector semantics (today all five mode strings route to
+  the same engine path).
 * The `-inf` entries in `generation_fitness` come from
   `StandardPipeline.step()`'s NaN→`-inf` replacement, so a new pipeline must keep
   that convention to compare training arrays directly.
