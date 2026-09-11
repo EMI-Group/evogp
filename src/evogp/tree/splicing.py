@@ -1,7 +1,7 @@
 """Pure-torch tree splicing primitives (subtree replacement).
 
-This module is a drop-in, kernel-free replacement for the two CUDA/HIP ops
-``torch.ops.evogp_cuda.tree_mutate`` and ``torch.ops.evogp_cuda.tree_crossover``:
+This module is a drop-in, kernel-free replacement for the two CUDA/HIP ops of
+the legacy compiled extension (``tree_mutate`` and ``tree_crossover``):
 it implements the exact same splice as ``_gpTreeReplace`` in ``../cuda/mutation.cu``
 with vectorized torch ops, so it runs on any torch device (CPU as well as
 CUDA/HIP) and needs no compiled extension.
@@ -242,8 +242,8 @@ def mutate(
 
     Row ``i``: the subtree rooted at ``replace_pos[i]`` of target row ``i`` is
     replaced by the whole tree of donor row ``i`` (donor columns
-    ``[0, donor_subtree_size[i, 0])``).  This is what
-    ``torch.ops.evogp_cuda.tree_mutate`` did.
+    ``[0, donor_subtree_size[i, 0])``).  This is what the legacy extension's
+    ``tree_mutate`` op did.
 
     Args:
         batch_node_value: target ``[pop_size, max_tree_len]`` ``float32`` values.
@@ -324,8 +324,8 @@ def crossover(
 
     Output row ``i`` is a copy of target row ``left_indices[i]`` in which the
     subtree rooted at ``left_pos[i]`` is replaced by the subtree rooted at
-    ``right_pos[i]`` of donor row ``right_indices[i]``.  This is what
-    ``torch.ops.evogp_cuda.tree_crossover`` did; the output population has
+    ``right_pos[i]`` of donor row ``right_indices[i]``.  This is what the legacy
+    extension's ``tree_crossover`` op did; the output population has
     ``len(left_indices)`` rows.
 
     Args:

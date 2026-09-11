@@ -1,7 +1,7 @@
 """Descriptor-driven random tree generation in plain vectorized PyTorch.
 
-This module is the pure-torch replacement of the former
-``torch.ops.evogp_cuda.tree_generate`` kernel (``cuda/generate.cu``): it draws a
+This module is the pure-torch replacement of the legacy compiled extension's
+``tree_generate`` kernel (``cuda/generate.cu``): it draws a
 fresh population of GP trees from a :class:`GenerateDescriptor` using nothing
 but batched tensor operations, so it does not rely on the compiled extension
 and runs on any torch device (CUDA/HIP GPU or CPU).
@@ -159,9 +159,9 @@ def generate_population(
 ) -> Tuple[Tensor, Tensor, Tensor]:
     """Randomly generate a population of GP trees from ``descriptor``.
 
-    Reproduction of ``evogp_cuda.tree_generate`` in vectorized torch (see the
-    module docstring for the exact decision structure and the documented
-    deviations). Draws from torch's global RNG, therefore
+    Reproduction of the legacy extension's ``tree_generate`` op in vectorized
+    torch (see the module docstring for the exact decision structure and the
+    documented deviations). Draws from torch's global RNG, therefore
     ``torch.manual_seed(seed)`` (+ ``torch.cuda.manual_seed(seed)`` for CUDA)
     reproduces the same population.
 

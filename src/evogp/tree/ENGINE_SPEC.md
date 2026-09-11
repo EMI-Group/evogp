@@ -417,10 +417,17 @@ One thread per **offspring** `n < pop_size_new = len(left_indices)`; `left = lef
 
 ---
 
-## 10. Appendix A — legacy extension op schemas (`torch_wrapper.cu:291-306`)
+## 10. Appendix A — historical legacy-extension op schemas (`torch_wrapper.cu:291-306`)
 
-All ops were registered under `TORCH_LIBRARY(evogp_cuda, ...)` with a CUDA dispatch key and were called
-as `torch.ops.evogp_cuda.<name>(...)` from `tree.py` / `forest.py` only.
+**Historical reference only.** These five ops were the interface of the legacy compiled CUDA/HIP
+extension that used to back this layer. The rewritten `evogp.tree` does not bind them any more:
+generation and splicing are pure torch (`generation.py`, `splicing.py`) and evaluation/fitness run
+through the ETL engine (`etl_engine.py`). The schemas are kept because those replacements were
+required to reproduce the ops' exact semantics, and because the tables below double as the
+specification of the call contract the old wrappers relied on.
+
+All ops were registered under `TORCH_LIBRARY(<legacy_extension>, ...)` with a CUDA dispatch key and were
+called as `torch.ops.<legacy_extension>.<name>(...)` from `tree.py` / `forest.py` only.
 `float` in the schema = Python float (= C++ double). `int` = Python int (int64).
 Argument order in the call is exactly the C++ parameter order below; tensor argument order in the
 returned tuple is `(value, node_type, subtree_size)`.
@@ -469,15 +476,25 @@ returned tuple is `(value, node_type, subtree_size)`.
 
 ## 12. Validation notes
 
-- `Tree.__python_forward` (`tree.py:326-359`) is **not** authoritative for binary operators. It pops
-  operands in the same order as the kernel (first pop = left child) but then computes
-  `op2 - op1` / `op2 / op1`, i.e. the negated difference and the reciprocal quotient of the kernel's
-  `var1 - var2` / `var1 / var2`; it also maps division by zero to the numerator instead of NaN and
-  raises `NotImplementedError` for every function other than `+ - * /`. Do not use it (or
-  `__assert_valid`, `tree.py:361-413`) to validate evaluation semantics.
+- `Tree.__python_forward` (`tree.py:336`) is the in-repo **pure-Python reference implementation** of
+  sections 3 / 4.1: a reverse prefix-order stack walk in which the first popped operand is the *first*
+  (leftmost) child (`-` = `first - second`, `/` = `first / second`, the ternary `if` tests the first
+  child), covering the complete op table — ternary `IF`, comparisons to ±1, the `MAX`/`MIN` NaN
+  asymmetry, the loose/plain `log` / `sqrt` / `inv` / `pow` edge rules, `0.0` for unmatched function ids
+  and the ternary fallback for non-standard base types. It is debug-only (name-mangled, single-output,
+  slow) and is invoked by `Tree.__assert_valid`, so it is a cross-check reference for the evaluator,
+  never the production path.
+- The primary differential evidence for the rewritten engine was the **legacy extension oracle**: the
+  replaced compiled ops were run on the same populations/inputs and the replacement's outputs compared
+  against them (generation, splicing, evaluation and SR fitness). Those runs live in scratch space
+  (`$TMPDIR`), not in this repository — re-running the comparison needs the old compiled extension and a
+  CUDA/HIP GPU.
+- `Tree.to_sympy_expr` was brought in line as well: the multi-output walk accumulates each tagged
+  node's *own* value per `outIndex`, lets every function node pass its right-most child up, and maps
+  relational results to the engine's ±1 (sections 2.3 / 4.3).
 - Sympy renderers (`utils.SYMPY_MAP`, the `to_sympy_expr` walkers) are display artifacts, not the
-  semantics: `loose_div` / `loose_inv` / `loose_log` map to `MAXVAL = 1e9` placeholders at zero and
-  `Lt`/`Gt`/`Le`/`Ge` render as booleans while the kernel returns ±1.
+  semantics: `loose_div` / `loose_inv` / `loose_log` map to `MAXVAL = 1e9` placeholders at zero, and the
+  single-output walk renders `Lt`/`Gt`/`Le`/`Ge` as symbolic relations while the engine returns ±1.
 - Cheap self-consistency checks when reimplementing: (a) compare a new evaluator against an
   independently written CPU prefix-order tree walker (the same `-`/`/` operand order as section 4.1)
   on random inputs for `output_len == 1`, including NaN/inf cases; (b) check `size[0]` against an arity
