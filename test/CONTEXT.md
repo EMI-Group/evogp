@@ -6,9 +6,10 @@ Ad-hoc, human-driven validation layer for the repo: one small public-API regress
 torch-extension preflight, an ETL economics probe, and three scratch notebooks.
 Nothing here is imported by `evogp`, by the examples or by the pytest suite, and no runner collects these
 files (no CI, no pytest ini in the repo) — every file is executed by hand from the repository root.
-The real regression gate is the pytest suite in `../src/evogp/tests/` (287 tests, independent plain-torch
-oracle + randomized equivalence + operator/API-compat + convergence smoke): treat this directory as the
-layer *around* it, i.e. legacy cross-checks, environment probes and human-watched demos.
+The real regression gate is the pytest suite in `../src/evogp/tests/` (independent plain-torch oracle,
+randomized/adversarial equivalence, operator invariants, API compatibility, convergence smoke): treat
+this directory as the layer *around* it, i.e. legacy cross-checks, environment probes and
+human-watched demos.
 Because there is no test framework here, a green run only means "it ran and its asserts held"; only
 `fix_bug.py` (plain `assert`-style checks) and the pytest suite assert numerics at all.
 
