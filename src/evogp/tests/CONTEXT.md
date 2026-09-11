@@ -14,7 +14,7 @@ These tests are the regression gate: an independent plain-torch reference evalua
 - `goldens/` — data only: 7 committed `.npz` golden fixtures (`01_random_single_out` … `07_deep_skew`) in the **engine schema** plus `README.md` documenting each case and the format. Loaded by `test_equivalence.py`; not a Python package.
 ## How to run
 From the repository root (`ETL_DISABLE_LOCATIONS=1` speeds tracing up ~4× and is what the counts below were measured with):
-- Whole suite: `ETL_DISABLE_LOCATIONS=1 PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -m pytest src/evogp/tests -q` → **292 passed, 3 skipped, 6 warnings in ~1m45s** (the 3 skips are pre-existing: `test_api_compat.py`'s pygraphviz/`to_png` guard and the two "`forward` exposes no `execute_mode`" guards).
+- Whole suite: `ETL_DISABLE_LOCATIONS=1 PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -m pytest src/evogp/tests -q` → **307 passed, 4 skipped, 6 warnings in ~1m45s** (3 pre-existing skips: `test_api_compat.py`'s pygraphviz/`to_png` guard and the two "`forward` exposes no `execute_mode`" guards; plus `test_mujoco_problem.py`'s construction smoke, which skips at the third-party `mujoco-warp`/CuDNN environment boundary while its binding test passes).
 - Golden cross-checks only: append `-k golden` (6 tests, ~6 s).
 - Single file: replace the path (`-x` stops at the first failure; the heavy file is `test_equivalence.py`, ~1m40s of the total).
 - Perf probe: `PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python src/evogp/tests/perf_probe.py --quick`.
