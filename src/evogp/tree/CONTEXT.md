@@ -103,7 +103,7 @@ The legacy `kernel_type` dispatch is gone and **all five map to the same ETL eng
 ## Known Issues / Notes for Agents
 - The cache is per *(structure, shape)*: a fresh random population is a miss per individual (pop=1000 ≈ 5.5 s cold), constant trees never compile, duplicate structures hit; changing batch size or tree shape re-compiles — keep shapes stable in hot loops.
 - IREE is wired but experimental: not numerically verified for every shape, and O2/O3 are buggy on cuda — use O0/O1 only.
-- Sympy rendering is a display artifact with documented edge gaps: `LOOSE_POW(0,0)` renders `1` (engine `0`), `DIV`/`INV` at a literal zero render numpy `inf` vs engine NaN, `LOG(0)` renders `zoo` vs −inf, `MAX`/`MIN` with a NaN literal raise, and a negative-zero divisor loses its sign in loose ops (sympy has no −0.0).
+- Sympy rendering is a display artifact with documented edge gaps: `LOOSE_POW(0,0)` renders `1` (engine `0`), `DIV`/`INV` at a literal zero render sympy `zoo` while the engine computes NaN, `LOG(0)` renders `zoo` vs −inf, `MAX`/`MIN` with a NaN literal raise, and a negative-zero divisor loses its sign in loose ops (sympy has no −0.0).
 - `repr(Forest)` / `str(forest)` build a sympy expr per individual (CPU sync, slow); `__iter__` is not reentrant; `Forest[int]`/`[slice]` views vs `Tensor`-indexing copies — writes through copies are lost.
 - `GenerateDescriptor.update(**kwargs)` returns a new descriptor but also mutates the receiver's captured params (kwargs are sticky) and re-draws `const_samples` from `const_range` when the original had `const_samples=None`.
 - `randint` truncates toward zero after `torch.rand` (biased for negative `low`); `dict2prob` is torch-only now and validates names against `FUNCS_NAMES`.
