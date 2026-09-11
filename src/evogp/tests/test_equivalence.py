@@ -27,11 +27,35 @@ How to run (from the repository root)
 
 Environment knobs
 -----------------
-* ``EVOGP_EQ_TREES``  number of randomly generated trees per population (default 1000)
+* ``EVOGP_EQ_TREES``  number of randomly generated trees per population *per seed*
+                      (default 1000)
 * ``EVOGP_EQ_N``      number of data points used by the large comparisons (default 128)
-* ``EVOGP_EQ_SEED``   master seed (default 0)
+* ``EVOGP_EQ_SEEDS``  comma-separated list of seeds (default ``0,1,2,3,4,5,6,7``);
+                      the legacy single ``EVOGP_EQ_SEED`` is accepted and means a
+                      one-element list
 * ``EVOGP_EQ_DEVICE`` device for the engine tensors (default: cuda if available else cpu)
 * ``EVOGP_GOLDEN_DIR`` extra directory scanned for golden fixtures (see below)
+
+Determinism
+-----------
+Every randomized comparison seeds the global CPU **and** CUDA torch RNGs
+(``torch.manual_seed`` + ``torch.cuda.manual_seed_all``) *before* the
+``GenerateDescriptor`` is built and before the population is generated, and runs
+over the fixed seed list above. The descriptor's ``const_samples`` are drawn from
+the global CUDA RNG at construction time, so seeding after the descriptor was
+built (as an earlier revision did) made these tests dependent on whatever RNG
+state the previously executed test happened to leave behind -- reproducible only
+by accident. Sample data is generated with explicit ``torch.Generator``s.
+
+Numeric contract of the comparisons
+-----------------------------------
+The oracle (``reference_eval.py``) is a stepwise *correctly rounded float32*
+evaluator: every node value is the correctly rounded float32 result of its op on
+float32 operands (float64 intermediate for the transcendentals whose float32
+kernels are not correctly rounded). Divergences between the engine and the
+oracle are therefore only the *rounding* differences of two implementations of
+the same correctly rounded function, and any amplification of them by a
+cancelling / dividing parent node is a property of the tree, not of the engine.
 
 Golden fixtures (old-CUDA cross-check hook)
 -------------------------------------------
@@ -98,9 +122,20 @@ requires_engine = pytest.mark.skipif(
     "run the suite again after they are merged.",
 )
 
+def _parse_seeds() -> tuple:
+    """Fixed seed list: ``EVOGP_EQ_SEEDS="0,2,5"`` (legacy: ``EVOGP_EQ_SEED=0``)."""
+    raw = os.environ.get("EVOGP_EQ_SEEDS")
+    if raw is None:
+        raw = os.environ.get("EVOGP_EQ_SEED", "0,1,2,3,4,5,6,7")
+    seeds = tuple(int(part) for part in raw.replace(" ", "").split(",") if part)
+    assert seeds, f"EVOGP_EQ_SEEDS={raw!r} does not contain a seed"
+    return seeds
+
+
 TREES = int(os.environ.get("EVOGP_EQ_TREES", "1000"))
 N_POINTS = int(os.environ.get("EVOGP_EQ_N", "128"))
-SEED = int(os.environ.get("EVOGP_EQ_SEED", "0"))
+SEEDS = _parse_seeds()
+SEED = SEEDS[0]  # master seed for the deterministic sample data
 DEVICE = os.environ.get("EVOGP_EQ_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
 
 RTOL = 1e-4
@@ -381,11 +416,29 @@ def compare_batch_forward(forest, x, context="", exact=False):
 # --------------------------------------------------------------------------- #
 # Populations
 # --------------------------------------------------------------------------- #
-def random_forest(pop_size, descriptor, seed=SEED):
+def seed_all(seed):
+    """Seed the global torch RNGs (CPU and every CUDA device) reproducibly.
+
+    ``GenerateDescriptor`` draws its ``const_samples`` from the global CUDA RNG
+    and ``Forest.random_generate`` draws the population from the global RNG of
+    the target device, so both must be seeded before either happens.
+    """
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    return Forest.random_generate(pop_size=pop_size, descriptor=descriptor)
+
+
+def make_random_population(pop_size, seed, **descriptor_kwargs):
+    """Deterministic ``(descriptor, forest)`` pair: seed -> descriptor -> population.
+
+    The descriptor is built *after* seeding so its ``const_samples`` draw is part
+    of the reproducible state; two calls with the same ``seed``/``kwargs`` give
+    bit-identical populations (and therefore bit-identical engine results).
+    """
+    seed_all(seed)
+    descriptor = make_descriptor(**descriptor_kwargs)
+    forest = Forest.random_generate(pop_size=pop_size, descriptor=descriptor)
+    return descriptor, forest
 
 
 def make_descriptor(max_tree_len=64, input_len=3, output_len=1, using_funcs=None, **kwargs):
@@ -453,6 +506,16 @@ def curated_edge_population():
         fn(ADD, nan_op, const(1.0)),
         fn(LT, nan_op, var(0)),
         fn(MAX, nan_op, const(1.0)),
+        # the sign of zero must survive sinh: loose_inv(-0.0) -> 1 / -1e-9 = -1e9
+        fn(LOOSE_INV, fn(SINH, const(-0.0))),
+        fn(LOOSE_INV, fn(SINH, const(0.0))),
+        fn(EXP, fn(SINH, const(-0.0))),
+        # ... on the SYMBOLIC path too (a constant operand is folded on the host):
+        # x0 = +0.0 -> neg -> -0.0 -> sinh -> -0.0 -> 1 / -1e-9 = -1e9
+        fn(LOOSE_INV, fn(SINH, fn(NEG, var(0)))),
+        fn(LOOSE_INV, fn(SINH, var(0))),
+        fn(EXP, fn(SINH, fn(NEG, var(0)))),
+        fn(LOOSE_DIV, const(1.0), fn(SINH, fn(NEG, var(0)))),
     ]
 
 
@@ -687,6 +750,115 @@ def test_reference_rejects_inconsistent_encoding():
         reference.forward_tree(reference.decode_row(values[0], types[0], sizes[0]), _X_HAND)
 
 
+# --------------------------------------------------------------------------- #
+# Correctly rounded float32 calibration of the oracle
+# --------------------------------------------------------------------------- #
+# The oracle must give the best possible float32 answer at every node: the
+# transcendentals are evaluated on float64 operands and rounded back to float32,
+# the hardware-exact ops stay float32 (identical by IEEE 754). These cases check
+# the oracle bit-for-bit against a numpy float64 reference of the same
+# documented semantics, and they are what makes the engine-vs-oracle comparison
+# meaningful: without them a one-ulp oracle error would look like an engine bug.
+_CR_SAMPLES = np.asarray(
+    [
+        0.0, -0.0, 1e-30, -1e-30, 1e-9, -1e-9,
+        float(np.nextafter(np.float32(1e-4), np.float32(0.0))), 1e-4,
+        0.5, -0.5, 1.0, -1.0, 2.0, -2.0, 3.5, 7.3, -7.3, 0.12345, -0.98765,
+        16.0, 100.0, -100.0, 1e9, -1e9, 1e30, -1e30,
+    ],
+    dtype=np.float32,
+)
+
+_CR_UNARY_CASES = [
+    ("sin", SIN, np.sin),
+    ("cos", COS, np.cos),
+    ("tan", TAN, np.tan),
+    ("sinh", SINH, np.sinh),
+    ("cosh", COSH, np.cosh),
+    ("tanh", TANH, np.tanh),
+    ("exp", EXP, np.exp),
+    ("log", LOG, np.log),
+]
+
+_CR_PAIRS = [
+    (0.0, 0.0), (-0.0, 0.0), (0.0, -1.0), (2.0, 3.0), (-2.0, 3.0), (2.0, 0.5),
+    (-2.0, 0.5), (2.0, -3.0), (0.5, 1e9), (1e30, 2.0), (-1e30, 3.0), (7.3, -1.5),
+    (1e-30, -2.0), (3.5, 0.0), (-3.5, 0.0),
+]
+# the operands travel through float32 node values, so the float64 reference must
+# start from their float32 rounding (7.3 != float64(7.3))
+_CR_PAIR_A = np.asarray([a for a, _ in _CR_PAIRS], dtype=np.float32)
+_CR_PAIR_B = np.asarray([b for _, b in _CR_PAIRS], dtype=np.float32)
+
+
+def _cr64(result) -> torch.Tensor:
+    """Round a numpy float64 result to float32 (the node-value storage)."""
+    return torch.from_numpy(np.asarray(result, dtype=np.float32))
+
+
+def _f64_col(values) -> np.ndarray:
+    return np.asarray(values, dtype=np.float64)
+
+
+@pytest.mark.parametrize("name,function_id,np_op", _CR_UNARY_CASES, ids=[c[0] for c in _CR_UNARY_CASES])
+def test_reference_transcendentals_are_correctly_rounded(name, function_id, np_op):
+    specs = [fn(function_id, const(float(v))) for v in _CR_SAMPLES]
+    values, types, sizes = rows_from_specs(specs)
+    got = reference.batch_forward_from_rows(values, types, sizes, _X_HAND)
+    with np.errstate(all="ignore"):
+        want = _cr64(np_op(_f64_col(_CR_SAMPLES)))
+    assert_same_bits(got[:, 0, 0], want, context=f"oracle {name} must be correctly rounded")
+
+
+def test_reference_loose_log_is_correctly_rounded():
+    """``loose_log(+-0) = -MAX_VAL`` (engine spec), everything else ``log|a|``."""
+    specs = [fn(LOOSE_LOG, const(float(v))) for v in _CR_SAMPLES]
+    values, types, sizes = rows_from_specs(specs)
+    got = reference.batch_forward_from_rows(values, types, sizes, _X_HAND)
+    with np.errstate(all="ignore"):
+        want = np.asarray(np.log(np.abs(_f64_col(_CR_SAMPLES))), dtype=np.float32)
+    want[_CR_SAMPLES == 0.0] = np.float32(-float(reference.MAX_VAL))
+    assert_same_bits(got[:, 0, 0], torch.from_numpy(want), context="oracle loose_log must be correctly rounded")
+
+
+def test_reference_pow_is_correctly_rounded():
+    specs = [fn(POW, const(a), const(b)) for a, b in _CR_PAIRS]
+    values, types, sizes = rows_from_specs(specs)
+    got = reference.batch_forward_from_rows(values, types, sizes, _X_HAND)
+    with np.errstate(all="ignore"):
+        want = _cr64(np.power(_f64_col(_CR_PAIR_A), _f64_col(_CR_PAIR_B)))
+    assert_same_bits(got[:, 0, 0], want, context="oracle pow must be correctly rounded")
+
+
+def test_reference_loose_pow_is_correctly_rounded():
+    """``loose_pow(0, 0) = 0`` (engine spec), otherwise ``|a| ** b``."""
+    specs = [fn(LOOSE_POW, const(a), const(b)) for a, b in _CR_PAIRS]
+    values, types, sizes = rows_from_specs(specs)
+    got = reference.batch_forward_from_rows(values, types, sizes, _X_HAND)
+    with np.errstate(all="ignore"):
+        want = np.asarray(
+            np.power(np.abs(_f64_col(_CR_PAIR_A)), _f64_col(_CR_PAIR_B)), dtype=np.float32
+        )
+    for i, (a, b) in enumerate(_CR_PAIRS):
+        if a == 0.0 and b == 0.0:
+            want[i] = np.float32(0.0)
+    assert_same_bits(got[:, 0, 0], torch.from_numpy(want), context="oracle loose_pow must be correctly rounded")
+
+
+def test_reference_sinh_keeps_tiny_values_and_signed_zero():
+    """Correctly rounded ``sinh``: exactly ``x`` for ``|x| < 1e-4`` and ``sinh(-0.0) = -0.0``."""
+    tiny = float(np.nextafter(np.float32(1e-4), np.float32(0.0)))
+    samples = [0.0, -0.0, 1e-30, -1e-30, 1e-9, -1e-9, tiny]
+    specs = [fn(SINH, const(v)) for v in samples]
+    values, types, sizes = rows_from_specs(specs)
+    got = reference.batch_forward_from_rows(values, types, sizes, _X_HAND)[:, 0, 0]
+    want = torch.tensor(samples, dtype=torch.float32)
+    assert torch.equal(got, want), f"sinh(|x| < 1e-4) must be exactly x, got {got.tolist()}"
+    assert bool(torch.signbit(got[1])), "sinh(-0.0) must stay -0.0"
+    # and it is the correctly rounded value of the true sinh(float64(x)) as well
+    assert_same_bits(
+        got, _cr64(np.sinh(_f64_col(want))), context="oracle sinh must be correctly rounded"
+    )
 # =========================================================================== #
 # 2. Public API surface / small unit checks
 # =========================================================================== #
@@ -706,22 +878,22 @@ def test_public_api_symbols():
 # 3. Randomly generated populations through the public API
 # =========================================================================== #
 @requires_engine
-def test_random_population_vs_reference():
+@pytest.mark.parametrize("seed", SEEDS, ids=[f"seed{s}" for s in SEEDS])
+def test_random_population_vs_reference(seed):
     """Default-scale random population built by Forest.random_generate, all 29 functions."""
     all_funcs = [
         "if", "+", "-", "*", "/", "loose_div", "pow", "loose_pow", "max", "min",
         "<", ">", "<=", ">=", "sin", "cos", "tan", "sinh", "cosh", "tanh",
         "log", "loose_log", "exp", "inv", "loose_inv", "neg", "abs", "sqrt", "loose_sqrt",
     ]
-    descriptor = make_descriptor(max_tree_len=64, input_len=3, using_funcs=all_funcs)
-    forest = random_forest(TREES, descriptor)
+    _, forest = make_random_population(TREES, seed, max_tree_len=64, input_len=3, using_funcs=all_funcs)
     assert forest.pop_size == TREES
     for name, x in [
         ("normal", x_random(N_POINTS, 3, seed=SEED + 7)),
         ("uniform", x_random(N_POINTS, 3, seed=SEED + 8, uniform=True)),
         ("zeros", torch.zeros(N_POINTS, 3)),
     ]:
-        compare_batch_forward(forest, x, context=f"random population / {name}")
+        compare_batch_forward(forest, x, context=f"random population seed={seed} / {name}")
 
 
 _DESCRIPTOR_VARIANTS = [
@@ -746,16 +918,16 @@ _DESCRIPTOR_VARIANTS = [
 
 
 @requires_engine
+@pytest.mark.parametrize("seed", SEEDS, ids=[f"seed{s}" for s in SEEDS])
 @pytest.mark.parametrize("name,kwargs", _DESCRIPTOR_VARIANTS, ids=[v[0] for v in _DESCRIPTOR_VARIANTS])
-def test_random_descriptors_vs_reference(name, kwargs):
+def test_random_descriptors_vs_reference(name, kwargs, seed):
     pop_size = max(TREES // 10, 50)
-    descriptor = make_descriptor(**kwargs)
-    forest = random_forest(pop_size, descriptor)
+    descriptor, forest = make_random_population(pop_size, seed, **kwargs)
     for x_name, x in [
         ("normal", x_random(N_POINTS, descriptor.input_len, seed=SEED + 13)),
         ("ones", torch.ones(3, descriptor.input_len)),
     ]:
-        compare_batch_forward(forest, x, context=f"descriptor {name} / {x_name}")
+        compare_batch_forward(forest, x, context=f"descriptor {name} seed={seed} / {x_name}")
 
 
 # =========================================================================== #
@@ -915,7 +1087,7 @@ def test_sr_fitness_vs_reference():
         ("all_ids", make_forest(curated_function_population(), input_len=input_len)),
         (
             "random",
-            random_forest(min(TREES, 300), make_descriptor(max_tree_len=64, input_len=input_len)),
+            make_random_population(min(TREES, 300), SEED, max_tree_len=64, input_len=input_len)[1],
         ),
     ]
     for tag, forest in populations:
@@ -1092,14 +1264,15 @@ def test_multi_output_vs_reference():
 @requires_engine
 def test_multi_output_generated_population_vs_reference():
     skip_without_multi_output()
-    descriptor = make_descriptor(
+    descriptor, forest = make_random_population(
+        max(TREES // 5, 50),
+        SEED,
         max_tree_len=64,
         input_len=3,
         output_len=3,
         using_funcs=["+", "-", "*", "/", "sin", "cos", "max", "min"],
         out_prob=0.6,
     )
-    forest = random_forest(max(TREES // 5, 50), descriptor)
     assert forest.output_len == 3
     x = x_random(N_POINTS, 3, seed=SEED + 111)
     compare_batch_forward(forest, x, context="generated multi-output population")
