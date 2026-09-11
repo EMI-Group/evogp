@@ -26,7 +26,7 @@ The package is a strict four-layer DAG; preserve it when adding modules:
 The engine is reached ONLY through the `Forest`/`Tree` wrappers (`forward` / `batch_forward` / `SR_fitness`): no module outside `tree/` imports `etl_engine` or the `etl` package.
 
 ## Constraints
-- **No build step, no compiled extension**: a built shared library is no longer a prerequisite for importing the library; the only engine requirement is that `etl` is importable (`import etl` at `tree/etl_engine.py:176`; the dev venv has `etl 0.1.0` installed editable).
+- **No build step, no compiled extension**: a built shared library is no longer a prerequisite for importing the library; the only engine requirement is that `etl` is importable (top-level `import etl` in `tree/etl_engine.py`; the dev venv has `etl 0.1.0` installed editable).
 - Standard invocation for every script/test: repo root as CWD, `PYTHONPATH=src`, and the project venv (`/mnt/local-ssd/bchuang/evox/.venv/bin/python`; `python` is not on PATH).
 - ETL engine knobs: backend defaults to `"numpy"` (CPU reference interpreter, no GPU needed); IREE is opt-in via `EVOGP_ETL_BACKEND=iree` + `EVOGP_ETL_IREE_DEVICE` / `EVOGP_ETL_IREE_OPT_LEVEL` and is experimental. `ETL_DISABLE_LOCATIONS=1` speeds tracing up ~4× and is recommended for real runs (it is NOT part of the cache key).
 - Device policy: the engine (`etl_engine.evaluate` / `sr_fitness`) is device-agnostic — it accepts tensors on any torch device and returns results on the input device unless `out_device` is given. Everything ABOVE it is still hard-coded to the `"cuda"` device string (`check_tensor` relocates to `"cuda"`, descriptor tensors, `zero_generate`, `randint`, the algorithm operators, the problem data), the same string also selects AMD GPUs under ROCm, and there is no device-plumbing argument anywhere. A full training run therefore still needs a CUDA-visible device; only the engine itself can be exercised on CPU.
@@ -61,7 +61,7 @@ Cross-cutting problems only; per-directory detail lives in the child CONTEXT.md 
 
 ## `sr_test.py` (top of this node)
 Standalone install-validation smoke script documented in README §5 as `python -m evogp.sr_test`; it is NOT a unit test and is not pytest-collected.
-It trains `SymbolicRegression` on a synthetic 2-input function (`func`/`num_inputs`/`num_data` constructor path) under fixed manual seeds and prints progress through `StandardPipeline`; its defaults are right-sized for the pure-Python/ETL engine (small population and modest generation count so a validation run finishes in a reasonable time).
+It trains `SymbolicRegression` on a synthetic 2-input function (`func`/`num_inputs`/`num_data` constructor path) under fixed manual seeds and reports progress through `StandardPipeline`; its defaults are right-sized for the pure-Python/ETL engine (a validation run, not a benchmark) and it needs a CUDA-visible device like every other end-to-end entry point.
 It has module-level side effects and NO `if __name__ == "__main__"` guard, so any `import evogp.sr_test` starts a full training run — never import it from tooling.
 
 ## Notes for Agents
