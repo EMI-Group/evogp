@@ -34,7 +34,8 @@ All work happens on the GPU (CUDA/ROCm via `torch.ops.evogp_cuda.tree_mutate`); 
 - `delete.py` is the only operator that ANDs this mask with a structural precondition (`forest.batch_subtree_size[:, 0] > 1`).
 - No operator guarantees at least one mutation: `if mutate_indices.sum() == 0: return forest` exits early, returning the unmodified input object.
 - Selected individuals are gathered with fancy indexing `forest[mutate_indices]` (a **copy**); results are written back with `forest[mutate_indices] = ...`, i.e. in-place advanced-index assignment on the caller's tensors (`single_*.py` write straight into `forest.batch_node_value[mask, pos]`).
-- `mutation_intensity` is the per-node Bernoulli probability inside each selected tree, not an exact count, and `MultiPointMutation` masks it against `batch_subtree_size[:, 0] > tree_size`... it keeps only slots whose index is `< tree_size`.
+- `mutation_intensity` is the per-node Bernoulli probability inside each selected tree, not an exact count: the mask is `(rand < mutation_intensity) & (arange < tree_size)`, so the number of rewritten nodes varies per tree.
+- `MultiPointMutation` rewrites node payloads only — it never changes the tree shape, so the flat layout (and `subtree_size`) stays valid.
 - `SinglePoint`/`MultiPoint` bit-pack the multi-output index into the upper 16 bits of the float32 node value (`(func_idx | out_index << 16).view(torch.float32)`); `modify_output=False` keeps the node's existing output index, `True` re-draws it in `[0, output_len)`.
 
 ### `mutation_utils.py` (internal helpers, not public)
