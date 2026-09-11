@@ -92,6 +92,7 @@ The `evaluate` return value must be a 1-D torch tensor of length `pop_size` (ass
 Higher fitness must mean "better" for every problem class — negate error-style metrics as `SymbolicRegression` and `CustomLoss` do.
 `problem_dim`/`solution_dim` must be ints consistent with the forest the user generates, because the pipeline's consistency asserts are disabled.
 Input data (`datapoints`, `labels`) is expected to live on `cuda` and be float32; `Forest.batch_forward`/`SR_fitness` call `check_tensor`, which silently moves tensors to cuda, detaches and casts non-tensors, so a CPU tensor will not raise here but will silently be moved.
+No problem in this layer is ever pure-torch: `Classification`, `Transformation`, `CustomLoss`, the robotics problems and even `SymbolicRegression(execute_mode="torch")` all forward through `Forest.batch_forward`/`Forest.forward`, which dispatch `torch.ops.evogp_cuda.tree_evaluate` (`src/evogp/tree/forest.py:163`, `src/evogp/tree/tree.py:61`); only the metric reduction (MSE/MAE, softmax+argmax, correlation) runs in Python/torch.
 Do not reorder the imports in `__init__.py`: sibling modules use `from . import BaseProblem` (which requires `.base` to have been imported first by `__init__`), so `.base` must stay first.
 Submodules must keep heavy optional dependencies **inside functions** (established pattern); a new top-level `import jax/genesis/...` breaks `import evogp.problem` for everyone.
 
