@@ -54,5 +54,6 @@ This node has no child directories; all work belongs in the three notebooks here
 - `../src/evogp/problem/` → `SymbolicRegression`, `Classification`, `CustomLoss` (sibling — read-only)
 - `../src/evogp/pipeline/` → `StandardPipeline` run loop and the generation-log format the notebooks capture (sibling — read-only)
 - `../example/` → runnable scripts; `basic.py` is the README-linked canonical example, `combined_sr.py` is stale like issue 7 (sibling — read-only)
-- `../test/combined_test.ipynb`, `../test/vis.ipynb` → in-repo notebooks probing CombinedForest and `to_png`; also stale for the CombinedForest API (sibling — read-only)
+- `../test/combined_test.ipynb` → ad-hoc CombinedForest probe carrying the same stale `formula=`/`share_input=` calls as issue 7 (sibling — read-only)
+- `../test/vis.ipynb` → current-API XOR symbolic-regression + `to_png`/`to_infix` visualization playground (sibling — read-only)
 - `../README.md` → Basic API Usage section, the only current end-to-end doc linked from the docs (sibling — read-only)
