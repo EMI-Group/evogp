@@ -1,139 +1,125 @@
-# src/evogp/tree — Core tree representation & GPU execution layer
+# `src/evogp/tree/` — EvoGP tree representation, ETL evaluation engine & pure-torch operators
 
 ## Intent
-This is the **foundation layer** of EvoGP: the GP individual (`Tree`), the population of individuals (`Forest`), the multi-output variants (`CombinedTree` / `CombinedForest`), the random-generation blueprint (`GenerateDescriptor`), and the enums/helpers they share.
+This is the **foundation layer** of EvoGP: the GP individual (`Tree`), the population (`Forest`), the multi-output variants (`CombinedTree` / `CombinedForest`), the random-generation blueprint (`GenerateDescriptor`), the pure-torch generation/splicing operators, and the ETL-backed evaluation engine.
 Everything the rest of the library manipulates (fitness, selection, crossover, mutation, visualization) is expressed in terms of the tensor representation defined here.
-This package imports **nothing** from other `evogp` subpackages — it is the root of the package DAG: `algorithm/` and `problem/` are its two independent consumers and `pipeline/` sits above both (no cycles).
-All heavy work is batched and lives on the GPU; there is no CPU fallback anywhere in this layer.
+This layer contains **no custom CUDA/HIP kernels and no compiled extension**: evaluation and fitness run through a per-structure ETL JIT engine (`etl_engine.py`), generation/mutation/crossover are vectorized plain torch (`generation.py`, `splicing.py`), and `import evogp.tree` works without any built extension.
+This package imports **nothing** from other `evogp` subpackages — it is the root of the package DAG (`algorithm/` and `problem/` are its consumers; `pipeline/` sits above both; no cycles).
+`ENGINE_SPEC.md` (this directory) is the authoritative semantics spec: prefix encoding, the full op table with edge cases, evaluation order, SR fitness, the multi-output protocol, and the generation/splicing algorithms, distilled from the legacy CUDA sources at snapshot `8a487f19`.
+Its Appendices keep the legacy op schemas and the old call-site map as explicitly marked historical reference.
 
 ## Representation (the schema every other module depends on)
-An individual is three parallel tensors of length `max_tree_len`, encoded as a **prefix (pre-order) expression**: node 0 is the root, children follow depth-first.
-- `node_value`   — `torch.float32`, batched `[pop_size, max_tree_len]` (`Forest.batch_node_value`).
-- `node_type`    — `torch.int16`,  batched `[pop_size, max_tree_len]` (`Forest.batch_node_type`).
-- `subtree_size` — `torch.int16`,  batched `[pop_size, max_tree_len]` (`Forest.batch_subtree_size`); `subtree_size[i]` = number of nodes in the subtree rooted at node `i`.
-Only indices `[0, subtree_size[0])` are meaningful: `subtree_size[0]` is the real tree length and the rest of the row is uninitialized garbage (the CUDA generator uses `torch::empty` and writes only the used prefix) — never read or compare beyond it.
+An individual is three parallel tensors of length `max_tree_len`, batched as `[pop_size, max_tree_len]`, encoded as a **prefix (pre-order) expression**: node 0 is the root and children follow depth-first, left to right.
+- `node_value` — `torch.float32` (`Forest.batch_node_value`).
+- `node_type` — `torch.int16` (`Forest.batch_node_type`).
+- `subtree_size` — `torch.int16` (`Forest.batch_subtree_size`); `subtree_size[i]` = number of nodes in the subtree rooted at node `i`.
+Only indices `[0, subtree_size[0])` are meaningful: `subtree_size[0]` is the real tree length, and the rest of a row must never be read (the generator zeroes unused cells, but that is an implementation detail).
 `batch_subtree_size[:, 0]` is used throughout the algorithm layer as "the size of tree i".
-`Tree` holds the same three tensors unbatched (1-D, length `max_tree_len`) as `node_value` / `node_type` / `subtree_size`.
-`Forest[i]` / `Forest[a:b]` return `Tree` / `Forest` objects that **share storage** (basic indexing views) with the parent — mutations write through.
+`Tree` holds the same three tensors unbatched (1-D); `Forest[i]` / `Forest[a:b]` return `Tree` / `Forest` **views** sharing storage, while `Tensor`/`ndarray` indexing (incl. LongTensor / bool mask) goes through PyTorch advanced indexing and returns **copies**.
 
 Node encoding:
-- `node_type` base values: `0 VAR`, `1 CONST`, `2 UFUNC`, `3 BFUNC`, `4 TFUNC` (`NType` in `utils.py`); `NType.OUT_NODE = 1<<7` (128) is OR-ed in for multi-output nodes; `NType.TYPE_MASK = 0x7F` extracts the base type.
-- `node_value` for `VAR` = variable index (float-encoded int), for `CONST` = the constant itself, for a function node = the function id (`Func.*`), i.e. its index in `FUNCS_NAMES`.
-- Multi-output out-node packing: for an out-node, `node_value` is the float32 **bit-reinterpretation** of `struct OutNodeValue { int16_t function; int16_t outIndex; }` (`../cuda/kernel.h`) — hence `outIndex = int32_bits >> 16` and `function = int32_bits & 0xFF` (see `Tree._fillout_graph`, `Tree.to_sympy_expr`, `../cuda/forward.cu:_process_node`).
-- Multi-output semantics (single tree, `output_len > 1`): every out-node's value is **accumulated** (`s_outs[outIdx] += value`) and its right-most child is passed up to the parent. A `Forest` with `output_len > 1` therefore computes a *sum of tagged subtrees* per output, not an independent tree per output.
+- `node_type` base values: `0 VAR`, `1 CONST`, `2 UFUNC`, `3 BFUNC`, `4 TFUNC` (`NType`); `NType.OUT_NODE = 1<<7` is OR-ed in for multi-output nodes (`TYPE_MASK = 0x7F` extracts the base).
+- `node_value`: `VAR` → variable index (float-encoded int); `CONST` → the constant; function node → function id (`Func.*`, i.e. the index in `FUNCS_NAMES`).
+- Multi-output out-node packing: `node_value` is the float32 bit-reinterpretation of `struct OutNodeValue { int16_t function; int16_t outIndex; }` (`outIndex = int32_bits >> 16`, `function = int32_bits & 0xFF`).
+- Function table: id 0 `IF` (ternary); ids 1–13 binary (`+ - * / loose_div pow loose_pow max min < > <= >=`); ids 14–28 unary (`sin cos tan sinh cosh tanh log loose_log exp inv loose_inv neg abs sqrt loose_sqrt`); operands are consumed leftmost-child-first.
+- Exact per-operator edge cases (`DIV`/`LOG`/`SQRT`/loose variants, comparisons returning ±1, `IF` branch mapping) are in `ENGINE_SPEC.md` §3.
+- Multi-output semantics (`output_len > 1`): every out-node accumulates its own value into `out[outIndex]` and passes its right-most child up to the parent; tagged leaves behave like untagged ones; outputs that were never tagged are `0.0`.
+- `output_len == 1` is the single-output protocol; a tree containing an OUT_NODE-tagged node is rejected at decode time with `ValueError` (the legacy kernel had undefined behavior there).
 
-Tensor contract enforced by the extension (`../cuda/torch_wrapper.cu`): values `float32`, types/sizes `int16`, contiguous, on CUDA, with exact expected shapes (`[pop_size, max_tree_len]`, `[pop_size, input_len]`, …). The C++ `check_tensor` verifies only `is_cuda() && is_contiguous()` + shape — **not dtype** — so a wrong dtype is silently misread as garbage.
+## Engine architecture (`etl_engine.py`)
+Evaluation is a "true jit": `decode_population` walks a population **host-side** into frozen per-tree static programs (int-only, constant subtrees folded), then `evaluate` / `sr_fitness` specialize each program into a fresh ETL graph via `etl.build_cached` and run it, with the compiled executables cached per *(tree structure, input shape, backend, device, options)*.
+- `decode_population(batch_node_value, batch_node_type, batch_subtree_size, input_len, output_len) -> Population` — pure host work (tensors read back with `.cpu()`); validates the structure and raises `ValueError` naming the row and node (replacing the kernel's UB); `TypeError` for non-tensor / non-2-D input.
+- `evaluate(population, x, *, per_row, out_device=None, backend=None, iree_device_index=None)` — `per_row=True`: `(pop, input_len) → (pop, output_len)`; `per_row=False`: `(N, input_len) → (pop, N, output_len)`; returns a fresh, contiguous, `requires_grad=False` float32 tensor on `x`'s device unless `out_device` is given.
+- `sr_fitness(population, inputs, labels, use_MSE=True, *, ...)` — `(pop,)` float32 POSITIVE loss `Σ_points Σ_outputs err / N` (err = diff² for MSE else |diff|; outputs summed but never divided by `output_len`; NaN/inf propagate unsanitized); the caller applies the higher-is-better negation.
+- One module-level `@etl.defn _eval_step` — it must stay a module-level function (its `id()` is part of the cache key; a closure would permanently miss); statics are codec-safe int-scalars/sequences re-passed by value at `etl.run`.
+- Cache: one shared `etl.CompileCache` (`etl_engine.CACHE`), default maxsize 4096 (`EVOGP_ETL_CACHE_SIZE`), in-memory only (nothing persists across processes); `cache_stats()` / `clear_cache()` inspect/reset; measured ~270–478 KiB per entry.
+- Backends: default `"numpy"` (ETL reference interpreter, cpu, no GPU needed); IREE is opt-in via `EVOGP_ETL_BACKEND=iree` + `EVOGP_ETL_IREE_DEVICE=<visible gpu index>` + `EVOGP_ETL_IREE_OPT_LEVEL` (`O0`/`O1` only on cuda) — experimental, ~0.4–0.6 s build per structure + ~2.4–3.6 ms/run, impractical at population scale.
+- Measured numpy economics (with `ETL_DISABLE_LOCATIONS=1`): 30-node tree 8.5 ms build / 0.87 ms run; 60-node 21.4 ms / 1.47 ms; pop=200 decode 9.6 ms, cold pass (200 misses) 1159 ms, warm 105 ms; pop=1000 (mean 18 nodes) decode 47.8 ms, cold 5472 ms, warm 532 ms.
+- `ETL_DISABLE_LOCATIONS=1` speeds tracing up ~4× on this workload and is recommended for production runs; it is not part of the cache key.
+- Device policy: the engine accepts population/input tensors from any torch device and returns results on the input device unless `out_device`; the `Tree`/`Forest` wrappers still pass everything through `check_tensor` (`.to("cuda")`), so the public API keeps its CUDA-bound behavior.
 
 ## API Surface
-`descriptor.py`
-- `GenerateDescriptor(max_tree_len, input_len, output_len, const_prob=0.5, out_prob=0.5, depth2leaf_probs=None, roulette_funcs=None, const_samples=None, using_funcs=None, max_layer_cnt=None, layer_leaf_prob=0.2, const_range=None, sample_cnt=None)`.
-- Validates inputs (see Constraints) and materializes GPU tensors: `depth2leaf_probs [MAX_FULL_DEPTH]` (probability that a node at depth `d` is a *leaf*; the kernel takes the function branch when `rand >= depth2leaf_probs[depth]`), `roulette_funcs [Func.END]` (cumulative cdf used by the CUDA generator), `roulette_ufuncs/roulette_bfuncs/roulette_tfuncs [Func.END]` (cdfs used only by the torch-side mutation operators), `const_samples [sample_cnt]`.
-- `update(**kwargs)` → a **new** descriptor with kwargs applied (see Known Issues).
-- `check_tree_length()` (module function) derives `depth2leaf_probs` and asserts `max_tree_len` is big enough for the worst-case full tree of `max_layer_cnt` layers over the given `using_funcs`.
+`evogp.tree` exports: `GenerateDescriptor`, `Tree`, `Forest`, `CombinedForest`, `CombinedTree`, `MAX_STACK`, `randint`, `NType`.
 
-`utils.py` — flat module of shared constants/enums/helpers (all imported by `algorithm/` too):
-- `MAX_STACK = 1024`, `MAX_FULL_DEPTH = 10`, `DELTA`, `MAXVAL`.
-- `NType` (VAR/CONST/UFUNC/BFUNC/TFUNC, `TYPE_MASK`, `OUT_NODE`, `*_OUT`), `Func` (TF 0 `IF`; BF 1..13 `ADD..GE`; UF 14..28 `SIN..LOOSE_SQRT`; `END = 29`), `FUNCS`, `FUNCS_NAMES` (index == function id), `FUNCS_DISPLAY` (unicode minus for `-`), `SYMPY_MAP`, `LooseDiv`/`LooseInv`/`LooseLog` (sympy `sp.Function`s).
-- `dict2prob(prob_dict)` → normalized probability vector over the 29 function slots (the caller does the `cumsum`); `to_numpy(li)`; `check_tensor(x)`; `str_tree(value, node_type, subtree_size)`; `randint(size, low, high, dtype=torch.int32, device="cuda")`; `inspect_function(func)` (returns the parameter names of a callable, rejects defaults).
+### `tree.py` — `Tree(input_len, output_len, node_value, node_type, subtree_size)`
+- `Tree.random_generate(descriptor)` delegates to `Forest.random_generate(pop_size=1)[0]`; `to_forest()` wraps a single tree as a `Forest`.
+- `forward(x)` — 1-D `(input_len,)` → `(output_len,)`; 2-D `(batch, input_len)` → `(batch, output_len)`; evaluated through the ETL engine.
+- `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → `(1,)` positive loss.
+- `to_sympy_expr(symbol_names=None)` — sympy expr for `output_len == 1`, a list of exprs for `output_len > 1`; comparisons render as the engine's ±1 (`Piecewise((1, cond), (-1, True))`) and loose ops follow the engine's zero-clamp conventions.
+- `to_infix()` (single-output; warns and returns one string for multi-output), `to_png(fname)`, `__repr__` (== sympy repr).
+- `__python_forward` — name-mangled, debug-only, full-semantics pure-Python reference evaluator (single-output) used as the in-repo cross-check oracle; `__assert_valid` is likewise debug-only.
 
-`tree.py` — `Tree(input_len, output_len, node_value, node_type, subtree_size)`:
-- `Tree.random_generate(descriptor)` (delegates to `Forest.random_generate(pop_size=1)[0]`), `to_forest()`.
-- `forward(x)` — `(input_len,)` → `(output_len,)`; `(batch, input_len)` → `(batch, output_len)`.
-- `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → `(1,)` tensor (pop_size=1).
-- `to_sympy_expr(symbol_names=None)` — sympy expr for `output_len == 1`, a **list** of exprs for `output_len > 1`; moves to CPU.
-- `to_infix()`, `to_png(fname)`, `__repr__` (== sympy repr), `_fillout_graph(graph)`.
-- There is **no** `Tree.batch_forward` (only `Forest`/`CombinedForest` have one).
+### `forest.py` — `Forest(input_len, output_len, batch_node_value, batch_node_type, batch_subtree_size)`
+- Public attributes: `input_len`, `output_len`, `pop_size`, `max_tree_len`, `batch_node_value`, `batch_node_type`, `batch_subtree_size`; no `.device` and no `.trees`; the three tensors must be exactly `(pop_size, max_tree_len)`.
+- `Forest.random_generate(pop_size, descriptor)` (static) → pure-torch vectorized generation on the descriptor tensors' device (cuda in practice).
+- `zero_generate(pop_size, max_tree_len, input_len, output_len)` (static) → degenerate all-`CONST`-0 trees on cuda.
+- `forward(x)` — `(pop_size, input_len)` → `(pop_size, output_len)` (asserts `x.shape[0] == pop_size`); `batch_forward(x)` — `(N, input_len)` → `(pop_size, N, output_len)`.
+- `mutate(replace_pos, new_sub_forest)` → new `Forest`; `crossover(left_indices, right_indices, left_pos, right_pos)` → new `Forest` of size `len(left_indices)`; both pure-torch splices with the legacy semantics (see `splicing.py`).
+- `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → fresh `(pop_size,)` float32 positive loss (writable; the pipeline mutates it in place).
+- Dunders: `__getitem__` (int/0-dim → `Tree` view, slice → `Forest` view, `Tensor`/`ndarray` → copied `Forest`, python list → `Exception`), `__setitem__` (in place), `__iter__`/`__next__` (not reentrant: stores `iter_index` on the instance), `__len__`, `__add__`/`__radd__` (concat along dim 0; matching `input_len`/`output_len`), `__str__`/`__repr__` (renders every individual via sympy — slow), `__getstate__`/`__setstate__` (pickle via CPU numpy; restores to cuda).
 
-`forest.py` — `Forest(input_len, output_len, batch_node_value, batch_node_type, batch_subtree_size)`:
-- `pop_size, max_tree_len = batch_node_value.shape`; all three tensors must be exactly `(pop_size, max_tree_len)`.
-- Public attributes are exactly `input_len`, `output_len`, `pop_size`, `max_tree_len`, `batch_node_value`, `batch_node_type`, `batch_subtree_size` — there is **no** `.device` and no `.trees` (use `batch_node_value.device`; `.trees` lives on `CombinedTree`, `.forests` on `CombinedForest`).
-- `Forest.random_generate(pop_size, descriptor)` — a `@staticmethod`, routes to CUDA `tree_generate`; `zero_generate(pop_size, max_tree_len, input_len, output_len)` (degenerate `CONST=0` trees, pure torch).
-- `forward(x)` — `(pop_size, input_len)` → `(pop_size, output_len)`; asserts `x.shape[0] == pop_size`.
-- `batch_forward(x)` — `(batch, input_len)` → `(pop_size, batch, output_len)` (expands tensors with `repeat`/`repeat_interleave`; memory-heavy, uses torch ops for the reshaping).
-- `mutate(replace_pos, new_sub_forest)` → **new** `Forest`; `replace_pos` is an int tensor `[pop_size]`, and row `i` of `new_sub_forest` is spliced as a whole subtree at that position (ancestor subtree sizes fixed by the kernel).
-- `crossover(left_indices, right_indices, left_pos, right_pos)` → **new** `Forest` of size `left_indices.shape[0]`.
-- `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → fresh `(pop_size,)` float32 CUDA tensor of POSITIVE mean error — MSE (`use_MSE=True`) or MAE per data point (`use_MSE=False`, not RMSE); multi-output sums the per-output errors before one division by `batch_size`. It is **not** negated here (the higher-is-better convention is applied by the caller, e.g. `../problem/symbolic_regression.py`). Values are unsanitized: interpreter NaN/±inf (log/div/sqrt/overflow, `diff²` overflow) propagate straight into the fitness.
-- Dunders: `__getitem__` (int or 0-dim tensor → `Tree` view; slice → `Forest` view; 1-D `Tensor`/`ndarray` incl. LongTensor/bool mask → `Forest` whose three tensors are **copies** via advanced indexing; a python list is rejected with `Exception("Do not support index type ...")`), `__setitem__` (**in-place** row/slice assignment), `__iter__`/`__next__` (yields `Tree`s), `__len__`, `__add__`/`__radd__` (concat along dim 0 with `Forest` or `Tree`), `__str__`/`__repr__` (renders every individual as a sympy expr — slow), `__getstate__`/`__setstate__` (pickle via CPU numpy; unpickling moves back to `cuda`).
+### `descriptor.py` — `GenerateDescriptor(max_tree_len, input_len, output_len, const_prob=0.5, out_prob=0.5, depth2leaf_probs=None, roulette_funcs=None, const_samples=None, using_funcs=None, max_layer_cnt=None, layer_leaf_prob=0.2, const_range=None, sample_cnt=None)`
+- Validates its inputs, derives `depth2leaf_probs` from `using_funcs`/`max_layer_cnt` when omitted (`check_tree_length` asserts `max_tree_len` fits the worst-case complete tree), and materializes the cuda tensors the engine and the algorithm-layer operators share: `depth2leaf_probs [MAX_FULL_DEPTH]`, `roulette_funcs [Func.END]` cdf, `roulette_ufuncs`/`roulette_bfuncs`/`roulette_tfuncs` (used only by the mutation operators), `const_samples [sample_cnt]`.
+- `update(**kwargs)` returns a new descriptor (see Known Issues for its two gotchas).
 
-`combined_forest.py` / `combined_tree.py` — the data-driven multi-output model:
-- `CombinedForest(forests: List[Forest], data_info: dict[str, list[str]])` where `data_info[output_name] = [input_name, ...]` selects which columns of the input dict feed that sub-forest.
-- `CombinedForest.random_generate(pop_size, data_info, descriptors)` (one `GenerateDescriptor` per output — a single descriptor is broadcast; each must have `output_len == 1` and `input_len == len(data_info[out_name])`).
-- `forward(x: dict[str, 1-D len == pop_size])` → `dict[out_name, (pop_size, 1)]`; `batch_forward(x: dict[str, 1-D len == batch])` → `dict[out_name, (pop_size, batch, 1)]` (inputs are column-ized with `[:, None]` and concatenated in `data_info` order).
-- Neither `CombinedForest` nor `CombinedTree` defines `SR_fitness`, and `CombinedForest` has no `share_input` attribute (only prose references remain, in the stale consumers `problem/symbolic_regression.py` and the examples); its `forward`/`batch_forward` accept the `dict[str, Tensor]` protocol only — a raw tensor raises a Python indexing error on the first string key.
-- `CombinedTree(trees, data_info)` exposes each sub-tree as an attribute named after the output (`best.A.to_sympy_expr()`), `forward(x: dict)` (delegates through a temporary pop_size=1 `CombinedForest`), `to_combined_forest()`, `random_generate(descriptors, data_info)`.
-- Both support indexing, iteration, `__setitem__`, `__add__` (must have identical `data_info`).
+### `generation.py` — `generate_population(pop_size, descriptor, device=None)`
+Returns `(batch_node_value float32, batch_node_type int16, batch_subtree_size int16)`.
+Vectorized level-wise torch that reproduces the descriptor-driven decision structure distribution-equivalently; draws from torch's global RNG, so `torch.manual_seed` / `torch.cuda.manual_seed` make generation reproducible (not bit-identical to the legacy taus88 stream); a length overflow raises `RuntimeError`.
 
-## CUDA vs. pure-torch split
-Dispatched to the compiled extension (`torch.ops.evogp_cuda.*`, schemas in `../cuda/torch_wrapper.cu`):
-| op | Python caller |
-| --- | --- |
-| `tree_generate` | `Forest.random_generate` |
-| `tree_evaluate` | `Forest.forward`, `Forest.batch_forward`, `Tree.forward` |
-| `tree_SR_fitness` | `Forest.SR_fitness`, `Tree.SR_fitness` |
-| `tree_mutate` | `Forest.mutate` |
-| `tree_crossover` | `Forest.crossover` |
-Pure torch/python: construction/validation of `Forest`/`Tree`/`Combined*` wrappers, indexing/`cat`/concat, pickling, descriptor tensor construction, `randint`, and all sympy/networkx rendering.
-Fitness `execute_mode` strings map to kernel ids inside the C++ dispatcher: `"data parallel"→1` (constant_tree), `"tree parallel"→2` (constant_vars), `"auto"→4` (advanced if `data_points <= #cuda cores`, else constant_tree), and `"hybrid parallel"→0` from `Forest` but `→3` from `Tree` — both 0 (normal) and 3 (advanced) are valid kernels; treat the strings as the API and do not normalize.
-Tree splicing (mutation/crossover), `node_type`/`node_value` patching, and all `OUT_NODE` bit handling for the multi-output model live in the **algorithm layer** (`../../algorithm/mutation/*`), not here — this layer only exposes the raw splice/mutate primitives.
+### `splicing.py` — `mutate(...)` / `crossover(...)`
+Pure-torch scalar-free splices: `_splice` updates ancestor `subtree_size` cells with the closed form `(j < pos) & (j + size[j] > pos)`, copies the donor subtree verbatim and shifts the tail; an invalid position or overflow copies the row UNCHANGED (silent, matching the legacy op); index tensors may be int8/16/32/64; out-of-range `left_indices` → `ValueError`; `pop_size_new == 0` → `ValueError`.
+
+### `combined_forest.py` / `combined_tree.py` — the `data_info`-driven multi-output model
+`CombinedForest(forests, data_info)`; `CombinedForest.random_generate(pop_size, data_info, descriptors)`; `forward(dict) → dict[out_name, (pop,1)]`; `batch_forward(dict) → (pop, N, 1)`.
+`CombinedTree(trees, data_info)` exposes each sub-tree by output name (`best.A.to_sympy_expr()`); `forward` returns `{out_name: result}`.
+Neither defines `SR_fitness`, and neither has a `share_input` attribute; the `dict[str, Tensor]` input protocol is the only accepted form.
+
+### `execute_mode` mapping
+`Tree.SR_fitness`, `Forest.SR_fitness` (and the problem layer) accept the five strings `"torch"`, `"hybrid parallel"`, `"data parallel"`, `"tree parallel"`, `"auto"`.
+The legacy `kernel_type` dispatch is gone and **all five map to the same ETL engine path** — the string no longer changes behavior (it is kept for API compatibility).
 
 ## Constraints
-`MAX_STACK = 1024` and `MAX_FULL_DEPTH = 10` are defined **twice**: in `utils.py` and as `constexpr` in `../cuda/defs.h`. They must stay in sync — the kernels allocate fixed per-thread `float stack[MAX_STACK]`, `GPNode gp[MAX_STACK]`, etc. Editing one without the other silently corrupts GPU memory.
-`import evogp.tree` executes `import evogp.evogp_cuda` (`__init__.py` line 2), so **everything** downstream requires the built/installed CUDA-HIP extension (`pip install -e .`); `import evogp` alone succeeds because `evogp/__init__.py` is empty.
-`max_tree_len <= MAX_STACK` (asserted in `GenerateDescriptor`) and `max_tree_len >= (max_arity**max_layer_cnt - 1) / (max_arity - 1)` (asserted by `check_tree_length`). The generator itself never bounds-checks the tree length while running, so an undersized `max_tree_len` is a hard stack overflow, not an exception.
-`max_layer_cnt <= MAX_FULL_DEPTH` (10): the depth-indexed leaf schedule is exactly `MAX_FULL_DEPTH` long and must contain a `1.0` terminator at depth `max_layer_cnt - 1` to stop growth. `max_layer_cnt = 11` still passes the shape assert when only unary functions are used but drops the terminator, letting the kernel index `leafProbs[10]` out of bounds and grow past its fixed arrays.
-All trees in one `Forest` must share `input_len`, `output_len`, `max_tree_len` (`mutate`/`crossover` assert this); `y = forest + other` requires matching `input_len`/`output_len`.
-`using_funcs` entries must be exact `FUNCS_NAMES` strings — `dict2prob` / `check_tree_length` use `FUNCS_NAMES.index(...)` and raise otherwise. Function ids are positional: inserting/renaming an operator requires touching `utils.py` (`Func`, `FUNCS_NAMES`, `FUNCS_DISPLAY`, `SYMPY_MAP`) **and** `../cuda/defs.h` together.
-Import-cycle rule: module-level imports go one way only (`utils` → `descriptor` → `forest` → `combined_forest` → `combined_tree`). `tree.py` must import `forest` **inside** its methods (`Tree.random_generate`, `Tree.to_forest`) and `combined_tree.py` must import `combined_forest` inside its methods; moving those to module scope re-creates the cycle.
-`tree.py` and `forest.py` use `from .utils import *`, so every public name in `utils.py` leaks into their namespaces (`forest.NType`, `tree.FUNCS_NAMES`, …) — avoid adding new public names casually.
-Keep CONTEXT.md at the level of this directory; do not modify source here from a context task.
+- This layer must stay free of custom kernels and of any compiled-extension import; the legacy extension name must not reappear anywhere in this directory (the old ops are kept only as historical schemas in `ENGINE_SPEC.md` Appendix A).
+- `MAX_STACK = 1024`, `MAX_FULL_DEPTH = 10`, `NType`, `Func` are defined only in `utils.py` and are the single source of truth; function ids are positional across `Func`, `FUNCS_NAMES`, `FUNCS_DISPLAY`, `SYMPY_MAP`, so adding/renaming an operator means touching all four.
+- `max_tree_len <= MAX_STACK` (asserted in `GenerateDescriptor`); `check_tree_length` asserts `max_tree_len` fits the worst-case tree of `using_funcs`/`max_layer_cnt`; `using_funcs` entries must be exact `FUNCS_NAMES` strings.
+- Import-cycle rule: module-level imports go one way only (`utils` → `descriptor` → `forest` → `combined_forest` → `combined_tree`); `tree.py` imports `forest` inside its methods and `combined_tree.py` imports `combined_forest` inside its methods.
+- `tree.py` / `forest.py` use `from .utils import *`, so every public name in `utils.py` leaks into their namespaces — avoid adding casual public names.
+- Fitness contract: the engine returns fresh writable tensors; the repo-wide convention is `(pop_size,)` float32 MAXIMIZED and mutated in place by the pipeline (NaN → -inf).
+- Several helpers still hard-code the `"cuda"` device string (descriptor tensors, `zero_generate`, `check_tensor`, `randint`); consistent with the rest of the repo, the same string also selects AMD GPUs under ROCm.
+- `check_tensor` raises `TypeError` for non-tensors and relocates to `"cuda"` with `.detach().requires_grad_(False)` (kept deliberately: `../problem/brax_problem.py` relies on it); `randint` defaults to `device="cuda"`, `dtype=torch.int32`.
+- Frozen, oracle-validated modules: `generation.py`, `splicing.py`, `etl_engine.py` — code changes need failing-test evidence and a separate commit; docstring/comment edits are free.
+- `ENGINE_SPEC.md` sections 1–7 are the semantics of record; §12 lists every documented deviation (validation instead of UB, no fast-math, torch-RNG generation, composed `sinh`/`cosh` and `copysign`, constant trees never compiled, torch reduction order in `sr_fitness`, int tolerance rules).
 
 ## Design Decisions
-**Descriptor-driven randomness** (commit `825a90f`, "add generate descriptor to avoid disgusting generate parameters"): all generation hyper-parameters live in one immutable-ish object shared by `Forest.random_generate` and the mutation operators, and the derived GPU tensors (function cdf, constant samples, depth→leaf schedule) are precomputed once instead of being rebuilt per generation.
-**Fixed-width batched tensors** so generation/evaluation/mutation/crossover are one kernel launch for the whole population; the cost is padding with garbage beyond `subtree_size[0]` and a hard `max_tree_len` cap.
-**Prefix (pre-order) layout with per-node subtree sizes**: makes tree validity structural, makes subtree splice a contiguous copy, and lets evaluation be a single reverse-then-stack pass (see `_treeGPEvalByStack`).
-**Fixed-size per-thread stacks on the GPU** (instead of dynamic allocation) are what makes the `MAX_STACK` duplication necessary and why `max_tree_len` is validated in Python.
-**Multi-output via an `OUT_NODE` flag + additive accumulation** rather than several forests, so one population still means one set of tensors (`out_prob` controls how often a function node is tagged).
-**`data_info` dict refactor** (commit `9391c4d`) replaced the earlier `formula=` / `share_input=` API: mapping each output name to the input names it consumes lets each sub-forest read a different input subset (needed by `problem/custom_loss.py`). This is the current contract; tutorials/examples were never migrated (see Known Issues).
-**Mutation/crossover stay as primitive splices** in this layer while the semantic details (out-index preservation, function sampling from roulette cdfs) live in the algorithm layer, which is why `GenerateDescriptor` also exposes `roulette_ufuncs/bfuncs/tfuncs`.
+- **Host decode + per-structure ETL graph** (instead of one generic interpreter graph): specialization makes re-evaluation of a structure a cache hit and keeps the graph free of dynamic dispatch; statics are re-passed by value so the cache key fully determines the executable.
+- **numpy backend default, IREE opt-in**: the per-structure IREE compile (~0.4–0.6 s) dominates while numpy builds in ms and runs in ~1 ms; IREE stays first-class for callers who need CUDA execution and accept the compile economics.
+- **Plain-torch operators** replace the kernels because they are portable and fast enough at these sizes; they keep the legacy splice semantics, including the silent no-op on invalid input.
+- **Multi-output implemented in the engine** (oracle-verified for `output_len` 2/3) instead of raising; single-output trees with OUT_NODE tags raise `ValueError` instead of the legacy UB.
+- Descriptors remain the shared source of randomness: `generation.py` reproduces the kernel's decision structure distribution-equivalently, while the algorithm-layer mutation operators keep consuming the descriptor's roulette cdfs.
 
-## Known Issues / Gotchas
-`utils.check_tensor(x)` returns **None** when given a non-tensor (the fallback branch has no `return`) — `x = check_tensor(x)` silently nulls lists/ints. Always pass torch tensors.
-`check_tensor` also does `.to("cuda").detach().requires_grad_(False)`, so inputs never carry autograd and any input graph is broken.
-`utils.py` defines `dict2prob` twice (a numpy version, then a torch version); the torch one wins, the numpy one is dead code.
-`GenerateDescriptor.update(**kwargs)` returns a **new** descriptor but also mutates the receiver's private `__params`, so kwargs are **sticky** across successive `update()` calls on the same object. Worse, `__params` captured the *parameter* values before substitution, so updating a descriptor whose original had `const_samples=None` re-draws fresh random constants from `const_range` — the initial and mutated populations then use different constant sets.
-`Forest.forward` asserts `x.shape[0] == pop_size`; for arbitrary batch sizes use `batch_forward`. `Tree.forward` accepts 1-D or 2-D input but returns the batch dimension unless the input was 1-D.
-`CombinedTree.forward` ends with `return pop_res[0]` where `pop_res` is a **dict** returned by `CombinedForest.forward`/`batch_forward` — leftover from the pre-`data_info` API, so it raises `KeyError` for normal string output names. `CombinedTree` also has **no** `to_sympy_expr`/`to_png`, although the tutorial and examples call them.
-`CombinedForest.__add__(CombinedTree)` reads `other.tree[i]` (attribute is `trees`) → `AttributeError`.
-`CombinedForest.input_names` is built with `list(set(...))`, so its order is not deterministic across processes; it is only used for counting today, but do not rely on its ordering.
-`Forest.__iter__` stores `iter_index` on the instance: iteration is not reentrant, so nested `for` loops over the same `Forest` (and `str(forest)`, which iterates) misbehave. `repr(Forest)` builds a sympy expression per individual — extremely slow for large populations.
-`Forest[int]` and `Forest[slice]` return views sharing the parent's storage; `forest[i].node_value[...] = ...` writes into the forest. Indexing with a `Tensor`/`ndarray` (incl. LongTensor / bool mask, e.g. `forest[best][worthy]` in `problem/transformation.py`) uses PyTorch advanced indexing and returns a **copy**, so writes through it are lost. `__setitem__` mutates in place, while `mutate`/`crossover` return new forests.
-`Forest.random_generate` seeds each individual with `hash(individual_index, keys[0], keys[1])` where the two uint32 keys come from the torch CUDA RNG — reproducibility needs `torch.cuda.manual_seed` (or torch's seeded RNG), and generation does not consume torch's per-op RNG stream.
-`randint(size, low, high, ...)` truncates toward zero after `torch.rand`, so negative `low` values give a biased distribution; it defaults to `device="cuda"`, `dtype=torch.int32`.
-The combined API is mid-migration: `problem/symbolic_regression.py` still reads `forest.share_input` (no longer an attribute of `CombinedForest`), and `example/combined_sr.py`, `tutorial/combined_gp.ipynb`, `test/combined_test.ipynb` still use the removed `formula=`/`share_input=` signature. `problem/custom_loss.py` is the consumer that matches the current `data_info` API.
-`Tree.to_png` requires `networkx` (a hard dependency) **plus** `pygraphviz` (optional extra `visualize`) and the graphviz `dot` binary; it annotates out-nodes in red and labels edges with child order.
-`Tree.__python_forward` / `Tree.__assert_valid` (name-mangled, debug-only, `ADD/SUB/MUL/DIV` subset) and `Forest.zero_generate` are unused inside the package.
-`Tree.__repr__` returns the sympy repr, so printing a tree can be a CPU sync + sympy build (and prints a *list* when `output_len > 1`); `to_sympy_expr` on the multi-output path bit-reinterprets numpy scalars with `v.view(np.int32)`.
-
-## Notes for Agents
-Read `../cuda/CONTEXT.md` before touching tensor semantics: the kernels are authoritative. `../cuda/defs.h` holds the enums/constants, `../cuda/torch_wrapper.cu` holds the op schemas + shape asserts, and `forward.cu::_process_node` documents every function (including the "loose" variants) and the multi-output accumulation.
-Representation questions ("what does byte/depth mean") are answered by `generate.cu` (generation + subtree-size computation) and `mutation.cu::_gpTreeReplace` (splicing) — not by the Python wrappers, which mostly validate and delegate.
-`NType` and `Func` are plain `int` namespaces, not `enum.Enum`; `FUNCS_NAMES.index(name)` is the id mapping used both by Python and by the fused kernels.
-The CUDA generator writes only the first `subtree_size[0]` entries of each row; the tail is uninitialized. Any code that iterates a row must bound itself by `subtree_size[:, 0]`.
-`MAX_STACK` is re-exported from `evogp.tree` precisely because the algorithm layer needs it to bound random node positions.
-Nothing here is device-agnostic: `random_generate`, all forwards, fitness, mutate/crossover, and even `zero_generate` construct tensors directly on `"cuda"`.
+## Known Issues / Notes for Agents
+- The cache is per *(structure, shape)*: a fresh random population is a miss per individual (pop=1000 ≈ 5.5 s cold), constant trees never compile, duplicate structures hit; changing batch size or tree shape re-compiles — keep shapes stable in hot loops.
+- IREE is wired but experimental: not numerically verified for every shape, and O2/O3 are buggy on cuda — use O0/O1 only.
+- Sympy rendering is a display artifact with documented edge gaps: `LOOSE_POW(0,0)` renders `1` (engine `0`), `DIV`/`INV` at a literal zero render numpy `inf` vs engine NaN, `LOG(0)` renders `zoo` vs −inf, `MAX`/`MIN` with a NaN literal raise, and a negative-zero divisor loses its sign in loose ops (sympy has no −0.0).
+- `repr(Forest)` / `str(forest)` build a sympy expr per individual (CPU sync, slow); `__iter__` is not reentrant; `Forest[int]`/`[slice]` views vs `Tensor`-indexing copies — writes through copies are lost.
+- `GenerateDescriptor.update(**kwargs)` returns a new descriptor but also mutates the receiver's captured params (kwargs are sticky) and re-draws `const_samples` from `const_range` when the original had `const_samples=None`.
+- `randint` truncates toward zero after `torch.rand` (biased for negative `low`); `dict2prob` is torch-only now and validates names against `FUNCS_NAMES`.
+- `Tree.to_infix` warns and returns a single string when `output_len != 1`; `__python_forward` / `__assert_valid` are debug-only and not on any production path.
+- The engine is correctness-first: the numpy backend does one `etl.run` per tree per call — profile before assuming throughput.
 
 ## Test Strategy
-No pytest suite exists for this layer. The closest thing to a unit test is `../../../test/test_bind_success.py`, which calls `torch.ops.evogp_cuda.tree_generate/tree_mutate/tree_crossover/tree_evaluate/tree_SR_fitness` directly with hand-built descriptors and prints trees via `evogp.tree.utils.str_tree` (`python test/test_bind_success.py`).
-Other ad-hoc checks live in `../../../test/fix_bug.py` (hand-builds a `Tree` from literal `node_value`/`node_type`/`subtree_size` tensors — the clearest example of the encoding — then calls `Tree.SR_fitness` in two `execute_mode`s), `../../../test/vis.ipynb` (visualization scratch notebook, `to_png` call commented out), `../../../test/sympy_test.ipynb` (bare sympy playground, does not import evogp), and `../../../test/combined_test.ipynb` (stale combined API).
-`../../sr_test.py` is the end-to-end smoke test for the descriptor + `Forest` + pipeline path (`python src/evogp/sr_test.py`), and `../../../example/basic.py` is the documented minimal example.
-All of these need a CUDA/HIP GPU and the built extension, so they cannot run in a CPU-only sandbox.
-Cheap self-consistency check when touching the representation: compare `Tree.to_sympy_expr()` / `Tree.to_infix()` against `Tree.forward()` on random inputs, and check `subtree_size[0]` against the node-arity walk done in `Tree.__assert_valid`.
+- No pytest suite in this node; the de-facto validation stack is: (a) `ENGINE_SPEC.md` §12 self-consistency (compare against `Tree.__python_forward`, arity walks, splice identities); (b) oracle differentials against the legacy compiled extension (scratch space only — needs the old extension and CUDA); (c) scratch harnesses under `$TMPDIR`, e.g. `validate_core.py` (0 failures at last run) and `micro_e2e.py` (pop 64 × 10 gens in 1.21 s); (d) the parallel pytest suite under `../../tests/` (golden `.npz` fixtures; point `$EVOGP_GOLDEN_DIR` at `/tmp/evogp_goldens` until they are placed in-repo).
+- Run everything with the project venv (`/mnt/local-ssd/bchuang/evox/.venv/bin/python`), from the repo root, `PYTHONPATH=src`, and `ETL_DISABLE_LOCATIONS=1` for speed.
+- Coverage gaps: IREE numeric parity per shape, non-default selection/crossover operators, robotics problems, and multi-output pipelines.
 
 ## Routing Table
-This directory has **no child subdirectories** — the whole tree layer is these seven files; do not look for sub-nodes to delegate to.
-Siblings (read-only from here — escalate any needed write to the parent `./src/evogp`):
-- `../cuda/` → the CUDA/HIP kernels and `defs.h` constants this layer binds (`evogp_cuda`).
-- `../algorithm/` → mutation/crossover/selection that write `OUT_NODE` bits and splice trees via `Forest.mutate`/`crossover`.
-- `../problem/` → `custom_loss.py` (current `data_info`-based consumer of `CombinedForest`) and `symbolic_regression.py` (still references the removed `share_input`).
-- `../pipeline/` → orchestrates algorithm + problem.
-- `../../../test/`, `../../../example/`, `../../../tutorial/` → scripts/notebooks exercising this API (several are stale w.r.t. the combined API).
+This directory has **no child subdirectories** — the layer is the files listed here; do not look for sub-nodes to delegate to.
+- `utils.py` → constants/enums/helpers (`MAX_STACK`, `MAX_FULL_DEPTH`, `NType`, `Func`, `FUNCS_NAMES`, `SYMPY_MAP`, `check_tensor`, `randint`, `dict2prob`, `str_tree`); the single source of truth for the numeric constants.
+- `descriptor.py` → `GenerateDescriptor` / `check_tree_length` (generation blueprint + roulette cdfs).
+- `generation.py` → pure-torch population generation (`generate_population`).
+- `splicing.py` → pure-torch `mutate` / `crossover` splices.
+- `etl_engine.py` → decode + ETL `evaluate` + `sr_fitness` + `CACHE` / `cache_stats()` / `clear_cache()`.
+- `tree.py` / `forest.py` → the public wrappers re-exported by `__init__.py`.
+- `combined_forest.py` / `combined_tree.py` → `data_info`-driven multi-output model.
+- `ENGINE_SPEC.md` → authoritative semantics spec (incl. historical Appendices).
+Siblings (read-only from here — escalate any needed write to the parent `./src/evogp`): `../cuda/` (legacy kernels, slated for deletion), `../algorithm/` (operators that splice via `Forest.mutate` / `Forest.crossover` and write OUT_NODE tags), `../problem/` (SR / classification / robotics problems), `../pipeline/` (training loop), `../../../test/`, `../../../example/`, `../../../tutorial/`.

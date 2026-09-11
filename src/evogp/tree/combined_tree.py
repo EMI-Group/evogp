@@ -42,7 +42,11 @@ class CombinedTree:
         else:
             pop_res = self.to_combined_forest().batch_forward(x)
 
-        return pop_res[0]  # remove the pop dimension
+        # ``to_combined_forest()`` returns a pop_size == 1 forest, and
+        # ``CombinedForest.forward``/``batch_forward`` return ``{out_name: tensor}``
+        # with that leading pop dimension: strip it from every output, i.e.
+        # ``{out_name: (output_len,)}`` (or ``{out_name: (batch_size, output_len)}``).
+        return {out_name: res[0] for out_name, res in pop_res.items()}
 
     def to_combined_forest(self):
         from .combined_forest import CombinedForest
