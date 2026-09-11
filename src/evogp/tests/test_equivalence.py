@@ -1682,6 +1682,82 @@ def test_golden_legacy_capture_forward():
 
 
 @requires_engine
+def test_golden_legacy_capture_generation():
+    """``forest_random.npz``: the generation-stage capture, used as a frozen input.
+
+    The population is deliberately NOT regenerated: the rewrite samples with the
+    torch RNG (distribution-equivalent to the legacy stream, not bit-identical), so
+    ``test/goldens/README.md`` step 1 allows a shape/legality use only.  What is
+    checkable without any RNG is that this file carries the very population the
+    evaluation stages ran on (documented "bitwise identical arrays, also stored here
+    for self-containment") -- and that the engine reproduces ``forward_eval.npz``'s
+    stored ``forest_batch_forward`` from *these* rows, which is the one expectation
+    the generation stage can be measured against.
+    """
+    path, data = load_legacy_capture("forest_random.npz")
+    outcome = _GoldenOutcome(f"legacy capture {path.name}")
+    reference_path = _LEGACY_CAPTURE_DIR / "forward_eval.npz"
+    try:
+        if not reference_path.is_file():
+            pytest.skip(f"{reference_path} is not available (optional cross-check)")
+        for key in ("forest__node_value", "forest__node_type", "forest__subtree_size",
+                    "x", "labels", "x_small"):
+            mine = golden_array(data, key, outcome, f"{path.name}/{key}")
+            if mine is None:
+                continue
+            with np.load(reference_path) as other:
+                theirs = golden_array(other, key, outcome, f"{reference_path.name}/{key}")
+            if theirs is None:
+                continue
+            assert np.array_equal(mine, theirs), (
+                f"{path.name}/{key} differs from {reference_path.name}/{key}, but both stages document "
+                "bitwise-identical inputs; the fixture set is inconsistent"
+            )
+            outcome.done(f"{key} == {reference_path.name}")
+
+        x = golden_tensor(data["x"], torch.float32)
+        labels = golden_tensor(data["labels"], torch.float32)
+        forest = legacy_forest(data, int(x.shape[1]), int(labels.shape[1]))
+
+        # The capture's own data definition (README): x[i] = ((i % 8 - 3.5)/2, (i // 8 - 3.5)/2)
+        # and labels = x0**2 - x1; x_small is the first 8 rows.
+        assert_close_with_placement(
+            labels,
+            (x[:, 0:1] ** 2 - x[:, 1:2]),
+            rtol=LEGACY_RTOL,
+            atol=LEGACY_ATOL,
+            context=f"{path.name}/labels == x0**2 - x1",
+        )
+        outcome.done("labels == x0**2 - x1")
+        assert np.array_equal(np.asarray(data["x_small"]), np.asarray(data["x"])[: int(data["x_small"].shape[0])]), (
+            f"{path.name}: x_small is not the first rows of x"
+        )
+        outcome.done("x_small == x[:8]")
+
+        with np.load(reference_path) as other:
+            expected = golden_array(other, "forest_batch_forward", outcome)
+            if expected is not None:
+                x_small = golden_tensor(data["x_small"], torch.float32)
+                assert_close_with_placement(
+                    forest.batch_forward(x_small),
+                    golden_tensor(expected, torch.float32),
+                    rtol=LEGACY_RTOL,
+                    atol=LEGACY_ATOL,
+                    context=f"{path.name} rows -> {reference_path.name}/forest_batch_forward",
+                )
+                outcome.done("batch_forward on the generation capture")
+
+        outcome.skip(
+            "forest__node_* regeneration from descriptor__*/seed",
+            "the rewrite samples with the torch RNG (distribution-equivalent, not bit-identical); "
+            "test/goldens/README.md step 1",
+        )
+    finally:
+        data.close()
+    outcome.finish()
+
+
+@requires_engine
 @requires_problem
 def test_golden_legacy_capture_sr_fitness():
     """SR_fitness in every kernel execute mode (MSE + MAE) and the problem-level path.
