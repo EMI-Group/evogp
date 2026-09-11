@@ -1,7 +1,8 @@
 """Descriptor-driven random tree generation in plain vectorized PyTorch.
 
 This module is the pure-torch replacement of the legacy compiled extension's
-``tree_generate`` kernel (``cuda/generate.cu``): it draws a
+``tree_generate`` kernel (whose semantics are distilled in ``ENGINE_SPEC.md``
+§6): it draws a
 fresh population of GP trees from a :class:`GenerateDescriptor` using nothing
 but batched tensor operations, so it does not rely on the compiled extension
 and runs on any torch device (CUDA/HIP GPU or CPU).
@@ -13,8 +14,8 @@ Public interface
 the three tensors ``Forest`` stores (float32 / int16 / int16, shaped
 ``[pop_size, max_tree_len]``).
 
-How ``generate.cu`` decides (reproduced here)
----------------------------------------------
+How the legacy kernel decides (reproduced here, ``ENGINE_SPEC.md`` §6)
+---------------------------------------------------------------------
 The kernel walks one tree at a time with an explicit stack, in prefix
 (pre-order) order. For every node it draws, with ``r ~ U[0, 1)``:
 

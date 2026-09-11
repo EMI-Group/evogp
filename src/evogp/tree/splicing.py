@@ -2,7 +2,8 @@
 
 This module is a drop-in, kernel-free replacement for the two CUDA/HIP ops of
 the legacy compiled extension (``tree_mutate`` and ``tree_crossover``):
-it implements the exact same splice as ``_gpTreeReplace`` in ``../cuda/mutation.cu``
+it implements the exact same splice as the legacy kernel's ``_gpTreeReplace``
+(distilled in ``ENGINE_SPEC.md`` §7)
 with vectorized torch ops, so it runs on any torch device (CPU as well as
 CUDA/HIP) and needs no compiled extension.
 
@@ -27,8 +28,8 @@ A tree is stored in prefix (pre-order) encoding in three parallel
 Only the first ``subtree_size[row, 0]`` columns are meaningful; the rest of the
 row is padding (uninitialised garbage on the CUDA generation path).
 
-Splice semantics (reproduced from ``_gpTreeReplace``, ``../cuda/mutation.cu``)
-------------------------------------------------------------------------------
+Splice semantics (reproduced from the legacy ``_gpTreeReplace``, ``ENGINE_SPEC.md`` §7)
+-------------------------------------------------------------------------------------
 Replacing the subtree rooted at node ``pos`` of a target row (real length
 ``old_size``, subtree size ``old_sub = subtree_size[pos]``) by a donor subtree of
 size ``new_sub`` starting at donor column ``donor_pos``:

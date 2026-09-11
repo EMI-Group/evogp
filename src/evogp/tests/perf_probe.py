@@ -197,7 +197,7 @@ WARMUP_BUILDS = 3   # throwaway builds per backend before any measurement: the
 #   (13, l, r)    minimum
 #
 # That mirrors EvoGP's real function set (ADD/SUB/MUL/DIV/MAX/MIN/LT/GT/IF +
-# SIN/EXP/TANH; see ``../tree/utils.py`` ``Func`` and ``cuda/defs.h``).
+# SIN/EXP/TANH; see ``../tree/utils.py`` ``Func``/``FUNCS_NAMES``).
 # DIV is the unprotected ``etl.divide`` (the LOOSE_DIV guard only changes values,
 # never op counts/timing), so a few trees can produce inf/nan values -- harmless
 # for timing, and excluded from the parity diff via ``nan_to_num``.
