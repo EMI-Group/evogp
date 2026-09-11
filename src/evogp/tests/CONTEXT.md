@@ -6,7 +6,9 @@ These tests are the regression gate: an independent plain-torch reference evalua
 - `reference_eval.py` — independent plain-torch oracle (slow, obviously-correct) implementing the original `_process_node` semantics; must NOT import the engine it verifies.
 - `test_equivalence.py` — randomized + adversarial engine-vs-reference equivalence through the public `Forest`/`Tree` API; also owns the golden-fixture discovery, schema dispatch and every golden comparison (see "Golden fixtures" below).
 - `test_operators.py` — generation validity/reproducibility + mutate/crossover splice invariants and silent-copy edge cases (int32 index tensors).
-- `test_api_compat.py` — import surface, indexing/pickle/concat/sympy, execute_mode string compatibility.
+- `test_api_compat.py` — import surface (incl. the `CustomLoss` re-export), indexing/pickle/concat/sympy (incl. constant-only tree repr/sympy), execute_mode string compatibility.
+- `test_combined_forward.py` — input-dict shape-contract regression for `CombinedForest.forward`/`batch_forward` and `CombinedTree.forward`: hand-checked single-point/batch values, batch==per-row equivalence, column-form equivalence and the exact rejection messages (12 tests).
+- `test_mujoco_problem.py` — `MujocoProblem` lazy-import binding (module globals `jax`/`jnp`/`registry`/`MjxEnv` after `import_jax_based_package`) plus a construction smoke that skips at the third-party `mujoco-warp`/CuDNN boundary.
 - `test_convergence_smoke.py` — tiny end-to-end symbolic-regression run; asserts best fitness improves.
 - `perf_probe.py` — standalone ETL build/run economics probe (numpy vs iree); NOT a pytest module; run directly.
 - `goldens/` — data only: 7 committed `.npz` golden fixtures (`01_random_single_out` … `07_deep_skew`) in the **engine schema** plus `README.md` documenting each case and the format. Loaded by `test_equivalence.py`; not a Python package.
