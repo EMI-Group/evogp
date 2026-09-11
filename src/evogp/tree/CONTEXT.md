@@ -107,6 +107,7 @@ The legacy `kernel_type` dispatch is gone and **all five map to the same ETL eng
 - `randint` truncates toward zero after `torch.rand` (biased for negative `low`); `dict2prob` is torch-only now and validates names against `FUNCS_NAMES`.
 - `Tree.to_infix` warns and returns a single string when `output_len != 1`; `__python_forward` / `__assert_valid` are debug-only and not on any production path.
 - The engine is correctness-first: the numpy backend does one `etl.run` per tree per call — profile before assuming throughput.
+- `etl_engine.py` (~1.3k lines) is intentionally a single module: decode, op emission, the multi-output protocol and the cache policy form one compilation unit and were frozen together after oracle validation — do not split without failing-test evidence.
 
 ## Test Strategy
 - No pytest suite inside this node; the validation stack is: (a) `ENGINE_SPEC.md` §12 self-consistency (compare against `Tree.__python_forward`, arity walks, splice identities); (b) the pytest suite under `../../tests/` — the primary regression gate (independent plain-torch oracle, randomized/adversarial equivalence, operator and API-compat tests, convergence smoke, plus the in-repo `goldens/` fixtures cross-validated against the legacy kernels before deletion).
