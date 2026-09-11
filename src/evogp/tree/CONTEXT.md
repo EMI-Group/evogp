@@ -51,8 +51,8 @@ Tensor contract enforced by the extension (`../cuda/torch_wrapper.cu`): values `
 - `batch_forward(x)` — `(batch, input_len)` → `(pop_size, batch, output_len)` (expands tensors with `repeat`/`repeat_interleave`; memory-heavy, uses torch ops for the reshaping).
 - `mutate(replace_pos, new_sub_forest)` → **new** `Forest`; `replace_pos` is an int tensor `[pop_size]`, and row `i` of `new_sub_forest` is spliced as a whole subtree at that position (ancestor subtree sizes fixed by the kernel).
 - `crossover(left_indices, right_indices, left_pos, right_pos)` → **new** `Forest` of size `left_indices.shape[0]`.
-- `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → `(pop_size,)` fitness (CUDA).
-- Dunders: `__getitem__` (int → `Tree` view, slice/tensor/ndarray → `Forest` view), `__setitem__` (**in-place** row/slice assignment), `__iter__`/`__next__` (yields `Tree`s), `__len__`, `__add__`/`__radd__` (concat along dim 0 with `Forest` or `Tree`), `__str__`/`__repr__` (renders every individual as a sympy expr — slow), `__getstate__`/`__setstate__` (pickle via CPU numpy; unpickling moves back to `cuda`).
+- `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → `(pop_size,)` fitness (CUDA); `use_MSE=False` selects absolute error (MAE per data point), not RMSE.
+- Dunders: `__getitem__` (int or 0-dim tensor → `Tree` view; slice → `Forest` view; 1-D `Tensor`/`ndarray` incl. LongTensor/bool mask → `Forest` **copy**, advanced indexing), `__setitem__` (**in-place** row/slice assignment), `__iter__`/`__next__` (yields `Tree`s), `__len__`, `__add__`/`__radd__` (concat along dim 0 with `Forest` or `Tree`), `__str__`/`__repr__` (renders every individual as a sympy expr — slow), `__getstate__`/`__setstate__` (pickle via CPU numpy; unpickling moves back to `cuda`).
 
 `combined_forest.py` / `combined_tree.py` — the data-driven multi-output model:
 - `CombinedForest(forests: List[Forest], data_info: dict[str, list[str]])` where `data_info[output_name] = [input_name, ...]` selects which columns of the input dict feed that sub-forest.
