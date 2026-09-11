@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+import numpy as np
 import sympy as sp
 
 from .utils import *
@@ -169,7 +170,12 @@ class Tree:
         node_type = list(torch.flip(self.node_type[:num], [0]))
         node_val = list(torch.flip(self.node_value[:num], [0]))
         stack = []
-        for t, v in zip(node_type, node_val):
+        for raw_t, v in zip(node_type, node_val):
+            t = int(raw_t) & NType.TYPE_MASK
+            if int(raw_t) & NType.OUT_NODE and t >= NType.UFUNC:
+                # a tagged function node packs {function, outIndex} into its value; only
+                # the function id is renderable here (the per-output sums are not).
+                v = int(v.view(torch.int32)) & 0xFF
             if t == NType.VAR:
                 stack.append(f"x{int(v)}")
             elif t == NType.CONST:
@@ -289,14 +295,15 @@ class Tree:
                     expr_stack.append(res)
             return expr_stack[0]
         if self.output_len > 1:
+            # Multi-output protocol (ENGINE_SPEC sections 2.3 / 4.3): each output is the
+            # sum of the values computed by the *tagged* function nodes carrying that
+            # outIndex - an out-node's own value, not its right-most child's. Every
+            # function node, tagged or not, then passes only its right-most child's value
+            # up to its parent, and a tag on a leaf is ignored (a leaf is evaluated from
+            # its raw node_value like any other leaf).
             expr = [0] * self.output_len
             for i in reversed(range(tree_size)):
                 t, v = node_type[i], node_value[i]
-                if t & NType.OUT_NODE:
-                    out_idx = v.view(np.int32) >> 16
-                    v = v.view(np.int32) & 0xFF
-                else:
-                    out_idx = -1
                 t = t & NType.TYPE_MASK
 
                 if t == NType.VAR:
@@ -304,9 +311,16 @@ class Tree:
                 elif t == NType.CONST:
                     expr_stack.append(v)
                 else:  # Function
+                    if node_type[i] & NType.OUT_NODE:
+                        # tagged value: bit-reinterpretation of {function, outIndex}
+                        out_idx = int(v.view(np.int32) >> 16)
+                        v = v.view(np.int32) & 0xFF
+                    else:
+                        out_idx = -1
+
                     if t == NType.UFUNC:
-                        mid = expr_stack.pop(-1)
-                        res = SYMPY_MAP[v](mid)
+                        right = expr_stack.pop(-1)
+                        res = SYMPY_MAP[v](right)
                     elif t == NType.BFUNC:
                         left = expr_stack.pop(-1)
                         right = expr_stack.pop(-1)
@@ -316,43 +330,140 @@ class Tree:
                         mid = expr_stack.pop(-1)
                         right = expr_stack.pop(-1)
                         res = SYMPY_MAP[v](left, mid, right)
-                    if out_idx != -1:
-                        expr[out_idx] += res
-                        expr_stack.append(right)
                     else:
-                        expr_stack.append(res)
+                        # the engine would evaluate any other base type as the ternary
+                        # `if`; refuse instead of rendering something misleading
+                        raise NotImplementedError(f"unknown node type {t} at node {i}")
+
+                    if 0 <= out_idx < self.output_len:
+                        # The engine evaluates the comparisons to +-1 while SYMPY_MAP
+                        # renders them as symbolic relations. Note that sympy's
+                        # ``Boolean`` is also the base class of plain ``Symbol``, so the
+                        # mapping must key on ``Relational`` / the Boolean atoms only.
+                        if getattr(res, "is_Relational", False):
+                            res = sp.Piecewise((1, res), (-1, True))
+                        elif res is sp.true:
+                            res = 1
+                        elif res is sp.false:
+                            res = -1
+                        expr[out_idx] += res  # out-of-range indices are dropped
+                    expr_stack.append(right)
             return expr
 
     def __python_forward(self, inputs: np.ndarray) -> np.ndarray:
+        """CPU reference evaluator for a single-output tree (ENGINE_SPEC sections 3 / 4.1).
+
+        Nodes are walked in reverse prefix order, so the first popped operand is the
+        *first* (leftmost) child, exactly like the stack walk of the engine: ``-`` is
+        ``first_child - second_child``, ``/`` is ``first_child / second_child`` and the
+        ternary ``if`` tests the first child. A node whose base type is neither
+        VAR/CONST/UFUNC/BFUNC is evaluated as that ternary ``if`` (the kernel does not
+        even read its function id), and a function id matching no branch yields 0.0.
+        """
         assert inputs.shape == (self.input_len,)
         assert self.output_len == 1
         value, node_type, subtree_size = to_numpy(
             [self.node_value, self.node_type, self.subtree_size]
         )
         tree_size = subtree_size[0]
+        delta, maxval = np.float32(DELTA), np.float32(MAXVAL)
         operents = []
-        for i in range(tree_size - 1, -1, -1):
-            if node_type[i] == NType.VAR:
-                operents.append(inputs[int(value[i])])
-            elif node_type[i] == NType.CONST:
-                operents.append(value[i])
-            else:
-                op1 = operents.pop(-1)  # right child
-                op2 = operents.pop(-1)  # left child
-                if value[i] == Func.ADD:
-                    res = op2 + op1
-                elif value[i] == Func.SUB:
-                    res = op2 - op1
-                elif value[i] == Func.MUL:
-                    res = op2 * op1
-                elif value[i] == Func.DIV:
-                    if np.allclose(op1, 0.0):
-                        res = op2
+        # NaN/±inf are part of the semantics (they propagate), so numpy's warnings are
+        # silenced instead of masking the values - the engine sanitizes nothing either.
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            for i in range(tree_size - 1, -1, -1):
+                if node_type[i] == NType.VAR:
+                    operents.append(inputs[int(value[i])])
+                elif node_type[i] == NType.CONST:
+                    operents.append(value[i])
+                elif node_type[i] == NType.UFUNC:
+                    var1 = operents.pop(-1)  # first (only) child
+                    func = value[i]
+                    if func == Func.SIN:
+                        res = np.sin(var1)
+                    elif func == Func.COS:
+                        res = np.cos(var1)
+                    elif func == Func.TAN:
+                        res = np.tan(var1)
+                    elif func == Func.SINH:
+                        res = np.sinh(var1)
+                    elif func == Func.COSH:
+                        res = np.cosh(var1)
+                    elif func == Func.TANH:
+                        res = np.tanh(var1)
+                    elif func == Func.LOG:
+                        res = np.log(var1)  # log(0) = -inf, log(x < 0) = nan
+                    elif func == Func.LOOSE_LOG:
+                        res = -maxval if var1 == 0.0 else np.log(np.abs(var1))
+                    elif func == Func.EXP:
+                        res = np.exp(var1)
+                    elif func == Func.INV:
+                        res = float("nan") if var1 == 0.0 else 1.0 / var1
+                    elif func == Func.LOOSE_INV:
+                        if np.abs(var1) <= delta:
+                            var1 = np.copysign(delta, var1)
+                        res = 1.0 / var1
+                    elif func == Func.NEG:
+                        res = -var1
+                    elif func == Func.ABS:
+                        res = np.abs(var1)
+                    elif func == Func.SQRT:
+                        res = np.sqrt(var1)  # negative input -> nan
+                    elif func == Func.LOOSE_SQRT:
+                        if var1 <= 0.0:
+                            var1 = np.abs(var1)
+                        res = np.sqrt(var1)
                     else:
-                        res = op2 / op1
+                        res = 0.0  # unmatched id: the kernel leaves top_val at 0.0
+                    operents.append(res)
+                elif node_type[i] == NType.BFUNC:
+                    var1 = operents.pop(-1)  # first child
+                    var2 = operents.pop(-1)  # second child
+                    func = value[i]
+                    if func == Func.ADD:
+                        res = var1 + var2
+                    elif func == Func.SUB:
+                        res = var1 - var2
+                    elif func == Func.MUL:
+                        res = var1 * var2
+                    elif func == Func.DIV:
+                        res = float("nan") if var2 == 0.0 else var1 / var2
+                    elif func == Func.LOOSE_DIV:
+                        if np.abs(var2) <= delta:
+                            var2 = np.copysign(delta, var2)
+                        res = var1 / var2
+                    elif func == Func.POW:
+                        res = np.power(var1, var2)
+                    elif func == Func.LOOSE_POW:
+                        if var1 == 0.0 and var2 == 0.0:
+                            res = 0.0
+                        else:
+                            res = np.power(np.abs(var1), var2)
+                    # comparisons are ternaries, not fmax/fmin: a NaN operand takes the
+                    # second branch (max(v1, nan) = nan but max(nan, v2) = v2).
+                    elif func == Func.MAX:
+                        res = var1 if var1 >= var2 else var2
+                    elif func == Func.MIN:
+                        res = var1 if var1 <= var2 else var2
+                    elif func == Func.LT:
+                        res = 1.0 if var1 < var2 else -1.0
+                    elif func == Func.GT:
+                        res = 1.0 if var1 > var2 else -1.0
+                    elif func == Func.LE:
+                        res = 1.0 if var1 <= var2 else -1.0
+                    elif func == Func.GE:
+                        res = 1.0 if var1 >= var2 else -1.0
+                    else:
+                        res = 0.0  # unmatched id: the kernel leaves top_val at 0.0
+                    operents.append(res)
                 else:
-                    raise NotImplementedError
-                operents.append(res)
+                    # TFUNC - and, like the engine, any other base type (e.g. a node
+                    # still carrying the OUT_NODE tag): evaluated as `if`, whose
+                    # function id is never looked at.
+                    var1 = operents.pop(-1)  # condition (first child)
+                    var2 = operents.pop(-1)
+                    var3 = operents.pop(-1)
+                    operents.append(var2 if var1 > 0.0 else var3)
 
         # check sucess
         assert len(operents) == 1

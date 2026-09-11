@@ -109,34 +109,46 @@ class GenerateDescriptor:
                 dim=0,
                 dtype=torch.float32,
             ).to("cuda")
+        else:
+            # A prebuilt cdf is used as-is, but the per-arity roulettes consumed by the
+            # mutation operators are still derived from it: recover the per-slot
+            # probabilities as the successive differences of the cdf, which is the exact
+            # inverse of the cumsum used above.
+            cdf = torch.as_tensor(roulette_funcs, dtype=torch.float32)
+            assert cdf.shape == (
+                Func.END,
+            ), f"roulette_funcs shape should be ({Func.END}), but got {cdf.shape}"
+            func_prob = torch.zeros(Func.END, dtype=torch.float32, device=cdf.device)
+            func_prob[0] = cdf[0]
+            func_prob[1:] = cdf[1:] - cdf[:-1]
 
-            tfunc_prob = torch.zeros_like(func_prob)
-            tfunc_prob[Func.TF_START : Func.BF_START] = func_prob[
-                Func.TF_START : Func.BF_START
-            ]
-            roulette_tfuncs = torch.cumsum(
-                tfunc_prob,
-                dim=0,
-                dtype=torch.float32,
-            ).to("cuda")
+        tfunc_prob = torch.zeros_like(func_prob)
+        tfunc_prob[Func.TF_START : Func.BF_START] = func_prob[
+            Func.TF_START : Func.BF_START
+        ]
+        roulette_tfuncs = torch.cumsum(
+            tfunc_prob,
+            dim=0,
+            dtype=torch.float32,
+        ).to("cuda")
 
-            bfunc_prob = torch.zeros_like(func_prob)
-            bfunc_prob[Func.BF_START : Func.UF_START] = func_prob[
-                Func.BF_START : Func.UF_START
-            ]
-            roulette_bfuncs = torch.cumsum(
-                bfunc_prob,
-                dim=0,
-                dtype=torch.float32,
-            ).to("cuda")
+        bfunc_prob = torch.zeros_like(func_prob)
+        bfunc_prob[Func.BF_START : Func.UF_START] = func_prob[
+            Func.BF_START : Func.UF_START
+        ]
+        roulette_bfuncs = torch.cumsum(
+            bfunc_prob,
+            dim=0,
+            dtype=torch.float32,
+        ).to("cuda")
 
-            ufunc_prob = torch.zeros_like(func_prob)
-            ufunc_prob[Func.UF_START : Func.END] = func_prob[Func.UF_START : Func.END]
-            roulette_ufuncs = torch.cumsum(
-                ufunc_prob,
-                dim=0,
-                dtype=torch.float32,
-            ).to("cuda")
+        ufunc_prob = torch.zeros_like(func_prob)
+        ufunc_prob[Func.UF_START : Func.END] = func_prob[Func.UF_START : Func.END]
+        roulette_ufuncs = torch.cumsum(
+            ufunc_prob,
+            dim=0,
+            dtype=torch.float32,
+        ).to("cuda")
 
         if const_samples is None:
             assert (

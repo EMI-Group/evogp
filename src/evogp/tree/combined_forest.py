@@ -23,7 +23,9 @@ class CombinedForest:
         self.input_names = []
         for vals in data_info.values():
             self.input_names.extend(vals)
-        self.input_names = list(set(self.input_names))
+        # deduplicate while keeping the data_info order (``set()`` order is not stable
+        # across processes, which made ``input_len`` look nondeterministic)
+        self.input_names = list(dict.fromkeys(self.input_names))
 
         self.input_len = len(self.input_names)
         self.output_len = len(self.output_names)

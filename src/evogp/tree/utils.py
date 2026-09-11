@@ -7,6 +7,9 @@ import sympy as sp
 DELTA = 1e-9
 MAXVAL = 1e9
 
+# Tree engine limits: ``max_tree_len`` (the row stride of a population) must not
+# exceed ``MAX_STACK``, and the depth -> leaf-probability schedule has exactly
+# ``MAX_FULL_DEPTH`` entries.
 MAX_STACK = 1024
 MAX_FULL_DEPTH = 10
 
@@ -232,25 +235,6 @@ SYMPY_MAP = {
 }
 
 
-def dict2prob(prob_dict):
-    # Probability Dictionary to Distribution Function
-    assert len(prob_dict) > 0, "Empty probability dictionary"
-
-    prob = np.zeros(len(FUNCS))
-
-    for key, val in prob_dict.items():
-        assert (
-            key in FUNCS_NAMES
-        ), f"Unknown function name: {key}, total functions are {FUNCS_NAMES}"
-        idx = FUNCS_NAMES.index(key)
-        prob[idx] = val
-
-    # normalize
-    prob = prob / prob.sum()
-
-    return prob
-
-
 def to_numpy(li):
     for idx, e in enumerate(li):
         if type(e) == torch.Tensor:
@@ -279,10 +263,13 @@ def dict2prob(prob_dict):
 
 def check_tensor(x):
     if not isinstance(x, torch.Tensor):
-        x = torch.tensor(x, dtype=torch.float32, device="cuda", requires_grad=False)
-    else:
-        x = x.to("cuda").detach().requires_grad_(False)
-        return x
+        # The old fallback built a tensor and then returned None, silently turning every
+        # ``x = check_tensor(x)`` call into ``x = None``; fail loudly instead.
+        raise TypeError(
+            f"check_tensor expects a torch.Tensor, but got {type(x).__name__}; "
+            "convert lists / numpy arrays with torch.tensor(...) first"
+        )
+    return x.to("cuda").detach().requires_grad_(False)
 
 
 def str_tree(value, node_type, subtree_size):
