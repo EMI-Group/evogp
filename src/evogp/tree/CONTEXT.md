@@ -46,7 +46,7 @@ Evaluation is a "true jit": `decode_population` walks a population **host-side**
 - `Tree.random_generate(descriptor)` delegates to `Forest.random_generate(pop_size=1)[0]`; `to_forest()` wraps a single tree as a `Forest`.
 - `forward(x)` — 1-D `(input_len,)` → `(output_len,)`; 2-D `(batch, input_len)` → `(batch, output_len)`; evaluated through the ETL engine.
 - `SR_fitness(inputs, labels, use_MSE=True, execute_mode="auto")` → `(1,)` positive loss.
-- `to_sympy_expr(symbol_names=None)` — sympy expr for `output_len == 1`, a list of exprs for `output_len > 1`; comparisons render as the engine's ±1 (`Piecewise((1, cond), (-1, True))`) and loose ops follow the engine's zero-clamp conventions.
+- `to_sympy_expr(symbol_names=None)` — sympy expr for `output_len == 1`, a list of exprs for `output_len > 1`; comparisons render as the engine's ±1 (`Piecewise((1, cond), (-1, True))`), loose ops follow the engine's zero-clamp conventions, and every leaf is sympified (a constant-only tree returns a sympy `Float`, never a raw numpy scalar).
 - `to_infix()` (single-output; warns and returns one string for multi-output), `to_png(fname)`, `__repr__` (== sympy repr).
 - `__python_forward` — name-mangled, debug-only, full-semantics pure-Python reference evaluator (single-output) used as the in-repo cross-check oracle; `__assert_valid` is likewise debug-only.
 
