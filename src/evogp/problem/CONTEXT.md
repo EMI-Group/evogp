@@ -106,7 +106,7 @@ Submodules must keep heavy optional dependencies **inside functions** (establish
 | `mujoco_playground.py` | torch only (lazy bodies) | `jax`, `mujoco_playground` (**no setup.py extra exists**) |
 | `genesis_problem.py` | torch only (lazy body) | `genesis` (**no setup.py extra exists**) |
 | `go2_env.py` | **`genesis` at module import time** | `genesis` + Go2 URDF assets (absent from the repo) |
-`import_requires` is torch/numpy/scikit_learn/networkx/sympy, so scikit-learn is always available; jax/brax/genesis/mujoco_playground are not pinned anywhere, and README only documents the jax+brax installation note.
+`install_requires` is torch/numpy/scikit_learn/networkx/sympy: scikit-learn is a declared dependency but is NOT guaranteed to be installed in a given venv (the ETL-engine validation venv is one such case), which is why `classification.py`/`transformation.py` import it lazily; jax/brax/genesis/mujoco_playground are not pinned anywhere, and README only documents the jax+brax installation note.
 
 ## Design Decisions
 `BaseProblem` is deliberately minimal and interface-only, keeping `problem/` swappable and free of pipeline knowledge.
