@@ -1,8 +1,35 @@
+"""Paper reproduction: symbolic regression on an externally supplied UCI-style data set.
+
+Same descriptor / algorithm / selection configuration as ``example/uci_sr.py`` (the paper's
+experiment script), but the data is read from the two CSVs of the paper's problem id instead
+of being fetched from the UCI repository::
+
+    data/{problem_id}_features.csv     (Datapoint, *features)
+    data/{problem_id}_targets.csv      (Datapoint, *targets)
+
+Those files are NOT part of this repository -- supply them, keep ``problem_id`` in sync, and
+run from the repository root (both paths are CWD-relative)::
+
+    PYTHONPATH=src python example/custom_sr.py
+
+External requirements: ``pandas`` (``pip install pandas``), a CUDA-visible device and, in
+practice, several minutes: pop 100 x 100 generations with ``max_tree_len=512`` and the
+three extra transcendental functions is the paper's setting and is several times slower
+without ``ETL_DISABLE_LOCATIONS=1`` (ETL's tracing-only speed knob; it does not change the
+fitness).
+
+The printed ``MSE`` and node statistics come from the FINAL generation's population
+(``pipeline.fitness`` / ``algorithm.forest``), not from the best-ever individual
+(``pipeline.best_tree`` / ``pipeline.best_fitness``).
+"""
+
 import time
 
 seed = 1
 pop_size = 100
 problem_id = 409
+
+import os
 
 import numpy as np
 import torch
@@ -24,9 +51,26 @@ from evogp.algorithm import (
 )
 from evogp.problem import SymbolicRegression
 
-import pandas as pd
-X_df = pd.read_csv(f"data/{problem_id}_features.csv")
-y_df = pd.read_csv(f"data/{problem_id}_targets.csv")
+try:
+    import pandas as pd
+except ImportError as exc:
+    raise SystemExit(
+        "example/custom_sr.py reads its inputs with pandas (pip install pandas)."
+    ) from exc
+
+feature_csv = f"data/{problem_id}_features.csv"
+target_csv = f"data/{problem_id}_targets.csv"
+for path in (feature_csv, target_csv):
+    if not os.path.isfile(path):
+        raise SystemExit(
+            f"example/custom_sr.py needs {feature_csv} and {target_csv} next to the "
+            "repository root, but they are not shipped with the repository. Supply the "
+            f"paired feature/target CSVs for problem_id={problem_id} (or edit problem_id) "
+            "and run again from the repository root."
+        )
+
+X_df = pd.read_csv(feature_csv)
+y_df = pd.read_csv(target_csv)
 X = X_df.to_numpy(dtype=np.float32)
 y = y_df.to_numpy(dtype=np.float32)
 

@@ -1,3 +1,25 @@
+"""Paper reproduction: symbolic regression on a UCI data set (paper id 409).
+
+Identical descriptor / algorithm / selection configuration to ``example/custom_sr.py``, but
+the features and targets are downloaded live from the UCI repository with
+``fetch_ucirepo(id=problem_id)``.
+
+Run from the repository root (needs a CUDA-visible device)::
+
+    PYTHONPATH=src python example/uci_sr.py
+
+External requirements: ``ucimlrepo`` (``pip install ucimlrepo``) plus network access at run
+time, and several minutes for the paper's pop 100 x 100 generations with
+``max_tree_len=512`` (several times longer without ``ETL_DISABLE_LOCATIONS=1`` -- ETL's
+tracing-only speed knob, it does not change the fitness).
+
+Only the paper's own ids are handled: id 1 (Abalone, ``Sex`` mapped to 0/1/2) and id 9
+(Auto MPG, rows with a NaN ``horsepower`` dropped); other ids that contain string columns
+fail in ``to_numpy(dtype=np.float32)``. The printed ``MSE`` and node statistics come from
+the FINAL generation's population (``pipeline.fitness`` / ``algorithm.forest``), not from
+the best-ever individual (``pipeline.best_tree`` / ``pipeline.best_fitness``).
+"""
+
 import time
 
 seed = 1
@@ -24,8 +46,13 @@ from evogp.algorithm import (
 )
 from evogp.problem import SymbolicRegression
 
-from ucimlrepo import fetch_ucirepo
-
+try:
+    from ucimlrepo import fetch_ucirepo
+except ImportError as exc:
+    raise SystemExit(
+        "example/uci_sr.py downloads its data with ucimlrepo (pip install ucimlrepo) and "
+        "needs network access at run time."
+    ) from exc
 problem = fetch_ucirepo(id=problem_id)
 if problem_id == 1:
     mapping = {"M": 0, "F": 1, "I": 2}

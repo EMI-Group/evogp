@@ -1,4 +1,19 @@
-from evogp.problem import BraxProblem
+"""Brax policy optimization (the paper's robotics-control task).
+
+Evolves a population of trees as the control policy of a Brax environment:
+``BraxProblem.evaluate`` rolls every individual out and returns its accumulated episode
+return, which the pipeline maximizes.
+
+Run from the repository root (needs a CUDA-visible device)::
+
+    PYTHONPATH=src python example/brax_task.py
+
+External requirements: ``jax`` and ``brax`` (installed together by the ``brax`` extra,
+``pip install ".[brax]"``). Both are imported lazily by the problem constructor, so a
+missing one fails at start-up with the message below. This is a long run (pop 1000 x 100
+generations x 1000-step episodes): shrink ``pop_size`` / ``generation_limit`` while
+experimenting.
+"""
 
 import torch
 
@@ -15,11 +30,19 @@ from evogp.algorithm import (
     CombinedMutation,
 )
 from evogp.pipeline import StandardPipeline
+from evogp.problem import BraxProblem
 
-problem = BraxProblem(
-    "swimmer",
-    max_episode_length=1000,
-)
+try:
+    problem = BraxProblem(
+        "swimmer",
+        max_episode_length=1000,
+    )
+except ImportError as exc:
+    raise SystemExit(
+        "example/brax_task.py needs the optional dependencies 'jax' and 'brax' "
+        '(pip install ".[brax]"); loading the environment failed with: ' + str(exc)
+    ) from exc
+
 
 descriptor = GenerateDescriptor(
     max_tree_len=256,

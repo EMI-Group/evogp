@@ -1,3 +1,20 @@
+"""Paper reproduction: classification on a UCI data set (paper id 109).
+
+Reads the table with ``fetch_ucirepo(id=problem_id)``, maps every categorical (``object``)
+column to integer codes and hands the result to ``Classification``; the GP configuration is
+the same as ``example/uci_sr.py`` (pop 100 x 100 generations, ``max_tree_len=512``).
+
+Run from the repository root (needs a CUDA-visible device)::
+
+    PYTHONPATH=src python example/uci_classifier.py
+
+External requirements: ``ucimlrepo`` and ``pandas`` (``pip install ucimlrepo pandas``) plus
+network access at run time, and several minutes for the run (several times longer without
+``ETL_DISABLE_LOCATIONS=1`` -- ETL's tracing-only speed knob, it does not change the
+fitness). ``Classification`` expects 1-D contiguous class indices starting at 0, which the
+``.astype("category").cat.codes`` conversion above provides.
+"""
+
 import time
 import pandas as pd
 
@@ -25,8 +42,13 @@ from evogp.algorithm import (
 )
 from evogp.problem import Classification
 
-from ucimlrepo import fetch_ucirepo
-
+try:
+    from ucimlrepo import fetch_ucirepo
+except ImportError as exc:
+    raise SystemExit(
+        "example/uci_classifier.py downloads its data with ucimlrepo (pip install "
+        "ucimlrepo) and needs network access at run time."
+    ) from exc
 problem = fetch_ucirepo(id=problem_id)
 
 

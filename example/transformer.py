@@ -1,3 +1,28 @@
+"""Feature-construction demo: evolve new features for a regression data set.
+
+``Transformation.evaluate`` scores every tree by ``|correlation|`` between its output and the
+target; ``Transformation.new_feature(forest, n_best, n_features)`` then keeps the ``n_best``
+trees by fitness and greedily drops the most correlated ones until at most ``n_features``
+remain. Unlike the other examples this one drives evolution by hand (``algorithm.step`` +
+``problem.evaluate``) instead of using ``StandardPipeline``, and finally measures the effect
+with a Ridge regressor -- before and after adding the evolved features.
+
+Run from the repository root (needs a CUDA-visible device)::
+
+    PYTHONPATH=src python example/transformer.py
+
+External requirements: ``scikit-learn`` (``Transformation(dataset="diabetes")`` loads the
+data set and the Ridge estimator comes from sklearn). ``Transformation`` implements neither
+``problem_dim`` nor ``solution_dim``, hence the hand-written ``input_len=10``/``output_len=1``
+in the descriptor.
+
+As shipped (pop 200 x 100 steps) the run takes roughly two minutes with
+``ETL_DISABLE_LOCATIONS=1`` (ETL's tracing-only speed knob; it does not change the fitness);
+``pop_size`` is right-sized for the ETL evaluation engine, at the CUDA-scale ``pop_size=1000``
+of the original settings it costs about an hour. ``new_feature`` asks for the best
+``min(n_best, pop_size)`` trees, so keep ``pop_size >= n_best``.
+"""
+
 import torch
 
 torch.random.manual_seed(0)
@@ -37,7 +62,7 @@ descriptor = GenerateDescriptor(
 )
 
 algorithm = GeneticProgramming(
-    initial_forest=Forest.random_generate(pop_size=1000, descriptor=descriptor),
+    initial_forest=Forest.random_generate(pop_size=200, descriptor=descriptor),
     crossover=DefaultCrossover(),
     mutation=DefaultMutation(
         mutation_rate=0.2, descriptor=descriptor.update(max_layer_cnt=3)
