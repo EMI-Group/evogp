@@ -67,7 +67,7 @@ It is a near-copy of `brax_problem.py` (`to_jax_array`/`from_jax_array` are byte
 `CustomLoss(existing_data: dict, loss_func: Callable)` wraps a user-written loss so that arbitrary named variables can be optimized.
 `inspect_function` (from `evogp.tree.utils`) extracts the loss function's parameter names; `torch.vmap(loss_func, in_dims=(None * len(existing_data)) + (0 * (len(parameters) - len(existing_data))))` maps over the parameters that are *not* keys of `existing_data`.
 `evaluate(forest)` calls `forest.batch_forward(existing_data)` (so it requires a `CombinedForest`), squeezes each output's last dim, binds the parameters in signature order (`existing_data[name]` if present, otherwise the forest output), and returns `-loss` (higher is better).
-Reachable only via `from evogp.problem.custom_loss import CustomLoss`; there is currently **no** example, notebook, README section or test using it.
+Importable as `from evogp.problem import CustomLoss` (and via the deep path); it is the supported route for `CombinedForest` problems — `example/combined_sr.py` uses it via the deep import and runs end to end, and `tutorial/combined_gp.ipynb` documents the same route. No numeric test yet (only the re-export is asserted in `../tests/test_api_compat.py`).
 
 ## Module map / routing
 - `base.py` → `BaseProblem` abstract contract every class here inherits.
