@@ -672,6 +672,7 @@ def test_crossover_index_tensors_are_read_as_integers():
 
 # --- Optional: compare an exposed splice helper against the oracle ------------ #
 SPLICE_HOOK_MODULES = [
+    "evogp.tree.splicing",  # the vectorized mutate/crossover splice primitive
     "evogp.tree.forest", "evogp.tree.tree", "evogp.tree.gp_ops", "evogp.tree.ops",
     "evogp.tree.torch_ops", "evogp.tree.etl_engine",
 ]
@@ -745,15 +746,15 @@ def test_internal_splice_hook_matches_reference_when_exposed():
     )
     # (value/type/size, pos, donor value/type/size, donor pos, new subtree size)
     # - the vectorized ``_splice`` convention of ``splicing.py``: full-width
-    # ``[pop_size, max_tree_len]`` tree tensors plus 1-D index tensors
+    # ``[pop_size, max_tree_len]`` tree tensors plus 1-D *long* index tensors
     def batch_wise():
         target = build_forest([old], max_tree_len)
         source = build_forest([donor], max_tree_len)
         return hook(
             target.batch_node_value, target.batch_node_type, target.batch_subtree_size,
-            index_tensor([index]),
+            index_tensor([index]).long(),
             source.batch_node_value, source.batch_node_type, source.batch_subtree_size,
-            index_tensor([0]),
+            index_tensor([0]).long(),
             source.batch_subtree_size[:, 0].long(),
         )
 

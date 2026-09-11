@@ -344,28 +344,54 @@ def _full(n: int, v) -> torch.Tensor:
     return torch.full((n,), float(v), dtype=torch.float32)
 
 
+# --------------------------------------------------------------------------- #
+# Correctly rounded float32 evaluation (see the module docstring)
+# --------------------------------------------------------------------------- #
+def _f64(a: torch.Tensor) -> torch.Tensor:
+    """Widen a float32 operand to the float64 intermediate of a CR op (exact)."""
+    return a.to(torch.float64)
+
+
+def _cr(a: torch.Tensor) -> torch.Tensor:
+    """Round a float64 intermediate back to the float32 node-value storage.
+
+    Round-to-nearest-even, and NaN/±inf are preserved, so the reference's
+    NaN/inf placement is unchanged by the widening.
+    """
+    return a.to(torch.float32)
+
+
 def _apply(kind: int, function_id: int, args, n: int) -> torch.Tensor:
-    """One node of ``forward.cu::_process_node`` (``args`` = left-most first)."""
+    """One node of ``forward.cu::_process_node`` (``args`` = left-most first).
+
+    Every result is the correctly rounded float32 value of the operation on the
+    float32 operands: the software transcendentals go through float64 (their
+    float32 kernels are not correctly rounded), the hardware-exact ops stay in
+    float32. See the module docstring.
+    """
     if kind == UFUNC:
         a = args[0]
         if function_id == SIN:
-            return torch.sin(a)
+            return _cr(torch.sin(_f64(a)))
         if function_id == COS:
-            return torch.cos(a)
+            return _cr(torch.cos(_f64(a)))
         if function_id == TAN:
-            return torch.tan(a)
+            return _cr(torch.tan(_f64(a)))
         if function_id == SINH:
-            return torch.sinh(a)
+            return _cr(torch.sinh(_f64(a)))
         if function_id == COSH:
-            return torch.cosh(a)
+            return _cr(torch.cosh(_f64(a)))
         if function_id == TANH:
-            return torch.tanh(a)
+            return _cr(torch.tanh(_f64(a)))
         if function_id == LOG:
-            return torch.log(a)  # LOG(0) -> -inf, LOG(x<0) -> NaN
+            # LOG(0) -> -inf, LOG(x<0) -> NaN (both preserved by the cast)
+            return _cr(torch.log(_f64(a)))
         if function_id == LOOSE_LOG:
-            return torch.where(a == 0.0, _full(n, -MAX_VAL), torch.log(torch.abs(a)))
+            return torch.where(
+                a == 0.0, _full(n, -MAX_VAL), _cr(torch.log(torch.abs(_f64(a))))
+            )
         if function_id == EXP:
-            return torch.exp(a)
+            return _cr(torch.exp(_f64(a)))
         if function_id == INV:
             return torch.where(a == 0.0, _full(n, float("nan")), 1.0 / a)
         if function_id == LOOSE_INV:
@@ -396,9 +422,12 @@ def _apply(kind: int, function_id: int, args, n: int) -> torch.Tensor:
             b2 = torch.where(torch.abs(b) <= DELTA, torch.copysign(_full(n, DELTA), b), b)
             return a / b2
         if function_id == POW:
-            return torch.pow(a, b)
+            # pow(0,0)=1, pow(-2,3)=-8, pow(-2,0.5)=NaN (float64 then rounded)
+            return _cr(torch.pow(_f64(a), _f64(b)))
         if function_id == LOOSE_POW:
-            return torch.where((a == 0.0) & (b == 0.0), _full(n, 0.0), torch.pow(torch.abs(a), b))
+            return torch.where(
+                (a == 0.0) & (b == 0.0), _full(n, 0.0), _cr(torch.pow(torch.abs(_f64(a)), _f64(b)))
+            )
         if function_id == MAX:
             return torch.where(a >= b, a, b)
         if function_id == MIN:
