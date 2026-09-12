@@ -442,15 +442,23 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
 ## 8. Validation evidence (recorded in the repo; not re-run for this document)
 
 * `PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 <venv>/bin/python -m pytest src/evogp/tests -q` →
-  **307 passed, 4 skipped** (`-k golden` → 6/6).
-* Dense forced end to end (`EVOGP_EVAL_MODE=dense`, same suite) → 307 passed / 4 skipped;
-  instrumented: **510 dense attempts, 492 evaluated densely, 18 expected `DenseUnsupported` fallbacks**
-  (15 multi-output `output_len` 2/3 populations, 3 trees longer than the 32-node cap).
-* `dense_spike_check.py --backend numpy --skip-measure` → 37/37 (`--full --skip-measure` → 57/57).
-* `dense_integration_check.py --stage numpy,fallback` → 118/118; `--stage iree` → 7/7 (auto+iree picks
-  dense at P=32 with ONE compile per population; iree-vs-numpy-specialized parity clean).
-* `dense_adversarial_check.py --backend numpy` → 192/192 checks, 0 non-bit-exact finite values; the iree
-  leg (one family per fresh process) → 189/189 checks with a single 1-ulp `deep_chain` element.
+  **308 passed, 4 skipped** (~2 min), zero dense attempts (default `auto` on numpy).
+* Dense forced end to end (`EVOGP_EVAL_MODE=dense`): the cheap subset `-k "forward or fitness"` →
+  **31 passed / 2 skipped**; the full dense-forced suite is no longer re-runnable at the 64-node cap on
+  the 12 GB sandbox (host-memory OOM at ~23%) — the last full run (32-node cap) recorded 510 dense
+  attempts, 492 evaluated densely, 18 declines, of which the 3 over-cap trees are now supported.
+* `dense_spike_check.py --backend numpy --skip-measure` → **37/37** (the compile-reuse case pins the
+  used-id-set granularity; the `EVOGP_DENSE_PRUNE=0` path is pinned separately); the `--full` → 57/57
+  run is recorded pre-prune.
+* `dense_integration_check.py --stage numpy,fallback` → **119/119**; `--stage iree` → 7/7 (recorded
+  pre-prune).
+* `dense_adversarial_check.py --backend numpy` → **192/192 checks, 0 non-bit-exact finite values**;
+  the staged iree leg re-checked post-prune with one family (`--only binary_var --iree-max-pop 2`,
+  `--gpu 0`) → **10/10 checks, rc=0** (the full 19-family iree sweep → 189/189 is recorded pre-prune).
+* `device_resident_check.py --stage policy,hotpath,parity,seam,prune` → **104/104** (its prune stage's
+  in-process A/B: 420→60 candidate ops; compile 1.24–1.36 s → 0.25–0.37 s; warm SR loss P=64/N=1024
+  0.30–0.57 s → 0.044–0.048 s, ranges across loaded-box re-runs); `executable_memo_check.py` → 32/32;
+  `runner_check.py` → 48/48 numpy / 32/32 iree.
 
 ---
 
