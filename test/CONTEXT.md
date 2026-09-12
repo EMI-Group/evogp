@@ -111,8 +111,8 @@ Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) 
 - `etl_jit_probe.py` is bound to the `etl` package in the read-only foreign repo
   `/mnt/local-ssd/bchuang/etl`; it needs an idle GPU for quotable timings (the host is shared).
 - `etl_jit_probe.py` emits no machine-readable output (stdout report table only; exit 1 when one of its own
-  checks fails). The JSON-emitting ETL probes are `../src/evogp/tests/perf_probe.py` and the unmerged
-  `bench_gp.py` (see the `test/benchmark/` section above).
+  checks fails). The JSON-emitting ETL probes are `../src/evogp/tests/perf_probe.py` and
+  `benchmark/bench_gp.py` (see the `benchmark/` section above).
 - The legacy-side benchmark build lives at `/tmp/evogp_legacy_bench` (session-scoped — it can vanish; the built
   `evogp_cuda` extension needs the offline assets in `/tmp/evogp_t1a263` and the CUDA 12.6 nvcc at
   `/opt/miniforge3/envs/wenet_tiktoken` to rebuild).
@@ -127,7 +127,7 @@ Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) 
 
 ## Routing Table / See Also
 `goldens/` is data only (documented by its own `README.md`), so do not look for sub-nodes there.
-`benchmark/` is NOT in this checkout; when restored from commit `df89238` it becomes this node's sub-node with its own `CONTEXT.md` — route old-vs-new / ETL performance-benchmark work there.
+`benchmark/` is this node's sub-node with its own `CONTEXT.md` — route old-vs-new / ETL performance-benchmark work there (verdict: `benchmark/REPORT.md`; re-runnable protocol: `benchmark/r2/run_all.sh`).
 Sibling paths (read-only from this node — escalate any needed write to the parent `./`):
 `../src/evogp/` (library; `../src/evogp/tests/` is the canonical pytest suite, the golden-fixture
 loader, and the ETL-pattern economics probe `../src/evogp/tests/perf_probe.py` — JSON-emitting, pop-200/1000
