@@ -869,8 +869,9 @@ window 6, committed before the first invocation), `8f7b0a9` (`armB_iree_fixture6
 `d88a03b` (the two dense-`iree` configs `armB_iree_fixture64_n64` / `armB_iree_fixture200_n64`; their subjects lost
 the id to the shell quirk documented in the window-6 anomaly bullets), `c086d85` (`armB_iree_sr_a.*`), `8a28d6c`
 (`armB_np_c5r2.*`), `0b70644` (`armB_np_fixture200_n64.*`), `b2f3af9` (`armB_np_sr_a.*`), `b7aa8e4` (status-file
-re-names + the two recovered consoles, minus the mis-named file removed), `c24f999` (`status_*_w2.txt` for config 1
-repaired with its corrected `RUNNER_EXIT=0` marker) and this follow-up commit, which carries the W2 subsection above,
+re-names + the two recovered consoles, minus the mis-named file removed), `c24f999` and `4153ddd`
+(`status_*_w2.txt` for config 1 repaired with its corrected `RUNNER_EXIT=0` marker, then the repair annotation's
+literal `${...}` spelling restored) and this follow-up commit, which carries the W2 subsection above,
 `results/armB/status_check_r3_armB_w2_final.txt` (the re-run gate, `CHECKER_EXIT=0`), the five window-6 anomaly
 bullets and the post-run state appended to `windows.md` window 6. Every W2 config commit used `git add -f` for the
 `*.log` files (`.gitignore:32` hides `*.log`, exactly as for Arm A's records).
