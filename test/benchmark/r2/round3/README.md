@@ -83,6 +83,31 @@ python3 test/benchmark/r2/round3/selftest_compare_rounds.py    # table/rep/spec-
 `--only` overrides `--group` (unknown ids are a usage error, exit 2); selection is always in table
 order, so `light` runs before `iree` before `iree-spec`.
 
+## Arm B — the same nine new-side configs under a patched-ETL shadow
+
+Arm B is the round's engine-delta workstream: it re-measures the **nine new-side configs** (the three
+`light` `new` ids plus `iree` and `iree-spec`; every id is its Arm A id with an `armB_` prefix) with the
+same method and the same flags, differing in exactly one factor — the ETL checkout is shadowed onto
+`PYTHONPATH` (`NEW_PYTHONPATH=src:<patched-checkout>` puts the patched ETL ahead of the stock editable
+install; the runner defaults it to `src:/tmp/evogp_etl_patched_51a7141`). The legacy side has no Arm B row
+by design (its frozen records stay the reference), and the only other delta is an explicit
+`EVOGP_EVAL_MODE=auto` on the three plain `iree` ids — both are recorded in each record's `env` block.
+
+| what | Arm B |
+|---|---|
+| runner | `run_all_armB.sh` (`--group iree-spec\|iree\|numpy\|all`, `--only`, `--list`, `--dry-run`) → records into `results/armB/new/` |
+| manifest + record gate | `manifest_armB.txt` (9 ids, each with the `stages` marker), validated by `python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages` |
+| agreement gate | `run_agreement_armB.sh` + `check_agreement_armB.py`: the same six arms plus a HARD same-stem `values_sha256` identity check against Arm A's `results/backend_agreement/` |
+| records + evidence | `results/armB/new/` (the W2 records of record; W1 snapshots retrievable in git at `b728466`) and `results/armB/{backend_agreement/,etl_import_probe.txt,gate_outputs.md,windows.md,armB_runlog_section.md,status_*.txt}` |
+| write-up | `SUMMARY_armB.md` (the R2 / Arm A / W1 / W2 tables, the patched-ETL attribution and both gate results) |
+
+**Materialization caveat.** The patched checkout is not a git checkout and lives outside the repository:
+it is materialized read-only from the `etl` checkout with
+`git -C /mnt/local-ssd/bchuang/etl archive 51a7141 | tar -x -C <dir>` (etl commit `51a7141`, **in flight
+upstream** — not yet on etl `main`), and `/tmp` is session-scoped, so `<dir>` may be gone on a fresh
+session. The shadow is proven per record by the `etl:` header line of every `results/armB/new/<id>.log`
+and by the dated per-file sha256 probes in `results/armB/etl_import_probe.txt`.
+
 ## Methodology carried over from R2 (and why)
 
 * **One process per config.** The engine's `etl.CompileCache` (and the dense evaluator's own
@@ -178,5 +203,8 @@ is the agreement runner's own id → exit-code table (generated, disposable).
 
 Execution order for the round: `run_agreement_r3.sh` (gate 1) → `run_all.sh --group light` →
 `--group iree` → `--group iree-spec` → `check_r3.py --manifest … --require-stages` →
-`compare_rounds.py` → `SUMMARY.md`. The verdict lives in `SUMMARY.md`; the R2 baseline it is read
-against is `../../REPORT.md`.
+`compare_rounds.py` → `SUMMARY.md`; Arm B repeats that chain with its own four tools
+(`run_agreement_armB.sh` → `run_all_armB.sh` → `check_r3.py --manifest .../manifest_armB.txt` →
+`check_agreement_armB.py` → `compare_rounds_armB.py` → `SUMMARY_armB.md`). The verdict lives in
+`SUMMARY.md` (Arm A) / `SUMMARY_armB.md` (Arm B); the R2 baseline they are read against is
+`../../REPORT.md`.

@@ -19,6 +19,19 @@ prior-round artifacts (`legacy/results/r2/C5.json`, `C5b.json`). Analysis of the
 the executed-round operator log: `RUNLOG.md`; the numeric gate that makes the IREE timings quotable:
 `backend_agreement.md`.
 
+Round 3 is executed on top of this protocol (its own copy of the runners, manifests and checkers lives in
+`round3/`): **Arm A** re-measured the R2 headline configs (12 ids — `round3/run_all.sh`,
+`round3/manifest.txt`, `round3/check_r3.py`) and added the `EVOGP_EVAL_MODE=specialized` attribution arm,
+while **Arm B** re-measured the same nine new-side configs under a **patched ETL checkout shadowed onto
+`PYTHONPATH`** (`round3/run_all_armB.sh`, `round3/manifest_armB.txt`, records of record in
+`round3/results/armB/new/`) — it needs the patched checkout materialized read-only outside the repository
+and reachable through `NEW_PYTHONPATH=src:<patched-etl-checkout>`. Both arms are gated by their own
+agreement pre-flights (`round3/run_agreement_r3.sh` + `check_agreement_r3.py`, and
+`round3/run_agreement_armB.sh` + `check_agreement_armB.py`), and both are validated against their own
+manifest by the same stdlib checker. Protocol, config table, commands and exit codes: `round3/README.md`;
+the arm write-ups are `round3/SUMMARY.md` (Arm A) and `round3/SUMMARY_armB.md` (Arm B); the current verdict
+is the "Round 3" section of `../../REPORT.md`.
+
 | file | what it is |
 |---|---|
 | `run_all.sh` | the matrix runner: one `bench_gp.py` process per config, serialized on the shared lock; writes JSON + log per config and an id → exit-code table to `last_run.txt`. |
