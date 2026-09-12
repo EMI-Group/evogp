@@ -18,9 +18,11 @@ semantics of record, and both paths share the same private op emitters by constr
 The specialized engine (`etl_engine.py`, the default and the reference) is per structure:
 
 * **one compile per distinct tree structure** — `etl.build_cached` trace → lower → compile → load,
-  measured ~0.34–1.23 s per tree on IREE at the reference shape (L=32, realized tree lengths median
-  17) and ~10–25 ms on numpy. A fresh random population is a **cold miss per individual** (the bench's
-  pop-1000 reference population held 793 distinct programs).
+  measured ~0.5 s per distinct structure on IREE at the reference shape (L=32, realized tree lengths
+  median 17; firm-up median of 11 direct full-population cells, `dense_bench_findings.md` §2, against
+  0.34–1.23 s per tree in the earlier single-tree samples) and single-digit ms per structure on numpy
+  (the grid's cold columns over 55 / 170 / 793 distinct programs). A fresh random population is a
+  **cold miss per individual** (the bench's pop-1000 reference population held 793 distinct programs).
 * **one Python invocation per tree per pass** — a `pop_size` fitness pass is `pop_size` `build_cached`
   look-ups (each re-encoding its static program and re-deriving its sha256 key) plus `pop_size`
   `etl.run` calls with O(#tokens) static re-validation.
@@ -35,9 +37,12 @@ one dispatch sequence per `evaluate` call, a flat ~0.6–1.6 ms warm cost that b
 shape: **one executable, whole population, one readback per call**, compile amortized over every call
 of the same shape.
 
-Measured consequence (§6): on IREE dense wins every measured configuration (2.7×–163.8× warm
-speed-up); on the numpy reference interpreter it loses at every size (1.1×–~156× slower), which is why
-the default policy never selects it there.
+Measured consequence (§6): on IREE the dense path wins the **cold** phase by orders of magnitude (one
+13–17 s compile for the whole population against the 13–28 per-tree compiles of P=16–32, worth
+4.6–48.6 s in the grid cells), while its **warm** win is modest wherever both sides were measured
+directly (1.3–3.2× at N=64/1024 and 1.18× *slower* at N=10000, P=16). On the numpy reference
+interpreter it loses at every size (0.006–0.91× of the specialized warm throughput), which is why the
+default policy never selects it there.
 
 ---
 
@@ -156,6 +161,7 @@ accepted and still all mapping to the same engine path.
 | --- | --- | --- |
 | `EVOGP_EVAL_MODE` | `auto` | `dense` = always try dense (still falling back on `DenseUnsupported`); `specialized` = never; `auto` = the measured policy. Unknown → `ValueError` |
 | `EVOGP_DENSE_AUTO_MIN_POP` | `16` | `auto`'s `pop_size` threshold on a non-numpy backend (`< 1` → `ValueError`) |
+| `EVOGP_DENSE_AUTO_MAX_ROWS` | `2048` | `auto`'s data-row ceiling for `per_row=False` calls: dense is rows-linear while the specialized engine is rows-flat, so more rows decline inside `evaluate_dense` (→ normal `DenseUnsupported` fallback; `< 1` → `ValueError`). `per_row=True` and an explicit `dense` are never gated |
 | `EVOGP_DENSE_MAX_TREE_LEN` | `32` | trace cap `L`; a longer tree → `DenseUnsupported` (`<= 0` → `ValueError`) |
 | `EVOGP_DENSE_BUDGET_MB` | `2048` | chunking budget in MiB (`<= 0` → `ValueError`) |
 | `EVOGP_DENSE_UPDATE_MODE` | `grow` | `grow` / `concat` / `scatter` (unknown → `ValueError`; iree-`scatter` → `DenseUnsupported`) |
@@ -168,23 +174,36 @@ runs, not part of the cache key).
 
 ### The `auto` policy, exactly
 
-`should_use_dense(pop_size)` resolves `EVOGP_EVAL_MODE`: `specialized` → never dense; `dense` → always
-attempt dense; `auto` → dense **iff** the resolved backend is not `numpy` **and** `pop_size >= 16`
-(`resolve_backend_name` delegates to `etl_engine._resolve_backend`, so explicit `backend=` /
-`iree_device_index=` arguments win over the environment). Consequences:
+`should_use_dense(pop_size, ..., rows=None)` resolves `EVOGP_EVAL_MODE`: `specialized` → never dense;
+`dense` → always attempt dense; `auto` → dense **iff** the resolved backend is not `numpy` **and**
+`pop_size >= EVOGP_DENSE_AUTO_MIN_POP` (16) **and** — when the caller knows the data-row count and
+passes `rows` — `rows <= EVOGP_DENSE_AUTO_MAX_ROWS` (2048) (`auto_rows_decline`, which never declines an
+explicit `dense`/`specialized`). `resolve_backend_name` delegates to `etl_engine._resolve_backend`, so
+explicit `backend=` / `iree_device_index=` arguments win over the environment.
+The wired call sites pass `pop_size` only, so the rows half of the rule is enforced inside
+`evaluate_dense`, where the row count is known — `per_row=False` calls only, which covers
+`sr_fitness_dense` because it routes through `evaluate_dense` too. The decline is reported exactly like
+every other "do not use dense" answer: `DenseUnsupported`, i.e. a normal silent fallback to the
+specialized engine — never an error. Consequences:
 
 * on numpy `auto` **never** uses dense — dense lost at every measured size (0.006–0.91× of the
   specialized warm throughput; the interpreter pays per-op overhead on `(L, P, N)` tensors and the
   graph carries ≈264 ops per traced position, i.e. ≈264·L ops: 2110 at L=8, 9214 at L=32);
-* on iree `auto` uses dense from P=16 up *if* the population is dense-supported; smaller populations,
-  multi-output populations and over-cap trees stay specialized;
+* on iree `auto` uses dense from P=16 up *if* the population is dense-supported **and** the call is
+  either `per_row=True` (one row per tree — never row-gated) or `per_row=False` with at most 2048 data
+  rows; smaller populations, multi-output populations, over-cap trees and larger rows-per-tree
+  workloads stay specialized;
 * a single `Tree` (`pop_size == 1`) is below the threshold, so under `auto` the `Tree` entry points
   stay specialized on every backend unless `EVOGP_EVAL_MODE=dense` is set explicitly;
 * `CombinedForest` sub-forests are single-output populations forwarded through `Forest.forward` /
   `Forest.batch_forward`, so each sub-forest gets the same policy decision as any other population;
-* the threshold is a **flat** `pop_size` gate (it ignores `L` and `N`): at the L=32 cap a dense compile
-  costs 13–17 s against 0.34–1.23 s per distinct tree, so the compile-term crossover alone is ≈11–50
-  trees, and at N=10000 the win narrows from ~164× (N=64) to ~3× (see §6, §9).
+* the threshold is a **flat** `pop_size` gate (it ignores `L`): at the L=32 cap one dense compile costs
+  13–17 s against ~0.5 s per distinct tree, so the compile-term crossover alone is ≈25–35 trees;
+* the rows ceiling is the second half of the measured rule: dense cost grows with the data-row count
+  while the specialized engine's warm cost is rows-flat (1.24–1.94 ms/tree from N=64 to N=10000), so the
+  warm crossover sits at ≈3.4–6.8k rows (P=16), 7.5–8.4k (P=32) and ~11k (P=64) and dense never wins
+  above ~10k rows — the default 2048 is the measured SAFE boundary, ~2× below the tightest crossover
+  (`dense_bench_findings.md` §4–5, §6 below).
 
 ---
 
@@ -237,32 +256,82 @@ engine resolved something at *decode* time that the dense graph resolves at *run
 
 ## 6. Measurements
 
-Source: `dense_bench_results.json` (version 1, recorded at HEAD `65c6617`; the file is unchanged in the
-current tree). Seed 0, `L=32`, reference population with realized tree lengths median 17 / max 31,
-`EVOGP_DENSE_UPDATE_MODE=grow`, GPU 4 RTX A6000, `EVOGP_ETL_BACKEND=iree` / default numpy. Every dense
-cell and every numpy specialized cell is **directly measured** through the public API
-(`Forest.SR_fitness` on CUDA tensors); the iree specialized cells are **model-extrapolated** (below).
-No number in this document was measured for this round.
+Sources: the grid in `dense_bench_results.json` (version 1, seed 0, `L=32`, reference population with
+realized tree lengths median 17 / max 31, `EVOGP_DENSE_UPDATE_MODE=grow`, GPU 4 RTX A6000,
+`EVOGP_ETL_BACKEND=iree` / default numpy) and the **firm-up round** in `dense_bench_findings.md` §1–4,
+which root-caused a ~3× inflation in the grid's specialized-iree model (per-call overhead charged once
+per tree instead of once per population), took direct full-population iree measurements from P=16 to
+P=200 and re-derived the ratios. The numbers quoted here are the firm-up numbers.
 
-### iree-cuda: dense (1 compile per shape) vs specialized (1 compile per distinct tree)
+**Provenance trap:** the grid's per-cell `ratio_warm_spec_over_dense` field still carries the
+pre-firm-up ratio wherever the specialized value was replaced (P=64/N=64: field 16.6× vs re-derived
+5.0×; P=200/N=64: 77.9× vs 31.8×; P=1000/N=64: 163.8× vs 61.7×). Re-derive ratios from
+`dense.warm_ms` / `specialized.warm_ms` / their `status` + `source` fields instead of trusting the
+ratio field or the `measured` label alone.
 
-Warm medians; `spec` = the specialized model; `ratio` = `spec_warm / dense_warm`.
+### iree-cuda: what was measured directly
 
-| P | N | dense cold (1 miss) | dense warm | spec warm (model) | spec compile (model) | ratio |
+Same-process same-forest A/B (`dense_bench.py --stage probe` — the strongest evidence, since both sides
+pay their per-call overhead in the same process):
+
+| config | specialized warm | dense warm | dense vs specialized |
+| --- | --- | --- | --- |
+| P=16, N=64 | 22.64 ms | 15.24 ms | **1.49× faster** |
+| P=16, N=1024 | 22.58 ms | 17.38 ms | **1.30× faster** |
+| P=16, N=10000 | 25.12 ms | 29.51 ms | **1.18× slower** |
+
+Cross-process pairs (direct dense vs direct specialized, one process per population):
+
+| config | specialized warm | dense warm | dense vs specialized |
+| --- | --- | --- | --- |
+| P=16, N=64 | 27.41 ms | 8.86 ms | 3.09× faster |
+| P=16, N=1024 | 21.86 ms | 15.76 ms | 1.39× faster |
+| P=16, N=10000 | 26.97 ms | 31.28 ms | 0.86× (1.16× slower) |
+| P=32, N=64 | 43.90 ms | 13.89 ms | 3.16× faster |
+| P=32, N=1024 | 55.33 ms | 18.52 ms | 2.99× faster |
+
+**Cold phase:** dense pays ONE 13–17 s compile for the whole population against the 13–28 per-tree
+compiles of P=16–32 (4.6–48.6 s in the grid cells, ~0.5 s each: `dense_bench_findings.md` §2) — that
+part of the win is orders of magnitude, and the dense compile is amortized over every later call of the
+same shape signature.
+
+### The "≥10× warm speedup on iree-cuda" headline is NOT supported
+
+Where **both** sides are direct, dense is 1.3–3.2× faster at N=64/1024 and 1.18× *slower* at N=10000
+(P=16); the old 16.6× at P=64/N=64 came from the inflated 3× model. The corrected P=64/N=64 value is
+≈5.0× (79.50 ms recovered direct specialized / 15.96 ms dense) or ≈6.2× (anchored 1.556 ms/tree × 64 =
+99.6 ms) — and even that uses an earlier-grid dense cell. ≥10× survives only as anchored extrapolation
+at large populations, e.g. P=200/N=64 336.9 ms / 10.60 ms ≈ 31.8×, and is not directly measured. The
+honest summary: dense wins the cold phase by orders of magnitude and the warm phase modestly at small N;
+large-pop warm wins require many distinct structures (P≥200), which is plausible from per-tree scaling
+but unverified.
+
+### iree-cuda grid cells (P ≥ 64; dense cells are earlier-grid cells, this round did not re-verify them)
+
+Warm medians; `spec` provenance per cell (`direct` = measured full-population run this round,
+`anchored` = anchored-law extrapolation of it); ratio re-derived as `spec warm / dense warm`.
+
+| P | N | dense cold (1 miss) | dense warm | spec warm | spec source | ratio |
 | --- | --- | --- | --- | --- | --- | --- |
-| 64 | 64 | 13.03 s | 15.96 ms | 264.2 ms | 67.6 s (55 trees) | 16.6× |
-| 64 | 1024 | 16.94 s | 20.17 ms | 218.8 ms | 21.3 s | 10.8× |
-| 64 | 10000 | 13.68 s | 70.58 ms | 238.5 ms | 18.6 s | 3.4× |
-| 200 | 64 | 16.03 s | 10.60 ms | 826.0 ms | 208.8 s (170 trees) | 77.9× |
-| 200 | 1024 | 16.50 s | 34.59 ms | 684.0 ms | 65.9 s | 19.8× |
-| 200 | 10000 | 12.94 s | 302.74 ms | 810.0 ms | 58.2 s | 2.7× |
-| 1000 | 64 | 16.61 s | 25.21 ms | 4129.5 ms | 974.1 s (793 trees) | 163.8× |
-| 1000 | 1024 | 13.81 s | 119.73 ms | 3419.8 ms | 307.5 s | 28.6× |
-| 1000 | 10000 | 14.12 s | 1334.72 ms | 4049.5 ms | 271.6 s | 3.0× |
+| 64 | 64 | 13.03 s | 15.96 ms | 79.50 ms | direct (recovered) | 5.0× |
+| 64 | 1024 | 16.94 s | 20.17 ms | 90.00 ms | direct | 4.5× |
+| 64 | 10000 | 13.68 s | 70.58 ms | 107.90 ms | anchored | 1.5× |
+| 200 | 64 | 16.03 s | 10.60 ms | 336.90 ms | direct | 31.8× |
+| 200 | 1024 | 16.50 s | 34.59 ms | 284.40 ms | anchored | 8.2× |
+| 200 | 10000 | 12.94 s | 302.74 ms | 388.48 ms | direct | 1.3× |
+| 1000 | 64 | 16.61 s | 25.21 ms | 1556.0 ms | anchored (793 trees) | 61.7× |
+| 1000 | 1024 | 13.81 s | 119.73 ms | 1422.0 ms | anchored | 11.9× |
+| 1000 | 10000 | 14.12 s | 1334.72 ms | 1686.0 ms | anchored | 1.3× |
 
-The ≥10× warm win holds up to `N ≈ 1024`; at `N = 10000` dense's per-row slope catches up (warm 1.33 s
-at P=1000) and the win narrows to ~3×. The cold column is a one-time cost per shape signature; the
-specialized compile column is per population and grows with the number of distinct structures.
+Two rows pair a direct specialized run with an earlier-grid dense run (P=64/N=64 → 5.0×, P=200/N=64 →
+31.8×). They are measured, but in *different* processes and rounds whose repeat spread is 30–50%, and
+their dense side was not re-measured with the current harness — that is the boundary of the direct
+evidence, not a re-verified ≥10× claim.
+
+P=1000's specialized side was never run (793 distinct compiles ≈ 400 s plus the etl/iree teardown
+instability), so those ratios are extrapolations; P=32/N=10000 is `skipped_device_memory` (device-memory
+guard, no dense cell). The dense cold column is a one-time cost per shape signature, the specialized
+compile column is per population and grows with the number of distinct structures.
 
 ### numpy (default backend): dense vs specialized, both measured
 
@@ -272,33 +341,34 @@ Warm medians as `dense / spec` (ms), `P` rows × `N` columns:
 | --- | --- | --- | --- |
 | 64 | 105.1 / 31.5 | 647.6 / 35.0 | 5365.3 / 34.4 |
 | 200 | 160.8 / 102.4 | 3704.4 / 105.6 | 14384.5 / 116.9 |
-| 1000 | 548.1 / 500.0 | 8629.0 / 510.0 | 77473.0 / 555.5 |Numpy dense is element-bound (0.008–0.026 ms per `pop × row` element across the grid) and loses at
+| 1000 | 548.1 / 500.0 | 8629.0 / 510.0 | 77473.0 / 555.5 |
+
+Numpy dense is element-bound (0.008–0.026 ms per `pop × row` element across the grid) and loses at
 every measured size — exactly what `auto` encodes. Numpy specialized cold is 260/886/4484 ms at
 P=64/200/1000; the four largest cells (P=64/200/1000 at N=10000 and P=1000 at N=1024) were timed with
-a single repetition (`warmup=0`) because they are slow.
-### How the specialized-iree cells were obtained (model methodology)
+a single repetition (`warmup=0`) because they are slow. These cells were not touched by the firm-up
+round (they were already direct).
 
-One compile per tree is ~1 s and the etl/iree binding segfaults after ~25 live executables per
-process, so a full-population cold run at `P >= 64` is infeasible. `dense_bench.py --stage specialized`
-therefore samples single-tree populations (12 trees, cache cleared per tree) once per `N` and models
-the population as
+### How the remaining cells were obtained (methodology)
 
-    warm_ms(P)    ~= decode_ms(P)   + P * median(per-tree warm run ms)
-    compile_ms(P) ~= #distinct programs * median(per-tree compile ms)
+One compile per tree is ~0.5 s and a full-population cold run at `P >= 64` costs 55–793 compiles, so
+the grid's specialized side used either direct full-population runs (P=16…64 and P=200 at N=64/10000) or
+a **law** fitted to them:
 
-plus one **REAL** end-to-end cross-check at `P=16` (`--stage real`): 4770.7 ms cold (13 distinct
-programs of 16 trees) / 21.5 ms warm, i.e. 1.34 ms of effective per-tree warm cost against the 4.09
-ms/tree sampled at pop 64 (`--spec-sample-pop`) — the model **over-states** the specialized warm cost
-at small populations, so the small-P ratios above are conservative. Sampled per-tree compile medians:
-1.23 s (N=64) / 0.39 s (N=1024) / 0.34 s (N=10000); per-tree warm medians 4.09 / 3.38 / 4.01 ms.
+    warm_ms(P)    ~= decode_ms(P) + P * per_tree_warm(N)     # per_tree: median of the direct cells
+    compile_ms(P) ~= #distinct programs * ~505.8 ms          # median of 11 direct cells
 
-A companion `dense_bench_findings.md` (the ongoing measurement round, written next to
-`dense_bench_results.json`) is expected to firm up these model cells and the harness's memory guards.
-Until it lands: the dense columns and every numpy column are measured, the iree specialized columns
-are the model.
+The earlier single-tree `_sample_model` (one tree per `Forest.SR_fitness` call) is kept in the JSON as
+`model_warm_ms_raw_sample` for audit: it **over-stated** per-tree warm by 2.2–3.0× because every
+single-tree call re-pays the per-call overhead (input staging, upload, readback) that a population pays
+once — decomposed by `--stage probe` into a 1.4–3.1 ms per-call intercept plus a 1.5–1.9 ms per-tree
+slope (`dense_bench_findings.md` §1). Scaling laws from the direct cells (`dense_bench_findings.md` §4):
+specialized is pop-linear and rows-flat (1.24–1.94 ms/tree, independent of N up to 10000), dense is
+pop- and rows-linear (P=16 slope ≈2.2e-3 ms/row over N 64→1024, 1.35e-3 over 1024→10000), which puts the
+warm crossover at ≈3.4–6.8k rows (P=16), 7.5–8.4k (P=32) and ~11k (P=64) — dense never wins above
+roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) encodes (§3, §9).
 
 ---
-
 ## 7. ETL / IREE constraints encountered (and the work-arounds)
 
 * **No runtime tensor slicing.** The runtime `etl.Tensor` has no `__getitem__` (only graph-time
@@ -312,10 +382,13 @@ are the model.
   shape.
 * **`scatter` mutates its input on iree** → `grow` (default) and `concat`, plus the explicit
   `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER` opt-in for experiments.
-* **Executable leak.** The etl/iree binding leaks device buffers per live executable: ~25 compiled
-  executables in one process segfault the interpreter (after nanobind "leaked function/HalBuffer"
-  warnings). Protocol for iree work: keep sessions short, split batteries with `--only` / one family per
-  fresh process, and use `etl_engine.clear_cache()` / `cache_stats()` between stages.
+* **Executable leak (limit corrected by the firm-up round).** The etl/iree binding leaks device buffers
+  per live executable, and the recorded failure mode is a **teardown-only** crash, not a limit on how
+  many executables a run may compile: a P=64 session with 55 builds wrote its correct JSON and only then
+  hit the nanobind teardown traceback, and the P=200 session with 170 builds completed cleanly (a
+  single-family 338-row `dense_adversarial_check` session still SIGSEGVs outright). Protocol for iree
+  work: keep sessions short, split batteries with `--only` / one family per fresh process, and use
+  `etl_engine.clear_cache()` / `cache_stats()` between stages.
 * **Process-local cache.** Nothing persists across processes: a new process re-pays one dense compile
   per shape signature. Long runs of a stable shape amortize it to nothing; short scripts and unit tests
   do not — which is why the suite runs on numpy and `auto` keeps dense off there.
@@ -351,15 +424,23 @@ are the model.
    full 28-candidate chain. Recompiles happen only when the id set changes (it saturates quickly in a GP
    run), and it cuts both the dense compile time (≈264·L ops) and the numpy per-op cost — the first
    follow-up if a round needs the iree crossover moved in.
-2. **Shape-aware selection.** `EVOGP_DENSE_AUTO_MIN_POP` is a flat pop gate while the measured crossover
-   also depends on `L` (compile ∝ L) and `N` (the win shrinks from ~164× at N=64 to ~3× at N=10000); a
-   gate on `(pop_size, L, N)`, or at minimum a rows-aware variant, is the obvious refinement.
-3. **`L > 32` economics.** The trace cap bounds compile time and chunk memory; raising it needs fresh
+2. **The still-open measurements.** Direct dense at P≥64 and every dense ratio above ~5× rest on the
+   earlier grid cells (some `fit(unit-cost)`), so they need a fresh direct pass; P=1000 (793 distinct
+   programs) has never been run on the specialized side, its cells are anchored-law extrapolations; and
+   P=32/N=10000 is `skipped_device_memory` (the harness's 8 GB device guard), i.e. the largest rows case
+   is unmeasured at that pop. Repeat spreads of 30–50% are normal (foreign tenants kept the GPU at
+   39–79% utilization), so single numbers are only comparable within one process — a same-process A/B
+   at P≥64 is what would settle the warm crossover.
+3. **Shape-aware selection.** The rows half of the policy is now implemented
+   (`EVOGP_DENSE_AUTO_MAX_ROWS`, 2048 — ~2× below the tightest measured crossover), but
+   `EVOGP_DENSE_AUTO_MIN_POP` is still a flat pop gate and the crossover also depends on `L`
+   (compile ∝ L); a gate on `(pop_size, L, N)` is the obvious refinement.
+4. **`L > 32` economics.** The trace cap bounds compile time and chunk memory; raising it needs fresh
    measurements (the graph op count is linear in `L`).
-4. **Cross-call caching of the prepared columns and `x`.** A generation re-evaluates a *new* population
+5. **Cross-call caching of the prepared columns and `x`.** A generation re-evaluates a *new* population
    on the *same* `x`, so keeping the device-resident `x` block (and the columns' device copies) across
    calls would remove most of the per-chunk upload cost.
-5. **Blocked writes** (several rows per buffer update) to cut the `L(L+1)/2 · P·N` concatenation
+6. **Blocked writes** (several rows per buffer update) to cut the `L(L+1)/2 · P·N` concatenation
    traffic, and an in-graph fitness reduction (the loss is currently a torch reduction on the assembled
    host result).
 
@@ -371,5 +452,7 @@ are the model.
 * `ENGINE_SPEC.md` §13 (semantics unchanged) and `CONTEXT.md` (routing + operational notes).
 * `dense_spike_check.py` / `dense_integration_check.py` / `dense_adversarial_check.py` — the three
   batteries (engine-level parity + measurements; wiring/fallback; adversarial vs the independent
-  oracle); `dense_bench.py` + `dense_bench_results.json` (+ the expected `dense_bench_findings.md`) —
-  the measurement harness and its recorded grid.
+  oracle); `dense_bench.py` + `dense_bench_results.json` + `dense_bench_findings.md` — the measurement
+  harness, its recorded grid and the firm-up round (root cause of the old model's ~3× warm inflation,
+  the direct full-population iree measurements and the corrected ratios; check `status`/`source` before
+  quoting a cell).
