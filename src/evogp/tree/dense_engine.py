@@ -1,21 +1,66 @@
-"""SPIKE PROTOTYPE: one-graph "dense" population evaluator for the ETL engine.
+"""One-graph "dense" population evaluator for the ETL engine (integrated).
 
-This module is **additive and experimental** (spike round).  It is NOT wired
-into :mod:`evogp.tree.forest` / :mod:`evogp.tree.tree` /
-:mod:`evogp.tree.etl_engine` and nothing imports it by default; callers opt in
-explicitly (or, later, through an env switch -- see "Integration proposal").
-It exists to answer one question with numbers: **can the whole population be
-evaluated by ONE compiled ETL executable fed with the population's node tensors
-as RUNTIME DATA, instead of one compiled graph per tree structure?**
-
-The specialized engine (:mod:`evogp.tree.etl_engine`) compiles one ETL graph per
-*tree structure* and calls it once per tree: a ``pop_size`` fitness pass is
-``pop_size`` ``build_cached`` lookups + ``pop_size`` ``etl.run`` calls +
-``pop_size`` device readbacks (IREE), and a new structure costs a 0.4-2.6 s
-compile there.  The dense prototype compiles ONE graph per *shape signature*
+This module evaluates a whole population with ONE compiled ETL executable fed
+with the population's node tensors as RUNTIME DATA, instead of one compiled
+graph per tree structure.  The specialized engine
+(:mod:`evogp.tree.etl_engine`) compiles one ETL graph per *tree structure* and
+calls it once per tree: a ``pop_size`` fitness pass is ``pop_size``
+``build_cached`` lookups + ``pop_size`` ``etl.run`` calls + ``pop_size`` device
+readbacks (IREE), and a new structure costs a 0.4-2.6 s compile there.  The dense
+path compiles ONE graph per *shape signature*
 ``(L, P, N, input_len, per_row, update_mode, backend, device, options)`` and
 feeds the decoded population through ordinary tensor inputs, so the compile is
 reused across calls, generations and populations of the same shape.
+
+Where the dense path is used (it is wired into the public API)
+--------------------------------------------------------------
+Five call sites try :func:`evaluate_dense` / :func:`sr_fitness_dense` first and
+fall back to the specialized engine; the raw population tensors are already on
+hand there, so the dense path never runs the host decode:
+
+============================= ========================== ===================
+call site                     per_row                    dense entry point
+============================= ========================== ===================
+``Forest.forward``            ``True``                   :func:`evaluate_dense`
+``Forest.batch_forward``      ``False``                  :func:`evaluate_dense`
+``Forest.SR_fitness``         ``False``                  :func:`sr_fitness_dense`
+``Tree.forward``              1-D x -> True, 2-D -> False :func:`evaluate_dense`
+``Tree.SR_fitness``           ``False``                  :func:`sr_fitness_dense`
+============================= ========================== ===================
+
+The **fallback is silent but deliberate**: a :class:`DenseUnsupported` (a
+multi-output population, a tree longer than the trace cap, structural doubt)
+re-runs the very same call on the existing ``decode_population`` +
+``etl_engine.evaluate`` / ``etl_engine.sr_fitness`` path, which owns the error
+contract for malformed trees.  Nothing else is caught -- every other exception
+propagates, and the result contracts are identical either way (fresh, contiguous,
+``requires_grad=False`` float32; SR fitness returns a fresh writable
+``(pop_size,)`` positive-loss tensor).
+
+Strategy switch: ``EVOGP_EVAL_MODE``
+------------------------------------
+One master switch, read **per call** (exactly like ``EVOGP_ETL_BACKEND`` in
+``etl_engine._resolve_backend``), case-insensitive, default ``auto``:
+
+``auto`` (default)
+    the measured policy, implemented once in :func:`should_use_dense`: on the
+    ``numpy`` backend the specialized engine wins at every measured
+    ``pop_size`` (dense measured 0.01-0.17x there), so dense is not used; on the
+    ``iree`` backend dense is used when the population is dense-supported *and*
+    ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP`` (default :data:`DEFAULT_AUTO_MIN_POP`
+    = 16).  Rationale for the threshold: the dense path pays ONE compile for the
+    whole population (~tens of seconds at ``L=32``) against ~0.9 s *per tree* for
+    the specialized path, so at very small ``P`` the specialized path is cheaper;
+    the measured crossover was ``P ~= 10-20`` at small ``L`` and moves out
+    linearly with ``L`` through the dense compile cost.
+``dense``
+    always attempt the dense path (still falling back on
+    :class:`DenseUnsupported`).
+``specialized``
+    never use dense; the specialized engine only.
+
+Any other value raises ``ValueError`` naming the variable.  The dense-specific
+knobs below stay as they are.
 
 Scheme (see :func:`_dense_body` for the trace-time body)
 -------------------------------------------------------
@@ -68,10 +113,10 @@ is safe on every backend, so the row write is emulated:
 ``scatter``
     A full zero buffer written with ``scatter(buf, i, row, axis=0)``.
     **numpy backend only by default**: on iree-cuda ETL's ``scatter`` mutates its
-    input tensor in place (STOP-SHIP finding of the ETL investigation -- a
-    retained input is modified by later invokes), so iree refuses unless
-    :data:`ALLOW_UNSAFE_SCATTER_ENV` is set (the spike script uses it for the
-    optional "is an in-graph-constructed buffer safe?" experiment).
+    input tensor in place (a retained input is modified by later invokes), so
+    iree refuses unless :data:`ALLOW_UNSAFE_SCATTER_ENV` is set
+    (``dense_spike_check.py`` uses it for the optional "is an
+    in-graph-constructed buffer safe?" experiment).
 
 Chunking / peak memory
 ----------------------
@@ -87,22 +132,27 @@ leaf/misc).  ``N`` is shaved first, then ``P``, so that ``peak_bytes <=
 budget`` (:data:`BUDGET_MB_ENV`, default 2048 MB).  This is a *design* target for
 the peak, not a measured RSS.
 
-Environment knobs declared by this round
----------------------------------------
-=============================== ======= ======================================
-``EVOGP_DENSE_MAX_TREE_LEN``    32      max trace length ``L``; longer trees ->
-                                        :class:`DenseUnsupported` (fallback)
-``EVOGP_DENSE_BUDGET_MB``       2048    chunking memory budget (MiB)
-``EVOGP_DENSE_UPDATE_MODE``     grow    ``grow`` / ``concat`` / ``scatter``
-``EVOGP_DENSE_ALLOW_UNSAFE_SCATTER``    unset  permits ``scatter`` on iree
-=============================== ======= ======================================
-Backend/device/opt-level knobs, the shared compile cache
-(:data:`DENSE_CACHE` is the very same :data:`etl_engine.CACHE`) and the
-``ETL_DISABLE_LOCATIONS=1`` tracing speedup are inherited unchanged from
-:mod:`evogp.tree.etl_engine`.
+Environment knobs
+-----------------
+=============================== =========== ==================================
+``EVOGP_EVAL_MODE``             auto        ``dense`` / ``specialized`` / ``auto``
+                                            (the master switch above)
+``EVOGP_DENSE_AUTO_MIN_POP``    16          the ``auto`` policy's pop-size
+                                            threshold on the iree backend
+``EVOGP_DENSE_MAX_TREE_LEN``    32          max trace length ``L``; longer trees
+                                            -> :class:`DenseUnsupported`
+``EVOGP_DENSE_BUDGET_MB``       2048        chunking memory budget (MiB)
+``EVOGP_DENSE_UPDATE_MODE``     grow        ``grow`` / ``concat`` / ``scatter``
+``EVOGP_DENSE_ALLOW_UNSAFE_SCATTER``        unset  permits ``scatter`` on iree
+=============================== =========== ==================================
+Every knob is read per call (see the module's configuration section), so a
+process can change strategy between calls.  Backend/device/opt-level knobs, the
+shared compile cache (:data:`DENSE_CACHE` is the very same
+:data:`etl_engine.CACHE`) and the ``ETL_DISABLE_LOCATIONS=1`` tracing speedup
+are inherited unchanged from :mod:`evogp.tree.etl_engine`.
 
-Parity notes / known numeric deviations (spike findings)
---------------------------------------------------------
+Parity notes / known numeric deviations
+---------------------------------------
 * Function and leaf values go through the identical emission path, so a dense
   value is bit-exact unless the *specialized* engine folded a constant subtree at
   decode time (``etl_engine._decode_row`` -> ``_fold_*``).  A folded chain
@@ -112,37 +162,39 @@ Parity notes / known numeric deviations (spike findings)
   primitive before the float32 rounding -- ``dense_spike_check.py --full``
   searches for such cases and reports every non-bit-exact finite case.
 * ``output_len > 1`` (multi-output trees, OUT_NODE tags, the out-node
-  accumulation protocol) is NOT supported this round: :class:`DenseUnsupported`.
+  accumulation protocol) is NOT supported: :class:`DenseUnsupported`, so such
+  populations go to the specialized engine (which implements the protocol).
+  Note that the combined multi-output container
+  (:class:`evogp.tree.CombinedForest`) is a list of *single-output* sub-forests
+  and forwards through ``Forest.forward`` / ``Forest.batch_forward``, so its
+  sub-forests take the same policy decision as any other population.
 * ``per_row=True`` -> ``(pop_size, output_len)`` and ``per_row=False`` ->
   ``(pop_size, N, output_len)`` follow :func:`etl_engine.evaluate`'s contract
   (fresh, contiguous, ``requires_grad=False``, float32, on ``x``'s device unless
   ``out_device``); :func:`sr_fitness_dense` mirrors
   :func:`etl_engine.sr_fitness` (positive loss ``sum_N sum_out err / N``, MSE or
-  MAE, NaN/inf propagate) with the very same torch reduction ops.
+  MAE, NaN/inf propagate) with the very same torch reduction ops, so identical
+  predictions give identical losses.
 
-Integration proposal (follow-up round; nothing here is wired yet)
-----------------------------------------------------------------
-* Wiring points: ``Forest.batch_forward`` / ``Forest.forward`` (``forest.py``)
-  and ``Tree.forward`` (``tree.py``) would try :func:`evaluate_dense` first and
-  fall back to ``etl_engine.evaluate(decode_population(...))`` on
-  :class:`DenseUnsupported`; ``Forest.SR_fitness`` / ``Tree.SR_fitness``
-  likewise around ``etl_engine.sr_fitness``.  The raw population tensors are
-  already on hand there, so the dense path needs no decode.
-* Env switch semantics: one master switch (``EVOGP_DENSE_ENGINE=off|auto|on``:
-  ``off`` = specialized only, ``auto`` = dense when supported *and* ``L`` fits
-  the cap *and* ``pop_size`` exceeds a measured threshold, ``on`` = dense for
-  everything it supports) plus the knobs above.  ``auto`` needs the measured
-  dense-vs-specialized crossover (``dense_spike_check.py``).
-* The dense graphs live in the same ``etl_engine.CACHE``: one entry per shape
-  signature, so ``etl_engine.cache_stats()`` already reports them and the
-  4096-entry LRU stays cold.
+Shared cache, chunk policy, follow-ups
+--------------------------------------
+* The dense graphs live in the same ``etl_engine.CACHE`` as the specialized
+  ones: one entry per shape signature, so ``etl_engine.cache_stats()`` reports
+  the whole-population dense compile as ONE miss (against ``pop_size`` misses on
+  the specialized path) and a later call of the same shape is a pure hit.
+* **Chunking**: one compile must serve the whole call, so the graph's ``P``/``N``
+  are fixed chunk sizes and the last chunk is padded up to the chunk size
+  (:func:`_chunk_shape`): ``N`` is shaved first, then ``P``, until
+  :func:`dense_peak_bytes` fits ``EVOGP_DENSE_BUDGET_MB``.  One call is therefore
+  ``p_chunks * n_chunks`` executes of a single executable.
 * Follow-ups only if the measurements justify them: cache device-resident prep
   tensors and ``x`` across calls (a generation re-evaluates a NEW population on
   the SAME ``x``); gate the per-position candidate chain by the position's
   possible opcodes; blocked writes (several rows per buffer update) to cut the
   ``L^2`` buffer traffic; an in-graph fitness reduction.
-SPIKE FINDINGS (round 1; measured with ``dense_spike_check.py``)
-----------------------------------------------------------------
+
+Measurements (round-1 battery, re-runnable with ``dense_spike_check.py``)
+-------------------------------------------------------------------------
 Run: repo root, ``PYTHONPATH=src ETL_DISABLE_LOCATIONS=1``, venv
 ``/mnt/local-ssd/bchuang/evox/.venv/bin/python``; GPU 3 via
 ``CUDA_VISIBLE_DEVICES=3`` + ``--gpu 0``.
@@ -169,18 +221,18 @@ Run: repo root, ``PYTHONPATH=src ETL_DISABLE_LOCATIONS=1``, venv
    graph evaluates them with **iree f64** transcendentals, and iree's f64 libm is
    not bit-identical to numpy's. Same class of ~1 ulp difference for
    ``const_out`` trees. All within the 1e-4 tolerance; report it, do not chase it.
-4. **STOP-SHIP: pre-existing ``etl_engine`` bug, iree + ``per_row=True``.**
-   ``etl_engine._run_tree`` (``etl_engine.py:1237-1242``) memoizes the
-   host->device input as ``prepared[0]`` and reuses it for every tree of one
-   ``evaluate`` call. That is right for ``per_row=False`` (same ``xin``) and
-   WRONG for ``per_row=True`` (``xin = xt[index:index+1]``), where every tree
-   silently runs on ``x``'s ROW 0. Minimal repro (2 × ``SUB(var0,var1)``,
-   ``x=[[10,1],[20,2]]``, expected ``[9,18]``): engine numpy ``[9,18]``,
-   engine iree ``[9,9]``, ``evaluate_dense`` iree ``[9,18]``. Reachable through
-   ``Forest.forward`` (``forest.py:117``) and therefore through
-   ``BraxProblem`` / ``MujocoProblem`` rollouts — the exact users of iree.
-   numpy (the default backend) is unaffected. Not fixed here: this round is
-   additive-only.
+4. **Known pre-existing ``etl_engine`` issue, iree + ``per_row=True``** (owned by
+   the specialized engine, tracked/fixed separately; the dense path does not
+   share that code).  ``etl_engine._run_tree`` (``etl_engine.py:1237-1242``)
+   memoizes the host->device input as ``prepared[0]`` and reuses it for every
+   tree of one ``evaluate`` call. That is right for ``per_row=False`` (same
+   ``xin``) and WRONG for ``per_row=True`` (``xin = xt[index:index+1]``), where
+   every tree silently runs on ``x``'s ROW 0. Minimal repro (2 ×
+   ``SUB(var0,var1)``, ``x=[[10,1],[20,2]]``, expected ``[9,18]``): engine numpy
+   ``[9,18]``, engine iree ``[9,9]``, ``evaluate_dense`` iree ``[9,18]``.
+   Reachable through ``Forest.forward`` and therefore through ``BraxProblem`` /
+   ``MujocoProblem`` rollouts -- the exact users of iree.  numpy (the default
+   backend) is unaffected.
 5. **iree runtime robustness.** A long battery (≈25 compiled executables in one
    process) segfaulted the interpreter mid-run, after emitting nanobind
    "leaked function/HalBuffer" warnings — the etl/iree binding leaks device
@@ -203,14 +255,20 @@ Run: repo root, ``PYTHONPATH=src ETL_DISABLE_LOCATIONS=1``, venv
    ``P × 0.89 s`` exceeds one dense compile, i.e. from roughly **P ≳ 10–20 at
    L_trace ≈ 3**, and the crossover moves out linearly with L through the
    dense compile cost. On numpy the same comparison is hopeless at every P.
-7. **Consequence for the integration policy.** Default OFF; the dense path is a
-   *shape-signature-specialized, one-compile-per-population* strategy whose only
-   realistic home is iree (or a future batched-kernel backend), and its worst
-   enemy is the per-position candidate chain. The cheapest large win identified
-   but not implemented in this round: pass the population's *used function id
-   set* (or its descriptor's ``using_funcs``) as a static cfg entry and emit only
-   those candidates — roughly a 3× op-count cut, paid for by recompiles only when
-   the used-id set changes (it saturates quickly in a GP run).
+7. **Consequence for the integration policy** (this is what ``auto`` encodes).
+   The dense path is a *shape-signature-specialized, one-compile-per-population*
+   strategy whose realistic home is iree (or a future batched-kernel backend);
+   its worst enemy is the per-position candidate chain.  So ``auto`` never uses
+   it on numpy and uses it on iree from ``pop_size >= 16`` (the measured
+   ``P ~= 10-20`` crossover at small ``L``, rounded up and made
+   env-overridable through ``EVOGP_DENSE_AUTO_MIN_POP``, with the
+   "is this population dense-supported at all" question left to
+   :class:`DenseUnsupported` + fallback).  The cheapest large win identified but
+   not implemented: pass the population's *used function id set* (or its
+   descriptor's ``using_funcs``) as a static cfg entry and emit only those
+   candidates — roughly a 3× op-count cut, paid for by recompiles only when the
+   used-id set changes (it saturates quickly in a GP run).  That would move the
+   iree crossover down and is the first follow-up if a validation round needs it.
 """
 
 from __future__ import annotations
@@ -225,7 +283,6 @@ import torch
 import etl
 
 from .utils import NType
-from . import etl_engine as _engine
 from .etl_engine import (  # private but deliberately reused: parity by construction
     CACHE,
     _CPU,
@@ -242,13 +299,18 @@ from .etl_engine import (  # private but deliberately reused: parity by construc
 
 __all__ = [
     "ALLOW_UNSAFE_SCATTER_ENV",
+    "AUTO_MIN_POP_ENV",
     "BUDGET_MB_ENV",
-    "DENSE_CACHE",
+    "DEFAULT_AUTO_MIN_POP",
     "DEFAULT_BUDGET_MB",
+    "DEFAULT_EVAL_MODE",
     "DEFAULT_MAX_TREE_LEN",
+    "DENSE_CACHE",
     "DensePlan",
     "DensePrep",
     "DenseUnsupported",
+    "EVAL_MODES",
+    "EVAL_MODE_ENV",
     "MAX_TREE_LEN_ENV",
     "OP_BFUNC",
     "OP_CONST",
@@ -264,6 +326,9 @@ __all__ = [
     "evaluate_dense",
     "plan_dense",
     "prepare_dense",
+    "resolve_backend_name",
+    "resolve_eval_mode",
+    "should_use_dense",
     "sr_fitness_dense",
 ]
 
@@ -271,10 +336,18 @@ __all__ = [
 # configuration
 # ---------------------------------------------------------------------------
 
+#: Master switch (``EVOGP_EVAL_MODE``): ``dense`` / ``specialized`` / ``auto``.
+#: The ONE policy knob; :func:`resolve_eval_mode` / :func:`should_use_dense`
+#: read it per call, exactly like ``etl_engine._resolve_backend`` reads the
+#: backend variable.
+EVAL_MODE_ENV = "EVOGP_EVAL_MODE"
+#: Population-size threshold of the ``auto`` policy on a non-numpy backend
+#: (``EVOGP_DENSE_AUTO_MIN_POP``) -- see :func:`should_use_dense`.
+AUTO_MIN_POP_ENV = "EVOGP_DENSE_AUTO_MIN_POP"
 #: Max trace length ``L`` (``EVOGP_DENSE_MAX_TREE_LEN``): populations whose
 #: longest tree exceeds it fall back to the specialized engine.  This is the
 #: knob that bounds trace time and graph size (the candidate chain is emitted
-#: ``L`` times) -- see the spike report's ``L`` scaling curve.
+#: ``L`` times) -- see the ``L`` scaling curve in the module docstring.
 MAX_TREE_LEN_ENV = "EVOGP_DENSE_MAX_TREE_LEN"
 #: Chunking memory budget in MiB (``EVOGP_DENSE_BUDGET_MB``).
 BUDGET_MB_ENV = "EVOGP_DENSE_BUDGET_MB"
@@ -282,6 +355,13 @@ BUDGET_MB_ENV = "EVOGP_DENSE_BUDGET_MB"
 UPDATE_MODE_ENV = "EVOGP_DENSE_UPDATE_MODE"
 #: Explicit opt-in for ``scatter`` on IREE, where ETL's scatter mutates its input.
 ALLOW_UNSAFE_SCATTER_ENV = "EVOGP_DENSE_ALLOW_UNSAFE_SCATTER"
+
+EVAL_MODES = ("dense", "specialized", "auto")
+DEFAULT_EVAL_MODE = "auto"
+
+#: Crossover measured on iree (specialized's ~0.9 s *per tree* against one dense
+#: compile): ~``P = 10-20`` at small ``L``.  Rounded up; env-overridable.
+DEFAULT_AUTO_MIN_POP = 16
 
 DEFAULT_MAX_TREE_LEN = 32
 DEFAULT_BUDGET_MB = 2048
@@ -345,6 +425,94 @@ def _resolve_budget_mb(value: Optional[float]) -> float:
     if budget <= 0:
         raise ValueError(f"budget_mb={budget} must be positive")
     return budget
+
+
+def resolve_eval_mode(value: Optional[str] = None) -> str:
+    """Resolve the ``EVOGP_EVAL_MODE`` master switch (explicit argument wins).
+
+    Read per call -- like every knob here and like ``etl_engine._resolve_backend``
+    reads ``EVOGP_ETL_BACKEND`` -- so a process can change strategy between calls
+    (e.g. force ``specialized`` to produce a reference result).  Case-insensitive;
+    an empty value means the default ``"auto"``; anything else raises
+    ``ValueError`` naming the variable.
+    """
+    raw = value if value is not None else os.environ.get(EVAL_MODE_ENV, "")
+    mode = str(raw).strip().lower()
+    if not mode:
+        mode = DEFAULT_EVAL_MODE
+    if mode not in EVAL_MODES:
+        raise ValueError(
+            f"unsupported eval mode {mode!r}: evogp.tree.dense_engine supports "
+            f"{list(EVAL_MODES)} (set {EVAL_MODE_ENV!r} or pass eval_mode=); "
+            "'dense' = always try the dense evaluator and fall back on "
+            "DenseUnsupported, 'specialized' = never use it, 'auto' = the "
+            "measured policy"
+        )
+    return mode
+
+
+def resolve_backend_name(
+    backend: Optional[str] = None, iree_device_index: Optional[int] = None
+) -> str:
+    """The backend name a call will run on, resolved the engine's way.
+
+    Single-sources the ``explicit argument > EVOGP_ETL_BACKEND > default`` rule
+    (and the backend-name validation) by delegating to
+    :func:`etl_engine._resolve_backend`; no graph is built, so this is the cheap
+    way to ask "numpy or not?".
+    """
+    return _resolve_backend(backend, iree_device_index)[0]
+
+
+def resolve_auto_min_pop(value: Optional[int] = None) -> int:
+    """Resolve the ``auto`` policy's pop-size threshold (``EVOGP_DENSE_AUTO_MIN_POP``)."""
+    minimum = (
+        _env_int(AUTO_MIN_POP_ENV, DEFAULT_AUTO_MIN_POP)
+        if value is None
+        else int(value)
+    )
+    if minimum < 1:
+        raise ValueError(
+            f"{AUTO_MIN_POP_ENV}={minimum} must be >= 1 (it is a pop_size threshold)"
+        )
+    return minimum
+
+
+def should_use_dense(
+    pop_size: int,
+    *,
+    backend: Optional[str] = None,
+    iree_device_index: Optional[int] = None,
+    eval_mode: Optional[str] = None,
+    auto_min_pop: Optional[int] = None,
+) -> bool:
+    """The ONE policy decision: try the dense evaluator for this population?
+
+    Every wired call site (:meth:`evogp.tree.Forest.forward` /
+    ``Forest.batch_forward`` / ``Forest.SR_fitness``, :meth:`evogp.tree.Tree.forward`
+    / ``Tree.SR_fitness``) asks this, so the policy exists exactly once.
+    ``pop_size`` is the population about to be evaluated (``1`` for a ``Tree``).
+
+    * ``EVOGP_EVAL_MODE=specialized`` -> always ``False`` (never use dense).
+    * ``EVOGP_EVAL_MODE=dense`` -> always ``True``; whether the population can be
+      handled densely at all is answered by :func:`evaluate_dense` /
+      :func:`sr_fitness_dense` raising :class:`DenseUnsupported`, after which the
+      call site falls back.
+    * ``auto`` (default) -- the policy below, one expression: dense only on a
+      non-numpy backend and only from :data:`DEFAULT_AUTO_MIN_POP` (16)
+      individuals up, because on numpy dense measured 0.01-0.17x *slower* than
+      the specialized path at every size, while on iree it pays one compile for
+      the whole population against the specialized path's ~0.9 s of compile
+      *per tree* (measured crossover ~``P = 10-20`` at small ``L``).
+    """
+    mode = resolve_eval_mode(eval_mode)
+    if mode == "specialized":
+        return False
+    if mode == "dense":
+        return True
+    return resolve_backend_name(backend, iree_device_index) != "numpy" and int(
+        pop_size
+    ) >= resolve_auto_min_pop(auto_min_pop)
 
 
 def resolve_update_mode(value: Optional[str], backend_name: Optional[str]) -> str:
@@ -448,7 +616,7 @@ def prepare_dense(
         raise ValueError(f"output_len={output_len} must be positive")
     if output_len != 1:
         raise DenseUnsupported(
-            f"output_len={output_len}: the dense spike implements the "
+            f"output_len={output_len}: the dense evaluator implements the "
             "single-output protocol only"
         )
     values = _as_numpy(batch_node_value, np.float32, "batch_node_value")
@@ -902,10 +1070,10 @@ def plan_dense(
         output_len,
         max_tree_len=max_tree_len,
     )
-    backend_name = (
-        backend if backend else os.environ.get(_engine.BACKEND_ENV, "").strip()
-    )
-    mode = resolve_update_mode(update_mode, backend_name or None)
+    # Same backend-name resolution as the runtime path (single-sourced in
+    # resolve_backend_name, which delegates to etl_engine._resolve_backend).
+    backend_name = resolve_backend_name(backend)
+    mode = resolve_update_mode(update_mode, backend_name)
     budget = _resolve_budget_mb(budget_mb)
     x_rows = int(n_rows) if per_row else max(1, int(n_rows))
     if per_row:
@@ -950,7 +1118,7 @@ def plan_dense(
 
 
 def describe_plan(plan: DensePlan) -> Dict[str, Any]:
-    """Flat, JSON-friendly summary of a plan (used by the spike script)."""
+    """Flat, JSON-friendly summary of a plan (used by dense_spike_check.py)."""
     return {
         "trace_len": plan.trace_len,
         "max_tree_length": plan.prep.max_tree_length,
