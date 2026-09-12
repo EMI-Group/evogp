@@ -1,0 +1,16 @@
+===============================================================================
+R2 config leg_fixture200_n10000  (side=leg group=light)  started 2026-09-12T14:44:55+08:00
+note: legacy: 200-tree fixture x 10000 data rows
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A160   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 3600s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 15, 4
+cmd: timeout -s INT -k 30 3600 env PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils CUDA_VISIBLE_DEVICES=6 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --fixture test/benchmark/fixtures/forest200_tree64_random.npz --data-rows 10000 --eval-reps 11 --tag LEG_FIXTURE200_N10000 --json-out test/benchmark/legacy/results/r2/leg_fixture200_n10000.json
+json: test/benchmark/legacy/results/r2/leg_fixture200_n10000.json
+--- run output ---
+[LEG_FIXTURE200_N10000] harness=bench_gp.py side=old task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=11 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/tmp/evogp_legacy_bench/src/evogp/__init__.py commit=6f773b49bda15667cae31b7f497115ebbfb9d656 etl=0.1.0 json_out=test/benchmark/legacy/results/r2/leg_fixture200_n10000.json
+[LEG_FIXTURE200_N10000] side=old rep0/1: first 19.1ms, warm-median 1.0ms (11 calls)
+[LEG_FIXTURE200_N10000] done side=old interrupted=False harness_wall_s=1.4 json_out=test/benchmark/legacy/results/r2/leg_fixture200_n10000.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 4
+R2 config leg_fixture200_n10000  finished 2026-09-12T14:44:58+08:00

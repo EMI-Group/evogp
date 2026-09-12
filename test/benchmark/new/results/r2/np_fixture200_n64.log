@@ -1,0 +1,18 @@
+===============================================================================
+R2 config np_fixture200_n64  (side=new group=light)  started 2026-09-12T14:45:36+08:00
+note: numpy mirror of leg_fixture200_n64
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A160   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 3600s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 0, 1
+cmd: timeout -s INT -k 30 3600 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --fixture test/benchmark/fixtures/forest200_tree64_random.npz --eval-reps 25 --stage-probe --tag NP_FIXTURE200_N64 --json-out test/benchmark/new/results/r2/np_fixture200_n64.json
+json: test/benchmark/new/results/r2/np_fixture200_n64.json
+--- run output ---
+[NP_FIXTURE200_N64] stage probe stage_probe/1: installed=True partial=False wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness] counters=CACHE.hits/CACHE.misses
+[NP_FIXTURE200_N64] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A160/src/evogp/__init__.py commit=6f773b49bda15667cae31b7f497115ebbfb9d656 etl=0.1.0 json_out=test/benchmark/new/results/r2/np_fixture200_n64.json
+[NP_FIXTURE200_N64] stages[rep0/eval] 25 calls: cold 155 miss 882.3ms / warm 0 miss 0.0ms | decode 183.1 + build-hit 987.9 (4120) + build-miss 882.3 (155) + run 1092.4 (4275) + readback 51.5 (4275) + upload 20.6 + loss 42.2 + misc 15.0 ms cold/warm totals 3275.0ms (h2d 0 / d2h 0)
+[NP_FIXTURE200_N64] side=new rep0/1: first 1009.1ms, warm-median 93.7ms (25 calls)
+[NP_FIXTURE200_N64] done side=new interrupted=False harness_wall_s=3.9 json_out=test/benchmark/new/results/r2/np_fixture200_n64.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 1
+R2 config np_fixture200_n64  finished 2026-09-12T14:45:42+08:00
