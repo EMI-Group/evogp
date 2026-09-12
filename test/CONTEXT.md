@@ -50,6 +50,17 @@ such as `./imgs/...` are cwd-dependent).
 | `combined_test.ipynb` | Multi-output demo written against the removed pre-`data_info` combined API; **cannot run as shipped** (see below). Kept as history with an explanatory banner cell. | yes | no |
 | `sympy_test.ipynb` | 3 pure-sympy cells that build a nested `sp.Pow` expression and render it; no evogp import, no GPU, runs as-is. | no | no |
 
+## Unmerged prior benchmark subtree (`test/benchmark/` — NOT in this checkout)
+A complete, hand-run performance comparison of the legacy CUDA engine vs the current ETL engine was committed on a previous agent wave but never merged.
+It is 24 commits on top of `main`'s `b92abfc`, with the tip at commit `df89238` (still reachable via refs `genesis/agent_823a8aef`, `evogit-agent-T3-A39/A40/A53`; worker refs are pruned as workers finish, so locate it with `git log --all --oneline -- test/benchmark`).
+The subtree has no working-tree presence at HEAD; restore it with `git checkout df89238 -- test/benchmark` (or `git cherry-pick` the commits), or read it read-only from the worktrees `worker_T3_A39/A40/A53` (checked out at `df89238`).
+Contents (97 files): `SPEC.md` (frozen methodology — workloads W1–W3, config matrix C0–C7, JSON schema), `bench_gp.py` (side-agnostic harness driving the real public API on either engine), `new/` (runner `run_matrix.sh`, validator `check_smoke.py`, result JSONs/logs), `legacy/` (old-side driver `run_matrix.py`, `setup_legacy.sh` build recipe, results), `xval/` (cross-validation), `SUMMARY.md`/`README.md` (headline numbers).
+The restored subtree carries its own `CONTEXT.md` with the full routing table.
+Facts for current ETL-side benchmarking work: the harness is the only existing tool that times the real engine end to end (`--task sr|xor|eval64|evalfresh`), wraps every timed region in `torch.cuda.synchronize()`, records `first_call_ms` (cold — per-structure ETL builds) and `median_warm_ms` (cache hits) for repeated `problem.evaluate(forest)` on a fixture forest (`eval64`) or a fresh population of `--pop` trees (`evalfresh`), and writes its JSON atomically after every step.
+It has no pop-size sweep — one `--pop` per process — and a cold measurement requires a fresh process because the engine's `etl.CompileCache` is per-process and cannot be flushed.
+Measured headline (same box, default `"numpy"` backend): per warm generation the legacy engine was ~34× faster on a fixed 64-tree eval (0.604 ms vs 20.8 ms) and ~414×–849× on larger configs; the new engine's headroom is batching/memoizing per-structure builds.
+The old side needs the materialized `b613503` checkout under `/tmp/evogp_legacy_bench` (session-scoped, likely gone); only the NEW-side harness path is reusable today.
+
 ## Legacy goldens (`goldens/`)
 Provenance: the four `.npz` files were captured by `golden_capture.py capture` from the **pre-ETL
 engine** — the hand-written CUDA kernels in the (now deleted) `src/evogp/cuda/`, bound through
