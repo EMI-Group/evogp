@@ -645,3 +645,131 @@ attributable to `iree_sr_a`, to the validator fix, or to the 10 eval configs.
 
 **Commits this section covers:** `cbe4237` (validator `discover()` fix), `e809c1f` (`iree_sr_a` JSON+log),
 `cc12894` (`iree_sr_b2` JSON+log as the crashed record).
+
+---
+## Round 3 (12 configs: legacy + numpy + IREE auto/spec) — 2026-09-12 21:59–22:22 HKT
+**Operator:** the R3 round operators (matrix groups + companion re-run) and the agreement-pre-flight operator.
+**Scope:** `test/benchmark/r2/round3/**` only — the 12 R3 configs (`round3/results/new/<id>.{json,log}`,
+`round3/results/legacy/<id>.{json,log}`), the six agreement arms (`round3/results/backend_agreement/`) and
+this section; no R2 record, no file above `round3/`, no harness/runner/validator/`src/**` file was touched.
+**Method and contract:** `round3/README.md` (scope table, flags, gates, stage-probe caveat) and
+`round3/manifest.txt`; runners `round3/run_all.sh` (matrix) and `round3/run_agreement_r3.sh` (pre-flight).
+Raw evidence stays in the per-config JSONs + logs — a log is append-only, so a re-run adds a dated block, while
+the JSON is the harness's incremental snapshot and holds the latest window. This section is the operator record;
+the verdict and the R2-vs-R3 tables are in `round3/SUMMARY.md` and are not duplicated here.
+### Environment
+| item | value |
+|---|---|
+| repo root (cwd for every command) | repo root of each operator's worktree (every JSON carries its own `cwd`) |
+| interpreter | `/mnt/local-ssd/bchuang/evox/.venv/bin/python` (py3.11, torch 2.6.0+cu124) |
+| GPU | `CUDA_VISIBLE_DEVICES=6` — the runner default, used by the agreement pre-flight and by both first-window matrix groups; the companion re-run used `CUDA_VISIBLE_DEVICES=0`. Recorded per JSON (`gpu.cuda_visible_devices`: `6` for the 6 IREE configs, `0` for the 6 light-group ones). GPU 7 (hardware ECC fault) never touched |
+| foreign tenant / host load | GPU 6 carried ≈22.25–22.55 GB of a foreign tenant throughout the first window (`syfang` video-attention training, pid 2246336): every W1 log's `gpu (before/after)` line reads `6, NVIDIA RTX A6000, 0–100 %, 22 2xx MiB`. Host load average ≈80–93 during W1 and ≈85–103 during the companion window |
+| lock / limits | `/tmp/gpbench_critical.lock` — exactly one `flock -w 7200` per invocation (added by the runner, never nested), `ulimit -n 65536` first, `timeout -s INT -k 30 3600` inside the lock, one `bench_gp.py` process per config; no lock-wait message and no `timeout` kill in any of the 12 configs / 6 arms |
+| engine under test | `new` = `PYTHONPATH=src` (the R3 worktrees; the 12 matrix JSONs record `evogp_commit=49c5197` for the six iree/iree-spec ids and `a848fc2` for the six light-group ones — the agreement records carry no commit field, only backend/opt-level/device), `etl 0.1.0`, backends `numpy` (default) and `iree` (`EVOGP_ETL_IREE_OPT_LEVEL=O1`, `EVOGP_ETL_IREE_DEVICE=0`), plus `EVOGP_EVAL_MODE=specialized` for the three `*_spec` ids; `leg` = the legacy CUDA checkout (`PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils`, `evogp_file=/tmp/evogp_legacy_bench/src/evogp/__init__.py`) |
+| fixtures | `test/goldens/forest_random.npz` (64 trees, sha256 `0bfb0bbf…9ca0`) and `test/benchmark/fixtures/forest200_tree64_random.npz` (200 trees, sha256 `6789ef61…41b9`) present → no GUARD-SKIP |
+| FD limit | `nofile_rlimit = [65536, 65536]` in every matrix JSON (the runner's `ulimit -n 65536`) |
+### Commands (exact)
+```bash
+# gate 1 / pre-flight: six arms (numpy / iree auto / iree specialized × 64-tree and 200-tree fixture)
+bash test/benchmark/r2/round3/run_agreement_r3.sh
+# matrix, one bench_gp.py process per config, group by group
+bash test/benchmark/r2/round3/run_all.sh --group light
+bash test/benchmark/r2/round3/run_all.sh --group iree
+bash test/benchmark/r2/round3/run_all.sh --group iree-spec
+# companion re-run of the light group on the tenant-free GPU 0 (GPU 6 still occupied)
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all.sh --only leg_c5r2
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all.sh --only leg_fixture200_n64,leg_sr_a,np_c5r2,np_fixture200_n64,np_sr_a
+# gates + the comparison tool (no GPU)
+python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest.txt --require-stages
+python3 test/benchmark/r2/round3/check_agreement_r3.py
+python3 test/benchmark/r2/round3/compare_rounds.py
+```
+### Per-config status (12/12 exit 0, `complete=true`, `partial=false`, no `skipped`, no `skip_reason`)
+`first_ms` / `warm_ms` follow the conventions at the top of this file; for `sr` ids `warm_ms` is the per-rep
+median of `per_gen_ms[1:]` as `rep0 / rep1`. The committed JSONs hold the latest window: the companion one for
+the six light-group ids (`0 (W2)`), the first one for the six IREE ids (`6 (W1)`).
+| id | side | group | window | first_ms | warm_ms |
+|---|---|---|---|---|---|
+| `leg_c5r2` | leg | light | 0 (W2) | 26.49 | 0.6323 |
+| `leg_fixture200_n64` | leg | light | 0 (W2) | 23.90 | 0.6357 |
+| `leg_sr_a` | leg | light | 0 (W2) | 595.29 | 1.8007 / 1.5847 |
+| `np_c5r2` | new | light | 0 (W2) | 207.47 | 23.2933 |
+| `np_fixture200_n64` | new | light | 0 (W2) | 1371.43 | 117.6118 |
+| `np_sr_a` | new | light | 0 (W2) | 1641.86 | 117.3345 / 30.7815 |
+| `iree_fixture64_n64` | new | iree (auto) | 6 (W1) | 13640.33 | 10.6442 |
+| `iree_fixture200_n64` | new | iree (auto) | 6 (W1) | 13207.38 | 10.4976 |
+| `iree_sr_a` | new | iree (auto) | 6 (W1) | 16551.84 | 138.2627 / 38.3892 |
+| `iree_fixture64_n64_spec` | new | iree-spec | 6 (W1) | 31485.90 | 67.8688 |
+| `iree_fixture200_n64_spec` | new | iree-spec | 6 (W1) | 137474.89 | 228.5165 |
+| `iree_sr_a_spec` | new | iree-spec | 6 (W1) | 142445.25 | 14741.3184 / 64.6597 |
+### Gate outputs (verbatim key lines)
+```bash
+python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest.txt --require-stages   # exit 0
+#   -> 12 record(s): 12 complete, 0 partial, 0 skipped, 0 missing, 0 malformed (0 not in the manifest)
+#      45 check(s), 0 failure(s)
+python3 test/benchmark/r2/round3/check_agreement_r3.py                                                           # exit 0
+#   -> gate: PASS  (32 check(s), 0 failure(s))
+#      fixture64 : numpy vs iree PASS (max|diff|=7.62939e-06, max rel 1.08241e-07); numpy vs iree_spec PASS (bit-identical); nan=3 inf=0
+#      fixture200: numpy vs iree PASS (max|diff|=0.00390625, max rel 2.02762e-07); numpy vs iree_spec PASS (bit-identical); nan=12 inf=0
+#      continuity vs the R2 anchors is INFO only: the dense-default `iree` arm reproduces the R2 anchor bitwise, the specialized route differs by <=2.03e-07 rel
+```
+`results/backend_agreement/run_agreement_r3.last_run.txt` adds the pre-flight's own arm→exit-code table
+(`ok=6 skipped=0 failed=0`, invocation 2026-09-12T22:12:14+08:00).
+### Light group across the three windows (the round's only re-measured ids)
+The R2 column is the untouched R2 record (`../legacy/results/r2/<id>.json` / `../new/results/r2/<id>.json`),
+W1 is the first window (JSON snapshots in commit `a848fc2`), W2 is the companion window (the values in the
+committed JSONs); `warm_ms` per the convention above.
+| id | R2 | W1 (GPU 6) | W2 (GPU 0) |
+|---|---|---|---|
+| `leg_c5r2` | 0.6327 | 1.9300 | **0.6323** |
+| `leg_fixture200_n64` | 0.6319 | 1.9667 | **0.6357** |
+| `leg_sr_a` | 1.6166 / 1.5883 | 1.679 / 1.726 | 1.8007 / 1.5847 |
+| `np_c5r2` | 21.0563 | 20.5844 | 23.2933 |
+| `np_fixture200_n64` | 93.6742 | 95.0055 | 117.6118 |
+| `np_sr_a` | 84.0937 / 22.0696 | 142.442 / 42.753 | 117.3345 / 30.7815 |
+### Wall clock
+| phase | wall |
+|---|---|
+| agreement pre-flight (six arms) | 21:59:46 → 22:12:13 |
+| `--group iree` (3 configs, alternating with the spec group on the shared lock) | 21:59:56 → 22:10:34 |
+| `--group iree-spec` (3 configs) | 21:59:20 → 22:08:31 |
+| `--group light`, first window | 22:03:18 → 22:12:27 |
+| companion re-run, `--only leg_c5r2` | 22:20:53 → 22:20:55 |
+| companion re-run, the other five ids | 22:21:04 → 22:21:32 |
+### Deviations / anomalies
+* **W1 contention inflated the launch-bound ids ≈3×** — `leg_c5r2` 1.93 ms vs R2 0.6327, `leg_fixture200_n64`
+  1.9667 vs 0.6319 — and `np_sr_a` by ≈1.7–1.9× (142.442 / 42.753 vs R2 84.0937 / 22.0696), with GPU 6 holding
+  the ≈22 GB foreign tenant and the host load average at ≈80–93 for the whole window.
+* **The W2 companion re-run recovered the legacy anchor exactly**: same tree, flags and seed on the tenant-free
+  GPU 0 give 0.6323 / 0.6357 ms vs R2 0.6327 / 0.6319 (≤ 0.6 %). The numpy ids kept a residual shared-host noise
+  band (`np_sr_a` 117.33 / 30.78 = 1.40× R2, `np_c5r2` 23.29 vs 21.06, `np_fixture200_n64` 117.61 vs 93.67), and
+  the fresh `np_c5r2` / `np_fixture200_n64` values are slightly worse than their own W1 ones (20.58 / 95.01).
+  Both windows stay in the append-only logs; the W1 JSON snapshots only in commit `a848fc2`.
+* **The stage probe is degenerate on the dense route** (documented limitation in `round3/README.md`): the
+  auto-route eval arms report `build_miss 0.0 ms` and a `misc`-dominated total (e.g. `iree_fixture64_n64` rep0:
+  `run 97.3` + `misc 14400.7` ms), because `stage_probe.py` instruments the specialized call sites only. The
+  numpy light-group arms stay fully instrumented (`np_c5r2` 48 cold builds / 796.8 ms total;
+  `np_fixture200_n64` 155 / 4212.3; `np_sr_a` 155 cold + 362 warm misses / 3368.9). No gate reads the block.
+* **`iree_sr_a` took a mixed route**: only gens 1–2 of each rep registered instrumented specialized calls (127
+  and 102 build calls — 33184 / 34462 ms in rep0, 190.6 / 265.6 ms in rep1), every other generation shows
+  `calls=0` (dense route, uninstrumented); `iree_sr_a_spec` is instrumented for all 10 generations of both reps
+  (155 cold + 362 warm misses).
+* **FD telemetry:** `fds.end` = 6491 / 6491 / 9723 on the three auto-route ids vs 2395 / 5819 / 17243 on the
+  three `_spec` ids (the R2 per-structure rate of ≈32–33 fds per compiled structure, `after_cold` 347 vs
+  1627 / 5051 / 5051) — all far below the 65536 limit, none near it.
+* **No crash, no partial, no timeout:** 12/12 configs and 6/6 arms exit 0 with `complete=true`; the R2
+  `iree_sr_b2` SIGSEGV failure mode (pop 1000 / tree 128) was out of R3 scope and did not occur.
+* **nanobind teardown noise** (`nanobind: leaked …`, e.g. 877 instances / 876 keep_alive records / 5 types in
+  `iree_fixture64_n64`) appears in every IREE log after the JSON is written — pre-existing binding-teardown
+  noise, exit code 0, no measured number affected.
+* **Workload identity with R2 holds at the counters**: `np_c5r2` 48 cold builds, `np_fixture200_n64` 155,
+  `np_sr_a` 155 cold + 362 warm misses, `trees_invoked` 1325/1600, 4275/5000 and 632/2000 — all identical to the
+  R2 mirrors — and the SR trajectories are unchanged (new side `-0.2510969936847687` on every generation, legacy
+  `-0.2257394939661026` final, in both windows).
+* `round3/last_run.txt` (the runner's id→exit-code table) is generated and `.gitignore`d; only the pre-flight's
+  own `run_agreement_r3.last_run.txt` is committed as evidence.
+**Analysis of record:** `round3/SUMMARY.md` — the verdict, the R2-vs-R3 tables from `compare_rounds.py`, both
+gates and the round's caveats; the R2 baseline they are read against stays `../REPORT.md`.
+**Commits this section covers:** `49c5197` (R3 scaffold), `988524c` (six agreement arms), `123191d` (iree-spec
+records), `9e1c8af` (auto-iree records), `c1b9bbc` (light-group W1 records), `a848fc2` (merge carrying the W1
+snapshots), `d38ada7` (W2 companion re-run).

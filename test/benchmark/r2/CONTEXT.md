@@ -26,4 +26,4 @@ What this node hands to a later round is a *method* (config table, lock/`ulimit`
 ## Status
 R2 is complete as records (35/35 manifest ids on disk: 34 complete plus the `iree_sr_b2` crash skeleton) and validated (`check_r2.py --manifest` → 126 checks / 0 failures).
 Analysis and the headline verdict live in `../REPORT.md`; the executed-round narrative is `RUNLOG.md`.
-`round3/` is scaffolded (runner, manifest, validators, agreement pre-flight runner, comparison tool, README) with its round execution pending.
+`round3/` is executed: 12/12 config records are committed under `round3/results/{new,legacy}/` with both gates green (`check_r3.py --manifest test/benchmark/r2/round3/manifest.txt --require-stages` → 45 checks / 0 failures; `check_agreement_r3.py` → PASS, 32 checks), its write-up is `round3/SUMMARY.md`, and its light group (`leg_*` + `np_*`) is the companion re-measurement window on GPU 0 taken after the round's first window was contended by a foreign tenant on GPU 6.
