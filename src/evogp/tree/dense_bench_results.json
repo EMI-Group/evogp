@@ -105,12 +105,12 @@
       "rows": 10000,
       "seed": 0,
       "specialized": {
-        "compile_ms": 271561.264,
+        "compile_ms": 401061.1,
         "decode_ms": 38.49,
         "distinct_programs": 793,
-        "model_compile_ms": 271561.264,
-        "model_warm_ms": 4049.49,
-        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population",
+        "model_compile_ms": 401061.1,
+        "model_warm_ms": 1686.0,
+        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population | FIRM-UP: warm_ms is the ANCHORED law (direct P16-P200 full-population per-tree times), not the raw single-tree sample model (kept as model_warm_ms_raw_sample).",
         "sample": {
           "cache_misses_per_tree": [
             1,
@@ -175,9 +175,34 @@
           "sample_pop": 64,
           "sample_size": 12
         },
-        "source": "per-tree sample x pop_size",
-        "status": "extrapolated",
-        "warm_ms": 4049.49
+        "source": "anchored law: per-tree warm = median of the direct full-population measurements at N=10000 (3 pops P16-P200); spread 1.541-1.942 ms/tree",
+        "status": "extrapolated(anchored law)",
+        "warm_ms": 1686.0,
+        "per_tree_warm_ms_anchored": 1.686,
+        "per_tree_warm_ms_raw_sample": 4.011,
+        "model_warm_ms_raw_sample": 4049.49,
+        "model_compile_ms_raw_sample": 271561.264,
+        "anchor_law": {
+          "per_tree_warm_ms": 1.686,
+          "rows": 10000,
+          "direct_points": [
+            [
+              16,
+              1.686
+            ],
+            [
+              24,
+              1.541
+            ],
+            [
+              200,
+              1.942
+            ]
+          ],
+          "compile_ms_per_program_from": 505.8,
+          "uncertainty": "+/-17% (P16-P200 spread of direct per-tree times)",
+          "not_directly_measured": "1000 distinct compiles at this pop; the value is a law extrapolation"
+        }
       },
       "tree_lengths": {
         "max": 31,
@@ -300,12 +325,12 @@
       "rows": 1024,
       "seed": 0,
       "specialized": {
-        "compile_ms": 307450.065,
+        "compile_ms": 401061.1,
         "decode_ms": 38.776,
         "distinct_programs": 793,
-        "model_compile_ms": 307450.065,
-        "model_warm_ms": 3419.776,
-        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population",
+        "model_compile_ms": 401061.1,
+        "model_warm_ms": 1422.0,
+        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population | FIRM-UP: warm_ms is the ANCHORED law (direct P16-P200 full-population per-tree times), not the raw single-tree sample model (kept as model_warm_ms_raw_sample).",
         "sample": {
           "cache_misses_per_tree": [
             1,
@@ -370,9 +395,38 @@
           "sample_pop": 64,
           "sample_size": 12
         },
-        "source": "per-tree sample x pop_size",
-        "status": "extrapolated",
-        "warm_ms": 3419.776
+        "source": "anchored law: per-tree warm = median of the direct full-population measurements at N=1024 (4 pops P16-P64); spread 1.366-1.729 ms/tree",
+        "status": "extrapolated(anchored law)",
+        "warm_ms": 1422.0,
+        "per_tree_warm_ms_anchored": 1.422,
+        "per_tree_warm_ms_raw_sample": 3.381,
+        "model_warm_ms_raw_sample": 3419.776,
+        "model_compile_ms_raw_sample": 307450.065,
+        "anchor_law": {
+          "per_tree_warm_ms": 1.422,
+          "rows": 1024,
+          "direct_points": [
+            [
+              16,
+              1.366
+            ],
+            [
+              24,
+              1.438
+            ],
+            [
+              32,
+              1.729
+            ],
+            [
+              64,
+              1.406
+            ]
+          ],
+          "compile_ms_per_program_from": 505.8,
+          "uncertainty": "+/-17% (P16-P200 spread of direct per-tree times)",
+          "not_directly_measured": "1000 distinct compiles at this pop; the value is a law extrapolation"
+        }
       },
       "tree_lengths": {
         "max": 31,
@@ -485,12 +539,12 @@
       "rows": 64,
       "seed": 0,
       "specialized": {
-        "compile_ms": 974142.611,
+        "compile_ms": 401061.1,
         "decode_ms": 39.464,
         "distinct_programs": 793,
-        "model_compile_ms": 974142.611,
-        "model_warm_ms": 4129.464,
-        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population",
+        "model_compile_ms": 401061.1,
+        "model_warm_ms": 1556.0,
+        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population | FIRM-UP: warm_ms is the ANCHORED law (direct P16-P200 full-population per-tree times), not the raw single-tree sample model (kept as model_warm_ms_raw_sample).",
         "sample": {
           "cache_misses_per_tree": [
             1,
@@ -555,9 +609,38 @@
           "sample_pop": 64,
           "sample_size": 12
         },
-        "source": "per-tree sample x pop_size",
-        "status": "extrapolated",
-        "warm_ms": 4129.464
+        "source": "anchored law: per-tree warm = median of the direct full-population measurements at N=64 (4 pops P16-P200); spread 1.372-1.713 ms/tree",
+        "status": "extrapolated(anchored law)",
+        "warm_ms": 1556.0,
+        "per_tree_warm_ms_anchored": 1.556,
+        "per_tree_warm_ms_raw_sample": 4.09,
+        "model_warm_ms_raw_sample": 4129.464,
+        "model_compile_ms_raw_sample": 974142.611,
+        "anchor_law": {
+          "per_tree_warm_ms": 1.556,
+          "rows": 64,
+          "direct_points": [
+            [
+              16,
+              1.713
+            ],
+            [
+              24,
+              1.428
+            ],
+            [
+              32,
+              1.372
+            ],
+            [
+              200,
+              1.684
+            ]
+          ],
+          "compile_ms_per_program_from": 505.8,
+          "uncertainty": "+/-17% (P16-P200 spread of direct per-tree times)",
+          "not_directly_measured": "1000 distinct compiles at this pop; the value is a law extrapolation"
+        }
       },
       "tree_lengths": {
         "max": 31,
@@ -1326,12 +1409,12 @@
       "rows": 1024,
       "seed": 0,
       "specialized": {
-        "compile_ms": 65909.85,
+        "compile_ms": 85977.8,
         "decode_ms": 7.814,
         "distinct_programs": 170,
-        "model_compile_ms": 65909.85,
-        "model_warm_ms": 684.014,
-        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population",
+        "model_compile_ms": 85977.8,
+        "model_warm_ms": 284.4,
+        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population | FIRM-UP: warm_ms is the ANCHORED law (direct P16-P200 full-population per-tree times), not the raw single-tree sample model (kept as model_warm_ms_raw_sample).",
         "sample": {
           "cache_misses_per_tree": [
             1,
@@ -1396,9 +1479,38 @@
           "sample_pop": 64,
           "sample_size": 12
         },
-        "source": "per-tree sample x pop_size",
-        "status": "extrapolated",
-        "warm_ms": 684.014
+        "source": "anchored law: per-tree warm = median of the direct full-population measurements at N=1024 (4 pops P16-P64); spread 1.366-1.729 ms/tree",
+        "status": "extrapolated(anchored law)",
+        "warm_ms": 284.4,
+        "per_tree_warm_ms_anchored": 1.422,
+        "per_tree_warm_ms_raw_sample": 3.381,
+        "model_warm_ms_raw_sample": 684.014,
+        "model_compile_ms_raw_sample": 65909.85,
+        "anchor_law": {
+          "per_tree_warm_ms": 1.422,
+          "rows": 1024,
+          "direct_points": [
+            [
+              16,
+              1.366
+            ],
+            [
+              24,
+              1.438
+            ],
+            [
+              32,
+              1.729
+            ],
+            [
+              64,
+              1.406
+            ]
+          ],
+          "compile_ms_per_program_from": 505.8,
+          "uncertainty": "+/-17% (P16-P200 spread of direct per-tree times)",
+          "not_directly_measured": "200 distinct compiles at this pop; the value is a law extrapolation"
+        }
       },
       "tree_lengths": {
         "max": 31,
@@ -2269,12 +2381,12 @@
       "rows": 10000,
       "seed": 0,
       "specialized": {
-        "compile_ms": 18595.005,
+        "compile_ms": 27816.3,
         "decode_ms": 2.418,
         "distinct_programs": 55,
-        "model_compile_ms": 18595.005,
-        "model_warm_ms": 238.514,
-        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population",
+        "model_compile_ms": 27816.3,
+        "model_warm_ms": 107.904,
+        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population | FIRM-UP: warm_ms is the ANCHORED law (direct P16-P200 full-population per-tree times), not the raw single-tree sample model (kept as model_warm_ms_raw_sample).",
         "sample": {
           "cache_misses_per_tree": [
             1,
@@ -2339,9 +2451,34 @@
           "sample_pop": 64,
           "sample_size": 12
         },
-        "source": "per-tree sample x pop_size",
-        "status": "extrapolated",
-        "warm_ms": 238.514
+        "source": "anchored law: per-tree warm = median of the direct full-population measurements at N=10000 (3 pops P16-P200); spread 1.541-1.942 ms/tree",
+        "status": "extrapolated(anchored law)",
+        "warm_ms": 107.904,
+        "per_tree_warm_ms_anchored": 1.686,
+        "per_tree_warm_ms_raw_sample": 3.689,
+        "model_warm_ms_raw_sample": 238.514,
+        "model_compile_ms_raw_sample": 18595.005,
+        "anchor_law": {
+          "per_tree_warm_ms": 1.686,
+          "rows": 10000,
+          "direct_points": [
+            [
+              16,
+              1.686
+            ],
+            [
+              24,
+              1.541
+            ],
+            [
+              200,
+              1.942
+            ]
+          ],
+          "compile_ms_per_program_from": 505.8,
+          "uncertainty": "+/-17% (P16-P200 spread of direct per-tree times)",
+          "not_directly_measured": "64 distinct compiles at this pop; the value is a law extrapolation"
+        }
       },
       "tree_lengths": {
         "max": 31,
@@ -2714,79 +2851,25 @@
       "rows": 64,
       "seed": 0,
       "specialized": {
-        "compile_ms": 67563.485,
-        "decode_ms": 2.458,
+        "status": "measured",
+        "source": "measured(full population, recovered)",
+        "cold_ms": 22103.8,
+        "warm_ms": 79.504,
+        "compile_ms": 22024.3,
+        "cache_misses": 55,
+        "warm_repeats": 3,
+        "finite_fraction": 1.0,
         "distinct_programs": 55,
-        "model_compile_ms": 67563.485,
-        "model_warm_ms": 264.218,
-        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population",
-        "sample": {
-          "cache_misses_per_tree": [
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            0,
-            1,
-            1,
-            1,
-            1,
-            1
-          ],
-          "decode_ms": 2.458,
-          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
-          "per_tree_compile_ms_all": [
-            2048.353,
-            2585.443,
-            1864.807,
-            2594.427,
-            927.024,
-            1150.32,
-            0.469,
-            1254.534,
-            934.978,
-            1202.32,
-            1123.199,
-            2219.592
-          ],
-          "per_tree_compile_ms_median": 1228.427,
-          "per_tree_warm_ms_all": [
-            4.736,
-            4.055,
-            3.236,
-            3.573,
-            4.052,
-            4.361,
-            0.343,
-            4.475,
-            4.015,
-            4.454,
-            4.337,
-            4.126
-          ],
-          "per_tree_warm_ms_median": 4.09,
-          "sample_indices": [
-            0,
-            6,
-            11,
-            17,
-            23,
-            29,
-            34,
-            40,
-            46,
-            52,
-            57,
-            63
-          ],
-          "sample_pop": 64,
-          "sample_size": 12
+        "per_tree_warm_ms_effective": 1.242,
+        "provenance": "direct --stage real --spec-real-pop 64 N=64 run in this session (55 iree builds; the process died with the nanobind teardown reference-counting traceback AFTER store(), so the JSON it wrote was then overwritten by a later --stage specialized pass before the anchored-model fix landed; the numbers are recovered from the run log)",
+        "model_anchored_law": {
+          "status": "extrapolated(anchored law)",
+          "warm_ms": 99.584,
+          "compile_ms": 27816.3,
+          "source": "anchored law: per-tree warm = median of the direct full-population measurements at N=64 (4 pops P16-P200); spread 1.372-1.713 ms/tree",
+          "per_tree_warm_ms_anchored": 1.556
         },
-        "source": "per-tree sample x pop_size",
-        "status": "extrapolated",
-        "warm_ms": 264.218
+        "model_over_direct_warm": 1.253
       },
       "tree_lengths": {
         "max": 31,
