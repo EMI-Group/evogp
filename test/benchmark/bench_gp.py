@@ -31,6 +31,38 @@ Environment contract (set *before* importing evogp, as the SPEC requires):
 ``EVOGP_ETL_BACKEND`` / ``EVOGP_ETL_IREE_DEVICE`` / ``EVOGP_ETL_IREE_OPT_LEVEL``
 are read by the new engine only and are simply inert on the old one.
 
+R2 additions -- every one of them is opt-in; with none of them passed the CLI,
+the code path and the JSON keys are exactly the pre-R2 ones plus additive keys::
+
+    --backend {default,numpy,iree}   ``default`` (default value) sets nothing;
+                                     ``numpy``/``iree`` set ``EVOGP_ETL_BACKEND``
+                                     (and the two IREE settings) in ``apply_env``,
+                                     i.e. *before* evogp is imported
+    --iree-device I                  ``EVOGP_ETL_IREE_DEVICE`` (default 0)
+    --iree-opt-level {O0,O1}         ``EVOGP_ETL_IREE_OPT_LEVEL`` (default O1)
+    --data-rows N                    eval64 only: tile the fixture ``x``/``labels``
+                                     up to N rows (N == the fixture row count is a
+                                     byte-identical no-op, so prior C5 stays
+                                     reproducible); ignored (with a warning) by any
+                                     other task
+    --mem-guard-mb M                 default 8192: before any heavy step, compare M
+                                     with the free device memory reported by
+                                     ``torch.cuda.mem_get_info()``
+    --max-cold-builds N              default 300: stop when the cumulative ETL
+                                     compile misses exceed N -- enforced only on the
+                                     NEW side with ``--backend iree`` (a numpy run
+                                     compiles no GPU program per structure and the
+                                     legacy engine has no ``etl_engine`` module, so
+                                     both are exempt)
+    --allow-cold-builds              disable that guard
+
+Both guards stop *cleanly*: the JSON is written with ``skipped: true``,
+``skip_reason`` set and ``complete: true``, the completed steps are kept
+(``partial: true`` for the cold-build guard) and the process exits 3.
+
+Exit codes: ``0`` = complete, ``3`` = skipped / stopped by a guard, ``130`` =
+interrupted (``KeyboardInterrupt``), ``1`` = crash (the traceback is deliberately
+left uncaught so the failure stays diagnosable).
 The fixture (``--fixture``, default ``test/goldens/forest_random.npz`` relative to
 the cwd) is only read by ``eval64``/``evalfresh``.  The legacy ``b613503`` checkout
 has no ``test/goldens/``, so the old side must pass ``--fixture <absolute path>``.
@@ -178,10 +210,58 @@ def parse_args(argv=None):
         help="force ETL_DISABLE_LOCATIONS=0 (verbose ETL call-site capture)",
     )
     parser.add_argument(
+        "--backend",
+        choices=("default", "numpy", "iree"),
+        default="default",
+        help="ETL backend for the NEW engine: 'default' (default) leaves the environment "
+        "alone; 'numpy'/'iree' export EVOGP_ETL_BACKEND (plus the IREE settings) before "
+        "evogp is imported.  Inert on the old side",
+    )
+    parser.add_argument(
+        "--iree-device",
+        type=int,
+        default=0,
+        help="IREE device index -> EVOGP_ETL_IREE_DEVICE (only meaningful with --backend iree)",
+    )
+    parser.add_argument(
+        "--iree-opt-level",
+        choices=("O0", "O1"),
+        default="O1",
+        help="IREE optimization level -> EVOGP_ETL_IREE_OPT_LEVEL (only with --backend iree)",
+    )
+    parser.add_argument(
+        "--data-rows",
+        type=int,
+        default=None,
+        help="eval64 only: tile the fixture x/labels up to N rows (np.tile + slice, "
+        "contiguous copy); N equal to the fixture row count is a no-op.  Ignored by "
+        "the other tasks",
+    )
+    parser.add_argument(
+        "--mem-guard-mb",
+        type=int,
+        default=8192,
+        help="stop cleanly (exit 3) before any heavy step when the device free memory "
+        "reported by torch.cuda.mem_get_info() is below M MiB (default: 8192)",
+    )
+    parser.add_argument(
+        "--max-cold-builds",
+        type=int,
+        default=300,
+        help="stop cleanly (exit 3) when the cumulative ETL compile misses "
+        "(etl_engine.cache_stats()['misses']) exceed N (default: 300); enforced only on "
+        "the NEW side with --backend iree",
+    )
+    parser.add_argument(
+        "--allow-cold-builds",
+        action="store_true",
+        help="disable the --max-cold-builds guard (a new-side iree run is otherwise "
+        "capped at --max-cold-builds)",
+    )
+    parser.add_argument(
         "--max-wall-s",
         type=float,
-        default=None,
-        help="soft wall-clock cap per rep, checked after every generation",
+        default=None,        help="soft wall-clock cap per rep, checked after every generation",
     )
     parser.add_argument(
         "--min-gens",
@@ -202,6 +282,12 @@ def parse_args(argv=None):
         parser.error("--reps must be >= 1")
     if args.min_gens < 0:
         parser.error("--min-gens must be >= 0")
+    if args.mem_guard_mb < 0:
+        parser.error("--mem-guard-mb must be >= 0")
+    if args.max_cold_builds < 0:
+        parser.error("--max-cold-builds must be >= 0")
+    if args.data_rows is not None and args.data_rows < 1:
+        parser.error("--data-rows must be >= 1")
     if args.task in TRAIN_TASKS:
         for key in ("pop", "gens", "tree_len"):
             if getattr(args, key) is None or getattr(args, key) < 1:
@@ -210,8 +296,7 @@ def parse_args(argv=None):
         for key in ("pop", "tree_len"):
             if getattr(args, key) is None or getattr(args, key) < 1:
                 parser.error(f"--{key.replace('_', '-')} is required (and > 0) for --task evalfresh")
-    if args.task in EVAL_TASKS and (args.eval_reps is None or args.eval_reps < 1):
-        parser.error(f"--eval-reps must be >= 1 for --task {args.task}")
+    if args.task in EVAL_TASKS and (args.eval_reps is None or args.eval_reps < 1):        parser.error(f"--eval-reps must be >= 1 for --task {args.task}")
     return args
 
 
@@ -221,10 +306,16 @@ def apply_env(args):
         os.environ["ETL_DISABLE_LOCATIONS"] = "0"
     else:
         os.environ.setdefault("ETL_DISABLE_LOCATIONS", "1")
-    # Old side: these are inert.  New side: an opt-in backend may be requested
-    # through EVOGP_ETL_BACKEND by the caller; nothing is forced here.
+    # Old side: every EVOGP_ETL_* var below is inert (there is no ``etl_engine``
+    # module there).  New side: ``--backend default`` forces nothing, so an
+    # externally exported EVOGP_ETL_BACKEND keeps winning, while an explicit
+    # ``--backend numpy|iree`` writes all three settings (the two IREE ones are
+    # only read by the iree backend, and only there do they matter).
+    if args.backend != "default":
+        os.environ["EVOGP_ETL_BACKEND"] = args.backend
+        os.environ["EVOGP_ETL_IREE_DEVICE"] = str(args.iree_device)
+        os.environ["EVOGP_ETL_IREE_OPT_LEVEL"] = args.iree_opt_level
     return {k: v for k, v in os.environ.items() if k.startswith(("ETL_", "EVOGP_"))}
-
 
 # ---------------------------------------------------------------------------
 # environment / identity snapshots
@@ -472,12 +563,36 @@ def to_cuda(array, dtype):
     return torch.from_numpy(np.array(array, dtype=dtype, copy=True)).to("cuda")
 
 
+def tile_rows(array, rows):
+    """Tile ``array`` along axis 0 up to exactly ``rows`` rows (contiguous copy).
+
+    ``rows`` smaller than the source is *also* a plain slice, so the result never
+    exceeds the requested row count.
+    """
+    array = np.asarray(array)
+    src_rows = int(array.shape[0])
+    if src_rows < 1:
+        raise ValueError("cannot tile an array without rows")
+    if rows < 1:
+        raise ValueError(f"rows must be >= 1, got {rows}")
+    repeats = -(-rows // src_rows)  # ceil(rows / src_rows)
+    tiled = np.tile(array, (repeats,) + (1,) * (array.ndim - 1))[:rows]
+    return np.ascontiguousarray(tiled)
+
+
 def build_eval_case(mods, args):
     """(problem, forest, eval_kind, description) for an eval-only task."""
     data = np.load(args.fixture)
     if args.task == "eval64":
-        x = to_cuda(data["x"], np.float32)
-        labels = to_cuda(data["labels"], np.float32)
+        rows = int(np.asarray(data["x"]).shape[0])
+        audit_rows = args.data_rows is not None and int(args.data_rows) != rows
+        if audit_rows:  # ``N == fixture rows`` must stay a byte-identical no-op
+            data_x = tile_rows(data["x"], int(args.data_rows))
+            data_labels = tile_rows(data["labels"], int(args.data_rows))
+        else:
+            data_x, data_labels = data["x"], data["labels"]
+        x = to_cuda(data_x, np.float32)
+        labels = to_cuda(data_labels, np.float32)
         forest = mods.Forest(
             input_len=int(x.shape[1]),
             output_len=int(labels.shape[1]),
@@ -492,8 +607,12 @@ def build_eval_case(mods, args):
             f"{args.fixture}[forest__node_value/_node_type/_subtree_size] via the class constructor + "
             f"SymbolicRegression(datapoints=x[{tuple(x.shape)}], labels=labels[{tuple(labels.shape)}])"
         )
+        if audit_rows:
+            desc += (
+                f"; --data-rows={int(args.data_rows)}: x and labels tiled from the fixture's "
+                f"{rows} rows (np.tile to {int(args.data_rows)} rows, contiguous copy)"
+            )
         return problem, forest, "fixture", desc
-
     # evalfresh: fresh random population, fixture inputs/labels
     x = to_cuda(data["x"], np.float32)
     labels = to_cuda(data["labels"], np.float32)
@@ -611,11 +730,171 @@ def summary_eval(tag, side, record, reps):
 
 
 # ---------------------------------------------------------------------------
+# R2 accounting: file descriptors, device memory, cold-build guard
+# ---------------------------------------------------------------------------
+
+
+def fd_count():
+    """Open file descriptors of this process (Linux ``/proc/self/fd``).
+
+    An error is returned as a ``"<...>"`` string rather than raised: the value is
+    pure telemetry and may never abort a timed run.
+    """
+    try:
+        return len(os.listdir("/proc/self/fd"))
+    except OSError as exc:
+        return f"<unavailable: {type(exc).__name__}: {exc}>"
+
+
+def nofile_rlimit():
+    """``[soft, hard]`` of ``RLIMIT_NOFILE`` (``-1`` = RLIM_INFINITY, kept verbatim)."""
+    try:
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        return [int(soft), int(hard)]
+    except Exception as exc:
+        return f"<unavailable: {type(exc).__name__}: {exc}>"
+
+
+def visible_physical_gpu_index():
+    """Physical GPU index named by ``CUDA_VISIBLE_DEVICES``, else ``None``.
+
+    Only a bare single numeric index (``"6"``) is resolved; a list, a UUID/MIG id
+    or an unset variable returns ``None`` and the nvidia-smi part is skipped.
+    """
+    raw = (os.environ.get("CUDA_VISIBLE_DEVICES") or "").strip()
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if len(parts) == 1 and parts[0].isdigit():
+        return int(parts[0])
+    return None
+
+
+def nvidia_smi_used_mb(index):
+    """``memory.used`` (MiB) of physical GPU ``index``; ``None``/``"<...>"`` on failure."""
+    if index is None:
+        return None
+    command = [
+        "nvidia-smi",
+        "--query-gpu=memory.used",
+        "--format=csv,noheader,nounits",
+        "-i",
+        str(index),
+    ]
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    except Exception as exc:
+        return f"<nvidia-smi unavailable: {type(exc).__name__}: {exc}>"
+    if done.returncode != 0:
+        return f"<nvidia-smi exit {done.returncode}: {(done.stderr or '').strip()}>"
+    raw = (done.stdout or "").strip().splitlines()
+    if not raw:
+        return "<nvidia-smi: empty output>"
+    try:
+        return int(raw[0].strip())
+    except ValueError as exc:
+        return f"<nvidia-smi parse error: {type(exc).__name__}: raw={raw[0]!r}>"
+
+
+def cuda_free_mb():
+    """``{"free_mb": ..., "total_mb": ...}`` from ``torch.cuda.mem_get_info()``.
+
+    Returns ``None`` (after printing why) when the device cannot report memory: the
+    memory guard then degrades to "unguarded" and the run continues.
+    """
+    try:
+        free_bytes, total_bytes = torch.cuda.mem_get_info()
+    except Exception as exc:
+        print(
+            f"[bench_gp] torch.cuda.mem_get_info() failed, the --mem-guard-mb check is "
+            f"skipped for this run ({type(exc).__name__}: {exc})",
+            flush=True,
+        )
+        return None
+    return {
+        "free_mb": int(free_bytes) // (1024 * 1024),
+        "total_mb": int(total_bytes) // (1024 * 1024),
+    }
+
+
+def cold_build_guard_enforced(args, side):
+    """Is the ``--max-cold-builds`` guard active for this run?
+
+    Only a new-side run that explicitly asked for the IREE backend builds a GPU
+    program per tree structure, so numpy runs and the legacy side are exempt.
+    """
+    return bool(side == "new" and args.backend == "iree" and not args.allow_cold_builds)
+
+
+class ColdBuildGuard:
+    """Cumulative ETL compile-miss guard (``--max-cold-builds``).
+
+    Sampling is a no-op unless :func:`cold_build_guard_enforced` holds, and it never
+    raises: a failing counter read is printed and ignored so the guard can never
+    mask the real run.  Tripping it marks the payload ``partial``/``skipped`` (the
+    completed steps stay in the JSON) and the caller stops the run and exits 3.
+    """
+
+    def __init__(self, args, payload, enforced):
+        self.tag = args.tag
+        self.limit = int(args.max_cold_builds)
+        self.enforced = bool(enforced)
+        self.payload = payload
+        self.tripped = False
+        self._engine = None
+
+    def sample(self):
+        """Sample ``etl_engine.cache_stats()['misses']``; True when the guard trips."""
+        if not self.enforced:
+            return False
+        try:
+            misses = self._read_misses()
+        except Exception as exc:  # telemetry must never abort a run
+            print(
+                f"[{self.tag}] cold-build guard: cache_stats() read failed at this checkpoint, "
+                f"checkpoint ignored ({type(exc).__name__}: {exc})",
+                flush=True,
+            )
+            return False
+        record = self.payload["cold_builds"]
+        record["misses_last"] = misses
+        if record["misses_start"] is None:
+            record["misses_start"] = misses
+        record["misses_max"] = misses if record["misses_max"] is None else max(record["misses_max"], misses)
+        if misses > self.limit:
+            self.tripped = True
+            record["exceeded"] = True
+            self.payload["partial"] = True
+            self.payload["skipped"] = True
+            self.payload["skip_reason"] = f"cold-builds-exceeded:{misses}>{self.limit}"
+            print(
+                f"[{self.tag}] cold-build guard: {misses} cumulative ETL compile misses > "
+                f"--max-cold-builds {self.limit}; stopping cleanly (exit 3, JSON partial/skipped)",
+                flush=True,
+            )
+            return True
+        return False
+
+    def _read_misses(self):
+        if self._engine is None:
+            import evogp.tree.etl_engine as engine  # new side only (``enforced``)
+
+            self._engine = engine
+        return int(self._engine.cache_stats()["misses"])
+
+
+def mark_cold_checkpoint(payload):
+    """Record the post-construction FD count (after the first evaluate/generation)."""
+    if payload["fds"]["after_cold"] is None:
+        payload["fds"]["after_cold"] = fd_count()
+
+
+# ---------------------------------------------------------------------------
 # runners
 # ---------------------------------------------------------------------------
 
 
-def run_training(mods, args, payload, flush):
+def run_training(mods, args, payload, flush, guard=None):
     """Manual ``pipeline.step()`` loop -- the same code path as ``pipeline.run()``."""
     interrupted = False
     for rep in range(args.reps):
@@ -624,7 +903,6 @@ def run_training(mods, args, payload, flush):
         if rep == 0:  # top-level arrays share rep 0's list objects
             payload["per_gen_ms"] = record["per_gen_ms"]
             payload["per_gen_best_fitness"] = record["per_gen_best_fitness"]
-
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
         torch.cuda.synchronize()
@@ -656,6 +934,11 @@ def run_training(mods, args, payload, flush):
                 record["best_fitness_final"] = record["per_gen_best_fitness"][-1]
                 mirror_rep0(payload, record, TRAIN_MIRROR)
                 flush()  # a hard kill still leaves every finished generation
+                if gen == 0:
+                    mark_cold_checkpoint(payload)  # FD/cold-build checkpoint: first gen
+                if guard is not None and guard.sample():
+                    record["partial"] = True
+                    break
                 if (
                     args.max_wall_s is not None
                     and time.perf_counter() - wall_t0 >= args.max_wall_s
@@ -666,8 +949,7 @@ def run_training(mods, args, payload, flush):
                         record["per_gen_ms"], gen + 1, args.gens
                     )
                     print(
-                        f"[{args.tag}] side={payload['side']} soft wall cap "
-                        f"--max-wall-s={args.max_wall_s}s reached after {gen + 1}/{args.gens} gens",
+                        f"[{args.tag}] side={payload['side']} soft wall cap "                        f"--max-wall-s={args.max_wall_s}s reached after {gen + 1}/{args.gens} gens",
                         flush=True,
                     )
                     break
@@ -685,10 +967,12 @@ def run_training(mods, args, payload, flush):
         print(summary_training(args.tag, payload["side"], record, args.reps), flush=True)
         if interrupted:
             break
+        if guard is not None and guard.tripped:  # stopped by the cold-build guard
+            break
     return interrupted
 
 
-def run_eval(mods, args, payload, flush):
+def run_eval(mods, args, payload, flush, guard=None):
     """Repeated ``problem.evaluate(forest)`` on a fixed population."""
     interrupted = False
     run_t0 = time.perf_counter()
@@ -714,7 +998,7 @@ def run_eval(mods, args, payload, flush):
         flush()
 
         try:
-            for _ in range(args.eval_reps):
+            for call in range(args.eval_reps):
                 torch.cuda.synchronize()
                 t0 = time.perf_counter()
                 problem.evaluate(forest)
@@ -722,11 +1006,15 @@ def run_eval(mods, args, payload, flush):
                 record["per_call_ms"].append((time.perf_counter() - t0) * 1000.0)
                 mirror_rep0(payload, record, EVAL_MIRROR)
                 flush()
+                if call == 0:
+                    mark_cold_checkpoint(payload)  # FD/cold-build checkpoint: first eval
+                if guard is not None and guard.sample():
+                    record["partial"] = True
+                    break
         except KeyboardInterrupt:
             interrupted = True
             record["partial"] = True
             print(f"[{args.tag}] interrupted after {len(record['per_call_ms'])} calls", flush=True)
-
         torch.cuda.synchronize()
         record["wall_s"] = time.perf_counter() - wall_t0
         record["first_call_ms"] = record["per_call_ms"][0] if record["per_call_ms"] else None
@@ -738,6 +1026,8 @@ def run_eval(mods, args, payload, flush):
         print(summary_eval(args.tag, payload["side"], record, args.reps), flush=True)
 
         if interrupted:
+            break
+        if guard is not None and guard.tripped:  # stopped by the cold-build guard
             break
         calls_done = sum(len(r["per_call_ms"]) for r in payload["per_rep"])
         if (
@@ -768,6 +1058,38 @@ def run_eval(mods, args, payload, flush):
 # ---------------------------------------------------------------------------
 
 
+def r2_config(args):
+    """R2 additions to ``config`` (recorded for both the train and the eval tasks)."""
+    return {
+        "backend": args.backend,
+        "iree_device": args.iree_device,
+        "iree_opt_level": args.iree_opt_level,
+        "data_rows": args.data_rows,
+        "mem_guard_mb": args.mem_guard_mb,
+        "max_cold_builds": args.max_cold_builds,
+        "allow_cold_builds": args.allow_cold_builds,
+    }
+
+
+def r2_payload_defaults(args):
+    """R2 top-level keys: guards/exit state, FD accounting, compile-miss counters."""
+    return {
+        "skipped": False,
+        "skip_reason": None,
+        "fds": {"start": None, "after_cold": None, "end": None},
+        "nofile_rlimit": None,
+        "cold_builds": {
+            "enforced": False,  # re-derived in build_payload once the side is known
+            "limit": args.max_cold_builds,
+            "allow_cold_builds": args.allow_cold_builds,
+            "misses_start": None,
+            "misses_last": None,
+            "misses_max": None,
+            "exceeded": False,
+        },
+    }
+
+
 def build_payload(args, side, mods, started_at):
     if args.task in TRAIN_TASKS:
         payload = {
@@ -784,6 +1106,7 @@ def build_payload(args, side, mods, started_at):
                 "tree_len": args.tree_len,
                 "seed": args.seed,
                 "reps": args.reps,
+                **r2_config(args),
             },
             "env": {},
             "gpu": {},
@@ -818,6 +1141,7 @@ def build_payload(args, side, mods, started_at):
                 "seed": args.seed,
                 "reps": args.reps,
                 "eval_reps": args.eval_reps,
+                **r2_config(args),
             },
             "env": {},
             "gpu": {},
@@ -842,6 +1166,8 @@ def build_payload(args, side, mods, started_at):
     payload["env"] = env_snapshot()
     payload["gpu"] = gpu_snapshot()
     payload["harness"] = os.path.abspath(__file__)
+    payload.update(r2_payload_defaults(args))
+    payload["cold_builds"]["enforced"] = cold_build_guard_enforced(args, side)
     return payload
 
 
@@ -853,11 +1179,64 @@ def main(argv=None):
     mods = import_modules()
     side = detect_side()
     payload = build_payload(args, side, mods, started_at)
+    payload["fds"]["start"] = fd_count()  # right after the imports, before any work
+    payload["nofile_rlimit"] = nofile_rlimit()
 
     json_out = args.json_out
 
     def flush():
         write_json_atomic(json_out, payload)
+
+    # ---- R2 guards: device free memory, then the compile-miss guard -----------
+    gpu_index = visible_physical_gpu_index()
+    payload["gpu"]["nvidia_smi_index"] = gpu_index
+    payload["gpu"]["nvidia_smi_used_mb_start"] = nvidia_smi_used_mb(gpu_index)
+    guard = ColdBuildGuard(args, payload, payload["cold_builds"]["enforced"])
+    free = cuda_free_mb()
+    payload["gpu"]["free_mb_start"] = None if free is None else free["free_mb"]
+    if free is None:
+        print(
+            f"[{args.tag}] warning: --mem-guard-mb={args.mem_guard_mb} could not be evaluated "
+            f"(no free-memory reading); continuing unguarded",
+            flush=True,
+        )
+    elif free["free_mb"] < args.mem_guard_mb:
+        reason = f"free_mem_below_guard:{free['free_mb']}MiB<{args.mem_guard_mb}MiB"
+        payload["skipped"] = True
+        payload["skip_reason"] = reason
+        payload["finished_at"] = now_iso()
+        payload["harness_wall_s"] = time.perf_counter() - t0
+        payload["complete"] = True
+        flush()
+        print(f"[{args.tag}] SKIPPED (exit 3): {reason} -- no heavy step was started", flush=True)
+        return 3
+    try:
+        torch.cuda.reset_peak_memory_stats()
+    except Exception as exc:
+        print(
+            f"[{args.tag}] warning: torch.cuda.reset_peak_memory_stats() failed "
+            f"({type(exc).__name__}: {exc}); the reported peak covers the whole process",
+            flush=True,
+        )
+    if guard.enforced:
+        print(
+            f"[{args.tag}] cold-build guard ACTIVE: stop when the cumulative ETL compile "
+            f"misses exceed --max-cold-builds={guard.limit}",
+            flush=True,
+        )
+    elif args.backend == "iree" and not args.allow_cold_builds:
+        print(
+            f"[{args.tag}] cold-build guard inactive (side={side}): only a new-side iree run "
+            f"is capped",
+            flush=True,
+        )
+    guard.sample()  # startup sample -> cold_builds.misses_start
+    if args.data_rows is not None and args.task != "eval64":
+        print(
+            f"[{args.tag}] warning: --data-rows is only applied by --task eval64; ignored for "
+            f"--task {args.task}",
+            flush=True,
+        )
 
     flush()  # metadata on disk before the first heavy step
     print(
@@ -876,13 +1255,23 @@ def main(argv=None):
     interrupted = False
     try:
         if args.task in TRAIN_TASKS:
-            interrupted = run_training(mods, args, payload, flush)
+            interrupted = run_training(mods, args, payload, flush, guard)
         else:
-            interrupted = run_eval(mods, args, payload, flush)
+            interrupted = run_eval(mods, args, payload, flush, guard)
     except KeyboardInterrupt:
         interrupted = True
         payload["partial"] = True
         print(f"[{args.tag}] interrupted outside a timed step", flush=True)
+
+    # ---- end-of-run telemetry (R2): FD end, peaks, nvidia-smi ---------------
+    payload["fds"]["end"] = fd_count()
+    payload["gpu"]["peak_allocated_bytes"] = _guarded(
+        "peak_allocated_bytes", lambda: int(torch.cuda.max_memory_allocated())
+    )
+    payload["gpu"]["peak_reserved_bytes"] = _guarded(
+        "peak_reserved_bytes", lambda: int(torch.cuda.max_memory_reserved())
+    )
+    payload["gpu"]["nvidia_smi_used_mb_end"] = nvidia_smi_used_mb(gpu_index)
 
     payload["finished_at"] = now_iso()
     payload["harness_wall_s"] = time.perf_counter() - t0
@@ -895,6 +1284,13 @@ def main(argv=None):
     )
     if json_out is None:
         print(json.dumps(payload, indent=2, allow_nan=True), flush=True)
+    if payload["skipped"]:
+        print(
+            f"[{args.tag}] stopped by a guard (exit 3): {payload['skip_reason']} "
+            f"(completed steps kept, partial={payload['partial']})",
+            flush=True,
+        )
+        return 3
     return 130 if interrupted else 0
 
 
