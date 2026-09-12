@@ -374,6 +374,86 @@ def _raises(exc_type: type, fn: Callable[..., Any], *args: Any, **kwargs: Any) -
     return False, "no exception"
 
 
+def _host_x(inputs: Any) -> np.ndarray:
+    return np.ascontiguousarray(inputs.detach().cpu().numpy(), dtype=np.float32)
+
+
+def control_dense_reference(forest: Forest, inputs: Any, args: Any, report: Report) -> None:
+    """Positive control: the counters DO see a readback-owning dense consumer.
+
+    ``runner_readbacks() == 0`` is only evidence if the same counters fire for a
+    call that reads its result back (``run_plan``) and for a FRESH seam call that
+    re-prepares / re-uploads the payloads (no injected memo).  Without this
+    control a filter that silently stopped matching would look like a pass --
+    exactly the failure mode device_resident_check.py's ``seam`` stage guards.
+    """
+    rows = int(inputs.shape[0])
+    plan = D.plan_dense(
+        forest.batch_node_value,
+        forest.batch_node_type,
+        forest.batch_subtree_size,
+        forest.input_len,
+        forest.output_len,
+        rows,
+        per_row=False,
+        backend=args.backend,
+    )
+    executable = D.build_dense(plan, backend=args.backend)
+    backend_name, device, _ = E._resolve_backend(args.backend, args.gpu)
+    x_host = _host_x(inputs)
+    with Traffic() as control:
+        D.run_plan(plan, executable, x_host, backend_name=backend_name, device=device)
+    seen = control.reference_readbacks()
+    report.add(
+        "control: run_plan's per-chunk readbacks ARE visible to the counters",
+        len(seen) == plan.p_chunks * plan.n_chunks and len(control.runs) == 1,
+        f"{len(seen)} readbacks from {[record[:2] for record in seen]}, "
+        f"{len(control.runs)} etl.run calls",
+    )
+    with Traffic() as fresh:
+        chunks = list(
+            D._iter_plan_chunks(
+                plan,
+                executable,
+                x_host,
+                backend_name=backend_name,
+                device=device,
+                device_resident=backend_name != "numpy",
+            )
+        )
+    staged = fresh.uploads if backend_name != "numpy" else fresh.preparations
+    report.add(
+        "control: a FRESH seam call re-stages the payloads (counters live)",
+        len(chunks) == 1
+        and len(staged) == _DENSE_COLUMNS + 1
+        and len(fresh.runner_readbacks()) == 0,
+        f"{len(staged)} payload staging calls on {backend_name} "
+        f"(expected {_DENSE_COLUMNS + 1}), {len(fresh.runner_readbacks())} readbacks",
+    )
+
+
+def control_specialized_reference(
+    forest: Forest, inputs: Any, args: Any, report: Report
+) -> None:
+    """Positive control: ``evaluate``'s decode + per-tree readbacks ARE counted."""
+    with Traffic() as control:
+        population = E.decode_population(
+            forest.batch_node_value,
+            forest.batch_node_type,
+            forest.batch_subtree_size,
+            forest.input_len,
+            forest.output_len,
+        )
+        E.evaluate(population, inputs, per_row=False, backend=args.backend)
+    seen = control.reference_readbacks()
+    report.add(
+        "control: evaluate()'s decode + per-tree readbacks ARE visible",
+        len(control.decodes) == 1 and len(seen) > 0 and len(control.runs) > 0,
+        f"{len(control.decodes)} decode(s), {len(control.runs)} etl.run(s), "
+        f"{len(seen)} readbacks from {sorted({record[0] for record in seen})}",
+    )
+
+
 # ---------------------------------------------------------------------------
 # stage: dense runner
 # ---------------------------------------------------------------------------
@@ -519,6 +599,9 @@ def stage_dense(args: Any, report: Report, results: Dict[str, Any]) -> None:
         staged_before == {key: id(value[0]) for key, value in runner.staged.items()},
         f"{len(runner.staged)} staged payloads, all re-used by reference",
     )
+
+    # -- positive controls: the counters DO fire on readback-owning paths ---
+    control_dense_reference(forest, inputs, args, report)
 
     # -- numerics ----------------------------------------------------------
     reference = reference_rows(forest, inputs, per_row=False, backend=args.backend)
@@ -734,6 +817,9 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         _cache_delta(after, after_runs) == {},
         f"cache deltas {_cache_delta(after, after_runs) or 'none'}",
     )
+
+    # -- positive control: the counters DO fire on decode + readback -------
+    control_specialized_reference(forest, inputs, args, report)
 
     # -- numerics ----------------------------------------------------------
     compare(
