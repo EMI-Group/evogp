@@ -1,0 +1,230 @@
+{
+  "tag": "PURE64_DENSE_NUMPY",
+  "side": "new",
+  "task": "eval-pure",
+  "eval_kind": "fixture",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170/test/goldens/forest_random.npz",
+  "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170/src/evogp/__init__.py",
+  "evogp_commit": "6e8bf6f0ff7ee2d82e890bca464c3c833f5fae40",
+  "etl_version": "0.1.0",
+  "problem": "W3 fixed fixture: Forest(input_len=2, output_len=1, pop_size=64, max_tree_len=63) rebuilt from test/goldens/forest_random.npz[forest__node_value/_node_type/_subtree_size] via the class constructor + SymbolicRegression(datapoints=x[(64, 2)], labels=labels[(64, 1)])",
+  "config": {
+    "pop": 64,
+    "tree_len": 63,
+    "seed": 0,
+    "reps": 5,
+    "eval_reps": null,
+    "mode": "dense",
+    "pure_runner": "fallback",
+    "invocations": 100,
+    "warmup": 10,
+    "e2e_companion": 11,
+    "backend": "numpy",
+    "iree_device": 0,
+    "iree_opt_level": "O1",
+    "data_rows": null,
+    "mem_guard_mb": 8192,
+    "max_cold_builds": 300,
+    "allow_cold_builds": false,
+    "stage_probe": false,
+    "n_rows": 64
+  },
+  "env": {
+    "EVOGP_EVAL_MODE": "dense",
+    "ETL_DISABLE_LOCATIONS": "1",
+    "EVOGP_ETL_BACKEND": "numpy",
+    "EVOGP_ETL_IREE_DEVICE": "0",
+    "EVOGP_ETL_IREE_OPT_LEVEL": "O1",
+    "CUDA_VISIBLE_DEVICES": "6"
+  },
+  "gpu": {
+    "cuda_visible_devices": "6",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4",
+    "nvidia_smi_index": 6,
+    "nvidia_smi_used_mb_start": 4,
+    "free_mb_start": 48409,
+    "peak_allocated_bytes": 34816,
+    "peak_reserved_bytes": 2097152,
+    "nvidia_smi_used_mb_end": 313
+  },
+  "pure": {
+    "mode_requested": "dense",
+    "mode_resolved": "dense",
+    "runner_source": "local-fallback:dense",
+    "backend": "numpy",
+    "per_row": false,
+    "pop": 64,
+    "n_trees": 64,
+    "n_const_trees": 0,
+    "n_graph_calls_per_run": 1,
+    "n_graph_calls_source": "measured",
+    "invocations": 100,
+    "warmup": 10,
+    "reps": 5,
+    "per_invocation_ms": [
+      77.74212822318077,
+      76.68399669229984,
+      76.54331024736166,
+      75.71349002420902,
+      75.89577451348305
+    ],
+    "block_ms": [
+      7774.212822318077,
+      7668.399669229984,
+      7654.331024736166,
+      7571.349002420902,
+      7589.577451348305
+    ],
+    "median_per_invocation_ms": 76.54331024736166,
+    "min_per_invocation_ms": 75.71349002420902,
+    "mean_per_invocation_ms": 76.51573994010687,
+    "per_graph_call_ms": 76.54331024736166,
+    "per_tree_us": 1195.989222615026,
+    "per_population_evaluate_ms": 76.54331024736166,
+    "conventions": "one invocation = one full-population forward on the fixed x; no readback/host assembly/key derivation",
+    "output_checksum": {
+      "sha256": "0f190fee376620b6d44d2876e6410555ca33ab6638a7a1e871ce45b99a722ad0",
+      "n_blocks": 1,
+      "shapes": [
+        [
+          64,
+          64
+        ]
+      ],
+      "dtypes": [
+        "<f4"
+      ],
+      "total_elems": 4096,
+      "nan_count": 24,
+      "inf_count": 0,
+      "saved": "test/benchmark/r4/results/after/ab/fallback_save/PURE64_DENSE_NUMPY_output.npz",
+      "note": "one out-of-band capture_outputs() invocation after ALL timing (the reps and the e2e companion): an extra invocation plus a consumer-side host readback, never part of any timed number; sha256 frames one block per entry in order as b'block:<ndim>:<d0,d1,...>:<dtype.str>:<nbytes>:' + block.tobytes(order='C')"
+    }
+  },
+  "compile": {
+    "decode_plan_ms": 7.457859814167023,
+    "build_ms": 1372.5249879062176,
+    "construct_total_ms": 1380.4029747843742,
+    "cache_hits": 0,
+    "cache_misses": 1,
+    "path": "fallback"
+  },
+  "e2e_companion": {
+    "eval_reps": 11,
+    "per_call_ms": [
+      1540.0763638317585,
+      79.060148447752,
+      66.25925377011299,
+      65.83795696496964,
+      65.64780324697495,
+      65.39613008499146,
+      64.8137591779232,
+      65.69581478834152,
+      65.4137171804905,
+      65.43506681919098,
+      65.31360372900963
+    ],
+    "first_call_ms": 1540.0763638317585,
+    "median_warm_ms": 65.54143503308296,
+    "note": "E2E minus pure = per-call decode+key derivation + readback + host assembly + fitness reduction (host-glue + readback overhead)"
+  },
+  "median_per_invocation_ms": 76.54331024736166,
+  "wall_s": null,
+  "partial": false,
+  "projection": null,
+  "complete": true,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 1.384439218789339,
+      "wall_s": 10.000428728759289,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "dense",
+      "runner_source": "local-fallback:dense",
+      "block_ms": 7774.212822318077,
+      "per_invocation_ms": 77.74212822318077
+    },
+    {
+      "rep": 1,
+      "construct_s": null,
+      "wall_s": 7.668428722769022,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "dense",
+      "runner_source": "local-fallback:dense",
+      "block_ms": 7668.399669229984,
+      "per_invocation_ms": 76.68399669229984
+    },
+    {
+      "rep": 2,
+      "construct_s": null,
+      "wall_s": 7.654361952096224,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "dense",
+      "runner_source": "local-fallback:dense",
+      "block_ms": 7654.331024736166,
+      "per_invocation_ms": 76.54331024736166
+    },
+    {
+      "rep": 3,
+      "construct_s": null,
+      "wall_s": 7.571377128362656,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "dense",
+      "runner_source": "local-fallback:dense",
+      "block_ms": 7571.349002420902,
+      "per_invocation_ms": 75.71349002420902
+    },
+    {
+      "rep": 4,
+      "construct_s": null,
+      "wall_s": 7.589604817330837,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "dense",
+      "runner_source": "local-fallback:dense",
+      "block_ms": 7589.577451348305,
+      "per_invocation_ms": 75.89577451348305
+    }
+  ],
+  "notes": "",
+  "started_at": "2026-09-13T07:52:39+08:00",
+  "finished_at": "2026-09-13T07:53:23+08:00",
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170/test/benchmark/bench_gp.py",
+  "skipped": false,
+  "skip_reason": null,
+  "fds": {
+    "start": 39,
+    "after_cold": 59,
+    "end": 59
+  },
+  "nofile_rlimit": [
+    65536,
+    65536
+  ],
+  "stages": null,
+  "cold_builds": {
+    "enforced": false,
+    "limit": 300,
+    "allow_cold_builds": false,
+    "misses_start": null,
+    "misses_last": null,
+    "misses_max": null,
+    "exceeded": false
+  },
+  "harness_wall_s": 43.507661283016205
+}
