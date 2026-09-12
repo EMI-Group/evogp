@@ -436,8 +436,9 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
   instead of once per tree. Both sides are cheap ETL-side now: the multi-slot content-fingerprint memo
   in `CompileCache` turns a repeat visit into a ~17–25 µs key replay (~32 µs per call in a steady-state
   K=50 cycle of 60-token programs, against ~660 µs before) and the per-executable run-path
-  static-validation fast path holds a 60-token `etl.run` at 67–71 µs (303 before) and 170 tokens at
-  87–96 µs (758 before). Landed ETL-side on branch `evogit-agent-T1-A160`, on top of the `main`
+  static-validation fast path cut the per-call static overhead to ~7–15 µs at 60–170 tokens (~250 µs
+  before), holding a whole 60-token `etl.run` at 67–71 µs (303 before) and 170 tokens at 87–96 µs
+  (758 before). Landed ETL-side on branch `evogit-agent-T1-A160`, on top of the `main`
   checkout the venv installs (`bench_logs/hotpath/`).
 * **Per-chunk upload cost.** Device backends upload one `(P_chunk, …)` column block per chunk
   (7 tensors + `x`) versus one row per tree on the specialized `per_row=True` path. So a chunk should be

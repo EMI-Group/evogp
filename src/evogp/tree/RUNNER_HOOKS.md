@@ -140,8 +140,9 @@ the tensor argument on the call path and dispatches the already-compiled executa
 key derivation for the bound statics (ETL bench, numpy, 60-token program: bound dispatch 320 µs against
 314 µs for the raw `etl.run`, i.e. within ~2 %). What is left to adopt here is therefore the
 consumer-side plumbing, not the two costs this section used to name: ETL's per-executable run-path
-static-validation fast path has already replaced the O(#tokens) per-leaf walk (60-token program
-303 → 67–71 µs per `etl.run`, 170 tokens 758 → 87–96 µs), and its multi-slot `CompileCache`
+static-validation fast path has already replaced the O(#tokens) per-leaf walk (~250 µs → ~7–15 µs of
+static overhead per call at 60–170 tokens in ETL's own bench; whole-`etl.run` medians on the same leg:
+a 60-token program 303 → 67–71 µs, 170 tokens 758 → 87–96 µs), and its multi-slot `CompileCache`
 content-fingerprint memo replays a repeated program's key (~17–25 µs at 30–170 tokens; ~32 µs per call
 in a steady-state K=50 cycle of 60-token programs, against ~660 µs before). All of that landed ETL-side
 on branch `evogit-agent-T1-A160`, on top of the `main` checkout the venv installs — nothing is emulated
