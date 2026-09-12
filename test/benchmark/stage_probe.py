@@ -609,7 +609,7 @@ def _finalize(acc, i, outer_ms, span_ms, label):
     record = {
         "i": None if i is None else int(i),
         "total_ms": total_ms,
-        "probe_span_ms": _ms(span_ms),
+        "probe_span_ms": None if span_ms is None else round(span_ms, 3),
         "decode_ms": decode_ms,
         "decode_calls": int(acc["decode_calls"]),
         "sr_fitness_ms": sr_ms,
