@@ -1,0 +1,25 @@
+===============================================================================
+R4 config pure64_specialized_numpy  (group=numpy mode=specialized backend=numpy)  started 2026-09-13T07:53:24+08:00
+note: numpy specialized route: one etl.run per non-constant tree, 50 invocations/block
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 1800s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 0, 1
+etl: repo=/mnt/local-ssd/bchuang/etl rev=51a7141885d76a6764a9ad43f6bf1264dd12e6fe file=/tmp/evogp_etl_patched_87c7562/etl/__init__.py
+cmd: timeout -s INT -k 30 1800 env PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 CUDA_VISIBLE_DEVICES=6 EVOGP_EVAL_MODE=specialized /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval-pure --fixture test/goldens/forest_random.npz --mode specialized --backend numpy --reps 5 --warmup 10 --invocations 50 --e2e-companion 11 --mem-guard-mb 8192 --pure-runner fallback --output-checksum --save-output-dir test/benchmark/r4/results/after/ab/fallback_save --tag PURE64_SPECIALIZED_NUMPY --json-out test/benchmark/r4/results/after/ab/fallback/pure64_specialized_numpy.json
+json: test/benchmark/r4/results/after/ab/fallback/pure64_specialized_numpy.json
+--- run output ---
+[PURE64_SPECIALIZED_NUMPY] harness=bench_gp.py side=new task=eval-pure pop=None gens=None tree_len=None seed=0 reps=5 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=numpy CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170/src/evogp/__init__.py commit=6e8bf6f0ff7ee2d82e890bca464c3c833f5fae40 etl=0.1.0 json_out=test/benchmark/r4/results/after/ab/fallback/pure64_specialized_numpy.json
+[PURE64_SPECIALIZED_NUMPY] pure: pop=64 n_rows=64 mode_requested=specialized mode_resolved=specialized backend=numpy runner=fallback invocations=50 warmup=10 reps=5 e2e_companion=11
+[PURE64_SPECIALIZED_NUMPY] constructed pure runner: source=local-fallback:specialized n_trees=64 n_const_trees=11 graph_calls/invocation=53 (measured); compile 155.4ms (decode_plan 1.5ms + build 153.8ms; 48 cache misses)
+[PURE64_SPECIALIZED_NUMPY] side=new rep0/5: per-invocation 6.5ms (block 326.2ms)
+[PURE64_SPECIALIZED_NUMPY] side=new rep1/5: per-invocation 6.7ms (block 333.0ms)
+[PURE64_SPECIALIZED_NUMPY] side=new rep2/5: per-invocation 6.5ms (block 327.2ms)
+[PURE64_SPECIALIZED_NUMPY] side=new rep3/5: per-invocation 6.9ms (block 345.2ms)
+[PURE64_SPECIALIZED_NUMPY] side=new rep4/5: per-invocation 6.6ms (block 331.1ms)
+[PURE64_SPECIALIZED_NUMPY] e2e companion: first 29.6ms, warm median 10.7ms over 11 problem.evaluate() calls (pure median 6.6ms)
+[PURE64_SPECIALIZED_NUMPY] output capture (out of band, after all timing): n_blocks=53 shapes=[[64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1], [64, 1]] total_elems=3392 nan=24 inf=0 sha256=6adddedf1ccf9817b5d9a4903f42f319d5561cfb1ce40168e2ec4857fcf1862c saved=test/benchmark/r4/results/after/ab/fallback_save/PURE64_SPECIALIZED_NUMPY_output.npz
+[PURE64_SPECIALIZED_NUMPY] done side=new interrupted=False harness_wall_s=2.7 json_out=test/benchmark/r4/results/after/ab/fallback/pure64_specialized_numpy.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 1
+R4 config pure64_specialized_numpy  finished 2026-09-13T07:53:29+08:00

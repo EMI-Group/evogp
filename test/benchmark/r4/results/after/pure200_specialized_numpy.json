@@ -1,0 +1,1079 @@
+{
+  "tag": "PURE200_SPECIALIZED_NUMPY",
+  "side": "new",
+  "task": "eval-pure",
+  "eval_kind": "fixture",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170/test/benchmark/fixtures/forest200_tree64_random.npz",
+  "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170/src/evogp/__init__.py",
+  "evogp_commit": "6e8bf6f0ff7ee2d82e890bca464c3c833f5fae40",
+  "etl_version": "0.1.0",
+  "problem": "W3 fixed fixture: Forest(input_len=2, output_len=1, pop_size=200, max_tree_len=64) rebuilt from test/benchmark/fixtures/forest200_tree64_random.npz[forest__node_value/_node_type/_subtree_size] via the class constructor + SymbolicRegression(datapoints=x[(64, 2)], labels=labels[(64, 1)])",
+  "config": {
+    "pop": 200,
+    "tree_len": 64,
+    "seed": 0,
+    "reps": 5,
+    "eval_reps": null,
+    "mode": "specialized",
+    "pure_runner": "auto",
+    "invocations": 50,
+    "warmup": 10,
+    "e2e_companion": 11,
+    "backend": "numpy",
+    "iree_device": 0,
+    "iree_opt_level": "O1",
+    "data_rows": null,
+    "mem_guard_mb": 8192,
+    "max_cold_builds": 300,
+    "allow_cold_builds": false,
+    "stage_probe": false,
+    "n_rows": 64
+  },
+  "env": {
+    "EVOGP_EVAL_MODE": "specialized",
+    "ETL_DISABLE_LOCATIONS": "1",
+    "EVOGP_ETL_BACKEND": "numpy",
+    "EVOGP_ETL_IREE_DEVICE": "0",
+    "EVOGP_ETL_IREE_OPT_LEVEL": "O1",
+    "CUDA_VISIBLE_DEVICES": "6"
+  },
+  "gpu": {
+    "cuda_visible_devices": "6",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4",
+    "nvidia_smi_index": 6,
+    "nvidia_smi_used_mb_start": 4,
+    "free_mb_start": 48409,
+    "peak_allocated_bytes": 105472,
+    "peak_reserved_bytes": 2097152,
+    "nvidia_smi_used_mb_end": 313
+  },
+  "pure": {
+    "mode_requested": "specialized",
+    "mode_resolved": "specialized",
+    "runner_source": "frozen-api:build_specialized_runner",
+    "backend": "numpy",
+    "per_row": false,
+    "pop": 200,
+    "n_trees": 200,
+    "n_const_trees": 29,
+    "n_graph_calls_per_run": 171,
+    "n_graph_calls_source": "introspected",
+    "invocations": 50,
+    "warmup": 10,
+    "reps": 5,
+    "per_invocation_ms": [
+      30.840840488672256,
+      30.582629442214966,
+      29.782143235206604,
+      30.360167250037193,
+      29.965821355581284
+    ],
+    "block_ms": [
+      1542.0420244336128,
+      1529.1314721107483,
+      1489.1071617603302,
+      1518.0083625018597,
+      1498.2910677790642
+    ],
+    "median_per_invocation_ms": 30.360167250037193,
+    "min_per_invocation_ms": 29.782143235206604,
+    "mean_per_invocation_ms": 30.30632035434246,
+    "per_graph_call_ms": 0.17754483771951576,
+    "per_tree_us": 151.80083625018597,
+    "per_population_evaluate_ms": 30.360167250037193,
+    "conventions": "one invocation = one full-population forward on the fixed x; no readback/host assembly/key derivation",
+    "output_checksum": {
+      "sha256": "1607fdfb32675963b5e188240df2382d7fe84aac2c996550cb970e631e63b3dd",
+      "n_blocks": 171,
+      "shapes": [
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ]
+      ],
+      "dtypes": [
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4"
+      ],
+      "total_elems": 10944,
+      "nan_count": 376,
+      "inf_count": 0,
+      "note": "one out-of-band capture_outputs() invocation after ALL timing (the reps and the e2e companion): an extra invocation plus a consumer-side host readback, never part of any timed number; sha256 frames one block per entry in order as b'block:<ndim>:<d0,d1,...>:<dtype.str>:<nbytes>:' + block.tobytes(order='C')"
+    }
+  },
+  "compile": {
+    "decode_plan_ms": null,
+    "build_ms": null,
+    "construct_total_ms": 1020.8693295717239,
+    "cache_hits": 0,
+    "cache_misses": 155,
+    "path": "frozen"
+  },
+  "e2e_companion": {
+    "eval_reps": 11,
+    "per_call_ms": [
+      74.67106357216835,
+      57.057935744524,
+      50.69960653781891,
+      50.781916826963425,
+      50.52243918180466,
+      50.64622685313225,
+      50.30854046344757,
+      50.693485885858536,
+      51.0198213160038,
+      50.29502883553505,
+      50.48556253314018
+    ],
+    "first_call_ms": 74.67106357216835,
+    "median_warm_ms": 50.66985636949539,
+    "note": "E2E minus pure = per-call decode+key derivation + readback + host assembly + fitness reduction (host-glue + readback overhead)"
+  },
+  "median_per_invocation_ms": 30.360167250037193,
+  "wall_s": null,
+  "partial": false,
+  "projection": null,
+  "complete": true,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 1.0265047252178192,
+      "wall_s": 2.9940667040646076,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "specialized",
+      "runner_source": "frozen-api:build_specialized_runner",
+      "block_ms": 1542.0420244336128,
+      "per_invocation_ms": 30.840840488672256
+    },
+    {
+      "rep": 1,
+      "construct_s": null,
+      "wall_s": 1.5292182266712189,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "specialized",
+      "runner_source": "frozen-api:build_specialized_runner",
+      "block_ms": 1529.1314721107483,
+      "per_invocation_ms": 30.582629442214966
+    },
+    {
+      "rep": 2,
+      "construct_s": null,
+      "wall_s": 1.489159170538187,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "specialized",
+      "runner_source": "frozen-api:build_specialized_runner",
+      "block_ms": 1489.1071617603302,
+      "per_invocation_ms": 29.782143235206604
+    },
+    {
+      "rep": 3,
+      "construct_s": null,
+      "wall_s": 1.5180471390485764,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "specialized",
+      "runner_source": "frozen-api:build_specialized_runner",
+      "block_ms": 1518.0083625018597,
+      "per_invocation_ms": 30.360167250037193
+    },
+    {
+      "rep": 4,
+      "construct_s": null,
+      "wall_s": 1.498339682817459,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "specialized",
+      "runner_source": "frozen-api:build_specialized_runner",
+      "block_ms": 1498.2910677790642,
+      "per_invocation_ms": 29.965821355581284
+    }
+  ],
+  "notes": "",
+  "started_at": "2026-09-13T07:47:49+08:00",
+  "finished_at": "2026-09-13T07:47:59+08:00",
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170/test/benchmark/bench_gp.py",
+  "skipped": false,
+  "skip_reason": null,
+  "fds": {
+    "start": 39,
+    "after_cold": 59,
+    "end": 59
+  },
+  "nofile_rlimit": [
+    65536,
+    65536
+  ],
+  "stages": null,
+  "cold_builds": {
+    "enforced": false,
+    "limit": 300,
+    "allow_cold_builds": false,
+    "misses_start": null,
+    "misses_last": null,
+    "misses_max": null,
+    "exceeded": false
+  },
+  "harness_wall_s": 10.253734268248081
+}

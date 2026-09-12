@@ -1,0 +1,490 @@
+{
+  "tag": "PURE64_SPECIALIZED_NUMPY",
+  "side": "new",
+  "task": "eval-pure",
+  "eval_kind": "fixture",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170/test/goldens/forest_random.npz",
+  "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170/src/evogp/__init__.py",
+  "evogp_commit": "6e8bf6f0ff7ee2d82e890bca464c3c833f5fae40",
+  "etl_version": "0.1.0",
+  "problem": "W3 fixed fixture: Forest(input_len=2, output_len=1, pop_size=64, max_tree_len=63) rebuilt from test/goldens/forest_random.npz[forest__node_value/_node_type/_subtree_size] via the class constructor + SymbolicRegression(datapoints=x[(64, 2)], labels=labels[(64, 1)])",
+  "config": {
+    "pop": 64,
+    "tree_len": 63,
+    "seed": 0,
+    "reps": 5,
+    "eval_reps": null,
+    "mode": "specialized",
+    "pure_runner": "frozen",
+    "invocations": 50,
+    "warmup": 10,
+    "e2e_companion": 11,
+    "backend": "numpy",
+    "iree_device": 0,
+    "iree_opt_level": "O1",
+    "data_rows": null,
+    "mem_guard_mb": 8192,
+    "max_cold_builds": 300,
+    "allow_cold_builds": false,
+    "stage_probe": false,
+    "n_rows": 64
+  },
+  "env": {
+    "EVOGP_EVAL_MODE": "specialized",
+    "ETL_DISABLE_LOCATIONS": "1",
+    "EVOGP_ETL_BACKEND": "numpy",
+    "EVOGP_ETL_IREE_DEVICE": "0",
+    "EVOGP_ETL_IREE_OPT_LEVEL": "O1",
+    "CUDA_VISIBLE_DEVICES": "6"
+  },
+  "gpu": {
+    "cuda_visible_devices": "6",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4",
+    "nvidia_smi_index": 6,
+    "nvidia_smi_used_mb_start": 4,
+    "free_mb_start": 48409,
+    "peak_allocated_bytes": 34816,
+    "peak_reserved_bytes": 2097152,
+    "nvidia_smi_used_mb_end": 313
+  },
+  "pure": {
+    "mode_requested": "specialized",
+    "mode_resolved": "specialized",
+    "runner_source": "frozen-api:build_specialized_runner",
+    "backend": "numpy",
+    "per_row": false,
+    "pop": 64,
+    "n_trees": 64,
+    "n_const_trees": 11,
+    "n_graph_calls_per_run": 53,
+    "n_graph_calls_source": "introspected",
+    "invocations": 50,
+    "warmup": 10,
+    "reps": 5,
+    "per_invocation_ms": [
+      6.480862498283386,
+      6.494336873292923,
+      6.497795432806015,
+      6.513846963644028,
+      6.883291676640511
+    ],
+    "block_ms": [
+      324.0431249141693,
+      324.71684366464615,
+      324.88977164030075,
+      325.6923481822014,
+      344.1645838320255
+    ],
+    "median_per_invocation_ms": 6.497795432806015,
+    "min_per_invocation_ms": 6.480862498283386,
+    "mean_per_invocation_ms": 6.5740266889333725,
+    "per_graph_call_ms": 0.12259991382652859,
+    "per_tree_us": 101.52805363759398,
+    "per_population_evaluate_ms": 6.497795432806015,
+    "conventions": "one invocation = one full-population forward on the fixed x; no readback/host assembly/key derivation",
+    "output_checksum": {
+      "sha256": "6adddedf1ccf9817b5d9a4903f42f319d5561cfb1ce40168e2ec4857fcf1862c",
+      "n_blocks": 53,
+      "shapes": [
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ],
+        [
+          64,
+          1
+        ]
+      ],
+      "dtypes": [
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4",
+        "<f4"
+      ],
+      "total_elems": 3392,
+      "nan_count": 24,
+      "inf_count": 0,
+      "saved": "test/benchmark/r4/results/after/ab/frozen_save/PURE64_SPECIALIZED_NUMPY_output.npz",
+      "note": "one out-of-band capture_outputs() invocation after ALL timing (the reps and the e2e companion): an extra invocation plus a consumer-side host readback, never part of any timed number; sha256 frames one block per entry in order as b'block:<ndim>:<d0,d1,...>:<dtype.str>:<nbytes>:' + block.tobytes(order='C')"
+    }
+  },
+  "compile": {
+    "decode_plan_ms": null,
+    "build_ms": null,
+    "construct_total_ms": 158.93016755580902,
+    "cache_hits": 0,
+    "cache_misses": 48,
+    "path": "frozen"
+  },
+  "e2e_companion": {
+    "eval_reps": 11,
+    "per_call_ms": [
+      33.62061083316803,
+      12.818966060876846,
+      11.094436049461365,
+      11.087313294410706,
+      11.023152619600296,
+      10.966986417770386,
+      11.107463389635086,
+      11.05494424700737,
+      11.048145592212677,
+      11.01602241396904,
+      11.195551604032516
+    ],
+    "first_call_ms": 33.62061083316803,
+    "median_warm_ms": 11.071128770709038,
+    "note": "E2E minus pure = per-call decode+key derivation + readback + host assembly + fitness reduction (host-glue + readback overhead)"
+  },
+  "median_per_invocation_ms": 6.497795432806015,
+  "wall_s": null,
+  "partial": false,
+  "projection": null,
+  "complete": true,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 0.16378621384501457,
+      "wall_s": 0.5683545917272568,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "specialized",
+      "runner_source": "frozen-api:build_specialized_runner",
+      "block_ms": 324.0431249141693,
+      "per_invocation_ms": 6.480862498283386
+    },
+    {
+      "rep": 1,
+      "construct_s": null,
+      "wall_s": 0.32474053278565407,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "specialized",
+      "runner_source": "frozen-api:build_specialized_runner",
+      "block_ms": 324.71684366464615,
+      "per_invocation_ms": 6.494336873292923
+    },
+    {
+      "rep": 2,
+      "construct_s": null,
+      "wall_s": 0.3249202109873295,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "specialized",
+      "runner_source": "frozen-api:build_specialized_runner",
+      "block_ms": 324.88977164030075,
+      "per_invocation_ms": 6.497795432806015
+    },
+    {
+      "rep": 3,
+      "construct_s": null,
+      "wall_s": 0.3257211819291115,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "specialized",
+      "runner_source": "frozen-api:build_specialized_runner",
+      "block_ms": 325.6923481822014,
+      "per_invocation_ms": 6.513846963644028
+    },
+    {
+      "rep": 4,
+      "construct_s": null,
+      "wall_s": 0.34424083307385445,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "specialized",
+      "runner_source": "frozen-api:build_specialized_runner",
+      "block_ms": 344.1645838320255,
+      "per_invocation_ms": 6.883291676640511
+    }
+  ],
+  "notes": "",
+  "started_at": "2026-09-13T07:52:32+08:00",
+  "finished_at": "2026-09-13T07:52:35+08:00",
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A170/test/benchmark/bench_gp.py",
+  "skipped": false,
+  "skip_reason": null,
+  "fds": {
+    "start": 39,
+    "after_cold": 59,
+    "end": 59
+  },
+  "nofile_rlimit": [
+    65536,
+    65536
+  ],
+  "stages": null,
+  "cold_builds": {
+    "enforced": false,
+    "limit": 300,
+    "allow_cold_builds": false,
+    "misses_start": null,
+    "misses_last": null,
+    "misses_max": null,
+    "exceeded": false
+  },
+  "harness_wall_s": 2.7126994356513023
+}

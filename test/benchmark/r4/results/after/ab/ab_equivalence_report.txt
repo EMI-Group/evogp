@@ -1,0 +1,170 @@
+# =============================================================================
+# `ab_equivalence_report.txt` -- R4 after-round A/B NUMERIC EQUIVALENCE evidence
+#   frozen pure-forward constructor  vs  the local-fallback re-implementation
+# =============================================================================
+#
+# Purpose: the R4 after-round canonical records were produced with the frozen runner
+# API (`--pure-runner auto` -> `frozen-api:build_{dense,specialized}_runner`).  The
+# R4 before-baselines were produced with the fallback path (`local-fallback:{dense,
+# specialized}`).  This file proves that the two construction paths evaluate the SAME
+# numbers -- so the before/after pure-forward comparison is not confounded by the
+# constructor swap -- and records the exact commands + raw comparison output.
+#
+# Window / identity (all records below):
+#   * engine:     evogp HEAD 6e8bf6f (worktree checkout, src/evogp), etl 0.1.0
+#   * ETL shadow: PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 (see the `etl:` identity
+#                 line in every .log: file=/tmp/evogp_etl_patched_87c7562/etl/__init__.py)
+#   * backend:    numpy (default; no IREE in this A/B)
+#   * device:     GPU 6 (CUDA_VISIBLE_DEVICES=6; never GPU 7)
+#   * runner:     test/benchmark/r4/run_pure.sh --only pure64_dense_numpy,pure64_specialized_numpy
+#                 (one process per config, ulimit -n 65536, one flock on
+#                  /tmp/gpbench_critical.lock per config with the timeout INSIDE,
+#                  warmup 10 + 5 timed blocks, --e2e-companion 11, --mem-guard-mb 8192)
+#   * note:       every pure.* number here is a timed measurement of the same wrapper;
+#                 the saved outputs are the OUT-OF-BAND capture (`--output-checksum
+#                 --save-output-dir`, run after ALL timing), never part of a timed block.
+#
+# Exact commands (run from the repository root):
+#
+#   # arm FROZEN
+#   NEW_RESULT_DIR=test/benchmark/r4/results/after/ab/frozen \
+#   PURE_EXTRA_ARGS="--pure-runner frozen --output-checksum --save-output-dir test/benchmark/r4/results/after/ab/frozen_save" \
+#   NEW_PYTHONPATH="src:/tmp/evogp_etl_patched_87c7562" \
+#   bash test/benchmark/r4/run_pure.sh --only pure64_dense_numpy,pure64_specialized_numpy
+#
+#   # arm FALLBACK
+#   NEW_RESULT_DIR=test/benchmark/r4/results/after/ab/fallback \
+#   PURE_EXTRA_ARGS="--pure-runner fallback --output-checksum --save-output-dir test/benchmark/r4/results/after/ab/fallback_save" \
+#   NEW_PYTHONPATH="src:/tmp/evogp_etl_patched_87c7562" \
+#   bash test/benchmark/r4/run_pure.sh --only pure64_dense_numpy,pure64_specialized_numpy
+#
+#   # comparison (python3 + numpy only; script kept outside the repo in $TMPDIR)
+#   python3 $TMPDIR/r4_ab_compare.py
+#
+# Both arms exited 0 (2/2 configs OK each).  Comparison exit code: 0 (0 = all equal).
+#
+# -----------------------------------------------------------------------------
+# A/B per-config facts (from the records themselves)
+# -----------------------------------------------------------------------------
+# pure64_dense_numpy
+#   frozen    runner_source=frozen-api:build_dense_runner         compile.path=frozen    n_graph_calls=1 (introspected)
+#             median_per_invocation=77.344ms per_graph_call=77.3436ms construct=1827.5ms
+#             output_checksum=0f190fee376620b6d44d2876e6410555ca33ab6638a7a1e871ce45b99a722ad0
+#             save=test/benchmark/r4/results/after/ab/frozen_save/PURE64_DENSE_NUMPY_output.npz sha256=7964012d6e5b42f639b1bae11fb2b6df23af4b2fcd72a36c1e53069133195b59
+#   fallback  runner_source=local-fallback:dense                  compile.path=fallback  n_graph_calls=1 (measured)
+#             median_per_invocation=76.543ms per_graph_call=76.5433ms construct=1380.4ms
+#             output_checksum=0f190fee376620b6d44d2876e6410555ca33ab6638a7a1e871ce45b99a722ad0
+#             save=test/benchmark/r4/results/after/ab/fallback_save/PURE64_DENSE_NUMPY_output.npz sha256=7964012d6e5b42f639b1bae11fb2b6df23af4b2fcd72a36c1e53069133195b59
+#   digest equality: EQUAL   npz byte identity: IDENTICAL
+#
+# pure64_specialized_numpy
+#   frozen    runner_source=frozen-api:build_specialized_runner   compile.path=frozen    n_graph_calls=53 (introspected)
+#             median_per_invocation=6.498ms per_graph_call=0.1226ms construct=158.9ms
+#             output_checksum=6adddedf1ccf9817b5d9a4903f42f319d5561cfb1ce40168e2ec4857fcf1862c
+#             save=test/benchmark/r4/results/after/ab/frozen_save/PURE64_SPECIALIZED_NUMPY_output.npz sha256=edd599e44dabbef3f8391f29761300c9e1e9f5cac76c558ca85da864d45f2979
+#   fallback  runner_source=local-fallback:specialized            compile.path=fallback  n_graph_calls=53 (measured)
+#             median_per_invocation=6.623ms per_graph_call=0.1250ms construct=155.4ms
+#             output_checksum=6adddedf1ccf9817b5d9a4903f42f319d5561cfb1ce40168e2ec4857fcf1862c
+#             save=test/benchmark/r4/results/after/ab/fallback_save/PURE64_SPECIALIZED_NUMPY_output.npz sha256=edd599e44dabbef3f8391f29761300c9e1e9f5cac76c558ca85da864d45f2979
+#   digest equality: EQUAL   npz byte identity: IDENTICAL
+#
+# Cross-check against the CANONICAL after-round records (independent processes, same
+# fixture/config, --pure-runner auto -> frozen): the captured digests agree with the A/B
+# frozen arm, i.e. the canonical records' numbers are reproducible out of band:
+#   pure64_dense_numpy         canonical=0f190fee376620b6d44d2876e6410555ca33ab6638a7a1e871ce45b99a722ad0 ab_frozen=0f190fee376620b6d44d2876e6410555ca33ab6638a7a1e871ce45b99a722ad0 (EQUAL)
+#   pure64_specialized_numpy   canonical=6adddedf1ccf9817b5d9a4903f42f319d5561cfb1ce40168e2ec4857fcf1862c ab_frozen=6adddedf1ccf9817b5d9a4903f42f319d5561cfb1ce40168e2ec4857fcf1862c (EQUAL)
+#
+# VERDICT: the frozen constructor and the local-fallback constructor produce byte-identical
+# outputs (all 53 saved arrays across the two configs, plus the framed sha256 digests, plus
+# the npz file bytes).  Per-array shape/dtype/array_equal(equal_nan=True)/max|diff| tables are
+# in the raw output below.  Timings are the usual shared-box band (see the per-config lines).
+#
+# =============================================================================
+# RAW COMPARISON OUTPUT (verbatim stdout of `python3 $TMPDIR/r4_ab_compare.py`)
+# =============================================================================
+A/B numeric equivalence: frozen constructor vs local-fallback constructor
+(EvoGP HEAD 6e8bf6f / ETL shadow /tmp/evogp_etl_patched_87c7562, numpy backend, GPU 6)
+
+=== pure64_dense_numpy ===
+  runner_source      frozen=frozen-api:build_dense_runner          fallback=local-fallback:dense
+  compile.path       frozen=frozen                                 fallback=fallback
+  output_checksum    frozen=0f190fee376620b6d44d2876e6410555ca33ab6638a7a1e871ce45b99a722ad0 fallback=0f190fee376620b6d44d2876e6410555ca33ab6638a7a1e871ce45b99a722ad0
+  checksum equality  EQUAL
+  npz sha256         frozen=7964012d6e5b42f639b1bae11fb2b6df23af4b2fcd72a36c1e53069133195b59
+                     fallback=7964012d6e5b42f639b1bae11fb2b6df23af4b2fcd72a36c1e53069133195b59  (FILE-BYTE-IDENTICAL)
+  arrays             frozen=['block_0']
+                     fallback=['block_0']
+    block_0    shape=(64, 64) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=24 inf=0 finite=4072/4096
+
+=== pure64_specialized_numpy ===
+  runner_source      frozen=frozen-api:build_specialized_runner    fallback=local-fallback:specialized
+  compile.path       frozen=frozen                                 fallback=fallback
+  output_checksum    frozen=6adddedf1ccf9817b5d9a4903f42f319d5561cfb1ce40168e2ec4857fcf1862c fallback=6adddedf1ccf9817b5d9a4903f42f319d5561cfb1ce40168e2ec4857fcf1862c
+  checksum equality  EQUAL
+  npz sha256         frozen=edd599e44dabbef3f8391f29761300c9e1e9f5cac76c558ca85da864d45f2979
+                     fallback=edd599e44dabbef3f8391f29761300c9e1e9f5cac76c558ca85da864d45f2979  (FILE-BYTE-IDENTICAL)
+  arrays             frozen=['block_0', 'block_1', 'block_2', 'block_3', 'block_4', 'block_5', 'block_6', 'block_7', 'block_8', 'block_9', 'block_10', 'block_11', 'block_12', 'block_13', 'block_14', 'block_15', 'block_16', 'block_17', 'block_18', 'block_19', 'block_20', 'block_21', 'block_22', 'block_23', 'block_24', 'block_25', 'block_26', 'block_27', 'block_28', 'block_29', 'block_30', 'block_31', 'block_32', 'block_33', 'block_34', 'block_35', 'block_36', 'block_37', 'block_38', 'block_39', 'block_40', 'block_41', 'block_42', 'block_43', 'block_44', 'block_45', 'block_46', 'block_47', 'block_48', 'block_49', 'block_50', 'block_51', 'block_52']
+                     fallback=['block_0', 'block_1', 'block_2', 'block_3', 'block_4', 'block_5', 'block_6', 'block_7', 'block_8', 'block_9', 'block_10', 'block_11', 'block_12', 'block_13', 'block_14', 'block_15', 'block_16', 'block_17', 'block_18', 'block_19', 'block_20', 'block_21', 'block_22', 'block_23', 'block_24', 'block_25', 'block_26', 'block_27', 'block_28', 'block_29', 'block_30', 'block_31', 'block_32', 'block_33', 'block_34', 'block_35', 'block_36', 'block_37', 'block_38', 'block_39', 'block_40', 'block_41', 'block_42', 'block_43', 'block_44', 'block_45', 'block_46', 'block_47', 'block_48', 'block_49', 'block_50', 'block_51', 'block_52']
+    block_0    shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_1    shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_2    shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_3    shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_4    shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_5    shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_6    shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=8 inf=0 finite=56/64
+    block_7    shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_8    shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_9    shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_10   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_11   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_12   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_13   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_14   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_15   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_16   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_17   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_18   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=8 inf=0 finite=56/64
+    block_19   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_20   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=8 inf=0 finite=56/64
+    block_21   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_22   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_23   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_24   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_25   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_26   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_27   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_28   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_29   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_30   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_31   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_32   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_33   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_34   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_35   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_36   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_37   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_38   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_39   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_40   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_41   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_42   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_43   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_44   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_45   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_46   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_47   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_48   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_49   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_50   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_51   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+    block_52   shape=(64, 1) (eq=True) dtype=float32 (eq=True) array_equal(equal_nan=True)=True max|diff|finite=0 nan=0 inf=0 finite=64/64
+
+VERDICT: ALL EQUAL (bit-identical on every array + equal digests + identical npz bytes)
+per-config verdict table:
+  pure64_dense_numpy         digest_equal=True arrays_equal=True npz_bytes_equal=True frozen_src=frozen-api:build_dense_runner fallback_src=local-fallback:dense
+                             frozen  median=77.344ms per_gc=77.3436ms construct=1827.5ms
+                             fallback median=76.543ms per_gc=76.5433ms construct=1380.4ms
+  pure64_specialized_numpy   digest_equal=True arrays_equal=True npz_bytes_equal=True frozen_src=frozen-api:build_specialized_runner fallback_src=local-fallback:specialized
+                             frozen  median=6.498ms per_gc=0.1226ms construct=158.9ms
+                             fallback median=6.623ms per_gc=0.1250ms construct=155.4ms
+
