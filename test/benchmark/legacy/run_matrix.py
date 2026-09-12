@@ -28,7 +28,7 @@ Design notes (all deliberate):
   checkpoints for the configs that finished.
 """
 import argparse
-import importlib.util
+import importlib.machinery
 import json
 import os
 import statistics
@@ -85,9 +85,45 @@ def write_json(out_dir, tag, record):
     return path
 
 
+def _evogp_package_dir():
+    """Directory of the ``evogp`` package this process resolves to (``None`` when absent).
+
+    Import-free: the already-imported module wins (``_import_stack()`` imports ``evogp``
+    first), otherwise ``PathFinder`` walks ``sys.path`` for the spec.  Nothing here imports
+    ``evogp``/``evogp.tree``, so it cannot trip over the compiled ``evogp_cuda`` extension.
+    """
+    spec = getattr(sys.modules.get("evogp"), "__spec__", None)
+    if spec is None:
+        spec = importlib.machinery.PathFinder.find_spec("evogp")
+    if spec is None:
+        return None
+    if spec.origin and os.path.isfile(spec.origin):  # regular package: <dir>/evogp/__init__.py
+        return os.path.dirname(os.path.abspath(spec.origin))
+    # namespace portion (no ``__init__.py``): the search locations are the *parents*
+    for container in spec.submodule_search_locations or ():
+        nested = os.path.join(os.path.abspath(container), "evogp")
+        if os.path.isdir(nested):
+            return nested
+    return None
+
+
 def detect_side():
-    """'old' when the ETL engine module is absent (spec), else 'new'."""
-    return "old" if importlib.util.find_spec("evogp.tree.etl_engine") is None else "new"
+    """'old' on a legacy-layout ``evogp`` checkout, 'new' on an ETL one, 'unknown' if neither.
+
+    Mirrors ``bench_gp.detect_side`` (same fix, same vocabulary): a filesystem check of
+    ``tree/etl_engine.py`` under the resolved package directory -- *not* an env-level
+    ``find_spec("evogp.tree.etl_engine")``, which imports ``evogp.tree``/``evogp_cuda`` and
+    therefore used to raise (uncaught here) on a legacy materialization without the built
+    extension.  This driver is run with the legacy ``PYTHONPATH``, so it must read 'old'
+    there, built extension or not.
+    """
+    try:
+        package_dir = _evogp_package_dir()
+    except Exception:
+        return "unknown"
+    if package_dir is None:
+        return "unknown"
+    return "new" if os.path.isfile(os.path.join(package_dir, "tree", "etl_engine.py")) else "old"
 
 
 # --- lazy API access -----------------------------------------------------------------------

@@ -128,7 +128,7 @@ side -- compare *times*, use fitness only as a convergence sanity check.
 """
 
 import argparse
-import importlib.util
+import importlib.machinery
 import json
 import os
 import statistics
@@ -370,14 +370,65 @@ def import_modules():
     )
 
 
+def evogp_package_dir():
+    """Directory of the ``evogp`` package this process resolves to (``None`` when absent).
+
+    Import-free: the already-imported module wins (``import_modules()`` runs first in
+    :func:`main`), otherwise ``importlib.machinery.PathFinder`` walks ``sys.path`` for the
+    spec.  Unlike ``importlib.util.find_spec("evogp.tree.etl_engine")`` -- which *imports*
+    ``evogp`` and ``evogp.tree``, and with them the legacy ``evogp.evogp_cuda`` extension --
+    nothing here can fail because a checkout is not importable.
+    """
+    spec = getattr(sys.modules.get("evogp"), "__spec__", None)
+    if spec is None:
+        spec = importlib.machinery.PathFinder.find_spec("evogp")
+    if spec is None:
+        return None
+    if spec.origin and os.path.isfile(spec.origin):  # regular package: <dir>/evogp/__init__.py
+        return os.path.dirname(os.path.abspath(spec.origin))
+    # namespace portion (no ``__init__.py``): the search locations are the *parents*
+    for container in spec.submodule_search_locations or ():
+        nested = os.path.join(os.path.abspath(container), "evogp")
+        if os.path.isdir(nested):
+            return nested
+    return None
+
+
 def detect_side():
-    """``"new"`` when the ETL engine module exists, ``"old"`` when it does not."""
+    """``"new"`` when the ``evogp`` checkout in use carries the ETL engine, ``"old"`` when it is a
+    legacy-layout checkout, ``"unknown"`` only when no ``evogp`` checkout can be located.
+
+    The test is a filesystem fact about the *checkout*, not environment-level import success:
+    ``"new"`` iff the resolved package directory has ``tree/etl_engine.py`` (a legacy checkout
+    has ``cuda/`` instead).  Nothing is imported, so a legacy checkout whose ``evogp_cuda``
+    extension is not built -- e.g. a bare ``git archive b613503 src`` materialization, where the
+    old env-level probe raised and read ``"unknown"`` -- still reads ``"old"``.
+
+    This is the *engine family*, not the checkout identity: every ETL-era checkout (this tree,
+    ``/tmp/base_850db27``, a ``NEW_PYTHONPATH`` shadow run, ...) reads ``"new"`` by design.
+    Checkout identity comes from the payload fields instead (see :func:`repo_snapshot`):
+    ``evogp_file`` is the resolved package path -- distinct per checkout -- and ``evogp_commit``
+    is ``git rev-parse HEAD`` of the cwd.  Only the new side has the module the side-gated
+    paths need, so this label drives :func:`cold_build_guard_enforced` and
+    :func:`install_stage_probe`.
+
+    Evidence matrix (fresh processes, this file loaded by path, then ``import_modules()`` ->
+    ``detect_side()``; ``before -> after`` the fix)::
+
+        worktree/HEAD, PYTHONPATH=src                        new     -> new
+        worktree/HEAD + /mnt/local-ssd/bchuang/etl entry      new     -> new
+        /tmp/evogp_legacy_bench (built ext)                   old     -> old
+        b613503 ``git archive`` layout, no built ext          unknown -> old   <- the bug
+        /tmp/base_850db27 (ETL-era base checkout)             new     -> new
+        no ``evogp`` anywhere on ``sys.path``                 unknown -> unknown
+    """
     try:
-        if importlib.util.find_spec("evogp.tree.etl_engine") is None:
-            return "old"
-        return "new"
+        package_dir = evogp_package_dir()
     except Exception:
         return "unknown"
+    if package_dir is None:
+        return "unknown"
+    return "new" if os.path.isfile(os.path.join(package_dir, "tree", "etl_engine.py")) else "old"
 
 
 def _guarded(label, fn, default=None):
