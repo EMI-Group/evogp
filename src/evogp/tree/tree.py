@@ -5,7 +5,7 @@ import sympy as sp
 
 from .utils import *
 from .descriptor import GenerateDescriptor
-from . import etl_engine
+from . import dense_engine, etl_engine
 
 
 def _comparison_as_value(res):
@@ -75,6 +75,24 @@ class Tree:
             x.shape[1] == self.input_len
         ), f"x shape should be {self.input_len}, but got {x.shape[1]}"
 
+        # EVOGP_EVAL_MODE decides between the dense (one graph for the whole
+        # population) and the specialized (one graph per tree) engine; a single
+        # tree is a population of one, and DenseUnsupported falls back below.
+        if dense_engine.should_use_dense(1):
+            try:
+                res = dense_engine.evaluate_dense(
+                    self.node_value.unsqueeze(0),
+                    self.node_type.unsqueeze(0),
+                    self.subtree_size.unsqueeze(0),
+                    self.input_len,
+                    self.output_len,
+                    x,
+                    per_row=is_expand_input,
+                )
+                return res[0]
+            except dense_engine.DenseUnsupported:
+                pass
+
         pop = etl_engine.decode_population(
             self.node_value.unsqueeze(0),
             self.node_type.unsqueeze(0),
@@ -121,6 +139,23 @@ class Tree:
             batch_size,
             self.output_len,
         ), f"outputs shape should be ({batch_size}, {self.output_len}), but got {labels.shape}"
+
+        # Dense attempt / fallback as in ``forward`` (the population is this one
+        # tree, i.e. pop_size == 1).
+        if dense_engine.should_use_dense(1):
+            try:
+                return dense_engine.sr_fitness_dense(
+                    self.node_value[None, :],
+                    self.node_type[None, :],
+                    self.subtree_size[None, :],
+                    self.input_len,
+                    self.output_len,
+                    inputs,
+                    labels,
+                    use_MSE=use_MSE,
+                )
+            except dense_engine.DenseUnsupported:
+                pass
 
         pop = etl_engine.decode_population(
             self.node_value[None, :],

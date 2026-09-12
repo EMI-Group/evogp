@@ -5,7 +5,7 @@ import numpy as np
 from .utils import *
 from .tree import Tree
 from .descriptor import GenerateDescriptor
-from . import etl_engine, generation, splicing
+from . import dense_engine, etl_engine, generation, splicing
 
 
 class Forest:
@@ -107,6 +107,26 @@ class Forest:
             self.input_len,
         ), f"x shape should be ({self.pop_size}, {self.input_len}), but got {x.shape}"
 
+        # EVOGP_EVAL_MODE decides whether the whole population is evaluated by ONE
+        # dense ETL graph (dense_engine) or per tree structure (etl_engine); see
+        # dense_engine's module docstring for the policy.  A population the dense
+        # evaluator cannot handle raises DenseUnsupported and is evaluated by the
+        # specialized path below, unchanged (the fallback is deliberate and only
+        # covers that one exception type).
+        if dense_engine.should_use_dense(self.pop_size):
+            try:
+                return dense_engine.evaluate_dense(
+                    self.batch_node_value,
+                    self.batch_node_type,
+                    self.batch_subtree_size,
+                    self.input_len,
+                    self.output_len,
+                    x,
+                    per_row=True,
+                )
+            except dense_engine.DenseUnsupported:
+                pass
+
         pop = etl_engine.decode_population(
             self.batch_node_value,
             self.batch_node_type,
@@ -123,6 +143,21 @@ class Forest:
         assert (x.dim() == 2) and (
             x.shape[1] == self.input_len
         ), f"x shape[1] should be {self.input_len}, but got {x.shape[1]}"
+
+        # Dense attempt / fallback as in ``forward`` (per_row=False here).
+        if dense_engine.should_use_dense(self.pop_size):
+            try:
+                return dense_engine.evaluate_dense(
+                    self.batch_node_value,
+                    self.batch_node_type,
+                    self.batch_subtree_size,
+                    self.input_len,
+                    self.output_len,
+                    x,
+                    per_row=False,
+                )
+            except dense_engine.DenseUnsupported:
+                pass
 
         pop = etl_engine.decode_population(
             self.batch_node_value,
@@ -296,6 +331,24 @@ class Forest:
             "tree parallel",
             "auto",
         ], f"execute_mode should be one of ['torch', 'hybrid parallel', 'data parallel', 'tree parallel', 'auto'], but got {execute_mode}"
+
+        # Dense attempt / fallback as in ``forward``: the loss is computed from the
+        # dense prediction with the very same torch reduction, so the returned
+        # tensor is fresh, writable and positive (the caller negates it).
+        if dense_engine.should_use_dense(self.pop_size):
+            try:
+                return dense_engine.sr_fitness_dense(
+                    self.batch_node_value,
+                    self.batch_node_type,
+                    self.batch_subtree_size,
+                    self.input_len,
+                    self.output_len,
+                    inputs,
+                    labels,
+                    use_MSE=use_MSE,
+                )
+            except dense_engine.DenseUnsupported:
+                pass
 
         pop = etl_engine.decode_population(
             self.batch_node_value,
