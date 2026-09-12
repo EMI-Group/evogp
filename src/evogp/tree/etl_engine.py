@@ -288,6 +288,18 @@ _K_UFUNC = 2  # arity 1
 _K_BFUNC = 3  # arity 2
 _K_TFUNC = 4  # arity 3
 
+# ``NType`` members as plain Python ints: the per-node decode loop (the hottest
+# host-side loop of the whole engine) reads them several times per node, so the
+# attribute lookups are hoisted here once (the values are the single source of
+# truth in ``utils.py``; ``int()`` also keeps ``IntEnum`` style wrappers, should
+# ``NType`` ever become one, out of the inner loop).
+_NT_VAR = int(NType.VAR)
+_NT_CONST = int(NType.CONST)
+_NT_UFUNC = int(NType.UFUNC)
+_NT_BFUNC = int(NType.BFUNC)
+_NT_OUT_NODE = int(NType.OUT_NODE)
+_NT_TYPE_MASK = int(NType.TYPE_MASK)
+
 
 def _float_to_bits(value: Union[float, np.floating]) -> int:
     """float32 bit pattern of ``value`` as a (possibly negative) Python int."""
@@ -980,87 +992,129 @@ def _decode_row(
 
     kinds = [0] * size0
     funcs = [0] * size0
-    out_indices = [-1] * size0
-    consts = [0.0] * size0
     node_sizes = [1] * size0
-    repl: List[Optional[np.float32]] = [None] * size0
-    # reverse-walk stack frames: (own value, passed-up value, subtree size,
-    # subtree has an effective out-node); values are float32 or ``_SV``.
+    repl: List[Optional[int]] = [None] * size0
+    out_indices = [-1] * size0 if multi else None
     stack: List[Tuple[Any, Any, int, bool]] = []
+    has_var = False
 
     for i in range(size0 - 1, -1, -1):
         raw = int(types[i])
-        tagged = bool(raw & NType.OUT_NODE)
-        if not multi:
-            if tagged:
-                raise ValueError(
-                    f"row {row}: node {i}: node_type={raw} carries the OUT_NODE "
-                    "flag but output_len == 1 -- tagged nodes are only defined "
-                    "for multi-output trees (the old kernel corrupted its "
-                    "operand stack here; see the module docstring)"
-                )
-            base = raw
+        if multi:
+            tagged = bool(raw & _NT_OUT)
+            base = raw & _NT_MASK
+        elif raw & _NT_OUT_NODE:
+            raise ValueError(
+                f"row {row}: node {i}: node_type={raw} carries the OUT_NODE "
+                "flag but output_len == 1 -- tagged nodes are only defined "
+                "for multi-output trees (the old kernel corrupted its "
+                "operand stack here; see the module docstring)"
+            )
         else:
-            base = raw & NType.TYPE_MASK
-        if base == NType.VAR or base == NType.CONST:
-            # leaves: in multi-output mode a tag is masked off and ignored
-            if base == NType.VAR:
-                index_value = float(values[i])
-                if not math.isfinite(index_value):
-                    raise ValueError(
-                        f"row {row}: node {i}: variable index node_value="
-                        f"{values[i]!r} is not finite"
-                    )
-                index = int(index_value)  # C truncation toward zero
-                if index < 0 or index >= input_len:
-                    raise ValueError(
-                        f"row {row}: node {i}: variable index {index} (from "
-                        f"node_value={values[i]!r}) is outside [0, {input_len})"
-                    )
-                kinds[i] = _K_VAR
-                funcs[i] = index
-                stack.append((_SV, _SV, 1, False))
-            else:
-                value = np.float32(values[i])
-                kinds[i] = _K_CONST
-                consts[i] = value
-                stack.append((value, value, 1, False))
+            tagged = False
+            base = raw
+        if base == _NT_VAR:
+            index_value = values[i]
+            if not _isfinite(index_value):
+                raise ValueError(
+                    f"row {row}: node {i}: variable index node_value="
+                    f"{values[i]!r} is not finite"
+                )
+            index = int(index_value)  # C truncation toward zero
+            if index < 0 or index >= input_len:
+                raise ValueError(
+                    f"row {row}: node {i}: variable index {index} (from "
+                    f"node_value={values[i]!r}) is outside [0, {input_len})"
+                )
+            kinds[i] = _K_VAR
+            funcs[i] = index
+            has_var = True
+            stack.append((_SV, _SV, 1, False))
+            continue
+        if base == _NT_CONST:
+            value = np.float32(values[i])
+            kinds[i] = _K_CONST
+            funcs[i] = int(bits[i])  # float32 bit pattern of the leaf
+            stack.append((value, value, 1, False))
             continue
 
         # -- function node ---------------------------------------------------
-        if base == NType.UFUNC:
+        if base == _NT_UFUNC:
             arity = 1
-        elif base == NType.BFUNC:
+        elif base == _NT_BFUNC:
             arity = 2
         else:  # TFUNC and any unknown base type: the kernel's ternary branch
             arity = 3
-        base_name = _BASE_NAMES.get(int(base), f"base type {int(base)}")
-        if len(stack) < arity:
+        n_following = len(stack)
+        if n_following < arity:
+            base_name = _BASE_NAMES.get(base, f"base type {base}")
             raise ValueError(
                 f"row {row}: node {i}: {base_name} node needs {arity} operand(s) "
-                f"but only {len(stack)} node(s) follow it in the prefix encoding "
+                f"but only {n_following} node(s) follow it in the prefix encoding "
                 f"-- truncated tree (subtree_size[0]={size0})"
             )
-        children = [stack.pop() for _ in range(arity)]  # [leftmost .. rightmost]
-        kind = (_K_UFUNC, _K_BFUNC, _K_TFUNC)[arity - 1]
-        kinds[i] = kind
-        if multi and tagged:
-            packed = int(bits[i])  # 4-byte view of node_value (little-endian)
-            funcs[i] = packed & 0xFFFF
-            out_indices[i] = packed >> 16  # C arithmetic shift
-        elif arity == 3:
-            funcs[i] = 0  # the ternary branch ignores the function id
+        # pop order is leftmost first (the leftmost child is the last pushed)
+        if arity == 1:
+            kinds[i] = _K_UFUNC
+            child0 = stack.pop()
+            own = child0[0]
+            if own is not _SV:
+                own = _fold_unary(int(values[i]), own)
+            size = 1 + child0[2]
+            passed_up = child0[1]
+            has_out = child0[3]
+        elif arity == 2:
+            kinds[i] = _K_BFUNC
+            child0 = stack.pop()
+            child1 = stack.pop()
+            a = child0[0]
+            b = child1[0]
+            if a is not _SV and b is not _SV:
+                own = _fold_binary(int(values[i]), a, b)
+            else:
+                own = _SV
+            size = 1 + child0[2] + child1[2]
+            passed_up = child1[1]
+            has_out = child0[3] or child1[3]
         else:
-            func_id = float(values[i])
-            if not math.isfinite(func_id):
+            kinds[i] = _K_TFUNC
+            child0 = stack.pop()
+            child1 = stack.pop()
+            child2 = stack.pop()
+            a = child0[0]
+            b = child1[0]
+            c = child2[0]
+            if a is not _SV and b is not _SV and c is not _SV:
+                own = _fold_ternary(a, b, c)
+            else:
+                own = _SV
+            size = 1 + child0[2] + child1[2] + child2[2]
+            passed_up = child2[1]
+            has_out = child0[3] or child1[3] or child2[3]
+
+        if multi:
+            if tagged:
+                packed = int(bits[i])  # 4-byte view of node_value
+                funcs[i] = packed & 0xFFFF
+                out_indices[i] = packed >> 16  # C arithmetic shift
+            elif arity == 3:
+                funcs[i] = 0  # the ternary branch ignores the function id
+            else:
+                func_id = values[i]
+                if not _isfinite(func_id):
+                    raise ValueError(
+                        f"row {row}: node {i}: function id node_value={values[i]!r} "
+                        "is not finite"
+                    )
+                funcs[i] = int(func_id)  # C truncation toward zero
+        elif arity != 3:
+            func_id = values[i]
+            if not _isfinite(func_id):
                 raise ValueError(
                     f"row {row}: node {i}: function id node_value={values[i]!r} "
                     "is not finite"
                 )
             funcs[i] = int(func_id)  # C truncation toward zero
-        size = 1
-        for child in children:
-            size += child[2]
         declared = int(sizes[i])
         if declared != size:
             raise ValueError(
@@ -1068,33 +1122,20 @@ def _decode_row(
                 f"tree structure (1 + children sizes = {size})"
             )
         node_sizes[i] = size
-        own: Any = _SV
-        if kind == _K_UFUNC:
-            if children[0][0] is not _SV:
-                own = _fold_unary(funcs[i], children[0][0])
-        elif kind == _K_BFUNC:
-            if children[0][0] is not _SV and children[1][0] is not _SV:
-                own = _fold_binary(funcs[i], children[0][0], children[1][0])
-        elif (
-            children[0][0] is not _SV
-            and children[1][0] is not _SV
-            and children[2][0] is not _SV
-        ):
-            own = _fold_ternary(children[0][0], children[1][0], children[2][0])
-        passed_up = children[-1][1]  # rightmost child's value
-        has_out = (0 <= out_indices[i] < output_len) or any(
-            child[3] for child in children
-        )
         if own is _SV:
             replacement = None
         elif not multi:
-            replacement = own  # single output: the node's own value is the result
+            replacement = _float_to_bits(own)  # single output: own value is it
         elif has_out:
             replacement = None  # folding would drop an accumulation
+        elif passed_up is _SV:
+            replacement = None
         else:
             # multi output: the subtree only ever contributes its passed-up value
-            replacement = passed_up if passed_up is not _SV else None
+            replacement = _float_to_bits(passed_up)
         repl[i] = replacement
+        if multi:
+            has_out = has_out or (0 <= out_indices[i] < output_len)
         stack.append((own, passed_up, size, has_out))
 
     if len(stack) != 1:
@@ -1108,31 +1149,45 @@ def _decode_row(
     # -- emit the static token stream (reverse prefix -> prefix) -------------
     tokens: List[Tuple[int, ...]] = []
     i = 0
-    while i < size0:
-        replacement = repl[i]
-        if replacement is not None:
-            tokens.append((_K_CONST, _float_to_bits(replacement)))
-            i += node_sizes[i]
-            continue
-        kind = kinds[i]
-        if kind == _K_VAR:
-            tokens.append((_K_VAR, funcs[i]))
-        elif kind == _K_CONST:
-            tokens.append((_K_CONST, _float_to_bits(consts[i])))
-        else:
-            tokens.append((kind, funcs[i], out_indices[i]))
-        i += 1
+    if multi:
+        while i < size0:
+            replacement = repl[i]
+            if replacement is not None:
+                tokens.append((_K_CONST, replacement))
+                i += node_sizes[i]
+                continue
+            kind = kinds[i]
+            if kind == _K_VAR:
+                tokens.append((_K_VAR, funcs[i]))
+            elif kind == _K_CONST:
+                tokens.append((_K_CONST, funcs[i]))
+            else:
+                tokens.append((kind, funcs[i], out_indices[i]))
+            i += 1
+    else:
+        while i < size0:
+            replacement = repl[i]
+            if replacement is not None:
+                tokens.append((_K_CONST, replacement))
+                i += node_sizes[i]
+                continue
+            kind = kinds[i]
+            if kind == _K_VAR:
+                tokens.append((_K_VAR, funcs[i]))
+            elif kind == _K_CONST:
+                tokens.append((_K_CONST, funcs[i]))
+            else:
+                tokens.append((kind, funcs[i], -1))
+            i += 1
 
     collapsed = size0 - len(tokens)
-    if any(tok[0] == _K_VAR for tok in tokens):
+    if has_var:
         return DecodedTree(
             program=(output_len, tuple(tokens)),
             const_out=None,
             node_count=size0,
             collapsed_nodes=collapsed,
         )
-    # A fully constant program is never compiled: evaluate it on the host with
-    # the very same walk (its shape is fixed, every operand is a float).
     result = _walk_tokens(tokens, output_len, None)
     if output_len > 1:
         const_out = tuple(_float_to_bits(value) for value in result)
