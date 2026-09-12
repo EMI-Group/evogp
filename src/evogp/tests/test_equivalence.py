@@ -1246,31 +1246,73 @@ def test_kernel_arity_fallback_is_preserved():
 
 
 # =========================================================================== #
-# 7. Multi-output (output_len > 1) -- optional for the engine
+# 7. Multi-output (output_len > 1) -- part of the engine's contract
 # =========================================================================== #
 _MULTI_OUT_SUPPORTED = None
 _MULTI_OUT_REASON = ""
 
 
 def multi_output_supported():
+    """Probe the engine's multi-output contract (``output_len > 1``, out-nodes).
+
+    Multi-output IS implemented (``ENGINE_SPEC`` section 4.3, ``out_fn`` tags in the
+    ``(node_value, node_type)`` schema and the ``CombinedForest`` containers), so
+    this probe is expected to SUCCEED and the tests below are expected to RUN.
+    Only a deliberate, design-level refusal (``NotImplementedError``) counts as
+    "unsupported" and skips them; an engine exception, a wrong result shape or a
+    wrong value are regressions and MUST fail the calling test -- catching those
+    (a blanket ``except Exception``) would hide exactly that kind of engine bug.
+    """
     global _MULTI_OUT_SUPPORTED, _MULTI_OUT_REASON
     if _MULTI_OUT_SUPPORTED is None:
+        x = torch.tensor([[1.0, 2.0]], dtype=torch.float32)
         try:
             values, types, sizes = rows_from_specs([out_fn(ADD, 0, var(0), var(1))], output_len=2)
             forest = Forest(2, 2, values.to(DEVICE), types.to(DEVICE), sizes.to(DEVICE))
-            out = forest.batch_forward(torch.tensor([[1.0, 2.0]], dtype=torch.float32, device=DEVICE))
-            _MULTI_OUT_SUPPORTED = tuple(out.shape) == (1, 1, 2)
-            if not _MULTI_OUT_SUPPORTED:
-                _MULTI_OUT_REASON = f"batch_forward returned shape {tuple(out.shape)} instead of (1, 1, 2)"
-        except Exception as exc:  # the engine is allowed to refuse multi-output for now
+            out = forest.batch_forward(x.to(DEVICE))
+        except NotImplementedError as exc:  # the only "unsupported by design" signal
             _MULTI_OUT_SUPPORTED = False
             _MULTI_OUT_REASON = f"{type(exc).__name__}: {exc}"
+        else:
+            assert tuple(out.shape) == (1, 1, 2), (
+                "engine is expected to support output_len > 1, but batch_forward "
+                f"returned shape {tuple(out.shape)} instead of (1, 1, 2)"
+            )
+            torch.testing.assert_close(
+                _to_cpu_float(out),
+                reference.batch_forward_from_rows(values, types, sizes, x, out_len=2),
+                rtol=RTOL,
+                atol=ATOL,
+                msg="engine is expected to support output_len > 1 correctly",
+            )
+            _MULTI_OUT_SUPPORTED = True
     return _MULTI_OUT_SUPPORTED
 
 
 def skip_without_multi_output():
     if not multi_output_supported():
         pytest.skip(f"engine does not support output_len > 1 yet ({_MULTI_OUT_REASON})")
+
+
+@requires_engine
+def test_multi_output_guard_skips_only_design_level_refusals(monkeypatch):
+    """The guard must skip on a design-level refusal and FAIL on an engine error."""
+    module = sys.modules[__name__]
+
+    def refuse(self, x):
+        raise NotImplementedError("output_len > 1 is not supported")
+
+    def engine_bug(self, x):
+        raise NameError("name 'outs' is not defined")
+
+    monkeypatch.setattr(Forest, "batch_forward", refuse)
+    monkeypatch.setattr(module, "_MULTI_OUT_SUPPORTED", None)
+    assert multi_output_supported() is False, "a design-level refusal must SKIP, not fail"
+
+    monkeypatch.setattr(Forest, "batch_forward", engine_bug)
+    monkeypatch.setattr(module, "_MULTI_OUT_SUPPORTED", None)
+    with pytest.raises(NameError):
+        multi_output_supported()  # a real engine error must reach the test, not become a skip
 
 
 @requires_engine
