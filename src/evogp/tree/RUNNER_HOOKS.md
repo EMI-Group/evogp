@@ -100,7 +100,10 @@ numpy, device-resident on iree), or `None` for a constant tree.
   `(P, N, out)` stitch, no numpy reduction, no torch conversion. A caller that needs assembled rows
   does that itself (see `runner_check._assemble_specialized`, which also stitches `constant_rows`).
 * The static program is re-passed by value on every `etl.run`, exactly as the frozen engine does, so
-  **`etl.run` re-validates the statics in O(#tokens) per call**. That is unavoidable today (see §5).
+  every call still goes through `etl.run`'s run boundary and its per-call validation of the statics —
+  now against the ETL-side **static-validation fast path** (a per-executable content fingerprint instead
+  of an O(#tokens) per-leaf walk: ETL bench, numpy, a 60-token program 303 → 67–71 µs per `etl.run`,
+  170 tokens 758 → 87–96 µs; see §5).
 
 Repeatability: the executables and the staged payloads are re-used as-is, so repeated `.run()` calls are
 bit-identical and issue exactly the same number of `etl.run` calls (1 / `n_nonconst`) with **zero** host
@@ -108,8 +111,9 @@ crossings of any kind — measured, not assumed (`runner_check.py` stage `dense`
 
 Diagnostics (read-only attributes; a harness may print them but must not write them):
 `DenseRunner`: `.plan` (`.trace_len` / `.pop_size` / `.n_rows` / chunk shape / `.peak_bytes` / variant —
-`describe_plan`), `.executable`, `.staged` (the payload memo), `.backend_name`, `.device`,
-`.device_resident`, `.per_row`, `.input_len`, `.output_len`, `.pop_size`, `.n_rows`, `.invocations` (== 1).
+`describe_plan`; the population / row counts live **only** here, on the plan), `.executable`, `.staged`
+(the payload memo), `.backend_name`, `.device`, `.device_resident`, `.per_row`, `.input_len`,
+`.output_len`, `.invocations` (== 1).
 `SpecializedRunner`: `.population` (decoded), `.executables`, `.payloads`, `.constant_rows`,
 `.backend_name`, `.device`, `.options`, `.per_row`, `.input_len`, `.output_len`, `.pop_size`, `.n_rows`,
 `.invocations` (== non-constant trees).
@@ -129,12 +133,21 @@ across different `pop_size` / `n_rows` / `input_len` shapes (that re-compiles). 
 ## 5. Adoption points for the ETL-side work (marked, NOT implemented here)
 
 `SpecializedRunner.run()` carries an `ADOPTION POINT` comment on the single `etl.run(executable,
-payload, tree.program)` line: when the upstream `etl.jit` / pre-bound-runner work lands, that one line
-swaps to the bound invocation and the two remaining per-call costs disappear —
-`etl.run`'s **static re-validation** (kind-string checks, ≈1.4 µs per static leaf per call) and its
-structure walk. Neither is emulated here and `/mnt/local-ssd/bchuang/etl` is **not modified** by this
-repository. The dense runner has no equivalent point: its `cfg` is one static block per chunk and the
-same model applies there (`_iter_plan_chunks` re-passes it by value once per `.run()`).
+payload, tree.program)` line. The ETL-side facility that line swaps to has since landed:
+`etl.jit(fn, *, backend=..., device=...)` returns a function-entry compile cache (`JitFunction` /
+`BoundJit`, exported from `etl/__init__.py`) whose `f.bind(program=prog)` pre-bound runner takes only
+the tensor argument on the call path and dispatches the already-compiled executable — no per-call cache
+key derivation for the bound statics (ETL bench, numpy, 60-token program: bound dispatch 320 µs against
+314 µs for the raw `etl.run`, i.e. within ~2 %). What is left to adopt here is therefore the
+consumer-side plumbing, not the two costs this section used to name: ETL's per-executable run-path
+static-validation fast path has already replaced the O(#tokens) per-leaf walk (60-token program
+303 → 67–71 µs per `etl.run`, 170 tokens 758 → 87–96 µs), and its multi-slot `CompileCache`
+content-fingerprint memo replays a repeated program's key (~17–25 µs at 30–170 tokens; ~32 µs per call
+in a steady-state K=50 cycle of 60-token programs, against ~660 µs before). All of that landed ETL-side
+on branch `evogit-agent-T1-A160`, on top of the `main` checkout the venv installs — nothing is emulated
+here and `/mnt/local-ssd/bchuang/etl` is **not modified** by this repository. The dense runner has no
+equivalent point: its `cfg` is one static block per chunk and the same model applies there
+(`_iter_plan_chunks` re-passes it by value once per `.run()`).
 
 Also deferred (documented, deliberately not built):
 

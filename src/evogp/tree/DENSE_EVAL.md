@@ -24,8 +24,9 @@ The specialized engine (`etl_engine.py`, the default and the reference) is per s
   (the grid's cold columns over 55 / 170 / 793 distinct programs). A fresh random population is a
   **cold miss per individual** (the bench's pop-1000 reference population held 793 distinct programs).
 * **one Python invocation per tree per pass** — a `pop_size` fitness pass is `pop_size` `build_cached`
-  look-ups (each re-encoding its static program and re-deriving its sha256 key) plus `pop_size`
-  `etl.run` calls with O(#tokens) static re-validation.
+  look-ups plus `pop_size` `etl.run` calls, each re-validating its statics. Both per-lookup costs are
+  small on the ETL side now (a repeated program's key is a ~17–25 µs fingerprint replay, a 60-token
+  `etl.run` 67–71 µs — §7), but the *number* of Python invocations is unchanged.
 * **one device readback per tree on a device backend** — results are assembled host-side, so a
   `pop_size` pass costs `pop_size` device invocations and `pop_size` synchronizations.
 * **no cross-tree batching** — duplicate programs hit the cache but still run one by one, and ETL has
@@ -413,7 +414,8 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
   so a device-resident `(pop, input_len)` block cannot be split per tree at run time. The dense path
   sidesteps this by feeding the *whole* block and doing the per-tree row selection **in graph**
   (`x_base` + flatten-gather); the specialized `per_row=True` path must upload one row per tree instead.
-* **No multi-program / super-graph execution**, and **no ETL GPU backend without per-graph AOT
+* **No multi-program / super-graph execution** (`etl.jit` is function-entry caching for one program at
+  a time, not multi-program execution), and **no ETL GPU backend without per-graph AOT
   compilation** (numpy = CPU interpreter, iree/xla = compile per graph, tvm = CPU only). Hence "one
   graph for the whole population" is the only lever, and the compile budget moves from per tree to per
   shape.
@@ -430,8 +432,13 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
   per shape signature. Long runs of a stable shape amortize it to nothing; short scripts and unit tests
   do not — which is why the suite runs on numpy and `auto` keeps dense off there.
 * **Per-call overheads inherited from `etl_engine`.** `build_dense` re-derives the cache key on every
-  call (hit or miss) and `etl.run` re-validates the statics by value — the dense path pays this once per
-  chunk instead of once per tree.
+  call (hit or miss) and `etl.run` re-validates the statics — the dense path pays this once per chunk
+  instead of once per tree. Both sides are cheap ETL-side now: the multi-slot content-fingerprint memo
+  in `CompileCache` turns a repeat visit into a ~17–25 µs key replay (~32 µs per call in a steady-state
+  K=50 cycle of 60-token programs, against ~660 µs before) and the per-executable run-path
+  static-validation fast path holds a 60-token `etl.run` at 67–71 µs (303 before) and 170 tokens at
+  87–96 µs (758 before). Landed ETL-side on branch `evogit-agent-T1-A160`, on top of the `main`
+  checkout the venv installs (`bench_logs/hotpath/`).
 * **Per-chunk upload cost.** Device backends upload one `(P_chunk, …)` column block per chunk
   (7 tensors + `x`) versus one row per tree on the specialized `per_row=True` path. So a chunk should be
   as large as the memory budget allows, and `per_row=False` workloads (the SR-fitness case) are the
