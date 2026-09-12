@@ -691,4 +691,10 @@ window-3 anomaly bullets. The `numpy` matrix phase (window 4) committed `a4cf2ad
 (`armB_np_sr_a.{json,log}` + `status_*.txt`; the `*.log` files again needed `git add -f` because
 `.gitignore:32` hides `*.log`, exactly as for Arm A's records) and the follow-up commit of that phase,
 which carries `results/armB/status_check_r3_armB_final.txt` (the first all-9-ids validator run, exit 0),
-the `numpy`-group subsection above and the five window-4 anomaly bullets.
+the `numpy`-group subsection above and the five window-4 anomaly bullets. The `iree_sr_b2` re-attempt
+phase (window 5) committed `186a25e` (the three b2 records — attempt 1, the corrective attempt 2 and the
+preserved mis-invoked first execution of attempt 2 — plus their three logs and
+`status_check_r3_armB_after_b2.txt`; the `*.log` files again needed `git add -f` because `.gitignore:32`
+hides `*.log`, exactly as for Arm A's records) and `174f33a`
+(`etl_import_probe.txt` sixth block + `windows.md` window 5), and this follow-up commit carries the
+filled-in `iree_sr_b2` re-attempt subsection and the three window-5 anomaly bullets.
