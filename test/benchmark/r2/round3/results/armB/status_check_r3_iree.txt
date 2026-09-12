@@ -1,0 +1,19 @@
+manifest: test/benchmark/r2/round3/manifest_armB.txt (9 expected ids, 9 expect stages)
+
+id                             side  task    status     first_ms    warm_ms   cold_builds   warm_misses
+-------------------------------------------------------------------------------------------------------
+armB_iree_fixture64_n64_spec   new   eval64  complete   20043.52      62.19  48 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_iree_fixture200_n64_spec  new   eval64  complete   82065.28     200.09  155 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_iree_sr_a_spec            new   sr      complete   64950.88   12889.64  155 (reps[0].totals.cold_builds)  362 (reps[0].totals.warm_misses)
+armB_iree_fixture64_n64        new   eval64  complete   18011.84       8.54  0 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_iree_fixture200_n64       new   eval64  complete   12227.86       5.20  0 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_iree_sr_a                 new   sr      complete   15965.23     130.59  0 (reps[0].totals.cold_builds)  169 (reps[0].totals.warm_misses)
+armB_np_c5r2                   new   ?       MISSING           -          -             -             -
+armB_np_fixture200_n64         new   ?       MISSING           -          -             -             -
+armB_np_sr_a                   new   ?       MISSING           -          -             -             -
+
+9 record(s): 6 complete, 0 partial, 0 skipped, 3 missing, 0 malformed (0 not in the manifest)
+26 check(s), 3 failure(s)
+  FAIL armB_np_c5r2: missing JSON test/benchmark/r2/round3/results/armB/new/armB_np_c5r2.json
+  FAIL armB_np_fixture200_n64: missing JSON test/benchmark/r2/round3/results/armB/new/armB_np_fixture200_n64.json
+  FAIL armB_np_sr_a: missing JSON test/benchmark/r2/round3/results/armB/new/armB_np_sr_a.json
