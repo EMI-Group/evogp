@@ -76,6 +76,8 @@ Instance attributes / results a caller reads:
 ### `show_details(start_time, generation_cnt, fitnesses)`
 
 - Filters the incoming CPU fitness tensor to the band `(-valid_fitness_boundry, +valid_fitness_boundry)` and prints count/max/min/mean/std plus the step's elapsed milliseconds.
+- The printed elapsed time spans from `start_time` (`standard.py:63`, taken just before `step()`) to `standard.py:101`, so it covers `step()` plus the filtering/statistics computation but not the `print` itself; `is_show_details=False` removes all of this per-generation host work.
+- `max`/`min` are Python builtins iterating the CPU tensor element-by-element (not `torch.max`/`torch.min`), while `mean`/`std` are torch reductions — a per-generation O(pop_size) Python overhead when details are shown.
 - The filter exists to hide the `±inf`/overflow "invalid" individuals from the mean/std statistics — `max`/`min` are taken over the same filtered set, so they are **not** the true population max.
 - Because NaN fitnesses become `-inf` and `-inf` is outside the band, invalid trees are excluded here but still counted in `pipeline.fitness`.
 - This method is the *only* overridable hook in the class (it already takes everything it needs as arguments), which makes it the natural place to bolt on custom logging.
