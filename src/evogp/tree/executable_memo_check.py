@@ -196,7 +196,6 @@ def check_presence(
         E.clear_cache()
         before = E.cache_stats()
         exe = E._executable(program, n_rows, input_len, *backend)
-        counter.reset()
         again = [E._executable(program, n_rows, input_len, *backend) for _ in range(reps)]
         after = E.cache_stats()
         report.add(
