@@ -148,11 +148,17 @@ Five call sites try dense first and fall back **only** on `DenseUnsupported`: `F
 
 The fallback is silent but deliberate: the specialized path re-runs the very same call and owns the
 error contract for malformed trees; every other exception propagates. Result contracts are identical
-either way — fresh, contiguous, `requires_grad=False` float32 on `x`'s device unless `out_device`; the
-SR loss is a fresh writable `(pop_size,)` positive loss built with a torch reduction
-(`diff = label - prediction`, `diff²` or `|diff|`, summed over rows and outputs, divided by the row
-count), i.e. the same formula as `etl_engine.sr_fitness`, which reduces on the HOST with numpy instead —
-the two loss values differ only by float32 reduction order (~1e-7 relative on the fixtures).
+either way — fresh, contiguous, `requires_grad=False` float32 on `x`'s device unless `out_device`.
+
+**The SR hot path is LOSS-FOLDED.** `Forest.SR_fitness` / `Tree.SR_fitness` compile the *loss* variant
+(`_dense_loss_step`, `DensePlan.variant="loss"`, static `use_mse` in `cfg[6]`): the graph returns the
+per-tree `sum_N err` (`(p_chunk,)`), `run_loss_plan` assembles and divides by `N` host-side, and no
+prediction ever crosses back. `sr_fitness_dense` therefore does **not** route through `evaluate_dense`
+(one `inputs` D2H, one `labels` D2H, one `(P,)`-scale readback per chunk, one `torch.from_numpy((P,))`
++ H2D). The value path (`forward` / `batch_forward`) keeps the earlier route: one compiled graph, one
+`(P, N)` chunk readback per chunk, one assembled prediction tensor. `use_MSE` is part of the loss
+variant's cache key, so MSE and MAE are two graphs per shape signature; the loss value matches the
+specialized engine except for float32 reduction order (~1e-7 relative on the fixtures).
 Public API compatibility is complete: signatures unchanged,
 `use_MSE` / `per_row` / `out_device` honoured, and the five legacy `execute_mode` strings still
 accepted and still all mapping to the same engine path.
@@ -161,7 +167,7 @@ accepted and still all mapping to the same engine path.
 
 | variable | default | effect |
 | --- | --- | --- |
-| `EVOGP_EVAL_MODE` | `auto` | `dense` = always try dense (still falling back on `DenseUnsupported`); `specialized` = never; `auto` = the measured policy. Unknown → `ValueError` |
+| `EVOGP_EVAL_MODE` | `auto` | `dense` = always try dense (still falling back on `DenseUnsupported`); `specialized` = never; `auto` = the measured policy. `dynamic` is a first-class ALIAS of `dense` (case/whitespace-insensitive, in `EVAL_MODE_ALIASES`, never gated by the rows rule); unknown → `ValueError` |
 | `EVOGP_DENSE_AUTO_MIN_POP` | `16` | `auto`'s `pop_size` threshold on a non-numpy backend (`< 1` → `ValueError`) |
 | `EVOGP_DENSE_AUTO_MAX_ROWS` | `2048` | `auto`'s data-row ceiling for `per_row=False` calls: dense is rows-linear while the specialized engine is rows-flat, so more rows decline inside `evaluate_dense` (→ normal `DenseUnsupported` fallback; `< 1` → `ValueError`). `per_row=True` and an explicit `dense` are never gated |
 | `EVOGP_DENSE_MAX_TREE_LEN` | `32` | trace cap `L`; a longer tree → `DenseUnsupported` (`<= 0` → `ValueError`) |
