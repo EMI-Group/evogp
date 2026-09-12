@@ -1,0 +1,17 @@
+===============================================================================
+R2 config leg_sr_b  (side=leg group=light)  started 2026-09-12T14:45:09+08:00
+note: legacy: larger W1 SR training (pop 1000 / tree 128)
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A160   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 3600s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 21, 4
+cmd: timeout -s INT -k 30 3600 env PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils CUDA_VISIBLE_DEVICES=6 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task sr --pop 1000 --gens 20 --tree-len 128 --reps 2 --tag LEG_SR_B --json-out test/benchmark/legacy/results/r2/leg_sr_b.json
+json: test/benchmark/legacy/results/r2/leg_sr_b.json
+--- run output ---
+[LEG_SR_B] harness=bench_gp.py side=old task=sr pop=1000 gens=20 tree_len=128 seed=0 reps=2 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/tmp/evogp_legacy_bench/src/evogp/__init__.py commit=6f773b49bda15667cae31b7f497115ebbfb9d656 etl=0.1.0 json_out=test/benchmark/legacy/results/r2/leg_sr_b.json
+[LEG_SR_B] side=old rep0/2: 20 gens in 1.2s, per-gen median 1.6ms, first-gen 467.1ms, best_fitness_final=-0.2257
+[LEG_SR_B] side=old rep1/2: 20 gens in 0.0s, per-gen median 1.6ms, first-gen 1.8ms, best_fitness_final=-0.2257
+[LEG_SR_B] done side=old interrupted=False harness_wall_s=2.5 json_out=test/benchmark/legacy/results/r2/leg_sr_b.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 4
+R2 config leg_sr_b  finished 2026-09-12T14:45:13+08:00

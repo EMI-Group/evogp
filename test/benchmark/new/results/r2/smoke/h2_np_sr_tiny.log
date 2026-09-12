@@ -1,0 +1,7 @@
+[h2_np_sr_tiny] stage probe stage_probe/1: installed=True partial=False wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness] counters=CACHE.hits/CACHE.misses
+[h2_np_sr_tiny] harness=bench_gp.py side=new task=sr pop=8 gens=2 tree_len=32 seed=0 reps=2 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A158/src/evogp/__init__.py commit=38127243843b1ab71fc4e29ee64466132a794e68 etl=0.1.0 json_out=test/benchmark/new/results/r2/smoke/h2_np_sr_tiny.json
+[h2_np_sr_tiny] stages[rep0/train] 2 calls: cold 8 miss 37.0ms / warm 6 miss 31.9ms | decode 1.0 + build-hit 0.3 (1) + build-miss 68.8 (14) + run 6.6 (15) + readback 0.4 (15) + upload 0.4 + loss 0.6 + misc 471.1 ms cold/warm totals 549.3ms (h2d 0 / d2h 0)
+[h2_np_sr_tiny] side=new rep0/2: 2 gens in 1.3s, per-gen median 274.6ms, first-gen 503.7ms, best_fitness_final=-2.0358
+[h2_np_sr_tiny] stages[rep1/train] 2 calls: cold 0 miss 0.0ms / warm 0 miss 0.0ms | decode 0.8 + build-hit 3.5 (15) + build-miss 0.0 (0) + run 3.9 (15) + readback 0.2 (15) + upload 0.3 + loss 0.3 + misc 17.2 ms cold/warm totals 26.3ms (h2d 0 / d2h 0)
+[h2_np_sr_tiny] side=new rep1/2: 2 gens in 0.0s, per-gen median 13.1ms, first-gen 13.4ms, best_fitness_final=-2.0358
+[h2_np_sr_tiny] done side=new interrupted=False harness_wall_s=1.9 json_out=test/benchmark/new/results/r2/smoke/h2_np_sr_tiny.json

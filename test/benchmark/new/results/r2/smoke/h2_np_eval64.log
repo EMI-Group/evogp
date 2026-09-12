@@ -1,0 +1,5 @@
+[h2_np_eval64] stage probe stage_probe/1: installed=True partial=False wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness] counters=CACHE.hits/CACHE.misses
+[h2_np_eval64] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=3 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A158/src/evogp/__init__.py commit=38127243843b1ab71fc4e29ee64466132a794e68 etl=0.1.0 json_out=test/benchmark/new/results/r2/smoke/h2_np_eval64.json
+[h2_np_eval64] stages[rep0/eval] 3 calls: cold 48 miss 154.6ms / warm 0 miss 0.0ms | decode 5.6 + build-hit 21.4 (111) + build-miss 154.6 (48) + run 32.6 (159) + readback 2.1 (159) + upload 1.2 + loss 37.8 + misc 11.1 ms cold/warm totals 266.4ms (h2d 0 / d2h 0)
+[h2_np_eval64] side=new rep0/1: first 220.7ms, warm-median 22.9ms (3 calls)
+[h2_np_eval64] done side=new interrupted=False harness_wall_s=1.4 json_out=test/benchmark/new/results/r2/smoke/h2_np_eval64.json

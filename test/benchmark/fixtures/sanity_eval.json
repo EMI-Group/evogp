@@ -1,0 +1,64 @@
+{
+  "tag": "R2FIX-SANITY",
+  "side": "new",
+  "task": "eval64",
+  "eval_kind": "fixture",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A156/test/benchmark/fixtures/forest200_tree64_random.npz",
+  "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A156/src/evogp/__init__.py",
+  "evogp_commit": "5178a7cf0fb0122a39126cf6b8d36c9c5dd3c8d2",
+  "etl_version": "0.1.0",
+  "problem": "W3 fixed fixture: Forest(input_len=2, output_len=1, pop_size=200, max_tree_len=64) rebuilt from test/benchmark/fixtures/forest200_tree64_random.npz[forest__node_value/_node_type/_subtree_size] via the class constructor + SymbolicRegression(datapoints=x[(64, 2)], labels=labels[(64, 1)])",
+  "config": {
+    "pop": 200,
+    "tree_len": 64,
+    "seed": 0,
+    "reps": 1,
+    "eval_reps": 2
+  },
+  "env": {
+    "ETL_DISABLE_LOCATIONS": "1",
+    "CUDA_VISIBLE_DEVICES": "6"
+  },
+  "gpu": {
+    "cuda_visible_devices": "6",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4"
+  },
+  "per_call_ms": [
+    1166.5641777217388,
+    110.9883189201355
+  ],
+  "first_call_ms": 1166.5641777217388,
+  "median_warm_ms": null,
+  "wall_s": 1.2844505906105042,
+  "partial": false,
+  "projection": null,
+  "complete": true,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 0.003123939037322998,
+      "wall_s": 1.2844505906105042,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "per_call_ms": [
+        1166.5641777217388,
+        110.9883189201355
+      ],
+      "first_call_ms": 1166.5641777217388,
+      "median_warm_ms": null
+    }
+  ],
+  "notes": "",
+  "started_at": "2026-09-12T14:26:24+08:00",
+  "finished_at": "2026-09-12T14:26:26+08:00",
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A156",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A156/test/benchmark/bench_gp.py",
+  "construct_s": 0.003123939037322998,
+  "harness_wall_s": 2.0222008004784584
+}

@@ -1,0 +1,32 @@
+{
+  "tag": "C5b",
+  "side": "old",
+  "evogp_file": "/tmp/evogp_legacy_bench/src/evogp/__init__.py",
+  "evogp_commit": "b613503",
+  "eval_kind": "fresh_random_forest",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A123/test/goldens/forest_random.npz",
+  "env": {
+    "ETL_DISABLE_LOCATIONS": null,
+    "EVOGP_ETL_BACKEND": null,
+    "CUDA_VISIBLE_DEVICES": "6"
+  },
+  "gpu": "NVIDIA RTX A6000 (CUDA_VISIBLE_DEVICES=6)",
+  "wall_s": 0.015768155455589294,
+  "per_call_ms": [
+    0.6674043834209442,
+    0.6142705678939819,
+    0.6160959601402283,
+    0.620819628238678,
+    0.6104074418544769,
+    0.6145201623439789,
+    0.6131604313850403,
+    0.61078742146492,
+    0.6081871688365936,
+    0.6321817636489868
+  ],
+  "first_call_ms": 0.6674043834209442,
+  "median_warm_ms": 0.6142705678939819,
+  "fitness_mean": -59.737519580878846,
+  "nan_count": 66,
+  "notes": "W3 eval-only microbench on a fresh random forest: Forest.random_generate(pop_size=1000, GenerateDescriptor(max_tree_len=64, input_len=2, output_len=1, using_funcs=[+,-,*,/], max_layer_cnt=4, layer_leaf_prob=0.2, const_prob=0.5, out_prob=0.5, const_samples=[-2,-1,-0.5,-0.25,0.25,0.5,1,2])) \u2014 the descriptor params documented for the committed fixture in test/goldens/README.md, with this run's tree_len/pop (64/1000); evaluated on the fixture's x(64,2)/labels(64,1) via SymbolicRegression(datapoints=x, labels=labels); 10 x problem.evaluate(forest), sync-bracketed; timings in ms; first_call_ms = cold call 1 (JIT/autotune over a fresh population), median_warm_ms = median of calls 2..N; RNG-dependent structure (seed=0); legacy custom-CUDA engine; fitness sanity (last call, shape=(1000,)): nan_count=66, nan-aware mean=-59.737519580878846 (MAXIMIZED fitness, NaN can appear on the legacy engine); wall_s covers construction + all 10 calls"
+}

@@ -1,0 +1,66 @@
+{
+  "tag": "LEG-smoke",
+  "side": "old",
+  "task": "eval64",
+  "eval_kind": "fixture",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A123/test/goldens/forest_random.npz",
+  "evogp_file": "/tmp/evogp_legacy_bench/src/evogp/__init__.py",
+  "evogp_commit": "7a67e87dac31fdd049b04bb18c6ad0cec8ab47b7",
+  "etl_version": "0.1.0",
+  "problem": "W3 fixed fixture: Forest(input_len=2, output_len=1, pop_size=64, max_tree_len=63) rebuilt from test/goldens/forest_random.npz[forest__node_value/_node_type/_subtree_size] via the class constructor + SymbolicRegression(datapoints=x[(64, 2)], labels=labels[(64, 1)])",
+  "config": {
+    "pop": 64,
+    "tree_len": 63,
+    "seed": 0,
+    "reps": 1,
+    "eval_reps": 3
+  },
+  "env": {
+    "ETL_DISABLE_LOCATIONS": "1",
+    "CUDA_VISIBLE_DEVICES": "6"
+  },
+  "gpu": {
+    "cuda_visible_devices": "6",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4"
+  },
+  "per_call_ms": [
+    21.4301198720932,
+    0.9231194853782654,
+    0.712420791387558
+  ],
+  "first_call_ms": 21.4301198720932,
+  "median_warm_ms": 0.8177701383829117,
+  "wall_s": 0.030642472207546234,
+  "partial": false,
+  "projection": null,
+  "complete": true,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 0.004384513944387436,
+      "wall_s": 0.030642472207546234,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "per_call_ms": [
+        21.4301198720932,
+        0.9231194853782654,
+        0.712420791387558
+      ],
+      "first_call_ms": 21.4301198720932,
+      "median_warm_ms": 0.8177701383829117
+    }
+  ],
+  "notes": "",
+  "started_at": "2026-09-12T14:04:40+08:00",
+  "finished_at": "2026-09-12T14:04:41+08:00",
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A123",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A123/test/benchmark/bench_gp.py",
+  "construct_s": 0.004384513944387436,
+  "harness_wall_s": 1.682046476751566
+}

@@ -1,0 +1,16 @@
+===============================================================================
+R2 config np_c5r2_noprobe  (side=new group=light)  started 2026-09-12T14:47:53+08:00
+note: A/B control for np_c5r2 (no --stage-probe)
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A160   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 3600s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 0, 4
+cmd: timeout -s INT -k 30 3600 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --eval-reps 25 --tag NP_C5R2_NOPROBE --json-out test/benchmark/new/results/r2/np_c5r2_noprobe.json
+json: test/benchmark/new/results/r2/np_c5r2_noprobe.json
+--- run output ---
+[NP_C5R2_NOPROBE] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A160/src/evogp/__init__.py commit=6f773b49bda15667cae31b7f497115ebbfb9d656 etl=0.1.0 json_out=test/benchmark/new/results/r2/np_c5r2_noprobe.json
+[NP_C5R2_NOPROBE] side=new rep0/1: first 218.6ms, warm-median 20.8ms (25 calls)
+[NP_C5R2_NOPROBE] done side=new interrupted=False harness_wall_s=1.8 json_out=test/benchmark/new/results/r2/np_c5r2_noprobe.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 4
+R2 config np_c5r2_noprobe  finished 2026-09-12T14:47:57+08:00

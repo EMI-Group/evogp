@@ -444,3 +444,191 @@ Treat the medians as ±10%, not exact.
    results stay comparable with Phase-1 and with runs executed directly (item 2 is exactly what happens without
    them). One aborted attempt of batch A (21:10) left only a truncated `C1.json` snapshot before the process
    was killed; it was deleted and C1 re-ran clean — no result was lost and no config needed a second run.
+
+## R2 — GPU round: harness extensions + stage probe
+
+Additive to §1-§9 (the Phase-1 numbers above stay the baseline, nothing in them changed). This section
+covers the **harness** side of round 2 — the new flags and the `--stage-probe` engine decomposition,
+plus the calibration datapoints collected for the R2 report. The round-2 runner/validator/manifest
+(`run_all.sh`, `check_r2.py`, `manifest.txt`, usage, exit codes) are documented in `../r2/README.md`;
+the probe's own module is `../stage_probe.py`. Artifacts of this section:
+`results/r2/smoke/h2_*.{json,log}` (probe smoke + probe-off control); H1's artifacts are `h1_*` there.
+**R2 results:** `../../REPORT.md` (analysis), `../r2/RUNLOG.md` (operator log), raw records
+`results/r2/*.json` + `*.log` (pre-flight: `results/r2/backend_agreement/`) — not repeated here.
+
+### R2 flags — every one opt-in; with none passed the code path and JSON are the pre-R2 ones
+
+| flag | default | effect |
+|---|---|---|
+| `--backend {default,numpy,iree}` | `default` | `default` sets nothing; `numpy`/`iree` export `EVOGP_ETL_BACKEND` (plus the two IREE settings) in `apply_env`, i.e. **before** `import evogp`; inert on the old side |
+| `--iree-device I` | `0` | `EVOGP_ETL_IREE_DEVICE` |
+| `--iree-opt-level {O0,O1}` | `O1` | `EVOGP_ETL_IREE_OPT_LEVEL` (the engine only accepts O0/O1) |
+| `--data-rows N` | fixture rows | `eval64` only: tile the fixture `x`/`labels` up to N rows (N == native rows is a byte-identical no-op, so C5 stays reproducible); warns and ignores for other tasks |
+| `--mem-guard-mb M` | `8192` | before any heavy step compares M with the free device bytes from `torch.cuda.mem_get_info()` |
+| `--max-cold-builds N` | `300` | stop cleanly when cumulative `etl_engine.cache_stats()['misses']` exceeds N — **new side + `--backend iree` only** (a numpy run compiles no GPU program per structure; the legacy side has no `etl_engine`, so both are exempt) |
+| `--allow-cold-builds` | off | disables that guard |
+| `--stage-probe` | off | new-side stage decomposition of every `evaluate` call / generation (below); the old side warns and no-ops, leaving `stages: null` |
+
+Exit codes: `0` complete · `3` skipped/stopped by a guard (JSON keeps the completed steps, sets
+`partial`+`skipped`+`skip_reason`, `complete: true`) · `130` interrupted (`KeyboardInterrupt`) ·
+`1` crash (traceback deliberately uncaught). The R2 batch runner maps these to `OK`/`SKIP`/`TIMEOUT`
+/`INTERRUPT`/`FAIL` (`../r2/README.md`).
+
+### `--stage-probe` — where the ETL engine's time goes
+
+`test/benchmark/stage_probe.py` wraps the new engine's hot call sites **at runtime** — `decode_population`,
+`_run_tree`, `build_cached`, `etl.run`, `etl.from_numpy`, `evaluate`, `sr_fitness` — so `src/` is never
+edited and nothing is imported from the library (monkeypatching only). Wrappers are pure pass-throughs
+(identical return value and exception behaviour); one single-threaded accumulator of raw
+`time.perf_counter()` floats. `bench_gp.py` hooks are ~5 lines per call site: `install_stage_probe()`
+before the rep loop (new side only), `begin_rep()` per rep, `begin()` before the timed region,
+`snapshot(i, outer_ms)` inside it, `finish_rep()` + one summary line after the rep's `wall_s`; the
+assembled block lands in the new top-level `stages` key (`null` when the flag is off, so prior/C5
+JSONs and probed JSONs stay directly comparable). Missing wrapped attribute ⇒ that stage stays 0,
+`stages.partial: true` and `note` names it — never a crash. Self-test (no torch/GPU/etl):
+`python3 test/benchmark/stage_probe.py`.
+
+Stage chain per record: `total_ms` (harness outer = `per_call_ms`/`per_gen_ms`) splits into
+`decode_ms` + `sr_fitness_ms` + `misc_ms`; `sr_fitness_ms` splits into `evaluate_ms` + `loss_ms`
+(label upload + error reduction); `evaluate_ms` into `build_hit_ms`+`build_miss_ms` + `run_ms` +
+`readback_ms` (per-tree residual `tree_total − build − run`, i.e. the IREE D2H readback + host glue)
++ `upload_ms` (final result H2D). Torch-level copies outside the engine (e.g. the label tensor in
+`sr_fitness`) are **not** in the H2D/D2H counters — they land in `loss_ms`/`upload_ms`. Counts:
+`decode_calls`, `sr_fitness_calls`, `evaluate_calls`, `build_calls`/`build_hits`/`build_misses`,
+`run_calls`, `readback_calls`, `trees_total`/`trees_invoked` (constant/collapsed trees are skipped by
+the engine), `h2d_calls` (`etl.from_numpy` inside `_run_tree`, 1 per call on a device backend),
+`d2h_calls` (= `readback_calls`, 0 on numpy).
+
+```json
+"stages": {                                  // null when --stage-probe is off
+  "probe": "stage_probe/1", "side": "new", "partial": false, "note": "",
+  "status": {"installed": true, "wrapped": ["decode_population", "..."], "missing": [],
+             "engine_module": "evogp.tree.etl_engine", "etl_module": "etl", "nested_runs": 0},
+  "reps": [{
+    "rep": 0, "kind": "eval",                // "eval" (per call) | "train" (per generation)
+    "records": [{ "i": 0,                    // call index / generation index
+        "total_ms": 220.656, "probe_span_ms": 220.684, "decode_ms": 1.966, "decode_calls": 1,
+        "sr_fitness_ms": 207.802, "sr_fitness_calls": 1, "evaluate_ms": 170.456,
+        "evaluate_calls": 1, "loss_ms": 37.346, "misc_ms": 10.888,
+        "build_ms": 155.329, "build_calls": 53, "build_hit_ms": 0.739, "build_hits": 5,
+        "build_miss_ms": 154.59, "build_misses": 48, "run_ms": 13.874, "run_calls": 53,
+        "readback_ms": 0.806, "readback_calls": 53, "upload_ms": 0.447,
+        "trees_total": 64, "trees_invoked": 53, "h2d_calls": 0, "d2h_calls": 0 }],
+    "totals": { "calls": 3, "cold_builds": 48, "cold_build_ms": 154.59,
+        "total_build_misses": 48, "total_build_miss_ms": 154.59,
+        "warm_misses": 0, "warm_build_miss_ms": 0.0,
+        "total_ms": 266.416, "probe_span_ms": 266.496, "decode_ms": 5.554,
+        "sr_fitness_ms": 249.737, "evaluate_ms": 211.937, "loss_ms": 37.8, "misc_ms": 11.125,
+        "build_ms": 176.037, "build_hit_ms": 21.447, "build_miss_ms": 154.59,
+        "run_ms": 32.575, "readback_ms": 2.091, "upload_ms": 1.234,
+        "decode_calls": 3, "sr_fitness_calls": 3, "evaluate_calls": 3, "build_calls": 159,
+        "build_hits": 111, "build_misses": 48, "run_calls": 159, "readback_calls": 159,
+        "trees_total": 192, "trees_invoked": 159, "h2d_calls": 0, "d2h_calls": 0 }}]}
+```
+
+**Cold/warm separation** lives in `totals`: `cold_builds`/`cold_build_ms` = the misses (and their time)
+of the **first record** of the rep (the fresh-process compile tax), `total_build_misses`/
+`total_build_miss_ms` = the whole rep, and `warm_misses`/`warm_build_miss_ms` = misses **after** the
+first record — `warm_misses == 0` is the machine-checkable proof that a warm pass compiled nothing
+(and matches `payload.cold_builds.misses_last`, the guard's own `cache_stats()` read).
+
+### Smoke table (all: repo root, `PYTHONPATH=src`, `CUDA_VISIBLE_DEVICES=6`, `ulimit -n 65536`, one
+`flock -w 7200 /tmp/gpbench_critical.lock` per process, exit 0)
+
+| tag | command (beyond `bench_gp.py`) | key numbers | fds start→after cold→end |
+|---|---|---|---|
+| `h2_np_eval64` | `--task eval64 --eval-reps 3 --stage-probe` | calls 220.66/23.20/22.56 ms; cold 48 misses 154.59 ms, warm misses 0; 53 invocations/call (11 of 64 trees are constant/collapsed) | 39→59→59 |
+| `h2_np_eval64_noprobe` | same, no flag (A/B control) | 217.36/22.43/20.65 ms | 39→59→59 |
+| `h2_iree_fresh2` | `--task evalfresh --pop 2 --tree-len 32 --eval-reps 3 --backend iree --stage-probe --max-cold-builds 40` | 2935.43/8.05/6.87 ms; cold 2 misses 2867.08 ms (≈1.43 s/build), warm misses 0 | 39→155→219 |
+| `h2_fdscan_x` | `--task evalfresh --pop 4 --tree-len 32 --eval-reps 4 --backend iree …` | 3626.95/12.25/43.69/10.49 ms; 4 builds 3550.96 ms (≈888 ms/build), 16 runs | 39→219→315 |
+| `h2_fdscan_y` | `--task evalfresh --pop 16 --tree-len 32 --eval-reps 4 --backend iree …` | 26026.95/29.54/25.42/24.51 ms; 15 builds 25929.95 ms (≈1729 ms/build), 60 runs | 39→571→667 |
+| `h2_fdscan_z` | same as Y with `--eval-reps 1` | 4367.60 ms; 15 builds 4281.71 ms (≈285 ms/build), 15 runs | 39→571→571 |
+| `h2_sr_a_tiny` | `--task sr --pop 8 --gens 2 --tree-len 32 --reps 2 --backend iree …` | rep0 4048.4/2907.4 ms (14 misses, 6397.5 ms); rep1 28.0/20.2 ms, warm_misses 0; identical best fitness | 39→347→635 |
+| `h2_np_sr_tiny` | `--task sr --pop 8 --gens 2 --tree-len 32 --reps 2 --stage-probe` | rep0 503.7/45.6 ms (14 misses, 68.8 ms); rep1 13.4/12.9 ms, warm_misses 0 | 39→59→59 |
+
+### `h2_np_eval64` — the full stage split (default numpy backend, fixture forest 64 trees / 63 nodes)
+
+| stage | call 0 (cold) | call 1 | call 2 | rep totals |
+|---|---|---|---|---|
+| `total_ms` | 220.656 | 23.203 | 22.557 | 266.416 |
+| `decode_ms` | 1.966 | 1.904 | 1.684 | 5.554 |
+| `build_miss_ms` (misses) | 154.590 (48) | 0 (0) | 0 (0) | 154.590 (48) |
+| `build_hit_ms` (hits) | 0.739 (5) | 9.994 (53) | 10.714 (53) | 21.447 (111) |
+| `run_ms` (calls) | 13.874 (53) | 9.912 (53) | 8.789 (53) | 32.575 (159) |
+| `readback_ms` | 0.806 | 0.648 | 0.637 | 2.091 |
+| `upload_ms` | 0.447 | 0.358 | 0.429 | 1.234 |
+| `loss_ms` | 37.346 | 0.254 | 0.200 | 37.800 |
+| `misc_ms` | 10.888 | 0.133 | 0.104 | 11.125 |
+| `cold_builds` / `warm_misses` | — | — | — | 48 / **0** |
+
+* On this backend the two warm `build_hit`+`run` stages are ~48% / ~40% of the 22.6 ms call
+  (10.0/9.9 and 10.7/8.8) — the "warm" cost is the per-tree memoized `build_cached` lookup + trace
+  cache and the numpy interpreter, not GPU work (`h2d`/`d2h` = 0).
+* Compile tax: 154.59 ms / 48 misses = **3.2 ms per fresh structure** (numpy), versus 0.19 ms per
+  cache hit; `loss_ms` is 37.35 ms only on call 0 (label-tensor H2D), 0.2-0.25 ms warm.
+
+### `h2_iree_fresh2` — IREE: the compile tax is the whole story
+
+`pop 2 / tree-len 32`, warm call ≈ 7 ms, cold call 2935.4 ms = 0.325 `decode` + **2867.084
+`build_miss` (2 misses, ≈1.43 s each)** + 21.315 `run` (2) + 7.729 `readback` + 15.691 `loss` +
+22.877 `misc` (`h2d` 1, `d2h` 2). Warm 8.051/6.867 ms = `decode` 0.555/0.398 + `build_hit`
+1.541/1.322 (2) + `run` 2.254/1.929 + `readback` 2.900/2.562 + `loss` + `misc`, **0 misses**,
+`h2d` 1 / `d2h` 2 per call. Rep totals: cold 2 = 2867.084 ms, warm_misses 0, `h2d` 3, `d2h` 6.
+
+### Cold/warm separation in training (`h2_sr_a_tiny`, `sr` pop 8 / 2 gens, same seed both reps)
+
+* rep0: gen0 4048.4 ms (`misc` 493.0 ms = crossover/mutation/selection + NaN replacement, 8 misses
+  3523.98 ms ≈ 440 ms/build), gen1 2907.4 ms (1 hit + **6 misses** 2873.52 ms ≈ 479 ms/build —
+  survivors already hit, the children are new structures); rep totals 6955.79 ms, 14 misses
+  6397.50 ms, `h2d` 2 / `d2h` 15, `trees_total` 16 vs `trees_invoked` 15.
+* rep1 (identical seed, same process ⇒ warm cache): gen0 28.0 ms, gen1 20.2 ms, rep total 48.26 ms,
+  `cold_builds` 0, `total_build_misses` 0, **`warm_misses` 0**, 15/15 hits — i.e. **145× faster than
+  rep0 with `best_fitness_final = -2.0357980728149414` on both reps** (the trajectory is unchanged).
+* numpy counterpart `h2_np_sr_tiny`: rep0 549.3 ms (8 cold misses 36.97 ms ≈ 4.6 ms/build) → rep1
+  26.3 ms, same fitness — the same separation at a ~200× smaller compile tax.
+
+### FD-rate calibration (`h2_fdscan_{x,y,z}`, IREE, raw `payload.fds`)
+
+| run | pop / eval-reps | cold builds | run calls | fds start → after cold → end |
+|---|---|---|---|---|
+| X | 4 / 4 | 4 | 16 | 39 → 219 → **315** |
+| Y | 16 / 4 | 15 | 60 | 39 → 571 → **667** |
+| Z | 16 / 1 | 15 | 15 | 39 → 571 → **571** |
+
+* Design rates (the two pairs the scan was built to difference): **`per_build_fd ≈ (Z−X)/12 =
+  256/12 = 21.3`** (X and Z differ by 12 builds at ~equal run counts) and **`per_run_fd ≈ (Y−Z)/48 =
+  96/48 = 2.0`** (Y and Z have the same 15 builds, 48 run calls apart). Raw endpoints above.
+* Caveats, stated because these are single noisy samples on a shared box: the probe's own counts put
+  the true differences at 11 builds / 45 runs (one of the 16-tree populations has a constant tree, so
+  15 invocations per call), which gives 23.3 FD/build and 2.1 FD/run; and the wider 5-point set
+  (adding `h2_iree_fresh2` 2 builds/6 runs → 180 FD and `h2_sr_a_tiny` 14 builds/15 runs → 596 FD)
+  does **not** fit one linear model (sr_a_tiny grows 64 FD more than Z with one build *fewer*). Read
+  the rates as order-of-magnitude: **≈2 FD per run, order 10-20 FD per cold build** (round 1's C7
+  failure at a 1024 soft limit implies ≈7 FD/build, so even the per-build coefficient is variable).
+* Per-build **time** is even less of a constant: X/Y/Z took 888 / 1729 / 285 ms per build although
+  Y and Z compile the *same* 15 structures from the same seed (25.93 s vs 4.28 s) — build rate is
+  order/context-dependent (~6× spread, plausibly also box contention), so only quote `cold_build_ms`
+  for a given config, never a global "s/build".
+
+### What the matrix runners must know
+
+* **Probe overhead (A/B, same config back-to-back):** probe-on warm 22.880 ms vs probe-off 21.537 ms
+  (medians) ⇒ **≈+1.3 ms per warm call (≈5-6%)**; first call 220.66 vs 217.36 ms (+1.5%). Single
+  A/B pair on a ±10% shared box — treat it as "a few ms per call". Only probed configs pay it (the
+  runner's `*_noprobe` controls measure the un-instrumented side), and instrumenting never changes
+  the numbers reported outside `stages`.
+* **`--max-cold-builds N` counts cache misses, not FDs, and it is sampled at checkpoints** (startup,
+  after the first call/gen, after every generation in `sr`) — so a limit is a bound on *cumulative
+  misses*, not on peak FDs, and within one generation it can overshoot by that generation's new
+  structures. Budget FDs separately: cap 300 ≈ **6.3k FDs** at 21 FD/build (plus ≈2 FD/run), so a
+  legitimately-sized 3200-cap run can approach the 65536 soft limit — keep `ulimit -n 65536` first in
+  any launcher, prefer the smallest cap that still finishes the config, and watch `payload.fds.end`
+  (recorded in every JSON) as the real FD telemetry. IREE's per-run leak is real: every run that
+  touched the backend ended with `nanobind: leaked …` instances for its compiled programs.
+* Warm passes are free of compiles by construction (`warm_misses == 0`), which is what makes a
+  `--reps 2` `sr` config the cheapest way to measure the warm per-generation cost of IREE.
+* Do not read `cold_build_ms`/`cold_builds` from `payload.cold_builds` (guard telemetry: sampled at
+  checkpoints, `limit`/`exceeded` only, `null` when the guard is exempt) — the probe's
+  `stages.reps[].totals` is the authoritative cold/warm split.
+* The GPU/box conventions of §9 still apply (never GPU 7, one `flock`, `timeout` inside the lock,
+  medians ±10%); all eight `h2_*` runs here kept them.

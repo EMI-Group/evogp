@@ -1,0 +1,21 @@
+[LEG-C1r2] harness=bench_gp.py side=old task=sr pop=200 gens=100 tree_len=64 seed=0 reps=2 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/tmp/evogp_legacy_bench/src/evogp/__init__.py commit=7a67e87dac31fdd049b04bb18c6ad0cec8ab47b7 etl=0.1.0 json_out=test/benchmark/legacy/results/r2/leg_c1r2.json
+[LEG-C1r2] side=old rep0/2: 100 gens in 1.6s, per-gen median 1.7ms, first-gen 581.1ms, best_fitness_final=-0.0868
+[LEG-C1r2] side=old rep1/2: 100 gens in 0.3s, per-gen median 1.6ms, first-gen 1.6ms, best_fitness_final=-0.0868
+[LEG-C1r2] done side=old interrupted=False harness_wall_s=3.9 json_out=test/benchmark/legacy/results/r2/leg_c1r2.json
+===============================================================================
+R2 config leg_c1r2  (side=leg group=light)  started 2026-09-12T14:45:13+08:00
+note: legacy C1 re-run: full pop-200 SR (100 gens x 2 reps)
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A160   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 3600s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 0, 4
+cmd: timeout -s INT -k 30 3600 env PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils CUDA_VISIBLE_DEVICES=6 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task sr --pop 200 --gens 100 --tree-len 64 --reps 2 --tag LEG_C1R2 --json-out test/benchmark/legacy/results/r2/leg_c1r2.json
+json: test/benchmark/legacy/results/r2/leg_c1r2.json
+--- run output ---
+[LEG_C1R2] harness=bench_gp.py side=old task=sr pop=200 gens=100 tree_len=64 seed=0 reps=2 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/tmp/evogp_legacy_bench/src/evogp/__init__.py commit=6f773b49bda15667cae31b7f497115ebbfb9d656 etl=0.1.0 json_out=test/benchmark/legacy/results/r2/leg_c1r2.json
+[LEG_C1R2] side=old rep0/2: 100 gens in 1.4s, per-gen median 1.7ms, first-gen 494.3ms, best_fitness_final=-0.0868
+[LEG_C1R2] side=old rep1/2: 100 gens in 0.3s, per-gen median 1.6ms, first-gen 1.6ms, best_fitness_final=-0.0868
+[LEG_C1R2] done side=old interrupted=False harness_wall_s=3.0 json_out=test/benchmark/legacy/results/r2/leg_c1r2.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 4
+R2 config leg_c1r2  finished 2026-09-12T14:45:19+08:00

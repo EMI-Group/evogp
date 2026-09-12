@@ -1,0 +1,7 @@
+tag              task        steps    wall_s  details
+LEG-smoke        eval64          3      0.03  first=21.4ms warm_med=0.82ms (3 calls)
+LEG-C5r2         eval64         25      0.06  first=22.3ms warm_med=0.60ms (25 calls)
+LEG-C5br2        evalfresh      10      0.07  first=17.9ms warm_med=0.63ms (10 calls)
+LEG-C1r2         sr            100      1.64  median=1.7ms first=581.1ms best=-0.08683900535106659
+
+4 JSON file(s) (0 truncated by a hard kill), 75 checks, 0 failure(s)
