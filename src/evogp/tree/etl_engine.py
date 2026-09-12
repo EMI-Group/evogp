@@ -1053,45 +1053,13 @@ def _decode_row(
                 f"but only {n_following} node(s) follow it in the prefix encoding "
                 f"-- truncated tree (subtree_size[0]={size0})"
             )
-        # pop order is leftmost first (the leftmost child is the last pushed)
-        if arity == 1:
-            kinds[i] = _K_UFUNC
-            child0 = stack.pop()
-            own = child0[0]
-            if own is not _SV:
-                own = _fold_unary(int(values[i]), own)
-            size = 1 + child0[2]
-            passed_up = child0[1]
-            has_out = child0[3]
-        elif arity == 2:
-            kinds[i] = _K_BFUNC
-            child0 = stack.pop()
-            child1 = stack.pop()
-            a = child0[0]
-            b = child1[0]
-            if a is not _SV and b is not _SV:
-                own = _fold_binary(int(values[i]), a, b)
-            else:
-                own = _SV
-            size = 1 + child0[2] + child1[2]
-            passed_up = child1[1]
-            has_out = child0[3] or child1[3]
-        else:
-            kinds[i] = _K_TFUNC
-            child0 = stack.pop()
-            child1 = stack.pop()
-            child2 = stack.pop()
-            a = child0[0]
-            b = child1[0]
-            c = child2[0]
-            if a is not _SV and b is not _SV and c is not _SV:
-                own = _fold_ternary(a, b, c)
-            else:
-                own = _SV
-            size = 1 + child0[2] + child1[2] + child2[2]
-            passed_up = child2[1]
-            has_out = child0[3] or child1[3] or child2[3]
-
+        # The decoded function id / packed out-node value is resolved *before*
+        # the children are folded and before the own-tag is folded into
+        # ``has_out``: the fold must use the same id the emitted token carries
+        # (for a tagged node that is ``packed & 0xFFFF``, not the float32
+        # reinterpretation of the packed bits, which is a denormal/NaN) and the
+        # fold decision must see the node's own tag.  Both are the pre-refactor
+        # decoder's semantics; the pops below cannot fail (arity was checked).
         if multi:
             if tagged:
                 packed = int(bits[i])  # 4-byte view of node_value
@@ -1115,6 +1083,46 @@ def _decode_row(
                     "is not finite"
                 )
             funcs[i] = int(func_id)  # C truncation toward zero
+
+        # pop order is leftmost first (the leftmost child is the last pushed)
+        if arity == 1:
+            kinds[i] = _K_UFUNC
+            child0 = stack.pop()
+            own = child0[0]
+            if own is not _SV:
+                own = _fold_unary(funcs[i], own)
+            size = 1 + child0[2]
+            passed_up = child0[1]
+            has_out = child0[3]
+        elif arity == 2:
+            kinds[i] = _K_BFUNC
+            child0 = stack.pop()
+            child1 = stack.pop()
+            a = child0[0]
+            b = child1[0]
+            if a is not _SV and b is not _SV:
+                own = _fold_binary(funcs[i], a, b)
+            else:
+                own = _SV
+            size = 1 + child0[2] + child1[2]
+            passed_up = child1[1]
+            has_out = child0[3] or child1[3]
+        else:
+            kinds[i] = _K_TFUNC
+            child0 = stack.pop()
+            child1 = stack.pop()
+            child2 = stack.pop()
+            a = child0[0]
+            b = child1[0]
+            c = child2[0]
+            if a is not _SV and b is not _SV and c is not _SV:
+                own = _fold_ternary(a, b, c)
+            else:
+                own = _SV
+            size = 1 + child0[2] + child1[2] + child2[2]
+            passed_up = child2[1]
+            has_out = child0[3] or child1[3] or child2[3]
+
         declared = int(sizes[i])
         if declared != size:
             raise ValueError(
@@ -1122,6 +1130,11 @@ def _decode_row(
                 f"tree structure (1 + children sizes = {size})"
             )
         node_sizes[i] = size
+        if multi and 0 <= out_indices[i] < output_len:
+            # The node's OWN effective tag makes its subtree unfoldable: folding
+            # it would drop its ``outs[outIndex] += own`` accumulation.  An
+            # out-of-range tag is not an effective out-node and still folds.
+            has_out = True
         if own is _SV:
             replacement = None
         elif not multi:
@@ -1134,8 +1147,6 @@ def _decode_row(
             # multi output: the subtree only ever contributes its passed-up value
             replacement = _float_to_bits(passed_up)
         repl[i] = replacement
-        if multi:
-            has_out = has_out or (0 <= out_indices[i] < output_len)
         stack.append((own, passed_up, size, has_out))
 
     if len(stack) != 1:
