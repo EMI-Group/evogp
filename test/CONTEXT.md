@@ -94,11 +94,13 @@ The original recipe (nvcc flags, `TORCH_CUDA_ARCH_LIST`, the `build_ext --inplac
 input arrays (`descriptor__*`, `x`, `x_small`, `labels`, `*_scalars`, `seed`) as bitwise and every
 RNG-dependent structure/trajectory array as MISMATCH.
 
-Relation to the pytest suite: `../src/evogp/tests/test_equivalence.py::test_golden_fixtures` scans
-`$EVOGP_GOLDEN_DIR`, then `<repo-root>/test/goldens/` (this directory), then its own `goldens/`, and
-requires the flat fixture keys `node_value`, `node_type`, `subtree_size`, `x` plus `expected` or
-`expected_fitness`. The 7 fixtures in `src/evogp/tests/goldens/` use that schema; the raw captures here
-are keyed `forest__node_value`/… and are *not* in it.
+Relation to the pytest suite: `../src/evogp/tests/test_equivalence.py` scans `$EVOGP_GOLDEN_DIR`, then
+`<repo-root>/test/goldens/` (this directory), then its own `goldens/`, and recognizes two schemas by
+array name — the flat "engine" fixtures (`node_value`, `node_type`, `subtree_size`, `x` plus `expected`
+or `expected_fitness`, the 7 files in `src/evogp/tests/goldens/`) and the raw legacy captures here
+(`forest__node_value`/… triples plus the `tree_forward` / `forest_forward` / `*_sr_fitness__*` / … expectations).
+Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) are reported through
+`warnings.warn` and skipped, never failed.
 
 ## Known Issues / cross-node notes
 - `src/evogp/tests/test_equivalence.py::test_golden_fixtures` is the one failure of the canonical suite
