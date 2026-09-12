@@ -301,8 +301,9 @@ Where **both** sides are direct, dense is 1.3–3.2× faster at N=64/1024 and 1.
 (P=16); the old 16.6× at P=64/N=64 came from the inflated 3× model. The corrected P=64/N=64 value is
 ≈5.0× (79.50 ms recovered direct specialized / 15.96 ms dense) or ≈6.2× (anchored 1.556 ms/tree × 64 =
 99.6 ms) — and even that uses an earlier-grid dense cell. ≥10× survives only as anchored extrapolation
-at large populations, e.g. P=200/N=64 336.9 ms / 10.60 ms ≈ 31.8×, and is not directly measured. The
-honest summary: dense wins the cold phase by orders of magnitude and the warm phase modestly at small N;
+at large populations, e.g. P=200/N=64 336.9 ms / 10.60 ms ≈ 31.8× — a pair assembled from two different
+rounds/processes (dense earlier grid, specialized direct), never measured as one A/B. The honest
+summary: dense wins the cold phase by orders of magnitude and the warm phase modestly at small N;
 large-pop warm wins require many distinct structures (P≥200), which is plausible from per-tree scaling
 but unverified.
 
