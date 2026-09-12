@@ -17,3 +17,22 @@ json: test/benchmark/r2/round3/results/armB/new/armB_np_c5r2.json
 exit code: 0 (OK)
 gpu (after): 6, NVIDIA RTX A6000, 0, 30439
 Arm B config armB_np_c5r2  finished 2026-09-12T23:26:53+08:00
+===============================================================================
+Arm B config armB_np_c5r2  (side=new group=numpy)  started 2026-09-13T00:06:48+08:00
+note: numpy mirror of leg_c5r2; Arm A twin np_c5r2
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A260   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+etl: /tmp/evogp_etl_patched_51a7141/etl/__init__.py
+timeout: 3600s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 0, NVIDIA RTX A6000, 60, 19835
+cmd: timeout -s INT -k 30 3600 env PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141 CUDA_VISIBLE_DEVICES=0 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --eval-reps 25 --stage-probe --tag ARMB_NP_C5R2 --json-out test/benchmark/r2/round3/results/armB/new/armB_np_c5r2.json
+json: test/benchmark/r2/round3/results/armB/new/armB_np_c5r2.json
+--- run output ---
+[ARMB_NP_C5R2] stage probe stage_probe/1: installed=True partial=False wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness] counters=CACHE.hits/CACHE.misses
+[ARMB_NP_C5R2] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=0 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A260/src/evogp/__init__.py commit=c086d85e3103316bb36961e03da5e7c4ec7b8524 etl=0.1.0 json_out=test/benchmark/r2/round3/results/armB/new/armB_np_c5r2.json
+[ARMB_NP_C5R2] stages[rep0/eval] 25 calls: cold 48 miss 155.2ms / warm 0 miss 0.0ms | decode 27.6 + build-hit 221.6 (1277) + build-miss 155.2 (48) + run 226.4 (1325) + readback 16.2 (1325) + upload 0.0 + loss 649.7 + misc 58.9 ms cold/warm totals 736.2ms (h2d 0 / d2h 0)
+[ARMB_NP_C5R2] side=new rep0/1: first 194.0ms, warm-median 22.8ms (25 calls)
+[ARMB_NP_C5R2] done side=new interrupted=False harness_wall_s=1.4 json_out=test/benchmark/r2/round3/results/armB/new/armB_np_c5r2.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 0, NVIDIA RTX A6000, 63, 19835
+Arm B config armB_np_c5r2  finished 2026-09-13T00:06:52+08:00
