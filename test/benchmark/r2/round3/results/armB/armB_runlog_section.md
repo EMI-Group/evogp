@@ -390,15 +390,106 @@ dense `iree` eval arms showed `0` in the same column against a JSON-level `1`. T
 why each invocation's table is archived in its `status_<id>.txt` instead.
 
 ### `iree_sr_b2` re-attempt (pop 1000 / gens 2 / tree 128 — not an Arm B matrix id)
-<PLACEHOLDER — to be filled if the phase runs it. This is the one R2 config that FAILED
-(silent native SIGSEGV, runner exit 139, after ≈800–900 builds and before generation 0 completed —
-R2's bounded-failure datapoint `../new/results/r2/iree_sr_b2.json`, kept as a crash skeleton); the
-re-attempt tests whether the patched ETL checkout (per-thread runtime-device cache / `build_cache`
-fast path) survives it, with Arm A's flags unchanged:
-`--task sr --pop 1000 --gens 2 --tree-len 128 --reps 2 --backend iree --stage-probe
---max-cold-builds 1500` + `EVOGP_ETL_CACHE_SIZE=8192`, `ulimit -n 65536` and FD telemetry watched
-(`fds.end`). Record the exit code, whether the crash reproduces, the build count at failure and the
-FD trajectory; a crash is again a bounded-failure datapoint, never a training result.>
+**EXECUTED 2026-09-12 23:32:21–23:51:17 HKT (window 5, GPU 6): BOTH attempts exit 0 — R2's SIGSEGV does
+not reproduce.** This is the one R2 config that FAILED (silent native SIGSEGV, runner exit 139, after
+≈800–900 builds and before generation 0 completed — R2's bounded-failure datapoint
+`../new/results/r2/iree_sr_b2.json`, kept unchanged as a crash skeleton). The re-attempt repeats the R2
+b2 row on the patched ETL checkout with Arm A's flags unchanged (`--task sr --pop 1000 --gens 2
+--tree-len 128 --reps 2 --backend iree --stage-probe --max-cold-builds 1500 --mem-guard-mb 8192` +
+`EVOGP_ETL_CACHE_SIZE=8192`, `ulimit -n 65536`, FD telemetry watched) in the two defined attempts:
+* **attempt 1 = `armB_iree_sr_b2`** — the current engine defaults: `EVOGP_EVAL_MODE` unset ⇒ `auto`, and
+  on the `iree` backend at pop 1000 / 1 000 data rows the `auto` policy selects the **dense** evaluator
+  (`pop ≥ DEFAULT_AUTO_MIN_POP=16`, non-numpy backend, rows ≤ `DEFAULT_AUTO_MAX_ROWS=2048`).
+* **attempt 2 = `armB_iree_sr_b2_spec`** — the R2-era route pinned (`EVOGP_EVAL_MODE=specialized`; in R2's
+  era `auto` *was* the specialized engine, the dense evaluator is a post-R2 wave), i.e. the closest
+  possible analogue of the crashed run: same route and same workload, with the patched ETL checkout as
+  the only changed factor.
+**Commands (exact) — one DIRECT `bench_gp.py` invocation per attempt (NOT via `run_all_armB.sh`: b2 is not
+a matrix row and must not enter `manifest_armB.txt`), each in the foreground of one long-budget call with
+`ulimit -n 65536` raised first and exactly one `flock -w 7200 /tmp/gpbench_critical.lock` whose `timeout`
+sits INSIDE it; every command line below is the `cmd:` header line of the corresponding log:**
+```bash
+# attempt 1  (23:32:23 → 23:36:00, exit 0)
+flock -w 7200 /tmp/gpbench_critical.lock bash -c 'timeout -s INT -k 30 3600 env PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141 CUDA_VISIBLE_DEVICES=6 EVOGP_ETL_CACHE_SIZE=8192 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task sr --pop 1000 --gens 2 --tree-len 128 --reps 2 --backend iree --stage-probe --max-cold-builds 1500 --mem-guard-mb 8192 --tag ARMB_IREE_SR_B2 --json-out test/benchmark/r2/round3/results/armB/new/armB_iree_sr_b2.json'
+# attempt 2, first execution  (23:36:14 → 23:40:40, exit 0 — WRONG ROUTE, see the window-5 anomaly
+# bullet; the run actually taken was the dense one again and it is superseded by the re-run below)
+# attempt 2, corrective re-run  (23:41:21 → 23:51:17, exit 0)
+flock -w 7200 /tmp/gpbench_critical.lock bash -c 'timeout -s INT -k 30 3600 env PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141 CUDA_VISIBLE_DEVICES=6 EVOGP_EVAL_MODE=specialized EVOGP_ETL_CACHE_SIZE=8192 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task sr --pop 1000 --gens 2 --tree-len 128 --reps 2 --backend iree --stage-probe --max-cold-builds 1500 --mem-guard-mb 8192 --tag ARMB_IREE_SR_B2_SPEC --json-out test/benchmark/r2/round3/results/armB/new/armB_iree_sr_b2_spec.json'
+```
+**Per-attempt outcome table** (exit code = the log's `exit code:` footer; `misses_max` = the JSON-level
+cumulative ETL compile-miss counter the `--max-cold-builds` guard samples; `fds` = the JSON's
+`start → after_cold → end`; wall = the log's `started`/`finished` pair):
+| attempt (id) | route actually taken | exit | state | wall | `harness_wall_s` | builds (`misses_max` / limit) | rep0 stage (cold + warm misses, build calls) | rep1 stage | fds start→cold→end | JSON |
+|---|---|---|---|---|---|---|---|---|---|---|
+| attempt 1 — `armB_iree_sr_b2` | **dense** (`auto`) | **0** | `complete`, `partial=false` | 217 s (23:32:23 → 23:36:00) | 213.05 | 431 / 1500 | 0 + 430 (685 calls, 255 hits) | 0 + 0 (685 hits) | 39 → 91 → 91 | complete record, 2 reps × 2 gens, `best_fitness_final=-0.22635293006896973` |
+| attempt 2, first execution (superseded) | **dense** (`auto` — env assignment lost) | **0** | `complete`, `partial=false` | 266 s (23:36:14 → 23:40:40) | 263.70 | 431 / 1500 | 0 + 430 (685 calls, 255 hits) | 0 + 0 (685 hits) | 39 → 91 → 91 | complete record, preserved verbatim as `new/armB_iree_sr_b2_spec_botched_dense_route.{json,log}` |
+| attempt 2, corrective re-run — `armB_iree_sr_b2_spec` | **specialized** (pinned) | **0** | `complete`, `partial=false` | 597 s (23:41:21 → 23:51:17) | 594.84 | 1181 / 1500 | 788 + 393 (1568 calls, 387 hits) | 0 + 0 (1568 hits) | 39 → 91 → 91 | complete record, 2 reps × 2 gens, `best_fitness_final=-0.22635293006896973` |
+| R2 twin `../new/results/r2/iree_sr_b2` (stock ETL, pre-dense era) | specialized (only route then) | **139** (SIGSEGV) | skeleton, `complete=false` | ≈390 s process life (15:20:39 → 15:27:09) | — | 0 recorded (no generation finished; ≲900 builds by the ms/build bound) | `records: []` | — | 39 → `null` → `null` | crash skeleton, unchanged (read-only reference) |
+**Route attribution is read off the records, not assumed** — the `env` block plus the stage
+fingerprint (the dense arms report the first-generation compile as `misc` and never as `build_miss`, so
+their `rep0` shows `cold=0 + warm_M`; the same workload specialized shows `cold=788 + warm=393` with
+1568 instead of 685 build calls):
+
+| record | `env.EVOGP_EVAL_MODE` | rep0 build calls | rep0 cold + warm misses | route |
+|---|---|---|---|---|
+| `armB_iree_sr_b2` | *(absent ⇒ `auto`)* | 685 | 0 + 430 | dense |
+| `armB_iree_sr_b2_spec_botched_dense_route` | *(absent ⇒ `auto`)* | 685 | 0 + 430 | dense |
+| `armB_iree_sr_b2_spec` | `specialized` | 1568 | 788 + 393 | specialized |
+| the pop-200 twins (for the same fingerprint) | `auto` / `specialized` | 229 / 632 | 0 + 169 / 155 + 362 | dense / specialized |
+**FD telemetry — flat, exactly like every other Arm B `iree` run** (Arm B vs R2, same counter fields):
+| record | engine | builds (`misses_max`) | fds start→cold→end | implied fds / build |
+|---|---|---|---|---|
+| R2 `iree_sr_a` | stock | 517 | 39 → 5 051 → 17 243 | **32.3** |
+| R2 `iree_sr_b2` | stock | — (crash, no gen) | 39 → `null` → `null` | n/a |
+| Arm B `armB_iree_fixture64_n64` (dense eval) | patched | 1 | 39 → 91 → 91 | ~0 |
+| Arm B `armB_iree_sr_a` (dense) | patched | 170 | 39 → 91 → 91 | ~0 |
+| Arm B `armB_iree_sr_a_spec` (specialized) | patched | 517 | 39 → 91 → 91 | ~0 |
+| Arm B `armB_iree_sr_b2` (attempt 1, dense) | patched | 431 | 39 → 91 → 91 | ~0 |
+| Arm B `armB_iree_sr_b2_spec` (attempt 2, specialized) | patched | **1 181** | 39 → 91 → 91 | **~0** |
+i.e. at 2.3× the build count of the largest completed Arm B arm (517 → 1 181) the fd count stays at the
+pre-flight level of 91 of 65 536; the 52 fds over `start` are one-time IREE runtime init, not per
+compiled structure (the same value appears on the 1-miss eval arm). `nofile_rlimit = [65536, 65536]` in
+all three b2 records; at the stock 32.3 fds/build the corrective run's 1 181 builds would have projected
+to ≈38 k fds and R2's own hand-off note put the config's full 2 200-build budget at ≈73 k fds — above
+the limit.
+**Interpretation vs R2's SIGSEGV(139) after ≈800–900 builds.** The crash did not reproduce in either
+route: both attempts completed all 2 reps × 2 generations with `exit 0`, `partial=false`, the guard
+never tripped (431/1500 dense, 1 181/1500 specialized — 79 % of the cap, so the guard did not have the
+last word), no timeout (217 s / 597 s against the 3 600 s cap), no interrupt, and FD telemetry flat at
+91/65 536. On the three changed factors:
+* **FD fix (the prime suspect) — consistent with the outcome and directly visible.** R2's twin
+  `iree_sr_a` leaked 32.3 fds per compiled structure (517 builds → 17 243 fds); the patched checkout's
+  per-thread HAL-device cache leaves the count flat (517 builds → 91 fds, and here 1 181 builds → 91 fds).
+  A plain EMFILE was *not* the R2 crash mechanism at ≈800–900 builds (that projects to ≈26–29 k fds, below
+  the 65 536 limit — R2's runlog reached the same conclusion and noted the EMFILE path raises cleanly
+  anyway), but the leaked per-structure object graph (`HalBuffer` / `MappedMemory` / `HalAllocator` /
+  `HalDevice`, still reported by the nanobind teardown in these logs) also drives `vm.max_map_count`
+  (65 530 on this box) and native memory — and that growth is what the patch removes. This is the only
+  changed factor in attempt 2 (same route, same workload, same flags).
+* **Route — not a precondition for survival, but it changes the size of the run.** Attempt 1's dense
+  route reaches the same two generations with 431 compile misses / 685 build calls per rep vs attempt 2's
+  1 181 / 1 568 — 2.7× fewer compiles — so a route-only explanation would predict attempt 2 to be the
+  risky one; it also completed (597 s, 1 181 misses). R2's own "~800–900 builds" crash point lands at the
+  *end of generation 0*, i.e. exactly where the specialized route finishes its 788 cold builds (883 trees
+  invoked, 349.7 s) and starts reusing the cache — the crash position is now reproducible as a position
+  in the run, and the patched checkout passes through it.
+* **Budget — unchanged and never reached.** `--max-cold-builds 1500` and `EVOGP_ETL_CACHE_SIZE=8192` are
+  the R2 values; both attempts stayed under the cap, so no guard-stop was produced and the budget is not
+  what differs. (Note for a future round: this workload is cheaper than R2 projected — the whole
+  2 × 2-generation workload needed 1 181 misses on the specialized route, not ≈2 200.)
+* **Fitness cross-check.** All three executions produced the identical trajectory
+  `[-0.2510969936847687, -0.22635293006896973]` per rep. Generation 0 is bit-identical to the R2-era
+  numpy mirror `np_sr_b`'s first value; generation 1 sits 1.49e-08 absolute / 6.6e-08 relative away from
+  `np_sr_b`'s `-0.22635294497013092` — inside the ≤2.03e-07 relative R3-vs-R2 spread already documented
+  for the specialized route in `../SUMMARY.md`, and *identical on both routes*, i.e. float-level, not a
+  behavioural difference. No fitness regression; the config's expected two generations are now verified
+  on IREE (R2's own runlog lists them as unverified).
+**Gate check (the b2 records are deliberately NOT manifest ids):** with the three new records on disk,
+`python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt
+--require-stages` still reports `9 record(s): 9 complete, 0 partial, 0 skipped, 0 missing, 0 malformed
+(0 not in the manifest)` / `34 check(s), 0 failure(s)` / `CHECKER_EXIT=0`
+(`results/armB/status_check_r3_armB_after_b2.txt`); `manifest_armB.txt` was not edited, so the frozen
+Arm B gate is untouched by this phase.
 ### Deviations / anomalies
 **Tooling-window decisions carried into every Arm B run (recorded here once, on purpose):**
 * **`EVOGP_EVAL_MODE=auto` is passed EXPLICITLY on the three plain `iree` arms** (`armB_iree_fixture64_n64`,
@@ -546,6 +637,29 @@ FD trajectory; a crash is again a bounded-failure datapoint, never a training re
   `np_fixture200_n64` and the +31.6 % rep0 median on `np_sr_a` (whose `per_gen_ms` is bimodal at
   ≈79–724 ms) are shared-box noise, not added work: the same window shows `np_c5r2` at −10.8 % warm,
   the build counts are equal, and the `sr` fitness trajectory is bitwise identical.
+* **Window 5 / GPU 6 — attempt 2's first execution silently ran the wrong route (operator error, caught
+  before anything was committed).** The hand-rolled launcher dropped the `EVOGP_EVAL_MODE=specialized`
+  assignment before `env` (the log's `cmd:` line has no such variable and the record's `env` block lacks
+  it), so the run took the default `auto` ⇒ dense route again — same workload/flags/shadow as attempt 1
+  (431 misses, fds 39 → 91 → 91, exit 0, identical fitness). It was caught immediately by the `env`
+  block/build counts and fixed by re-executing attempt 2 with the verbatim command (no variable
+  templating) and re-checking `env.EVOGP_EVAL_MODE=specialized` in the corrective record; the
+  mis-invoked execution is preserved verbatim as
+  `results/armB/new/armB_iree_sr_b2_spec_botched_dense_route.{json,log}` (with an operator annotation
+  appended to its log) and is never quoted as attempt 2.
+* **Window 5 / GPU 6 — no crash, no guard-stop, no timeout, no interrupt, and no further re-run.** All
+  three executions exited 0 (217 s / 266 s / 597 s, each well inside the 3600 s cap, `partial=false`
+  everywhere); the cold-build guard peaked at 431/1500 (dense) and 1181/1500 (specialized) and never
+  tripped; `fds.end` stayed at 91 of 65 536 in all three — the same flat trajectory as the other Arm B
+  `iree` arms, at 2.3× the build count of the largest of them.
+* **Window 5 / GPU 6 — fitness vs the R2 numpy mirror, and the record set.** Both attempts' per-rep
+  trajectories are exactly `[-0.2510969936847687, -0.22635293006896973]` (bit-identical across the
+  dense, botched-dense and specialized executions); generation 0 matches the R2-era numpy mirror
+  `np_sr_b`'s first value bit-for-bit and generation 1 sits 1.49e-08 absolute / 6.6e-08 relative from
+  `-0.22635294497013092`, inside the documented ≤2.03e-07 relative R3-vs-R2 spread. The three b2
+  records are deliberately not manifest ids: `check_r3.py --manifest manifest_armB.txt --require-stages`
+  still reports 9 complete / 34 checks / 0 failures with them on disk
+  (`results/armB/status_check_r3_armB_after_b2.txt`), so the frozen Arm B gate is unaffected.
 **Analysis of record:** Arm B's write-up goes here once the round runs; the baseline it is read against
 is `round3/SUMMARY.md` (Arm A) and, one level up, `../REPORT.md` (R2) — Arm B's headline question is
 whether the patched ETL checkout changes any R3 number or fitness vector, so the tables to produce are

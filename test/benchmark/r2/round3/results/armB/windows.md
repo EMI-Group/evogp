@@ -351,3 +351,84 @@ time to a config.
   contention source, the GPU only holds the tensors, and each config's `gpu (before)/(after)` pair is
   recorded in its committed log. The `sr` arm's fitness trajectory is contention-independent and is
   the cross-check that this window measured the same workload as Arm A / R2.
+
+---
+
+## Window 5 — 2026-09-12 15:31 UTC (23:31 HKT) — `iree_sr_b2` re-attempt (pop 1000 / gens 2 / tree 128; not an Arm B matrix id)
+
+- purpose / phase: bounded re-attempt of R2's one failure — the `iree_sr_b2` crash skeleton (pop 1000 /
+  gens 2 / tree 128 / cache 8192 / cold-build budget 1500 / `--mem-guard-mb 8192`). Two defined attempts,
+  both under the patched ETL shadow and launched as DIRECT `bench_gp.py` invocations (the R2 b2 row
+  mirrored by hand; `armB_iree_sr_b2*` are deliberately not manifest ids): attempt 1 = current engine
+  defaults (`EVOGP_EVAL_MODE` unset ⇒ `auto`), attempt 2 = the R2-era route pinned
+  (`EVOGP_EVAL_MODE=specialized`). Attempt 2's first execution silently lost the env assignment
+  (operator error; it ran the dense route again) and was re-executed correctly in this same window — the
+  mis-invoked run is preserved verbatim as
+  `results/armB/new/armB_iree_sr_b2_spec_botched_dense_route.{json,log}`.
+- commands: one foreground `flock -w 7200 … bash -c 'timeout -s INT -k 30 3600 env PYTHONPATH=… …'` per
+  attempt (the runner's `ulimit`/`flock`/`timeout` order, by hand; `run_all_armB.sh` was NOT used because
+  b2 is not a matrix row) — attempt 1 `--tag ARMB_IREE_SR_B2` 23:32:23 → 23:36:00 (exit 0); attempt 2
+  first execution `--tag ARMB_IREE_SR_B2_SPEC` 23:36:14 → 23:40:40 (exit 0, dense route, superseded);
+  attempt 2 corrective re-run 23:41:21 → 23:51:17 (exit 0). Exact command lines are the `cmd:` header
+  line of each `results/armB/new/<id>.log`; the shadow probes are the sixth block of
+  `etl_import_probe.txt`. No lock wait was observable (each attempt's `started_at` is within seconds of
+  its launch, and the whole phase ran in the foreground of two long-budget calls).
+- cwd / interpreter: repository root of this worktree, `/mnt/local-ssd/bchuang/evox/.venv/bin/python`
+- PYTHONPATH: `src:/tmp/evogp_etl_patched_51a7141`   (shadow re-verified at window start, see
+  `etl_import_probe.txt`; patched-file hashes unchanged since the agreement window)
+- CUDA_VISIBLE_DEVICES: 6   (chosen from the snapshot below under the window rule: the runner default,
+  `free_mb_start` **17 973 MiB** at every `--mem-guard-mb 8192` check — far above the floor — and the
+  same device as R2's b2 twin and every other Arm B window, so the re-attempt is device-paired with the
+  record it tests; GPU 0/1 were idle with ≈49.1 GiB free and were the fallback, GPU 7 — hardware ECC
+  fault — is never used. The `gpu (before)/(after)` pairs are in each log: attempt 1 `6, …, 0, 30439` →
+  `6, …, 0, 30439`; attempt 2 corrective `6, …, 16, 30439` → `6, …, 32, 30439`.)
+- nvidia-smi (ALL GPUs), 2026-09-12T23:31:53+08:00 (UTC 15:31:53):
+  ```text
+  0, NVIDIA RTX A6000, 0, 1, 49140
+  1, NVIDIA RTX A6000, 0, 1, 49140
+  2, NVIDIA RTX A6000, 0, 18280, 49140
+  3, NVIDIA RTX A6000, 54, 15315, 49140
+  4, NVIDIA RTX A6000, 31, 15389, 49140
+  5, NVIDIA RTX A6000, 0, 24395, 49140
+  6, NVIDIA RTX A6000, 22, 30439, 49140
+  7, NVIDIA RTX A6000, 0, 1, 46068
+  ```
+- compute apps (pid → user, MiB), same snapshot:
+  - GPU 0 (`GPU-7ca10c94…`): no compute apps (1 MiB resident) — idle, the fallback device
+  - GPU 1 (`GPU-38ba30b9…`): no compute apps (1 MiB resident) — idle
+  - GPU 2 (`GPU-01343fc6…`): 1228200 → whhu (VLLM::EngineCore, up 35 d) 16454; 2460191 → hyqiu
+    (`task-vectors/bin/python`, up 2 m) 1694
+  - GPU 3 (`GPU-25828e67…`): 1285079 → hyqiu (merge-qwen `Ratatouille_qwen.py`, up 1 d 12 h) 15258
+  - GPU 4 (`GPU-098b70f2…`): 1284680 → hyqiu (merge-qwen `Ratatouille_qwen.py`, up 1 d 12 h) 15300
+  - GPU 5 (`GPU-a4c47eb9…`): 1228191 → whhu (VLLM, up 35 d) 24274
+  - GPU 6 (`GPU-b8253071…`): 2246336 → syfang (`python main.py --config exps/video_attention.json`,
+    up 3 h 36 m) 30406 — the same ≈30 GB foreign tenant as windows 0/1/1b/2/3/4
+  - GPU 7 (`GPU-0f5f6bfd…`): no compute apps (1 MiB resident) — the known hardware-ECC-fault card,
+    never used
+- uptime / loadavg: `23:31:54 up 252 days, 21:47, 45 users, load average: 79.35, 82.10, 89.74`
+  (`/proc/loadavg` 79.35 82.10 89.74 73/14013)
+- ulimit -n (raised before each attempt): 65536 (`nofile_rlimit = [65536, 65536]` in every b2 JSON)
+- contention notes: the same tenant set as windows 1b–4 (hyqiu on 2/3/4, whhu's VLLM on 2/5, `syfang` on
+  6) with the host at loadavg 68–88 / 45 users — the lowest of the round. GPU 6's tenant stayed at
+  30 439 MiB and *burst-idles* (22 % at window start, 0–32 % while the attempts ran, 0 % after), never
+  sustained ≥90 %, and the mem guard saw 17 973 MiB free at every start. The b2 workload is IREE
+  *compile*-bound (host-side `iree-compile` subprocesses; device-side footprint is a few MiB — peak torch
+  allocation 12.4 MiB on attempt 1, 11.2 MiB on attempt 2), so the window's timings inherit the
+  documented compile spread (± a factor of a few) and the shared-host ±10 % band, while the *outcome*
+  facts quoted from this window (exit codes, compile-miss counts, fd telemetry, fitness trajectory) are
+  contention-independent.
+- post-run state, 2026-09-12T23:51:24+08:00 (UTC 15:51:24) — taken after both attempts:
+  ```text
+  0, NVIDIA RTX A6000, 0, 1, 49140
+  1, NVIDIA RTX A6000, 0, 1, 49140
+  2, NVIDIA RTX A6000, 98, 21082, 49140
+  3, NVIDIA RTX A6000, 26, 15317, 49140
+  4, NVIDIA RTX A6000, 27, 15389, 49140
+  5, NVIDIA RTX A6000, 0, 24395, 49140
+  6, NVIDIA RTX A6000, 0, 30439, 49140
+  7, NVIDIA RTX A6000, 0, 1, 46068
+  ```
+  (GPU 6 back to 0 % util with the same 30 439 MiB tenant resident and 1 MiB of our own; hyqiu's GPU-2
+  job grew 1694 → 4496 MiB; uptime `23:51:25 up 252 days, 22:06, 45 users, load average: 68.60, 85.85,
+  88.10`; no `bench_gp.py`/`iree-compile` process was left behind and the shared lock was released —
+  `flock -n` re-acquires it immediately. Every attempt's JSON ends `complete: true`.)
