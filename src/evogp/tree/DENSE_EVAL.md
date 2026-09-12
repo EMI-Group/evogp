@@ -152,7 +152,7 @@ either way — fresh, contiguous, `requires_grad=False` float32 on `x`'s device 
 SR loss is a fresh writable `(pop_size,)` positive loss built with a torch reduction
 (`diff = label - prediction`, `diff²` or `|diff|`, summed over rows and outputs, divided by the row
 count), i.e. the same formula as `etl_engine.sr_fitness`, which reduces on the HOST with numpy instead —
-the two loss values differ only by float32 reduction order (≤ ~1 ulp).
+the two loss values differ only by float32 reduction order (~1e-7 relative on the fixtures).
 Public API compatibility is complete: signatures unchanged,
 `use_MSE` / `per_row` / `out_device` honoured, and the five legacy `execute_mode` strings still
 accepted and still all mapping to the same engine path.

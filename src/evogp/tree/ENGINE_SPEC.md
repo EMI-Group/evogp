@@ -538,7 +538,7 @@ The dense graph computes every node value through the *same* private op emitters
 engine (`etl_engine._emit_unary` / `_emit_binary` / `_emit_ternary`), so the op table (§3), the
 leftmost-child-first operand order (§4.1), the ±1 comparisons, the loose-op edge rules, the unary /
 binary / ternary arity dispatch and the SR-fitness formula (§5) are identical by construction, and the
-deviations listed in §12 apply to both. Section 4.3 (multi-output) is implemented by the specialized
+documented deviations from the legacy kernels (listed in the `etl_engine.py` module docstring) apply to both. Section 4.3 (multi-output) is implemented by the specialized
 engine only: a multi-output population makes the dense path decline and fall back.
 
 Selection is per call, by the `EVOGP_EVAL_MODE` environment variable (an explicit `eval_mode=`

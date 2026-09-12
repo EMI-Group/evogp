@@ -1466,8 +1466,9 @@ def sr_fitness_dense(
     ``(N, input_len)``, ``labels`` is ``(N, output_len)`` and the result is a
     ``(pop_size,)`` float32 POSITIVE loss ``sum_N sum_out err / N`` (MSE or MAE)
     on ``inputs``' device unless ``out_device``; NaN/inf propagate.  The
-    reduction uses the very same torch ops as the engine's version, so identical
-    predictions give identical losses.
+    reduction is a torch reduction over the assembled prediction; `etl_engine.sr_fitness`
+    reduces its host rows with numpy instead — same formula, differing only in
+    float32 summation order (~1e-7 relative on the fixtures).
     """
     xt = _input_to_numpy(inputs, int(input_len), "inputs")
     if xt.shape[0] <= 0:
