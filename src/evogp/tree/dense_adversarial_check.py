@@ -96,6 +96,10 @@ paths share the private emitters, so the only legitimate difference is a folded
 constant chain resolved by the host libm vs emitted on the device); it is not the
 pass criterion -- except in ``--strict-bits`` mode, where any non-bit-exact
 finite value fails the run.
+Each reported element names the path(s) it is KNOWN to deviate on (``who=dense_only``
+/ ``specialized_only`` / ``both``, or the bare ``dense`` / ``specialized`` when that
+comparison measured only one side) and carries the ``got_path`` it printed, so a
+``<path> vs oracle`` line can never be read as the other path's difference.
 
 Exit code 0 = every check inside the policy, 1 = at least one mismatch, 2 = a
 hard error (no oracle / no GPU / unexpected exception while building a case).
@@ -509,16 +513,35 @@ def _row_index(index: Tuple[int, ...], rows: Optional[Sequence[Row]]):
     return rows[int(index[0])]
 
 
-def classify(index: Tuple[int, ...], rows, dense_ok: bool, spec_ok: bool) -> Dict[str, Any]:
-    """Cause class of one non-bit-exact finite element."""
+def classify(
+    index: Tuple[int, ...],
+    rows,
+    dense_ok: Optional[bool],
+    spec_ok: Optional[bool],
+) -> Dict[str, Any]:
+    """Cause class of one non-bit-exact finite element.
+
+    ``dense_ok`` / ``spec_ok`` say whether the DENSE respectively the SPECIALIZED
+    result matched the oracle at this element; ``None`` means this comparison did
+    not measure that side (e.g. the ``specialized vs oracle`` call passes no
+    counterpart).  ``who`` names the path(s) KNOWN to deviate from the oracle:
+    ``both``, ``dense_only`` / ``specialized_only`` (the other side was measured
+    and matched), or the bare ``dense`` / ``specialized`` when the other side was
+    not measured here -- it never claims a side it did not compare.
+    """
     row = _row_index(index, rows)
     if row is None:
         return {"path": "unknown", "who": "unknown", "case": "?"}
-    who = "both"
-    if dense_ok and not spec_ok:
-        who = "specialized_only"
-    elif spec_ok and not dense_ok:
-        who = "dense_only"
+    dense_deviates = dense_ok is False
+    spec_deviates = spec_ok is False
+    if dense_deviates and spec_deviates:
+        who = "both"
+    elif dense_deviates:
+        who = "dense_only" if spec_ok else "dense"
+    elif spec_deviates:
+        who = "specialized_only" if dense_ok else "specialized"
+    else:
+        who = "unknown"
     return {
         "path": "const_folded" if row.fold else "emitted",
         "root_const": bool(row.const_root),
@@ -538,14 +561,19 @@ def compare(
     counterpart: Optional[Any] = None,
     counterpart_name: str = "specialized",
     counterpart_ok: Optional[np.ndarray] = None,
+    got_name: str = "dense",
     max_repros: int = 8,
     detail_extra: str = "",
 ) -> bool:
     """Compare float32 results under the battery policy.
 
-    ``ref`` is the oracle, ``got`` the dense result, ``counterpart`` optionally
-    the specialized result (bit-equality per element then classifies the cause of
-    a dense-vs-oracle difference).
+    ``ref`` is the oracle, ``got`` the result of the ``got_name`` path (``dense``
+    by default) and ``counterpart`` optionally the other path's result (its
+    per-element "matched the oracle" mask is ``counterpart_ok``, recomputed from
+    ``counterpart`` when omitted).  Which side produced ``got`` matters for
+    :func:`classify`: both masks are fed in the DENSE / SPECIALIZED slots
+    regardless of the order of the arguments, so an element is always reported on
+    the path that actually deviates.
     """
     a = np.asarray(_host(ref), dtype=np.float32)
     b = np.asarray(_host(got), dtype=np.float32)
@@ -609,26 +637,41 @@ def compare(
         if counterpart is not None:
             c = np.asarray(_host(counterpart), dtype=np.float32)
             c_bits = c.view(np.int32)
-            spec_ok = c_bits == bits_a  # the counterpart matched the oracle here
+            counterpart_matches = c_bits == bits_a  # the counterpart matched the oracle here
         else:
-            spec_ok = np.ones_like(bit)
+            counterpart_matches = None
         if counterpart_ok is not None:
-            spec_ok = counterpart_ok
+            counterpart_matches = counterpart_ok
         for index_tuple in np.argwhere(non_bit_finite)[:max_repros]:
             index = tuple(int(v) for v in index_tuple)
+            # "matched the oracle" per side: ``bit`` covers the path that produced
+            # ``got`` (this element is listed because it did NOT match),
+            # ``counterpart_matches`` the other path -- both are then handed to
+            # classify in its fixed dense / specialized slots.
+            got_matches = bool(bit[index])
+            other_matches = (
+                None
+                if counterpart_matches is None
+                else bool(counterpart_matches[index])
+            )
+            if got_name == "dense":
+                dense_ok, spec_ok = got_matches, other_matches
+            else:
+                dense_ok, spec_ok = other_matches, got_matches
             entry = {
                 "comparison": name,
                 "index": list(index),
                 "oracle": float(a[index]),
                 "got": float(b[index]),
+                "got_path": got_name,
                 "oracle_bits": int(bits_a[index]),
                 "got_bits": int(bits_b[index]),
                 counterpart_name: float(np.asarray(_host(counterpart))[index])
                 if counterpart is not None
                 else None,
-                counterpart_name + "_matches_oracle": bool(spec_ok[index]),
+                counterpart_name + "_matches_oracle": other_matches,
             }
-            entry.update(classify(index, rows, bool(not spec_ok[index]), bool(spec_ok[index])))
+            entry.update(classify(index, rows, dense_ok, spec_ok))
             diffs.append(entry)
         report.add_bit_diffs(diffs)
         for entry in diffs:
@@ -637,7 +680,7 @@ def compare(
                 f"        bit-diff {entry['comparison']} idx={entry['index']} "
                 f"path={entry['path']} who={entry['who']} case={entry['case']} "
                 f"(row {row.note if row is not None else ''}) oracle={_fmt(entry['oracle'])} "
-                f"dense={_fmt(entry['got'])}"
+                f"{entry['got_path']}={_fmt(entry['got'])}"
             )
     elif not _bit_equal(a, b):
         print(
@@ -1452,6 +1495,7 @@ def run_block(
                     ref_sr,
                     spec_sr,
                     rows=rows,
+                    got_name="specialized",
                 )
 
     results[block.name] = {
