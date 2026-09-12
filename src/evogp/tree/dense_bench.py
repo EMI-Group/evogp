@@ -327,12 +327,11 @@ class SmiSampler(threading.Thread):
     def stop(self) -> Dict[str, Any]:
         self._stop_event.set()
         self.join(timeout=10)
-        return {
-            "peak_proc_mb": round(self.peak_proc / 1024.0, 2),
-            "peak_gpu_mb": (
-                round(self.peak_gpu / 1024.0, 2) if self.index is not None else None
-            ),
+        return {  # nvidia-smi reports MiB already
+            "peak_proc_mb": float(self.peak_proc),
+            "peak_gpu_mb": float(self.peak_gpu) if self.index is not None else None,
             "samples": self.samples,
+            "method": "nvidia-smi --query-compute-apps sampled every 50 ms during one call",
         }
 
 
@@ -623,11 +622,19 @@ class Bench:
             bytes_per_pn = self._host_bytes_per_pn()
             limit_mb = self.args.max_host_mb
             what = "host RSS"
+            host_mb = bytes_per_pn * chunk_elements / (1024.0 * 1024.0)
+            model_note = (
+                f"{bytes_per_pn:.0f} bytes per pop x row element (calibrated on the "
+                f"measured host RSS delta, dense_peak_bytes is ~60x optimistic)"
+            )
         else:
-            bytes_per_pn = self._device_bytes_per_pn()
             limit_mb = self.args.max_device_mb
             what = "device memory"
-        host_mb = bytes_per_pn * chunk_elements / (1024.0 * 1024.0)
+            host_mb = record["plan"]["peak_mb"] * self.args.device_model_multiplier
+            model_note = (
+                f"{self.args.device_model_multiplier:.0f}x the dense_peak_bytes model "
+                f"({record['plan']['peak_mb']:.1f} MB per chunk)"
+            )
         if host_mb > limit_mb:
             estimate_ms, note = self._dense_estimate_ms(pop_size, rows)
             record["dense"] = {
@@ -638,14 +645,14 @@ class Bench:
                 "warm_repeats": 0,
                 "source": note,
                 "host_estimate_mb": round(host_mb, 1),
-                "model_bytes_per_chunk_element": round(bytes_per_pn, 1),
                 "limit_mb": limit_mb,
+                "guard_model": model_note,
                 "note": (
                     f"predicted per-chunk {what} {host_mb:.0f} MB > limit "
-                    f"{limit_mb:.0f} MB ({bytes_per_pn:.0f} bytes per pop x row "
-                    f"element, chunk {record['plan']['p_chunk']}x"
-                    f"{record['plan']['n_chunk']} x {record['plan']['p_chunks']}*"
-                    f"{record['plan']['n_chunks']}); warm_ms from {note}"
+                    f"{limit_mb:.0f} MB ({model_note}, chunk "
+                    f"{record['plan']['p_chunk']}x{record['plan']['n_chunk']} x "
+                    f"{record['plan']['p_chunks']}*{record['plan']['n_chunks']}); "
+                    f"warm_ms from {note}"
                 ),
             }
             print(
@@ -1191,6 +1198,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=6000.0,
         help="skip a dense case whose predicted host RSS exceeds this (numpy backend)",
+    )
+    parser.add_argument(
+        "--device-model-multiplier",
+        type=float,
+        default=64.0,
+        help=(
+            "iree device-memory guard: multiple of the dense_peak_bytes model; the "
+            "numpy measurement showed the real footprint is ~62x the model"
+        ),
     )
     parser.add_argument(
         "--max-device-mb",

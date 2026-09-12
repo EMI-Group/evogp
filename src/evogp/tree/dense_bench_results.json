@@ -1,5 +1,486 @@
 {
   "cases": {
+    "iree_P200_N1024": {
+      "backend": "iree",
+      "budget_mb": 2048.0,
+      "dense": {
+        "cache_hits_after_cold": 0,
+        "cache_misses": 1,
+        "cold_ms": 16501.014,
+        "compile_ms": 16466.428,
+        "finite_fraction": 0.985,
+        "memory": {
+          "device_before_mb": 338.0,
+          "device_bytes_per_pop_row": 0.0,
+          "device_delta_mb": 0.0,
+          "host_bytes_per_pop_row": 379.2,
+          "host_note": "current host RSS (/proc/self/statm) before the cold call / after the cold call / after the timed calls; the delta includes the compile and the run and is the calibration of the harness' own host-memory guard",
+          "host_rss_after_cold_mb": 887.2,
+          "host_rss_after_warm_mb": 923.9,
+          "host_rss_before_mb": 849.8,
+          "host_rss_delta_mb": 74.1,
+          "memory_call_matches": {
+            "finite_tol_ok": true,
+            "inf_mask_ok": true,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "n": 200,
+            "n_inf": 0,
+            "n_nan": 3,
+            "nan_mask_ok": true,
+            "ok": true
+          },
+          "model_out_mb": 0.781,
+          "model_peak_mb": 87.598,
+          "smi": {
+            "peak_gpu_mb": 15.39,
+            "peak_proc_mb": 0.33,
+            "samples": 1
+          },
+          "torch_peak_alloc_mb": 2.44
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 34.586,
+        "warm_ms_all": [
+          32.461,
+          37.258,
+          34.586
+        ],
+        "warm_repeats": 3,
+        "warmup": 1
+      },
+      "input_len": 4,
+      "max_layer_cnt": 5,
+      "max_tree_len": 32,
+      "plan": {
+        "budget_mb": 2048.0,
+        "dense_supported": true,
+        "input_len": 4,
+        "max_tree_length": 31,
+        "n_chunk": 1024,
+        "n_chunks": 1,
+        "n_rows": 1024,
+        "out_mb": 0.781,
+        "p_chunk": 200,
+        "p_chunks": 1,
+        "peak_bytes": 91852800,
+        "peak_mb": 87.598,
+        "per_row": false,
+        "pop_size": 200,
+        "row_len": 32,
+        "trace_len": 32,
+        "update_mode": "grow"
+      },
+      "pop": 200,
+      "programs": {
+        "constant_trees": 15,
+        "distinct_programs": 170,
+        "tree_nodes_max": 31,
+        "tree_nodes_median": 17.0
+      },
+      "rows": 1024,
+      "seed": 0,
+      "tree_lengths": {
+        "max": 31,
+        "mean": 16.31,
+        "median": 17.0,
+        "min": 1,
+        "p90": 27.0
+      },
+      "update_mode": "grow",
+      "verify": {
+        "dense": {
+          "finite_tol_ok": true,
+          "inf_mask_ok": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "n": 32,
+          "n_inf": 0,
+          "n_nan": 0,
+          "nan_mask_ok": true,
+          "ok": true
+        },
+        "full_population": false,
+        "reference": "numpy-specialized (public API, same tensors)",
+        "reference_finite_fraction": 1.0,
+        "rows_checked": 32,
+        "verified": true
+      }
+    },
+    "iree_P200_N64": {
+      "backend": "iree",
+      "budget_mb": 2048.0,
+      "dense": {
+        "cache_hits_after_cold": 0,
+        "cache_misses": 1,
+        "cold_ms": 16029.424,
+        "compile_ms": 16018.823,
+        "finite_fraction": 0.985,
+        "memory": {
+          "device_before_mb": 330.0,
+          "device_bytes_per_pop_row": 0.0,
+          "device_delta_mb": 0.0,
+          "host_bytes_per_pop_row": 3113.3,
+          "host_note": "current host RSS (/proc/self/statm) before the cold call / after the cold call / after the timed calls; the delta includes the compile and the run and is the calibration of the harness' own host-memory guard",
+          "host_rss_after_cold_mb": 847.1,
+          "host_rss_after_warm_mb": 849.7,
+          "host_rss_before_mb": 811.7,
+          "host_rss_delta_mb": 38.0,
+          "memory_call_matches": {
+            "finite_tol_ok": true,
+            "inf_mask_ok": true,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "n": 200,
+            "n_inf": 0,
+            "n_nan": 3,
+            "nan_mask_ok": true,
+            "ok": true
+          },
+          "model_out_mb": 0.049,
+          "model_peak_mb": 5.566,
+          "smi": {
+            "peak_gpu_mb": 15.38,
+            "peak_proc_mb": 0.32,
+            "samples": 1
+          },
+          "torch_peak_alloc_mb": 0.23
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 10.601,
+        "warm_ms_all": [
+          10.601,
+          13.794,
+          10.597
+        ],
+        "warm_repeats": 3,
+        "warmup": 1
+      },
+      "input_len": 4,
+      "max_layer_cnt": 5,
+      "max_tree_len": 32,
+      "plan": {
+        "budget_mb": 2048.0,
+        "dense_supported": true,
+        "input_len": 4,
+        "max_tree_length": 31,
+        "n_chunk": 64,
+        "n_chunks": 1,
+        "n_rows": 64,
+        "out_mb": 0.049,
+        "p_chunk": 200,
+        "p_chunks": 1,
+        "peak_bytes": 5836800,
+        "peak_mb": 5.566,
+        "per_row": false,
+        "pop_size": 200,
+        "row_len": 32,
+        "trace_len": 32,
+        "update_mode": "grow"
+      },
+      "pop": 200,
+      "programs": {
+        "constant_trees": 15,
+        "distinct_programs": 170,
+        "tree_nodes_max": 31,
+        "tree_nodes_median": 17.0
+      },
+      "rows": 64,
+      "seed": 0,
+      "tree_lengths": {
+        "max": 31,
+        "mean": 16.31,
+        "median": 17.0,
+        "min": 1,
+        "p90": 27.0
+      },
+      "update_mode": "grow",
+      "verify": {
+        "dense": {
+          "finite_tol_ok": true,
+          "inf_mask_ok": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "n": 32,
+          "n_inf": 0,
+          "n_nan": 0,
+          "nan_mask_ok": true,
+          "ok": true
+        },
+        "full_population": false,
+        "reference": "numpy-specialized (public API, same tensors)",
+        "reference_finite_fraction": 1.0,
+        "rows_checked": 32,
+        "verified": true
+      }
+    },
+    "iree_P64_N1024": {
+      "backend": "iree",
+      "budget_mb": 2048.0,
+      "dense": {
+        "cache_hits_after_cold": 0,
+        "cache_misses": 1,
+        "cold_ms": 16938.303,
+        "compile_ms": 16918.137,
+        "finite_fraction": 1.0,
+        "memory": {
+          "device_before_mb": 320.0,
+          "device_bytes_per_pop_row": 0.0,
+          "device_delta_mb": 0.0,
+          "host_bytes_per_pop_row": 1213.5,
+          "host_note": "current host RSS (/proc/self/statm) before the cold call / after the cold call / after the timed calls; the delta includes the compile and the run and is the calibration of the harness' own host-memory guard",
+          "host_rss_after_cold_mb": 806.9,
+          "host_rss_after_warm_mb": 811.6,
+          "host_rss_before_mb": 735.7,
+          "host_rss_delta_mb": 75.8,
+          "memory_call_matches": {
+            "finite_tol_ok": true,
+            "inf_mask_ok": true,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "n": 64,
+            "n_inf": 0,
+            "n_nan": 0,
+            "nan_mask_ok": true,
+            "ok": true
+          },
+          "model_out_mb": 0.25,
+          "model_peak_mb": 28.031,
+          "smi": {
+            "peak_gpu_mb": 15.37,
+            "peak_proc_mb": 0.31,
+            "samples": 1
+          },
+          "torch_peak_alloc_mb": 0.79
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 20.167,
+        "warm_ms_all": [
+          24.652,
+          20.167,
+          18.099
+        ],
+        "warm_repeats": 3,
+        "warmup": 1
+      },
+      "input_len": 4,
+      "max_layer_cnt": 5,
+      "max_tree_len": 32,
+      "plan": {
+        "budget_mb": 2048.0,
+        "dense_supported": true,
+        "input_len": 4,
+        "max_tree_length": 31,
+        "n_chunk": 1024,
+        "n_chunks": 1,
+        "n_rows": 1024,
+        "out_mb": 0.25,
+        "p_chunk": 64,
+        "p_chunks": 1,
+        "peak_bytes": 29392896,
+        "peak_mb": 28.031,
+        "per_row": false,
+        "pop_size": 64,
+        "row_len": 32,
+        "trace_len": 32,
+        "update_mode": "grow"
+      },
+      "pop": 64,
+      "programs": {
+        "constant_trees": 6,
+        "distinct_programs": 55,
+        "tree_nodes_max": 31,
+        "tree_nodes_median": 17.0
+      },
+      "rows": 1024,
+      "seed": 0,
+      "tree_lengths": {
+        "max": 31,
+        "mean": 15.31,
+        "median": 17.0,
+        "min": 1,
+        "p90": 26.400000000000006
+      },
+      "update_mode": "grow",
+      "verify": {
+        "dense": {
+          "finite_tol_ok": true,
+          "inf_mask_ok": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "n": 64,
+          "n_inf": 0,
+          "n_nan": 0,
+          "nan_mask_ok": true,
+          "ok": true
+        },
+        "full_population": true,
+        "reference": "numpy-specialized (public API, same tensors)",
+        "reference_finite_fraction": 1.0,
+        "rows_checked": 64,
+        "verified": true
+      }
+    },
+    "iree_P64_N64": {
+      "backend": "iree",
+      "budget_mb": 2048.0,
+      "dense": {
+        "cache_hits_after_cold": 0,
+        "cache_misses": 1,
+        "cold_ms": 13029.18,
+        "compile_ms": 13013.222,
+        "finite_fraction": 1.0,
+        "memory": {
+          "device_before_mb": 310.0,
+          "device_bytes_per_pop_row": 0.0,
+          "device_delta_mb": 0.0,
+          "host_bytes_per_pop_row": 17449.0,
+          "host_note": "current host RSS (/proc/self/statm) before the cold call / after the cold call / after the timed calls; the delta includes the compile and the run and is the calibration of the harness' own host-memory guard",
+          "host_rss_after_cold_mb": 720.1,
+          "host_rss_after_warm_mb": 731.8,
+          "host_rss_before_mb": 663.6,
+          "host_rss_delta_mb": 68.2,
+          "memory_call_matches": {
+            "finite_tol_ok": true,
+            "inf_mask_ok": true,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "n": 64,
+            "n_inf": 0,
+            "n_nan": 0,
+            "nan_mask_ok": true,
+            "ok": true
+          },
+          "model_out_mb": 0.016,
+          "model_peak_mb": 1.781,
+          "smi": {
+            "peak_gpu_mb": 15.36,
+            "peak_proc_mb": 0.3,
+            "samples": 1
+          },
+          "torch_peak_alloc_mb": 0.07
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 15.957,
+        "warm_ms_all": [
+          16.202,
+          15.957,
+          15.939
+        ],
+        "warm_repeats": 3,
+        "warmup": 1
+      },
+      "dense_previous": [
+        {
+          "cache_hits_after_cold": 0,
+          "cache_misses": 1,
+          "cold_ms": 14720.027,
+          "compile_ms": 14705.639,
+          "finite_fraction": 1.0,
+          "memory": {
+            "device_before_mb": 310.0,
+            "device_bytes_per_pop_row": 0.0,
+            "device_delta_mb": 0.0,
+            "host_bytes_per_pop_row": 25522.0,
+            "host_note": "current host RSS (/proc/self/statm) before the cold call / after the cold call / after the timed calls; the delta includes the compile and the run and is the calibration of the harness' own host-memory guard",
+            "host_rss_after_cold_mb": 778.8,
+            "host_rss_after_warm_mb": 784.2,
+            "host_rss_before_mb": 684.5,
+            "host_rss_delta_mb": 99.7,
+            "memory_call_matches": {
+              "finite_tol_ok": true,
+              "inf_mask_ok": true,
+              "max_abs": 0.0,
+              "max_rel": 0.0,
+              "n": 64,
+              "n_inf": 0,
+              "n_nan": 0,
+              "nan_mask_ok": true,
+              "ok": true
+            },
+            "model_out_mb": 0.016,
+            "model_peak_mb": 1.781,
+            "smi": {
+              "peak_gpu_mb": 15.36,
+              "peak_proc_mb": 0.3,
+              "samples": 1
+            },
+            "torch_peak_alloc_mb": 0.07
+          },
+          "source": "measured",
+          "status": "measured",
+          "warm_ms": 14.388,
+          "warm_ms_all": [
+            12.899,
+            14.388,
+            15.446
+          ],
+          "warm_repeats": 3,
+          "warmup": 1
+        }
+      ],
+      "input_len": 4,
+      "max_layer_cnt": 5,
+      "max_tree_len": 32,
+      "plan": {
+        "budget_mb": 2048.0,
+        "dense_supported": true,
+        "input_len": 4,
+        "max_tree_length": 31,
+        "n_chunk": 64,
+        "n_chunks": 1,
+        "n_rows": 64,
+        "out_mb": 0.016,
+        "p_chunk": 64,
+        "p_chunks": 1,
+        "peak_bytes": 1867776,
+        "peak_mb": 1.781,
+        "per_row": false,
+        "pop_size": 64,
+        "row_len": 32,
+        "trace_len": 32,
+        "update_mode": "grow"
+      },
+      "pop": 64,
+      "programs": {
+        "constant_trees": 6,
+        "distinct_programs": 55,
+        "tree_nodes_max": 31,
+        "tree_nodes_median": 17.0
+      },
+      "rows": 64,
+      "seed": 0,
+      "tree_lengths": {
+        "max": 31,
+        "mean": 15.31,
+        "median": 17.0,
+        "min": 1,
+        "p90": 26.400000000000006
+      },
+      "update_mode": "grow",
+      "verify": {
+        "dense": {
+          "finite_tol_ok": true,
+          "inf_mask_ok": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "n": 64,
+          "n_inf": 0,
+          "n_nan": 0,
+          "nan_mask_ok": true,
+          "ok": true
+        },
+        "full_population": true,
+        "reference": "numpy-specialized (public API, same tensors)",
+        "reference_finite_fraction": 1.0,
+        "rows_checked": 64,
+        "verified": true
+      }
+    },
     "numpy_P1000_N10000": {
       "backend": "numpy",
       "budget_mb": 2048.0,
@@ -1814,7 +2295,9 @@
       "src/evogp/tree/dense_bench.py --backend numpy --pops 1000 --rows 64,1024,10000 --stage dense --smi --smi-index 4 --json src/evogp/tree/dense_bench_results.json",
       "src/evogp/tree/dense_bench.py --backend numpy --pops 64,200 --rows 10000 --budget-mb 64 --repeats 1 --warmup 0 --max-config-seconds 200 --stage dense --no-smi --json src/evogp/tree/dense_bench_results.json",
       "src/evogp/tree/dense_bench.py --backend numpy --pops 1000 --rows 1024,10000 --budget-mb 64 --repeats 1 --warmup 0 --max-config-seconds 400 --stage dense --no-smi --json src/evogp/tree/dense_bench_results.json",
-      "src/evogp/tree/dense_bench.py --backend numpy --pops 64,200,1000 --rows 64,1024,10000 --stage specialized --numpy-sample --no-smi --json src/evogp/tree/dense_bench_results.json"
+      "src/evogp/tree/dense_bench.py --backend numpy --pops 64,200,1000 --rows 64,1024,10000 --stage specialized --numpy-sample --no-smi --json src/evogp/tree/dense_bench_results.json",
+      "src/evogp/tree/dense_bench.py --backend iree --pops 64 --rows 64 --stage dense --smi --smi-index 4 --json src/evogp/tree/dense_bench_results.json",
+      "src/evogp/tree/dense_bench.py --backend iree --pops 64,200 --rows 64,1024 --stage dense --smi --smi-index 4 --json src/evogp/tree/dense_bench_results.json"
     ],
     "env": {
       "CUDA_VISIBLE_DEVICES": "4",
@@ -1822,12 +2305,12 @@
       "EVOGP_DENSE_BUDGET_MB": "2048.0",
       "EVOGP_DENSE_MAX_TREE_LEN": "32",
       "EVOGP_DENSE_UPDATE_MODE": "grow",
-      "EVOGP_ETL_BACKEND": "numpy",
+      "EVOGP_ETL_BACKEND": "iree",
       "EVOGP_ETL_IREE_OPT_LEVEL": null,
       "EVOGP_EVAL_MODE": "specialized"
     },
-    "generated": "2026-09-12 15:47:04",
-    "git_head": "42e329809242577cff1eaf7112c7a5d3931f453d"
+    "generated": "2026-09-12 15:49:29",
+    "git_head": "bf7a4249e4085a1a30833a3b0850dfbc59a1f125"
   },
   "version": 1
 }
