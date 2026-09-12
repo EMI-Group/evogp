@@ -17,6 +17,8 @@ to be run by hand.
 Flags: ``--backend numpy|iree``, ``--mode grow|concat|scatter``,
 ``--quick``/``--full``/``--tiny``, ``--gpu N`` (visible index), ``--max-tree-len L``,
 ``--seed S``, ``--skip-measure``, ``--skip-parity``, ``--json PATH``,
+``--only NAME`` (repeatable; run only the cases whose name contains ``NAME``,
+names in ``CASE_NAMES`` -- keeps an iree session inside its GPU/leak budget),
 ``--repeats K`` (``--tiny`` shrinks the measurement grid to P in {4,16} and
 L in {8,16} so an iree run stays inside a short GPU budget).  Exit code 0 =
 every parity case passed, 1 = at least one mismatch, 2 = a hard error while
@@ -28,6 +30,9 @@ What it does
    backend), on ``numpy`` first and then on the opt-in ``iree`` backend:
    * random populations from the public API (``Forest.random_generate``), several
      seeds/descriptors, ``per_row`` True/False, ``sr_fitness`` MSE + MAE;
+   * ``case_engine_per_row_iree_bug`` -- the engine's own ``per_row=True``
+     contract (every tree sees its own ``x`` row, on every backend) plus the
+     host->device upload counts that keep ``per_row=False`` at one upload;
    * an adversarial sweep: every function id against edge operand values
      (``+-0.0``, ``+-1e-9``, tiny/large, ``+-inf``, NaN), ``DIV``/``INV`` by
      0, ``POW``/``LOOSE_POW`` edges, ``LOG`` of <= 0, ``SQRT`` of negatives,
@@ -423,6 +428,102 @@ def case_random_populations(args, report, results: Dict[str, Any]) -> bool:
                 f"{tag} sr_fitness(use_MSE={use_mse})", ref_f, got_f, report
             )
         results.setdefault("contracts", {}).setdefault(tag, _contract_checks(got, ref, got))
+    return ok
+
+
+class _count_uploads:
+    """Count ``etl.from_numpy`` calls (the engine's host->device uploads)."""
+
+    def __init__(self) -> None:
+        self.count = 0
+        self._original: Any = None
+
+    def __enter__(self) -> "_count_uploads":
+        self._original = E.etl.from_numpy
+        original = self._original
+
+        def counting(array: Any) -> Any:
+            self.count += 1
+            return original(array)
+
+        E.etl.from_numpy = counting
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        E.etl.from_numpy = self._original
+        return False
+
+
+def case_engine_per_row_iree_bug(args, report, results: Dict[str, Any]) -> bool:
+    """REGRESSION: ``evaluate(..., per_row=True)`` gives every tree its OWN row.
+
+    Minimal repro: two ``SUB(var0, var1)`` trees over ``x=[[10, 1], [20, 2]]``
+    must evaluate to ``[9, 18]`` (tree ``i`` on row ``i``).  ``_run_tree`` used to
+    memoize its host->device upload as ``prepared[0]`` and reuse it for every
+    tree of one ``evaluate`` call: correct for ``per_row=False`` (all trees see
+    the same rows), but on the ``iree`` backend ``per_row=True`` silently ran
+    every tree on ``x``'s ROW 0 (``[9, 9]``); the ``numpy`` backend consumes the
+    per-tree ``xin`` directly and was always correct.
+
+    The upload counts pin the cost side of the contract: one upload per tree for
+    ``per_row=True``, exactly ONE upload for the shared ``per_row=False`` block.
+    """
+    values, types, sizes = pack_trees(
+        [TreeSpec([("b", float(Func.SUB)), ("var", 0.0), ("var", 1.0)])] * 2,
+        row_len=4,
+    )
+    x = torch.tensor([[10.0, 1.0], [20.0, 2.0]], dtype=torch.float32)
+    population = E.decode_population(values, types, sizes, 2, 1)
+    expected = np.asarray([[9.0], [18.0]], dtype=np.float32)
+    expected_all = np.asarray([[9.0, 18.0], [9.0, 18.0]], dtype=np.float32)
+
+    got = E.evaluate(
+        population, x, per_row=True, backend=args.backend,
+        iree_device_index=args.gpu,
+    )
+    ok = compare(
+        f"engine per_row=True ({args.backend}) vs [9, 18]", expected, got, report
+    )
+    with _count_uploads() as per_row_uploads:
+        E.evaluate(
+            population, x, per_row=True, backend=args.backend,
+            iree_device_index=args.gpu,
+        )
+    with _count_uploads() as shared_uploads:
+        got_all = E.evaluate(
+            population, x, per_row=False, backend=args.backend,
+            iree_device_index=args.gpu,
+        )
+    ok &= compare(
+        f"engine per_row=False ({args.backend}) vs [[9, 18], [9, 18]]",
+        expected_all, got_all.squeeze(-1), report,
+    )
+    uploads = {
+        "per_row_true": per_row_uploads.count,
+        "per_row_false": shared_uploads.count,
+    }
+    # iree uploads per tree when every tree sees its own row, and shares the one
+    # (N, input_len) block otherwise; the numpy backend never uploads.
+    expected_uploads = (
+        {"per_row_true": int(values.shape[0]), "per_row_false": 1}
+        if args.backend == "iree"
+        else {"per_row_true": 0, "per_row_false": 0}
+    )
+    ok_uploads = uploads == expected_uploads
+    ok &= ok_uploads
+    results.setdefault("engine_per_row", {}).update(uploads)
+    report["cases"].append(
+        {
+            "case": f"engine per_row upload counts ({args.backend})",
+            "ok": ok_uploads,
+            "uploads": uploads,
+            "expected": expected_uploads,
+        }
+    )
+    print(
+        f"[{'ok ' if ok_uploads else 'FAIL'}] engine per_row upload counts "
+        f"({args.backend}): {uploads} expected {expected_uploads}"
+    )
     return ok
 
 
@@ -1061,12 +1162,42 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--skip-parity", action="store_true", default=False)
     parser.add_argument("--skip-measure", action="store_true", default=False)
+    parser.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=f"run only the cases whose name contains NAME (repeatable): {list(CASE_NAMES)}",
+    )
     parser.add_argument("--json", default=None)
     return parser
 
 
+CASE_NAMES = (
+    "random_populations",
+    "function_sweep",
+    "unknown_ids",
+    "engine_per_row",
+    "junk_tails",
+    "fold_search",
+    "shapes",
+    "dense_unsupported",
+    "compile_reuse",
+)
+
+
+def _wanted(args, name: str) -> bool:
+    """``--only`` filter: run a case when one of its substrings matches."""
+    if not args.only:
+        return True
+    return any(token in name for token in args.only)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.only and not any(_wanted(args, name) for name in CASE_NAMES):
+        print(f"[warn] --only {args.only} matched no case: {list(CASE_NAMES)}")
+        return 2
     if os.environ.get("ETL_DISABLE_LOCATIONS", "").strip() not in ("1", "true"):
         print(
             "[warn] ETL_DISABLE_LOCATIONS=1 is not set: tracing will be ~4x slower"
@@ -1088,14 +1219,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         f"quick={args.quick} full={args.full} =="
     )
     if not args.skip_parity:
-        ok &= case_random_populations(args, report, results)
-        ok &= case_function_sweep(args, report)
-        ok &= case_unknown_ids(args, report)
-        ok &= case_junk_tails(args, report)
-        ok &= case_fold_search(args, report, results)
-        ok &= case_shapes(args, report)
-        ok &= case_dense_unsupported(args, report, results)
-        ok &= case_compile_reuse(args, report, results)
+        if _wanted(args, "random_populations"):
+            ok &= case_random_populations(args, report, results)
+        if _wanted(args, "function_sweep"):
+            ok &= case_function_sweep(args, report)
+        if _wanted(args, "unknown_ids"):
+            ok &= case_unknown_ids(args, report)
+        if _wanted(args, "engine_per_row"):
+            ok &= case_engine_per_row_iree_bug(args, report, results)
+        if _wanted(args, "junk_tails"):
+            ok &= case_junk_tails(args, report)
+        if _wanted(args, "fold_search"):
+            ok &= case_fold_search(args, report, results)
+        if _wanted(args, "shapes"):
+            ok &= case_shapes(args, report)
+        if _wanted(args, "dense_unsupported"):
+            ok &= case_dense_unsupported(args, report, results)
+        if _wanted(args, "compile_reuse"):
+            ok &= case_compile_reuse(args, report, results)
     if not args.skip_measure:
         if args.backend == "numpy":
             measure_l_scaling(args, results)
