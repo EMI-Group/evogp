@@ -27,21 +27,27 @@ What one case measures
     ``EVOGP_EVAL_MODE=specialized`` + the same ``Forest.SR_fitness`` call.
     On ``numpy`` the *cold*/*warm* numbers are measured directly on the whole
     population (one compile per distinct tree structure is only ~10-20 ms
-    there).  On ``iree`` one compile per tree is ~1 s, so a full-population cold
-    run at ``pop_size >= 64`` is infeasible -- and the etl/iree binding segfaults
-    after ~25 live executables per process -- so the harness measures a **sample**
-    of single-tree populations (``--spec-sample``, cache cleared per tree) and
-    models the population as
+    there).  On ``iree`` one compile per tree is ~0.2-1.3 s, so a full-population
+    cold run is expensive and the harness measures two things once per row count:
 
-        warm_ms(P)    ~= decode_ms(P) + P * median(per-tree warm run ms)
-        compile_ms(P) ~= #distinct programs * median(per-tree compile ms)
+    * a **direct anchor** -- a REAL full-population call at ``--spec-anchor-pop``
+      (default 16), cache cleared first -- which is what the model is scaled with::
 
-    plus (in ``--stage real``) one REAL small-population end-to-end call
-    (``--spec-real-pop``, default 16) to validate that model.  The sample is
-    measured once per ``N`` on the reference population (``--spec-sample-pop``,
-    default the first ``--pops`` entry) because the per-tree cost does not
-    depend on ``pop_size``.  On ``numpy`` the same model is stored next to the
-    real numbers (``specialized.sample_model``) so its error is visible.
+          warm_ms(P)    ~= P * anchor.per_tree_warm_ms_effective
+          compile_ms(P) ~= #distinct programs * anchor.compile_ms_per_program
+
+    * a **per-tree sample** (``--spec-sample`` single-tree populations, cache
+      cleared per tree).  It is stored for audit only: every single-tree call is a
+      whole ``Forest.SR_fitness`` call, so it charges the per-call overhead once
+      per tree and measured 2.4-3.0x the real full-population per-tree time (its
+      value is kept as ``model_warm_ms_raw_sample``).
+
+    The special cases ``--stage real`` (one real full-population call at
+    ``--spec-real-pop``, any pop) and ``--stage probe`` (the controlled A/B: a
+    prefix sweep of one compiled population, single-tree calls with and without
+    ``clear_cache()``, an anchor_pop-copies forest, a dense call on the same
+    forest) pin the anchor law and its error -- see
+    ``dense_bench_findings.md`` and ``probes[...]`` in the JSON.
 
 Correctness stamp (``verify``)
 ------------------------------
@@ -80,15 +86,32 @@ Commands (repo root as CWD; the venv has torch, ``python`` on PATH does not)
         --pops 64,200,1000 --rows 64,1024,10000 \
         --json src/evogp/tree/dense_bench_results.json
 
-    # iree-cuda -- keep every process short (<= ~20 compiled executables each)
+    # iree-cuda -- ONE row count per process; ~13 (anchor) + ~11 (sample) builds
     $VENV src/evogp/tree/dense_bench.py --backend iree --smi-index 4 \
         --pops 64,200,1000 --rows 64,1024 --stage dense \
         --json src/evogp/tree/dense_bench_results.json
     $VENV src/evogp/tree/dense_bench.py --backend iree --smi-index 4 \
-        --pops 64,200,1000 --rows 64,1024 --stage specialized \
+        --pops 64,200,1000 --rows 64 --stage specialized \
         --json src/evogp/tree/dense_bench_results.json
-    $VENV src/evogp/tree/dense_bench.py --backend iree --pops 64 --rows 64 \
-        --stage real --json src/evogp/tree/dense_bench_results.json
+    $VENV src/evogp/tree/dense_bench.py --backend iree --smi-index 4 \
+        --pops 64,200,1000 --rows 1024 --stage specialized \
+        --json src/evogp/tree/dense_bench_results.json
+
+    # direct full-population iree runs (one pop per process: one compile per tree)
+    $VENV src/evogp/tree/dense_bench.py --backend iree --smi-index 4 \
+        --pops 64 --rows 64 --stage real --spec-real-pop 16 \
+        --json src/evogp/tree/dense_bench_results.json
+    # ... repeated for --spec-real-pop 24/32/40/48/64 (and 200: 170 compiles)
+
+    # controlled A/B for the model itself (per-call overhead decomposition,
+    # dense-vs-specialized on the SAME forest in the SAME process)
+    $VENV src/evogp/tree/dense_bench.py --backend iree --smi-index 4 \
+        --pops 64 --rows 64 --stage probe \
+        --probe-parts const,prefix,identical,single_hit,sample \
+        --json src/evogp/tree/dense_bench_results.json
+    $VENV src/evogp/tree/dense_bench.py --backend iree --smi-index 4 \
+        --pops 64 --rows 10000 --stage probe --probe-parts prefix,dense \
+        --json src/evogp/tree/dense_bench_results.json
 
     # cheap end-to-end smoke of the harness itself (numpy, 1 small case)
     $VENV src/evogp/tree/dense_bench.py --backend numpy --pops 64 --rows 64 \
@@ -98,6 +121,11 @@ Notes / honest limitations
 --------------------------
 * Every timed call goes through ``Forest.SR_fitness`` (``per_row=False``);
   ``Forest.forward`` / ``batch_forward`` (``per_row=True``) are NOT covered.
+* The iree processes are NOT memory-leak-limited at ~25 executables: 55 builds
+  survived the whole measurement and only crashed at interpreter shutdown (after
+  ``store()``), 170 builds completed cleanly and 793 builds were never attempted.
+  Interactive ``REAL P64 N64`` runs did exit 139 at teardown; a crash *before*
+  ``store()`` would lose a case, which is why pops are staged one per process.
 * Device memory: the modeled per-chunk peak comes from ``dense_peak_bytes``;
   the measured numbers come from a background ``nvidia-smi
   --query-compute-apps`` sampler around ONE dedicated call per case
@@ -112,8 +140,10 @@ Notes / honest limitations
   ``P=64 x N=10000`` dies with the model predicting 273 MB).  Each measured
   case records the host RSS delta (``/proc/self/statm``) and the harness skips
   cases above ``--max-host-mb`` (default 6000) instead of being killed.
-* Medians only; the box is shared with a parallel validation executor, so
-  wall-clock numbers carry host contention (each case stores its repeat spread).
+* Medians only; the box is shared with several foreign tenants (GPU 4 measured
+  39-79% utilization during these runs), so wall-clock numbers carry device and
+  host contention: repeat spreads of 30-50% are normal and per-run numbers are
+  only comparable within a process (``--stage probe`` exists for that reason).
 * Synthetic SR-style data: ``input_len=4``, uniform inputs in ``[-1, 1]``, a
   smooth target, trees from ``Forest.random_generate`` under a fixed seed.
 """
@@ -516,6 +546,8 @@ class Bench:
     # -- populations / data -------------------------------------------------
     def population(self, pop_size: int) -> Forest:
         if pop_size not in self._pops:
+            pool_pop = int(getattr(self.args, "pool_pop", 0) or 0)
+            base = pool_pop if pool_pop and pool_pop != pop_size else pop_size
             descriptor = GenerateDescriptor(
                 max_tree_len=self.max_tree_len,
                 input_len=self.input_len,
@@ -528,10 +560,11 @@ class Bench:
                 sample_cnt=8,
             )
             torch.manual_seed(self.args.seed)
-            self._pops[pop_size] = Forest.random_generate(
-                pop_size=pop_size, descriptor=descriptor
-            )
+            forest = Forest.random_generate(pop_size=base, descriptor=descriptor)
             _sync()
+            if base != pop_size:  # same draw as population(base), first pop_size rows
+                forest = forest[:pop_size]
+            self._pops[pop_size] = forest
         return self._pops[pop_size]
 
     def data(self, rows: int) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -788,34 +821,398 @@ class Bench:
         if self.backend == "numpy":
             return self._specialized_full(forest, inputs, labels, decode_ms, record)
 
-        # iree: per-tree sample model (full-population cold is infeasible there)
+        # iree: per-tree sample + direct anchor model (full-population cold is
+        # infeasible there: one iree compile per tree)
         distinct = record["programs"]["distinct_programs"]
         sample = self._sample_model(rows, decode_ms)
-        model_warm_ms = decode_ms + forest.pop_size * sample["per_tree_warm_ms_median"]
-        model_compile_ms = distinct * sample["per_tree_compile_ms_median"]
-        record["specialized"] = {
+        anchor = sample["anchor"]
+        per_tree = float(sample["per_tree_warm_ms_anchored"])
+        model_warm_ms = forest.pop_size * per_tree
+        model_compile_ms = distinct * float(sample["per_tree_compile_ms_anchored"])
+        raw_warm_ms = decode_ms + forest.pop_size * sample["per_tree_warm_ms_median"]
+        raw_compile_ms = distinct * sample["per_tree_compile_ms_median"]
+        model = {
             "status": "extrapolated",
-            "source": "per-tree sample x pop_size",
+            "source": (
+                f"anchored: P{anchor['pop']} full-population call measured in-process "
+                f"on N={rows} x pop_size"
+            ),
             "warm_ms": round(model_warm_ms, 3),
             "compile_ms": round(model_compile_ms, 3),
             "model_warm_ms": round(model_warm_ms, 3),
             "model_compile_ms": round(model_compile_ms, 3),
+            "model_warm_ms_raw_sample": round(raw_warm_ms, 3),
+            "model_compile_ms_raw_sample": round(raw_compile_ms, 3),
+            "per_tree_warm_ms_anchored": per_tree,
             "decode_ms": round(decode_ms, 3),
             "distinct_programs": distinct,
             "sample": sample,
             "note": (
-                "warm_ms = decode_ms + pop_size * median(per-tree warm run); "
-                "compile_ms = #distinct programs * median(per-tree compile ms); "
-                "per-tree numbers measured once per N on the reference population"
+                "warm_ms = pop_size * (anchor warm ms / anchor pop), i.e. the REAL "
+                "P16 full-population per-tree time measured in this process; the raw "
+                "single-tree sample model (warm_ms_raw_sample) is kept for audit but "
+                "overestimates by 2.4-3.0x because every single-tree call pays the "
+                "per-call overhead once.  compile_ms = #distinct programs * the "
+                "anchor's measured compile ms per program (raw sample median kept as "
+                "model_compile_ms_raw_sample)."
             ),
         }
+        existing = record.get("specialized") or {}
+        if existing.get("status") == "measured" and existing.get("real_small_pop"):
+            # a DIRECT full-population measurement already owns this cell
+            existing["model_comparison"] = {
+                **model,
+                "direct_warm_ms": existing.get("warm_ms"),
+                "model_over_direct_warm": (
+                    round(model_warm_ms / existing["warm_ms"], 3)
+                    if existing.get("warm_ms")
+                    else None
+                ),
+                "raw_model_over_direct_warm": (
+                    round(raw_warm_ms / existing["warm_ms"], 3)
+                    if existing.get("warm_ms")
+                    else None
+                ),
+            }
+            print(
+                f"  spec    keeping DIRECT P{forest.pop_size} measurement "
+                f"{existing['warm_ms']:.1f} ms; model says {model_warm_ms:.1f} ms "
+                f"(x{existing['model_comparison']['model_over_direct_warm']})",
+                flush=True,
+            )
+            return None
+        record["specialized"] = model
         print(
             f"  spec    model warm {model_warm_ms:9.2f} ms  compile {model_compile_ms:8.1f} ms "
-            f"(per-tree {sample['per_tree_warm_ms_median']:.2f} warm / "
-            f"{sample['per_tree_compile_ms_median']:.1f} compile ms x {distinct} distinct)",
+            f"(anchor P{anchor['pop']} {per_tree:.3f} ms/tree x pop, "
+            f"{distinct} distinct) | raw sample model {raw_warm_ms:.1f} ms",
             flush=True,
         )
         return None
+
+    # -- controlled probe (root-cause of sample-vs-full-population) ----------
+    def _gpu_state(self) -> Optional[str]:
+        """One-shot ``nvidia-smi`` reading of ``--smi-index`` (utilization, MiB)."""
+        if self.args.smi_index is None:
+            return None
+        try:
+            return (
+                subprocess.run(
+                    [
+                        "nvidia-smi",
+                        "-i",
+                        str(self.args.smi_index),
+                        "--query-gpu=utilization.gpu,memory.used",
+                        "--format=csv,noheader",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                ).stdout.strip()
+                or None
+            )
+        except Exception:
+            return None
+
+    def probe(self, rows: int) -> Dict[str, Any]:
+        """Controlled A/B of the two per-tree methods IN ONE process/moment.
+
+        ``prefix`` measures warm ``Forest.SR_fitness`` calls on prefixes of ONE
+        already-compiled forest (pop 16 -> 8 -> 4 -> 2 -> 1 -> 16, every call a
+        cache hit, so no extra executables), which decomposes the full-population
+        cost into a per-call fixed part and a marginal per-tree part.
+        ``const`` measures the pure per-call overhead (a constant tree compiles
+        nothing and runs nothing).  ``single_hit`` times single-tree forests whose
+        executable is already in the cache, ``sample`` the exact ``_sample_model``
+        loop (``clear_cache()`` + ``gc.collect()`` before every tree), so the two
+        single-tree variants separate "single-tree call" from "fresh rebuild".
+        ``--probe-parts`` selects and ORDERS the parts; each part stores the GPU
+        state before/after so contention is visible in the record.
+        """
+        args = self.args
+        pool = self.population(int(args.spec_sample_pop or args.pops[0]))
+        anchor_pop = min(int(args.spec_anchor_pop), pool.pop_size)
+        forest = pool[:anchor_pop]
+        inputs, labels = self.data(rows)
+        _apply("specialized", self.backend)
+        key = f"{self.backend}_P{anchor_pop}_N{rows}_probe"
+        rec = self.results.setdefault("probes", {}).setdefault(key, {})
+        rec.update(
+            {
+                "backend": self.backend,
+                "rows": rows,
+                "anchor_pop": anchor_pop,
+                "pool_pop": pool.pop_size,
+                "seed": args.seed,
+                "parts_requested": args.probe_parts,
+                "sample_trees": int(args.probe_sample_trees),
+                "warm_repeats": int(args.repeats),
+                "sample_repeats": int(args.sample_repeats),
+                "git_head": _git_head(),
+            }
+        )
+        rec["tree_lengths"] = _tree_length_stats(forest)
+        population = E.decode_population(
+            forest.batch_node_value,
+            forest.batch_node_type,
+            forest.batch_subtree_size,
+            forest.input_len,
+            forest.output_len,
+        )
+        const_indices = [
+            index for index, tree in enumerate(population.trees) if tree.program is None
+        ]
+
+        def warm(forest_like: Forest) -> Dict[str, Any]:
+            before = E.cache_stats()
+            times, out = _timed(
+                lambda: _sr_fitness(forest_like, inputs, labels),
+                max(1, args.repeats),
+                1,
+            )
+            after = E.cache_stats()
+            return {
+                "pop": forest_like.pop_size,
+                "warm_ms": round(1000.0 * _median(times), 3),
+                "warm_ms_all": [round(1000.0 * t, 3) for t in times],
+                "builds": int(after["misses"] - before["misses"]),
+                "hits": int(after["hits"] - before["hits"]),
+                "finite_fraction": float(np.isfinite(out).mean()),
+            }
+
+        parts = [part.strip() for part in str(args.probe_parts).split(",") if part.strip()]
+        for part in parts:
+            gpu_before = self._gpu_state()
+            started = time.time()
+            if part == "const":
+                if not const_indices:
+                    rec[part] = {"skipped": "no constant tree in the anchor forest"}
+                else:
+                    index = const_indices[0]
+                    single = forest[index].to_forest()
+                    E.clear_cache()
+                    gc.collect()
+                    before = E.cache_stats()
+                    cold_s, _ = _time_one(lambda: _sr_fitness(single, inputs, labels))
+                    after = E.cache_stats()
+                    entry = warm(single)
+                    entry.update(
+                        {
+                            "index": int(index),
+                            "cold_ms": round(1000.0 * cold_s, 3),
+                            "builds_on_cold": int(after["misses"] - before["misses"]),
+                            "note": (
+                                "constant tree: nothing to compile and nothing to run, "
+                                "so the warm time is the pure per-call overhead"
+                            ),
+                        }
+                    )
+                    rec[part] = entry
+            elif part == "prefix":
+                E.clear_cache()
+                gc.collect()
+                before = E.cache_stats()
+                cold_s, _ = _time_one(lambda: _sr_fitness(forest, inputs, labels))
+                after = E.cache_stats()
+                sizes = [anchor_pop]
+                size = anchor_pop
+                while size > 1:
+                    size //= 2
+                    sizes.append(size)
+                sizes.append(anchor_pop)  # return to the anchor: drift check
+                sweep = []
+                for size in sizes:
+                    sub = forest if size == anchor_pop else forest[:size]
+                    entry = warm(sub)
+                    entry["decode_ms"] = round(self._decode_ms(sub), 3)
+                    sweep.append(entry)
+                rows_ = np.asarray([e["pop"] for e in sweep[:-1]], dtype=np.float64)
+                times = np.asarray([e["warm_ms"] for e in sweep[:-1]], dtype=np.float64)
+                slope, intercept = np.polyfit(rows_, times, 1)
+                rec[part] = {
+                    "cold_ms": round(1000.0 * cold_s, 3),
+                    "builds_on_cold": int(after["misses"] - before["misses"]),
+                    "sweep": sweep,
+                    "fit_ms_per_tree": round(float(slope), 4),
+                    "fit_intercept_ms": round(float(intercept), 4),
+                    "sweep_order": sizes,
+                }
+            elif part == "single_hit":
+                indices = sorted(
+                    {
+                        int(round(i))
+                        for i in np.linspace(
+                            0, anchor_pop - 1, max(1, int(args.probe_sample_trees))
+                        )
+                    }
+                )
+                entries = []
+                for index in indices:
+                    single = forest[index].to_forest()
+                    entry = warm(single)
+                    entry["index"] = int(index)
+                    entries.append(entry)
+                rec[part] = {
+                    "indices": indices,
+                    "per_tree": entries,
+                    "per_tree_warm_ms_median": round(
+                        _median([e["warm_ms"] for e in entries]), 3
+                    ),
+                    "note": (
+                        "single-tree Forest, cache NOT cleared: every call is a hit, "
+                        "so this isolates the single-tree call overhead from the rebuild"
+                    ),
+                }
+            elif part == "sample":
+                count = max(1, int(args.probe_sample_trees))
+                indices = sorted(
+                    {int(round(i)) for i in np.linspace(0, anchor_pop - 1, count)}
+                )
+                entries = []
+                for index in indices:
+                    single = forest[index].to_forest()
+                    E.clear_cache()
+                    gc.collect()
+                    before = E.cache_stats()
+                    cold_s, _ = _time_one(lambda: _sr_fitness(single, inputs, labels))
+                    after = E.cache_stats()
+                    entry = warm(single)
+                    entry["index"] = int(index)
+                    entry["cold_ms"] = round(1000.0 * cold_s, 3)
+                    entry["builds_on_cold"] = int(after["misses"] - before["misses"])
+                    entry["compile_ms"] = round(
+                        1000.0 * max(0.0, cold_s - entry["warm_ms"] / 1000.0), 3
+                    )
+                    entry["repeat_hit"] = warm(single)  # same tree, cache untouched
+                    entries.append(entry)
+                rec[part] = {
+                    "indices": indices,
+                    "per_tree": entries,
+                    "per_tree_warm_ms_median": round(
+                        _median([e["warm_ms"] for e in entries]), 3
+                    ),
+                    "per_tree_effective_ms": round(
+                        _median([e["warm_ms"] for e in entries]) / float(anchor_pop), 3
+                    ),
+                    "note": (
+                        "the exact _sample_model loop: clear_cache() + gc.collect() "
+                        "before every tree; effective_ms divides the per-tree time by "
+                        "the anchor pop, i.e. what the old model extrapolates"
+                    ),
+                }
+            elif part == "dense":
+                # same process / same forest / same moment as the parts around it
+                _apply("dense", self.backend)
+                E.clear_cache()
+                gc.collect()
+                before = E.cache_stats()
+                cold_s, _ = _time_one(lambda: _sr_fitness(forest, inputs, labels))
+                after = E.cache_stats()
+                entry = warm(forest)
+                entry.update(
+                    {
+                        "cold_ms": round(1000.0 * cold_s, 3),
+                        "builds_on_cold": int(after["misses"] - before["misses"]),
+                        "note": (
+                            "EVOGP_EVAL_MODE=dense on the same forest/inputs as the "
+                            "prefix part (ONE graph for the whole population)"
+                        ),
+                    }
+                )
+                rec[part] = entry
+            elif part == "identical":
+                # 16 copies of ONE tree: one executable, so
+                #   t(P) = per-call overhead + P * (same per-tree run cost)
+                # and combined with the single-tree point it decomposes the call.
+                single = forest[0].to_forest()
+                ident = single
+                for _ in range(anchor_pop - 1):
+                    ident = ident + single
+                before = E.cache_stats()
+                entry = warm(ident)
+                after = E.cache_stats()
+                entry.update(
+                    {
+                        "index": 0,
+                        "builds_on_warm": int(after["misses"] - before["misses"]),
+                        "note": (
+                            "a forest of anchor_pop copies of tree 0 (single program, "
+                            "cache hit unless the prefix part did not run first)"
+                        ),
+                    }
+                )
+                rec[part] = entry
+            else:
+                raise ValueError(
+                    f"unknown probe part {part!r}: use const, prefix, single_hit, "
+                    "identical, dense, sample"
+                )
+            rec[part]["gpu_before"] = gpu_before
+            rec[part]["gpu_after"] = self._gpu_state()
+            rec[part]["wall_s"] = round(time.time() - started, 2)
+            self.store()
+            print(f"  probe   {part:<10} done in {rec[part]['wall_s']:6.2f}s", flush=True)
+
+        # prefix sweep points, first occurrence per pop (the fit points)
+        prefix = rec.get("prefix") or {}
+        sweep: Dict[int, float] = {}
+        for point in prefix.get("sweep", []):
+            sweep.setdefault(int(point["pop"]), float(point["warm_ms"]))
+        # derived A/B: dense vs specialized on the SAME forest in the SAME process
+        dense_part = rec.get("dense") or {}
+        if dense_part and anchor_pop in sweep:
+            spec_ms = sweep[anchor_pop]
+            dense_ms = float(dense_part["warm_ms"])
+            rec["dense_vs_specialized"] = {
+                "pop": anchor_pop,
+                "rows": rows,
+                "specialized_warm_ms": round(spec_ms, 3),
+                "dense_warm_ms": round(dense_ms, 3),
+                "ratio_spec_over_dense": (
+                    round(spec_ms / dense_ms, 3) if dense_ms else None
+                ),
+                "source": (
+                    "same process/population/rows: specialized = prefix part anchor, "
+                    "dense = EVOGP_EVAL_MODE=dense part"
+                ),
+            }
+            print(
+                f"  probe   dense vs specialized -- spec {spec_ms:.2f} ms / dense "
+                f"{dense_ms:.2f} ms -> x"
+                f"{rec['dense_vs_specialized']['ratio_spec_over_dense']}",
+                flush=True,
+            )
+        # derived decomposition: one tree vs anchor_pop copies of that tree
+        ident = rec.get("identical") or {}
+        if ident and 1 in sweep:
+            pop = int(ident["pop"])
+            t1 = sweep[1]
+            tp = float(ident["warm_ms"])
+            run = (tp - t1) / float(max(1, pop - 1))
+            rec["decomposition"] = {
+                "pop": pop,
+                "single_tree_call_ms": round(t1, 3),
+                "identical_pop_ms": round(tp, 3),
+                "per_tree_run_ms": round(run, 4),
+                "per_call_overhead_ms": round(t1 - run, 4),
+                "constant_tree_call_ms": (rec.get("const") or {}).get("warm_ms"),
+                "note": (
+                    "single_tree_call_ms = per_call_overhead + per_tree_run (both "
+                    "measured with the SAME executable); the single-tree call is what "
+                    "_sample_model times once per tree, while a full population pays "
+                    "per_call_overhead once"
+                ),
+            }
+            print(
+                f"  probe   decomposition per-call "
+                f"{rec['decomposition'].get('per_call_overhead_ms')} ms + per-tree "
+                f"{rec['decomposition'].get('per_tree_run_ms')} ms "
+                f"(single-tree call "
+                f"{rec['decomposition'].get('single_tree_call_ms')} ms)",
+                flush=True,
+            )
+        self.store()
+        return rec
 
     def _decode_ms(self, forest: Forest) -> float:
         times: List[float] = []
@@ -871,21 +1268,30 @@ class Bench:
             flush=True,
         )
         if self.args.numpy_sample:
-            sample = self._sample_model(forest.pop_size, decode_ms, forest=forest)
-            model_warm = decode_ms + forest.pop_size * sample["per_tree_warm_ms_median"]
+            sample = self._sample_model(int(inputs.shape[0]), decode_ms, forest=forest)
+            model_warm = forest.pop_size * sample["per_tree_warm_ms_anchored"]
             model_compile = (
                 record["programs"]["distinct_programs"]
-                * sample["per_tree_compile_ms_median"]
+                * sample["per_tree_compile_ms_anchored"]
             )
             sample["model_warm_ms"] = round(model_warm, 3)
             sample["model_compile_ms"] = round(model_compile, 3)
+            sample["model_warm_ms_raw_sample"] = round(
+                decode_ms + forest.pop_size * sample["per_tree_warm_ms_median"], 3
+            )
+            sample["model_compile_ms_raw_sample"] = round(
+                record["programs"]["distinct_programs"]
+                * sample["per_tree_compile_ms_median"],
+                3,
+            )
             sample["actual_warm_ms"] = record["specialized"]["warm_ms"]
             sample["actual_compile_ms"] = record["specialized"]["compile_ms"]
             record["specialized"]["sample_model"] = sample
             print(
                 f"  spec    model (same method as iree) warm {model_warm:9.2f} ms vs actual "
                 f"{record['specialized']['warm_ms']:.2f} | compile {model_compile:8.1f} vs actual "
-                f"{record['specialized']['compile_ms']:.1f}",
+                f"{record['specialized']['compile_ms']:.1f} | raw sampled model "
+                f"{sample['model_warm_ms_raw_sample']:.2f} ms",
                 flush=True,
             )
         return out
@@ -893,7 +1299,31 @@ class Bench:
     def _sample_model(
         self, rows: int, decode_ms: float, forest: Optional[Forest] = None
     ) -> Dict[str, Any]:
-        """Per-tree compile/run sample -> full-population model (one per row count)."""
+        """Per-tree sample + direct anchor -> the full-population model (one per N).
+
+        Two estimators are measured once per row count, in this order:
+
+        ``sample``
+            one single-tree ``Forest`` per sampled index, ``clear_cache()`` before
+            every tree (the original method).  Every such call is a whole
+            ``Forest.SR_fitness`` call, so it charges the per-call overhead --
+            input staging, the device input upload/readback round trip -- to ONE
+            tree, while a real population pays it once.  At P=16 that inflated the
+            per-tree warm time 2.4-3.0x against a real full-population call (see
+            ``probes`` and ``real_small_pop``); the raw numbers are kept for audit
+            as ``model_warm_ms_raw_sample``.
+
+        ``anchor``
+            a REAL full-population call at ``--spec-anchor-pop`` (default 16) on
+            the reference population, cache cleared first.  Its effective per-tree
+            warm time is the only in-process number that is measured through the
+            same path as the case's own run, so it is what the model scales with::
+
+                warm_ms(P) ~= P * anchor.per_tree_warm_ms_effective
+
+            ``compile_ms`` is anchored the same way, at
+            ``distinct_programs * anchor.compile_ms_per_program``.
+        """
         if rows in self._spec_samples:
             return self._spec_samples[rows]
         args = self.args
@@ -924,6 +1354,50 @@ class Bench:
             per_tree_compile.append(max(0.0, cold_s - warm_s))
             per_tree_warm.append(warm_s)
             per_tree_misses.append(stats_after["misses"] - stats_before["misses"])
+        anchor_pop = min(int(args.spec_anchor_pop), reference.pop_size)
+        anchor_forest = reference[:anchor_pop]
+        E.clear_cache()
+        gc.collect()
+        anchor_before = E.cache_stats()
+        anchor_cold_s, anchor_out = _time_one(
+            lambda: _sr_fitness(anchor_forest, inputs, labels)
+        )
+        anchor_after = E.cache_stats()
+        anchor_times, _ = _timed(
+            lambda: _sr_fitness(anchor_forest, inputs, labels),
+            max(1, args.repeats),
+            1,
+        )
+        anchor_warm_s = _median(anchor_times)
+        anchor_builds = int(anchor_after["misses"] - anchor_before["misses"])
+        anchor_compile_s = max(0.0, anchor_cold_s - anchor_warm_s)
+        anchor = {
+            "pop": anchor_pop,
+            "reference_pop": reference.pop_size,
+            "cold_ms": round(1000.0 * anchor_cold_s, 3),
+            "warm_ms": round(1000.0 * anchor_warm_s, 3),
+            "warm_ms_all": [round(1000.0 * t, 3) for t in anchor_times],
+            "warm_repeats": max(1, args.repeats),
+            "builds": anchor_builds,
+            "compile_ms": round(1000.0 * anchor_compile_s, 3),
+            "compile_ms_per_program": round(
+                1000.0 * anchor_compile_s / max(1, anchor_builds), 3
+            ),
+            "decode_ms": round(self._decode_ms(anchor_forest), 3),
+            "per_tree_warm_ms_effective": round(
+                1000.0 * anchor_warm_s / anchor_pop, 3
+            ),
+            "finite_fraction": float(np.isfinite(anchor_out).mean()),
+            "method": (
+                "REAL full-population Forest.SR_fitness call in this process "
+                "(cache cleared -> cold, then --repeats warm calls)"
+            ),
+            "note": (
+                "the model scales this per-tree time with pop_size; a single-tree "
+                "sample call is NOT a per-tree time (it pays the per-call overhead "
+                "once per tree) -- see probes[...].decomposition"
+            ),
+        }
         entry = {
             "sample_pop": reference.pop_size,
             "sample_size": len(indices),
@@ -934,9 +1408,13 @@ class Bench:
             "per_tree_compile_ms_median": round(1000.0 * _median(per_tree_compile), 3),
             "per_tree_compile_ms_all": [round(1000.0 * t, 3) for t in per_tree_compile],
             "decode_ms": round(decode_ms, 3),
+            "anchor": anchor,
+            "per_tree_warm_ms_anchored": anchor["per_tree_warm_ms_effective"],
+            "per_tree_compile_ms_anchored": anchor["compile_ms_per_program"],
             "method": (
                 "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: "
-                "cold one call, warm median of --sample-repeats"
+                "cold one call, warm median of --sample-repeats; the model itself is "
+                "scaled from the anchor (see anchor.method)"
             ),
         }
         if self.backend != "numpy" and any(m != 1 for m in per_tree_misses):
@@ -945,7 +1423,9 @@ class Bench:
         print(
             f"  spec    sample: per-tree {entry['per_tree_warm_ms_median']:.3f} ms warm / "
             f"{entry['per_tree_compile_ms_median']:.1f} ms compile "
-            f"({len(indices)} trees, pop {reference.pop_size}, N={rows})",
+            f"({len(indices)} trees, pop {reference.pop_size}, N={rows}) | "
+            f"anchor P{anchor['pop']} {anchor['warm_ms']:.1f} ms warm -> "
+            f"{anchor['per_tree_warm_ms_effective']:.3f} ms/tree",
             flush=True,
         )
         return entry
@@ -969,8 +1449,20 @@ class Bench:
         key = f"{self.backend}_P{pop_size}_N{rows}"
         record = self._case_record(key)
         record.update(
-            {"backend": self.backend, "pop": pop_size, "rows": rows, "seed": self.args.seed}
+            {
+                "backend": self.backend,
+                "pop": pop_size,
+                "rows": rows,
+                "seed": self.args.seed,
+                "input_len": self.input_len,
+                "max_tree_len": self.max_tree_len,
+                "max_layer_cnt": self.args.max_layer_cnt,
+                "budget_mb": self.args.budget_mb,
+                "update_mode": self.args.update_mode,
+            }
         )
+        record["tree_lengths"] = _tree_length_stats(forest)
+        record["programs"] = _program_stats(forest)
         model = self._model_for(rows)
         real_per_tree_ms = 1000.0 * warm_s / pop_size
         real = {
@@ -990,15 +1482,27 @@ class Bench:
                 model["per_tree_warm_ms_median"] / real_per_tree_ms, 3
             ) if real_per_tree_ms > 0 else None
             real["model_source_case"] = model["case"]
+            anchored = model.get("per_tree_warm_ms_anchored")
+            if anchored:
+                real["model_anchored_per_tree_warm_ms"] = anchored
+                real["model_anchored_per_tree_warm_ratio"] = round(
+                    anchored / real_per_tree_ms, 3
+                )
+                real["model_anchored_source_case"] = model["case"]
+        previous = record.get("specialized")
+        if previous:
+            record.setdefault("specialized_previous", []).append(previous)
         record["specialized"] = {
             "status": "measured",
-            "source": "measured(small pop)",
+            "source": "measured(full population)",
             "cold_ms": real["cold_ms"],
             "warm_ms": real["warm_ms"],
             "compile_ms": real["compile_ms"],
             "cache_misses": real["cache_misses"],
             "warm_repeats": real["warm_repeats"],
             "finite_fraction": real["finite_fraction"],
+            "distinct_programs": record["programs"]["distinct_programs"],
+            "per_tree_warm_ms_effective": real["per_tree_warm_ms_effective"],
             "real_small_pop": real,
         }
         record["verify"] = self.verify(forest, inputs, labels, None, out)
@@ -1009,9 +1513,16 @@ class Bench:
             f"builds={real['cache_misses']} -> effective "
             f"{real['per_tree_warm_ms_effective']:.3f} ms/tree"
             + (
-                f" vs model {real['model_per_tree_warm_ms']:.3f} ms/tree "
+                f" vs sampled model {real['model_per_tree_warm_ms']:.3f} ms/tree "
                 f"(x{real['model_per_tree_warm_ratio']})"
                 if model is not None
+                else ""
+            )
+            + (
+                f" vs anchored model "
+                f"{real['model_anchored_per_tree_warm_ms']:.3f} ms/tree "
+                f"(x{real['model_anchored_per_tree_warm_ratio']})"
+                if real.get("model_anchored_per_tree_warm_ms")
                 else ""
             ),
             flush=True,
@@ -1174,7 +1685,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="all",
-        choices=["all", "dense", "specialized", "real"],
+        choices=["all", "dense", "specialized", "real", "probe"],
         help="which evaluator to measure (use separate processes on iree)",
     )
     parser.add_argument("--repeats", type=int, default=3, help="max timed repeats (median)")
@@ -1226,6 +1737,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--spec-sample", type=int, default=12, help="trees sampled per case")
     parser.add_argument(
+        "--pool-pop",
+        type=int,
+        default=None,
+        help=(
+            "draw every population as the first <pop> rows of ONE population of this "
+            "size, so different --pops are prefix-consistent (default: independent "
+            "draw per pop size, as in the committed numpy/iree grids)"
+        ),
+    )
+    parser.add_argument(
         "--spec-sample-pop",
         type=int,
         default=None,
@@ -1234,12 +1755,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--spec-real-pop", type=int, default=16, help="pop of the real model-check call"
     )
+    parser.add_argument(
+        "--spec-anchor-pop",
+        type=int,
+        default=16,
+        help=(
+            "pop of the directly measured full-population anchor / prefix sweep "
+            "that anchors the specialized model (iree)"
+        ),
+    )
+    parser.add_argument(
+        "--probe-parts",
+        default="prefix,single_hit,identical,sample",
+        help="ordered probe parts for --stage probe: const,prefix,single_hit,identical,dense,sample",
+    )
+    parser.add_argument(
+        "--probe-sample-trees",
+        type=int,
+        default=4,
+        help="trees in the probe single_hit/sample parts (iree executable budget)",
+    )
     parser.add_argument("--verify-rows", type=int, default=32, help="trees in the reference subset")
     parser.add_argument("--skip-verify", action="store_true")
     parser.add_argument(
         "--numpy-sample",
         action="store_true",
-        help="also run the iree per-tree model on numpy (cross-check of the method)",
+        help=(
+            "also run the iree-style sample + anchor model on numpy (cross-check "
+            "of the method); on numpy the real full-population numbers are already "
+            "measured directly, so this only records the model's error"
+        ),
     )
     parser.add_argument("--smi", action="store_true", help="nvidia-smi memory sampling")
     parser.add_argument("--no-smi", action="store_true", help="disable nvidia-smi sampling")
@@ -1343,6 +1888,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.stage == "real":
         for rows in args.rows:
             bench.real_small_pop(rows)
+    elif args.stage == "probe":
+        for rows in args.rows:
+            bench.probe(rows)
     else:
         for pop_size in args.pops:
             for rows in args.rows:
