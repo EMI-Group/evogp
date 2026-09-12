@@ -1001,8 +1001,8 @@ def _decode_row(
     for i in range(size0 - 1, -1, -1):
         raw = int(types[i])
         if multi:
-            tagged = bool(raw & _NT_OUT)
-            base = raw & _NT_MASK
+            tagged = bool(raw & _NT_OUT_NODE)
+            base = raw & _NT_TYPE_MASK
         elif raw & _NT_OUT_NODE:
             raise ValueError(
                 f"row {row}: node {i}: node_type={raw} carries the OUT_NODE "
