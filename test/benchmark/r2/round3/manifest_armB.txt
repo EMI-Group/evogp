@@ -1,0 +1,57 @@
+# test/benchmark/r2/round3/manifest_armB.txt -- expected artifacts of Arm B.
+#
+# Arm B re-measures the nine R3 new-side configs with a PATCHED ETL checkout
+# shadowed onto PYTHONPATH (`src:/tmp/evogp_etl_patched_51a7141`) instead of the
+# stock editable install.  Every config id is its Arm A / R2 counterpart's id
+# with an `armB_` prefix, so the records diff directly against the frozen Arm A
+# (`results/new/`) and R2 records; the legacy CUDA side is absent from Arm B by
+# design (its Arm A/R2 records stay the reference), hence no `leg` row here.
+#
+# Format (TAB-separated, one config per line; '#' starts a comment line):
+#
+#     id <TAB> side(leg|new) <TAB> expected_json_path <TAB> stages?
+#
+#   * side          `new` = this repository's ETL engine (behind the patched-ETL
+#                   PYTHONPATH shadow; every Arm B config is new-side).
+#   * expected path relative to the repository root; the runner
+#                   (run_all_armB.sh) writes exactly this file (one JSON + one
+#                   <id>.log per config).  Every Arm B artifact lives under
+#                   test/benchmark/r2/round3/results/armB/ -- the Arm A and R2
+#                   records stay untouched.
+#   * `stages`      the config runs bench_gp.py with `--stage-probe`, so with
+#                   `--require-stages` its JSON must carry a `stages` block.
+#                   All nine Arm B configs pass the probe, so every row carries
+#                   the marker.  Caveat (unchanged from R3): the R2 stage probe
+#                   monkeypatches the SPECIALIZED engine call sites only, so a
+#                   run that took the dense route may carry an empty /
+#                   degenerate `stages` block -- the marker means "the config
+#                   passes --stage-probe", exactly as in R2, and is not a
+#                   measurement guarantee.
+#
+# Validate with:
+#   python3 test/benchmark/r2/round3/check_r3.py \
+#       --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
+#
+# The runner derives side/results dir/tag from its own config table; this file is
+# the validator's expectation list -- keep the two in sync (ids must match exactly).
+#
+# ---------------------------------------------------------------------------
+# group: iree-spec -- --backend iree with EVOGP_EVAL_MODE=specialized
+# (the R2-era route, pinned on the same three workloads; Arm A identical)
+# ---------------------------------------------------------------------------
+armB_iree_fixture64_n64_spec	new	test/benchmark/r2/round3/results/armB/new/armB_iree_fixture64_n64_spec.json	stages
+armB_iree_fixture200_n64_spec	new	test/benchmark/r2/round3/results/armB/new/armB_iree_fixture200_n64_spec.json	stages
+armB_iree_sr_a_spec	new	test/benchmark/r2/round3/results/armB/new/armB_iree_sr_a_spec.json	stages
+# ---------------------------------------------------------------------------
+# group: iree -- --backend iree with EVOGP_EVAL_MODE=auto passed EXPLICITLY
+# (Arm A relied on the implicit `auto` default for these three arms)
+# ---------------------------------------------------------------------------
+armB_iree_fixture64_n64	new	test/benchmark/r2/round3/results/armB/new/armB_iree_fixture64_n64.json	stages
+armB_iree_fixture200_n64	new	test/benchmark/r2/round3/results/armB/new/armB_iree_fixture200_n64.json	stages
+armB_iree_sr_a	new	test/benchmark/r2/round3/results/armB/new/armB_iree_sr_a.json	stages
+# ---------------------------------------------------------------------------
+# group: numpy -- default "numpy" reference backend, no env overrides
+# ---------------------------------------------------------------------------
+armB_np_c5r2	new	test/benchmark/r2/round3/results/armB/new/armB_np_c5r2.json	stages
+armB_np_fixture200_n64	new	test/benchmark/r2/round3/results/armB/new/armB_np_fixture200_n64.json	stages
+armB_np_sr_a	new	test/benchmark/r2/round3/results/armB/new/armB_np_sr_a.json	stages
