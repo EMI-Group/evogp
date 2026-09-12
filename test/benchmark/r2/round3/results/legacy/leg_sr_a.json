@@ -3,7 +3,7 @@
   "side": "old",
   "task": "sr",
   "evogp_file": "/tmp/evogp_legacy_bench/src/evogp/__init__.py",
-  "evogp_commit": "49c5197fc5d65933cdc085199aeca2cdbecf5890",
+  "evogp_commit": "a848fc2fc858700446a787d61f9d72d86dec8cac",
   "etl_version": "0.1.0",
   "problem": "W1 synthetic SR: SymbolicRegression(func=x0**4/(x0**4+1)+x1**4/(x1**4+1), num_inputs=2, num_data=1000, lower_bounds=-5, upper_bounds=5); GenerateDescriptor(max_tree_len=64, input_len=2, output_len=1, const_prob=0.5, out_prob=0.5, using_funcs=['+','-','*','/'], layer_leaf_prob=0.2, const_range=(-5,5), sample_cnt=8, max_layer_cnt=5)",
   "config": {
@@ -23,35 +23,35 @@
   },
   "env": {
     "ETL_DISABLE_LOCATIONS": "1",
-    "CUDA_VISIBLE_DEVICES": "6"
+    "CUDA_VISIBLE_DEVICES": "0"
   },
   "gpu": {
-    "cuda_visible_devices": "6",
+    "cuda_visible_devices": "0",
     "device_count": 1,
     "name": "NVIDIA RTX A6000",
     "total_memory_bytes": 51041271808,
     "torch_version": "2.6.0+cu124",
     "torch_cuda_version": "12.4",
-    "nvidia_smi_index": 6,
-    "nvidia_smi_used_mb_start": 22249,
-    "free_mb_start": 26163,
+    "nvidia_smi_index": 0,
+    "nvidia_smi_used_mb_start": 4,
+    "free_mb_start": 48409,
     "peak_allocated_bytes": 533504,
     "peak_reserved_bytes": 2097152,
-    "nvidia_smi_used_mb_end": 23957
+    "nvidia_smi_used_mb_end": 1711
   },
-  "wall_s": 1.9518396444618702,
-  "generation_loop_s": 0.6471235454082489,
+  "wall_s": 1.4894297793507576,
+  "generation_loop_s": 0.6123916618525982,
   "per_gen_ms": [
-    631.6311359405518,
-    2.0611807703971863,
-    1.740526407957077,
-    1.641012728214264,
-    1.7286725342273712,
-    1.6276240348815918,
-    1.7237849533557892,
-    1.6347728669643402,
-    1.678910106420517,
-    1.655925065279007
+    595.2899158000946,
+    2.738162875175476,
+    2.10774689912796,
+    1.942269504070282,
+    1.8773563206195831,
+    1.8006563186645508,
+    1.621384173631668,
+    1.6331225633621216,
+    1.7594508826732635,
+    1.6215965151786804
   ],
   "per_gen_best_fitness": [
     -0.2510969936847687,
@@ -65,7 +65,7 @@
     -0.2257394939661026,
     -0.2257394939661026
   ],
-  "cold_first_gen_ms": 631.6311359405518,
+  "cold_first_gen_ms": 595.2899158000946,
   "best_fitness_final": -0.2257394939661026,
   "partial": false,
   "projection": null,
@@ -73,22 +73,22 @@
   "per_rep": [
     {
       "rep": 0,
-      "construct_s": 1.2964807711541653,
-      "wall_s": 1.9518396444618702,
+      "construct_s": 0.8679324313998222,
+      "wall_s": 1.4894297793507576,
       "partial": false,
       "projection": null,
       "complete": true,
       "per_gen_ms": [
-        631.6311359405518,
-        2.0611807703971863,
-        1.740526407957077,
-        1.641012728214264,
-        1.7286725342273712,
-        1.6276240348815918,
-        1.7237849533557892,
-        1.6347728669643402,
-        1.678910106420517,
-        1.655925065279007
+        595.2899158000946,
+        2.738162875175476,
+        2.10774689912796,
+        1.942269504070282,
+        1.8773563206195831,
+        1.8006563186645508,
+        1.621384173631668,
+        1.6331225633621216,
+        1.7594508826732635,
+        1.6215965151786804
       ],
       "per_gen_best_fitness": [
         -0.2510969936847687,
@@ -102,28 +102,28 @@
         -0.2257394939661026,
         -0.2257394939661026
       ],
-      "generation_loop_s": 0.6471235454082489,
-      "cold_first_gen_ms": 631.6311359405518,
+      "generation_loop_s": 0.6123916618525982,
+      "cold_first_gen_ms": 595.2899158000946,
       "best_fitness_final": -0.2257394939661026
     },
     {
       "rep": 1,
-      "construct_s": 0.0014009587466716766,
-      "wall_s": 0.02569666877388954,
+      "construct_s": 0.0013234876096248627,
+      "wall_s": 0.02453167364001274,
       "partial": false,
       "projection": null,
       "complete": true,
       "per_gen_ms": [
-        1.7662718892097473,
-        1.7264559864997864,
-        1.7158612608909607,
-        1.729920506477356,
-        1.7286725342273712,
-        1.7210766673088074,
-        1.6880780458450317,
-        1.7086826264858246,
-        1.7674639821052551,
-        1.7794854938983917
+        1.6570575535297394,
+        1.597777009010315,
+        1.5925876796245575,
+        1.5660300850868225,
+        1.780584454536438,
+        1.5715472400188446,
+        1.5842355787754059,
+        1.5751458704471588,
+        1.5847273170948029,
+        1.6530640423297882
       ],
       "per_gen_best_fitness": [
         -0.2510969936847687,
@@ -137,17 +137,17 @@
         -0.2257394939661026,
         -0.2257394939661026
       ],
-      "generation_loop_s": 0.017331968992948532,
-      "cold_first_gen_ms": 1.7662718892097473,
+      "generation_loop_s": 0.016162756830453873,
+      "cold_first_gen_ms": 1.6570575535297394,
       "best_fitness_final": -0.2257394939661026
     }
   ],
   "notes": "",
-  "started_at": "2026-09-12T22:11:05+08:00",
-  "finished_at": "2026-09-12T22:11:09+08:00",
+  "started_at": "2026-09-12T22:21:08+08:00",
+  "finished_at": "2026-09-12T22:21:11+08:00",
   "evogp_commit_error": null,
-  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A246",
-  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A246/test/benchmark/bench_gp.py",
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A248",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A248/test/benchmark/bench_gp.py",
   "skipped": false,
   "skip_reason": null,
   "fds": {
@@ -169,6 +169,6 @@
     "misses_max": null,
     "exceeded": false
   },
-  "construct_s": 1.2964807711541653,
-  "harness_wall_s": 4.252381574362516
+  "construct_s": 0.8679324313998222,
+  "harness_wall_s": 3.3558256700634956
 }

@@ -15,3 +15,20 @@ json: test/benchmark/r2/round3/results/legacy/leg_sr_a.json
 exit code: 0 (OK)
 gpu (after): 6, NVIDIA RTX A6000, 0, 22249
 R3 config leg_sr_a  finished 2026-09-12T22:11:10+08:00
+===============================================================================
+R3 config leg_sr_a  (side=leg group=light)  started 2026-09-12T22:21:06+08:00
+note: legacy short W1 SR training (pop 200 x 10 gens x 2 reps)
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A248   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 3600s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 0, NVIDIA RTX A6000, 0, 1
+cmd: timeout -s INT -k 30 3600 env PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils CUDA_VISIBLE_DEVICES=0 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task sr --pop 200 --gens 10 --tree-len 64 --reps 2 --tag LEG_SR_A --json-out test/benchmark/r2/round3/results/legacy/leg_sr_a.json
+json: test/benchmark/r2/round3/results/legacy/leg_sr_a.json
+--- run output ---
+[LEG_SR_A] harness=bench_gp.py side=old task=sr pop=200 gens=10 tree_len=64 seed=0 reps=2 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=0 gpu=NVIDIA RTX A6000 evogp=/tmp/evogp_legacy_bench/src/evogp/__init__.py commit=a848fc2fc858700446a787d61f9d72d86dec8cac etl=0.1.0 json_out=test/benchmark/r2/round3/results/legacy/leg_sr_a.json
+[LEG_SR_A] side=old rep0/2: 10 gens in 1.5s, per-gen median 1.8ms, first-gen 595.3ms, best_fitness_final=-0.2257
+[LEG_SR_A] side=old rep1/2: 10 gens in 0.0s, per-gen median 1.6ms, first-gen 1.7ms, best_fitness_final=-0.2257
+[LEG_SR_A] done side=old interrupted=False harness_wall_s=3.4 json_out=test/benchmark/r2/round3/results/legacy/leg_sr_a.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 0, NVIDIA RTX A6000, 0, 1
+R3 config leg_sr_a  finished 2026-09-12T22:21:12+08:00
