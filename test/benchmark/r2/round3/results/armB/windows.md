@@ -232,3 +232,63 @@ time to a config.
   met. Per-config contention evidence is the `gpu (before)/(after)` pair in each committed
   `results/armB/new/<id>.log`; treat the window's medians as ±10 % and re-read a number only together
   with this window.
+
+---
+## Window 3 — 2026-09-12 15:17 UTC (23:17 HKT) — matrix group `iree` (3 configs, GPU 6)
+- purpose / phase: matrix group `iree` — the three `--backend iree` / `EVOGP_EVAL_MODE=auto` configs
+  (`armB_iree_fixture64_n64`, `armB_iree_fixture200_n64`, `armB_iree_sr_a`) against the PATCHED ETL
+  checkout. These are the DENSE default route (`auto` picks the wave-2 dense evaluator on iree), and
+  they are the second measured Arm B window after `iree-spec` (window 2); the gate that makes Arm B
+  IREE numbers quotable — the six-arm A→B `values_sha256` identity pre-flight — already passed in
+  window 1b, and Arm A's own `iree` group is the comparison baseline.
+- commands: one foreground invocation per config, in run order —
+  `bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture64_n64`,
+  `bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture200_n64`,
+  `bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_sr_a`
+  (each console tee'd to `results/armB/status_<id>.txt`; the runner owns `ulimit`/`flock`/`timeout` —
+  one `flock -w 7200 /tmp/gpbench_critical.lock` per config with `timeout -s INT -k 30 3600` inside it),
+  plus the read-only ETL import probes appended to `etl_import_probe.txt` at window start.
+- cwd / interpreter: repository root of the Arm B `iree` matrix worktree,
+  `/mnt/local-ssd/bchuang/evox/.venv/bin/python`
+- PYTHONPATH: `src:/tmp/evogp_etl_patched_51a7141`   (shadow re-verified at window start, see
+  `etl_import_probe.txt` fourth block; patched-file hashes unchanged since the agreement window)
+- CUDA_VISIBLE_DEVICES: 6   (the runner default, **kept**: an 8-sample 4-s utilization series of GPU 6
+  taken at window start read `0 / 0 / 0 / 48 / 50 / 14 / 90 / 31 %` — i.e. the ≤30 GB `syfang` tenant
+  oscillates and never held the sustained ≥90 % that triggers the switch rule, while GPU 0 was at
+  71–96 % of its own foreign load and is therefore not a quieter alternative; GPU 7 — hardware ECC
+  fault — is never used)
+- nvidia-smi (ALL GPUs), 2026-09-12T23:17:50+08:00 (UTC 15:17:50):
+  ```text
+  0, NVIDIA RTX A6000, 97, 20003, 49140
+  1, NVIDIA RTX A6000, 96, 19941, 49140
+  2, NVIDIA RTX A6000, 0, 16583, 49140
+  3, NVIDIA RTX A6000, 37, 15315, 49140
+  4, NVIDIA RTX A6000, 28, 15387, 49140
+  5, NVIDIA RTX A6000, 0, 24395, 49140
+  6, NVIDIA RTX A6000, 100, 30443, 49140
+  7, NVIDIA RTX A6000, 0, 1, 46068
+  ```
+  (the 23:17:30 pre-check snapshot read GPU 6 at `0, 30443` instead — the tenant's duty cycle, and the
+  reason the decision below is based on the series rather than on one sample)
+- compute apps (pid → user, MiB), same snapshot:
+  - GPU 0 (`GPU-7ca10c94…`): 2394552 → hyqiu (pt_main_thread, up 53 m) 19996
+  - GPU 1 (`GPU-38ba30b9…`): 2394555 → hyqiu (pt_main_thread, up 53 m) 19934
+  - GPU 2 (`GPU-01343fc6…`): 1228200 → whhu (VLLM::EngineCore) 16454
+  - GPU 3 (`GPU-25828e67…`): 1285079 → hyqiu (pt_main_thread, up 1 d 12 h) 15258
+  - GPU 4 (`GPU-098b70f2…`): 1284680 → hyqiu (pt_main_thread, up 1 d 12 h) 15298
+  - GPU 5 (`GPU-a4c47eb9…`): 1228191 → whhu (VLLM) 24274
+  - GPU 6 (`GPU-b8253071…`): 2246336 → syfang (python, up 3 h 22 m) 30406 — the same ≈30 GB foreign
+    tenant as windows 0/1/1b/2, **oscillating** (see the series above)
+  - GPU 7 (`GPU-0f5f6bfd…`): no compute apps (1 MiB resident) — the known hardware-ECC-fault card,
+    never used
+- uptime / loadavg: `23:17:50 up 252 days, 21:33, 46 users, load average: 109.72, 100.65, 102.24`
+  (`/proc/loadavg` 109.72 100.65 102.24 63/14386)
+- ulimit -n (after the runner's raise): 65536
+- contention notes: same tenant set as windows 1/1b/2 (hyqiu on GPUs 0/1/3/4, whhu's VLLM on 2/5,
+  `syfang` on GPU 6) with the host at loadavg ≈100–110 / 46 users, and **GPU 6 kept under the
+  documented rule** (oscillating, not sustained ≥90 %; GPU 0 was the busier card in the series). The
+  `iree` group is the dense route, i.e. one graph per structure instead of per-tree specialization, so
+  its first-call numbers inherit the documented IREE compile spread (±a factor of a few) and its warm
+  numbers the shared-box ±10 % band; per-config evidence is the `gpu (before)/(after)` pair in each
+  committed `results/armB/new/<id>.log`. The `sr` arm's fitness trajectory is contention-independent
+  and is the cross-check that this window measured the same workload as Arm A / R2.
