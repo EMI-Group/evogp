@@ -1316,7 +1316,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     elif args.backend == "iree":
         args.smi = True
     if args.default_unit_ms is None:
-        args.default_unit_ms = 0.05 if args.backend == "numpy" else 0.04
+        # measured ms per (pop x row) element of the INTEGRATED dense path: the
+        # numpy interpreter is element-bound (~0.05), iree is per-op-bound
+        # (~0.0006: pop 1000 x 64 rows = 25 ms warm despite 64k elements)
+        args.default_unit_ms = 0.05 if args.backend == "numpy" else 0.0006
     args.compile_defaults = _compile_defaults(args.backend)
     if args.list_cases:
         for pop in args.pops:
