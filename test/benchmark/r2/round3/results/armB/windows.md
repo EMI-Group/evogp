@@ -139,3 +139,44 @@ time to a config.
   carries the usual shared-box inflation and is not a benchmark number. Lock discipline is the
   runner's: exactly one `flock -w 7200 /tmp/gpbench_critical.lock` per arm, never nested (other
   agents share that lock), with no `timeout` wrapper inside it.
+
+---
+## Window 1b — 2026-09-12 15:01 UTC (23:01 HKT) — Arm B agreement pre-flight, the EXECUTED batch (same device as Window 1)
+- purpose / phase: agreement pre-flight — the re-launch of Window 1's batch. Window 1's detached
+  (`nohup … &`) invocation was reaped together with its own parent shell at 22:54:24, mid-arm
+  (`fixture64_numpy` had already finished cleanly with hash `2e5c0fa1…`; `fixture64_iree` was left
+  header-only in its append-only log). This window runs the same six arms **in the foreground of one
+  long-budget invocation**, so the batch completes inside a single process lifetime; the runner is
+  idempotent per arm and the workload is RNG-free, so the re-measured fixtures are the same ones. The
+  records committed under `results/armB/backend_agreement/` are the ones this window produced.
+- commands: `bash test/benchmark/r2/round3/run_agreement_armB.sh` (one invocation, six arms
+  sequentially, stdout tee'd to `/tmp/armB_evidence/armB_agreement_console.log`), then
+  `python3 test/benchmark/r2/round3/check_agreement_armB.py` (no GPU) — both from the repo root.
+- cwd / interpreter: repository root of the Arm B pre-flight worktree,
+  `/mnt/local-ssd/bchuang/evox/.venv/bin/python`
+- PYTHONPATH: `src:/tmp/evogp_etl_patched_51a7141`
+- CUDA_VISIBLE_DEVICES: 6   (unchanged from Window 1: GPU 6 was idle at snapshot time and the gate is a
+  correctness gate; one device for all six arms, never 7)
+- nvidia-smi (ALL GPUs), 2026-09-12T23:01:00+08:00 (UTC 15:01:00):
+  ```text
+  0, NVIDIA RTX A6000, 98, 20025, 49140
+  1, NVIDIA RTX A6000, 98, 20059, 49140
+  2, NVIDIA RTX A6000, 0, 16583, 49140
+  3, NVIDIA RTX A6000, 9, 15377, 49140
+  4, NVIDIA RTX A6000, 38, 15389, 49140
+  5, NVIDIA RTX A6000, 0, 24395, 49140
+  6, NVIDIA RTX A6000, 0, 30455, 49140
+  7, NVIDIA RTX A6000, 0, 1, 46068
+  ```
+- compute apps: unchanged tenant set from Window 1's snapshot (hyqiu on GPUs 0/1/3/4, yzhou's
+  nnUNetv2_predic on GPUs 0/1, whhu's VLLM::EngineCore on GPUs 2/5, **`syfang` pid 2246336 on GPU 6,
+  ≈30 GB, ~3 h up**); no process of this round appears in the snapshot because the batch starts after it.
+- uptime / loadavg: `23:01:01 up 252 days, 21:16, 46 users, load average: 88.66, 99.35, 103.97`
+- ulimit -n (after the runner's raise): 65536
+- contention notes: the six arms ran 23:01:00 → 23:04:05 HKT (3 min 5 s total) while GPU 6's foreign
+  tenant `syfang` oscillated 0 → 97 % utilization (per-arm `gpu (before)/(after)` lines, all in the
+  committed arm logs) and the host carried loadavg ≈88–126. Every arm took its own single
+  `flock -w 7200 /tmp/gpbench_critical.lock` with no observable wait, and the batch needed no retry:
+  `ok=6 skipped=0 failed=0`, `gate: PASS (38 checks, 0 failures)`. Because this window decides
+  *quotability* (fitness-vector equality), the contention inflation quoted above is a wall-clock caveat
+  only; the window's correctness verdict is quotable.
