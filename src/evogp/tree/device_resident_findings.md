@@ -252,3 +252,55 @@ declines stay silent without consuming the flag.
   was NOT re-run in this round; the numbers above are the measurement round's.
   Re-run protocol: `dense_crossover_probe.py` with a 33–64-node population
   (`AB_POP=64`, one process per side, `CUDA_VISIBLE_DEVICES=6`, visible `--gpu 0`).
+
+## 10. Item-6 follow-up: candidate-chain pruning (the used-function-id set)
+
+The dense graph's dominant static cost was the per-position candidate chain: a `select` chain over all
+28 function ids at **every** emitted position (≈264·L ops, `DENSE_EVAL.md` §2.2). It now emits candidates
+only for the ids the **population** uses — `DensePrep.used_func_ids`, the union over the decoded function
+nodes, canonical (sorted, unique) inside the candidate range `1…28`, derived host-side in
+`prepare_dense` — default ON via `EVOGP_DENSE_PRUNE` (`=0` restores the full `FULL_FUNC_IDS` chain
+byte-for-byte and is the A/B baseline below).
+
+The set is a *static* `cfg` entry (`cfg[6]`; the loss variant's static `use_mse` moved to `cfg[7]`), so
+it belongs to the compiled-graph cache key: the same shape **and** the same set is a hit, a different set
+is one recompile. That granularity is what `dense_spike_check.py::case_compile_reuse` pins (same
+population → 0 builds, different set → 1), and it is why a fresh random population of the same shape can
+build again where the pre-lever engine would have hit.
+
+### Measured (`device_resident_check.py` `prune` stage, numpy, in-process A/B against `EVOGP_DENSE_PRUNE=0`)
+
+| quantity | pruned | full chain | ratio |
+| --- | --- | --- | --- |
+| candidate ops, 4-id fixture (15 emitted positions × \|used\|) | 60 | 420 | 7.00× |
+| compile / build (ms) | 256.0 | 1356.7 | 5.3× |
+| warm SR loss, P=64 / N=1024 (ms) | 48.1 | 509.9 | 10.6× |
+| warm SR loss, P=16 / N=1024 (ms) | 23.3 | 91.6 | 3.9× |
+| candidate ops, 18-of-28-id (near-full) population | 270 | 420 | ~1.55× |
+
+Those are the recorded medians of the run that landed the lever. The box is shared, so absolute ms move
+between runs (a later run of the same commands: 60 vs 420 candidates, 245.6 vs 1239.8 ms build, 47.4 vs
+568.7 ms warm at P=64, 23.3 vs 97.8 ms at P=16) — the op counts are deterministic, the times are not.
+Pruned and full-chain graphs are **bit-exact** on numpy (value and loss, `per_row` both ways,
+P+N-chunked, empty used set): the lever changes *which* ops are emitted, never what they compute.
+
+### Verified after the change (repo root, `PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6`)
+
+| command | result |
+| --- | --- |
+| `device_resident_check.py --backend numpy` (all stages, `prune` included) | `104/104` (was 79/79: +25 prune checks) |
+| `device_resident_check.py --backend numpy --stage prune` | `25/25` |
+| `dense_integration_check.py --stage numpy,fallback` | `119/119` |
+| `dense_spike_check.py --backend numpy --skip-measure` | `37/37` |
+
+The spike line above is the re-pinned `case_compile_reuse` (same population → 0 new builds, a different
+population → exactly 1 when its used-id set differs, derived from the two plans' `used_func_ids`, so the
+`EVOGP_DENSE_PRUNE=0` escape hatch still passes with 0 expected).
+
+### Not measured here
+
+* **No iree leg.** The A/B and every prune-stage check ran on numpy. The lever only removes emitted ops,
+  so the device-side numbers should follow the op-count cut, but no device backend was exercised this
+  round.
+* **Churn below saturation.** A GP run recompiles whenever the population-wide used set *grows*; how
+  many generations that costs, and how fast the set saturates for the shipped descriptors, is unmeasured.

@@ -68,6 +68,11 @@ subtree, subtree inside the declared tree length, leaf `subtree_size == 1`, fini
 indices and function ids, no OUT_NODE tag). Anything doubtful raises `DenseUnsupported` rather than
 reproducing the decoder's `ValueError` messages — the fallback path owns that contract.
 
+The same pass derives the population's **used function ids** (`DensePrep.used_func_ids`): the union over
+the decoded function nodes, canonical (sorted, unique), restricted to the candidate range `1…28`, empty
+for a population without function nodes. It is not a runtime column — it is the static set the graph's
+candidate chain is built from (§9 item 1).
+
 Padding is inert by construction: positions `i >= tree_len[p]` carry `opcode = 5` (every mask pred
 false → value `0.0`) with clamped child indices, so junk in the unused row tail can never influence a
 real value (pinned by the padding-invariance families of the batteries).
@@ -79,16 +84,19 @@ real value (pinned by the padding-invariance families of the batteries).
 have a larger index than their parent). Per position it reshapes the seven `(L, P)` columns' row `i`
 into `(P, 1)` symbolic tensors (`_col`), reads the three child values from the value buffer with the
 **flatten trick** (one `gather` over a flat view of the `(rows, P, N)` buffer, index
-`off * P * N + pn_off`, both clamped — `_read_buffer`), and computes the **whole candidate chain** for
-function ids 28…1 with the *same* private emitters the specialized engine uses
-(`etl_engine._emit_unary` / `_emit_binary` / `_emit_ternary` — parity by construction), selecting the
-node's own value with `select(pred, …)` and folding in the ternary / leaf cases with broadcast preds.
+`off * P * N + pn_off`, both clamped — `_read_buffer`), and computes the **candidate chain** for the
+population's used function ids, walked in **descending** id order (the *same* private emitters the
+specialized engine uses — `etl_engine._emit_unary` / `_emit_binary` / `_emit_ternary`, parity by
+construction; `EVOGP_DENSE_PRUNE=0` walks `FULL_FUNC_IDS` = 28…1 and reproduces the unpruned stream
+byte-for-byte — §9 item 1), selecting the node's own value with `select(pred, …)` and folding in the
+ternary / leaf cases with broadcast preds.
 `x` is read through a second flatten-gather (`x_flat` + `x_base`), where `x_base` selects per-tree
 rows (`per_row=True`, graph `N == 1`) or all data rows (`per_row=False`).
 
 The graph's shape is per **chunk**, not per call: `cfg = (L, P_chunk, N_chunk, input_len, per_row,
-update_mode)` is a *static* argument (it specializes the graph and is part of the cache key), so
-runtime tensors of a given shape never trigger a recompile.
+update_mode, used_func_ids)` is a *static* argument (it specializes the graph and is part of the cache
+key), so runtime tensors of a given shape never trigger a recompile while a different used-id set does
+(§9 item 1); the loss variant appends its static `use_mse` flag at index 7.
 
 ### 2.3 Value buffer & write modes (`EVOGP_DENSE_UPDATE_MODE`)
 
@@ -135,7 +143,8 @@ shape-control knob and watch host RSS on big grids.
 4096 via `EVOGP_ETL_CACHE_SIZE`, process-local, in-memory only). The key is the full spec tuple — the
 seven runtime `TensorSpec`s (shape + dtype) plus the static `cfg` — combined with backend / device /
 options, so one dense compile shows up as ONE miss in `etl_engine.cache_stats()` (against `pop_size`
-misses on the specialized path) and a later call of the same shape is a pure hit.
+misses on the specialized path) and a later call of the same shape **and the same used-id set** is a
+pure hit (that set is a static `cfg` entry — §2.2 / §9 item 1).
 
 ---
 
@@ -157,7 +166,7 @@ consequence (`dense_engine._warn_trace_cap`, pinned by the `policy` stage of
 rows ceiling — stays silent, and the dedupe flag is only consumed by a real warning.
 
 **The SR hot path is LOSS-FOLDED.** `Forest.SR_fitness` / `Tree.SR_fitness` compile the *loss* variant
-(`_dense_loss_step`, `DensePlan.variant="loss"`, static `use_mse` in `cfg[6]`): the graph returns the
+(`_dense_loss_step`, `DensePlan.variant="loss"`, static `use_mse` in `cfg[7]`): the graph returns the
 per-tree `sum_N err` (`(p_chunk,)`), `run_loss_plan` assembles and divides by `N` host-side, and no
 prediction ever crosses back. `sr_fitness_dense` therefore does **not** route through `evaluate_dense`
 (one `inputs` D2H, one `labels` D2H, one `(P,)`-scale readback per chunk, one `torch.from_numpy((P,))`
@@ -177,6 +186,7 @@ accepted and still all mapping to the same engine path.
 | `EVOGP_DENSE_AUTO_MIN_POP` | `16` | `auto`'s `pop_size` threshold on a non-numpy backend (`< 1` → `ValueError`) |
 | `EVOGP_DENSE_AUTO_MAX_ROWS` | `2048` | `auto`'s data-row ceiling for `per_row=False` calls: dense is rows-linear while the specialized engine is rows-flat, so more rows decline inside `evaluate_dense` (→ normal `DenseUnsupported` fallback; `< 1` → `ValueError`). `per_row=True` and an explicit `dense` are never gated |
 | `EVOGP_DENSE_MAX_TREE_LEN` | `64` | trace cap `L`; a longer tree → `DenseUnsupported` (`<= 0` → `ValueError`) and — on a non-numpy backend only — a once-per-process `RuntimeWarning` (`L = min(cap, row_len)`, so a `max_tree_len=32` population still traces `L=32`) |
+| `EVOGP_DENSE_PRUNE` | `1` | emit the per-position candidate chain for the population's used function ids only (`DensePrep.used_func_ids`, §9 item 1) instead of all 28; the set is a static `cfg` entry, i.e. part of the compiled-graph cache key, and a different set recompiles. `0`/`false`/`no`/`off` restores the full `FULL_FUNC_IDS` chain byte-for-byte (the A/B baseline); anything else → `ValueError` |
 | `EVOGP_DENSE_BUDGET_MB` | `2048` | chunking budget in MiB (`<= 0` → `ValueError`) |
 | `EVOGP_DENSE_UPDATE_MODE` | `grow` | `grow` / `concat` / `scatter` (unknown → `ValueError`; iree-`scatter` → `DenseUnsupported`) |
 | `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER` | unset | opt-in for `scatter` on iree |
@@ -446,11 +456,26 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
 
 ## 9. Future work (in the order the measurements suggest)
 
-1. **Function-id-set pruning (~3× op-count cut).** Pass the population's used function-id set (or the
-   descriptor's `using_funcs`) as a *static* `cfg` entry and emit only those candidates instead of the
-   full 28-candidate chain. Recompiles happen only when the id set changes (it saturates quickly in a GP
-   run), and it cuts both the dense compile time (≈264·L ops) and the numpy per-op cost — the first
-   follow-up if a round needs the iree crossover moved in.
+1. **Function-id-set pruning — DONE (default ON, `EVOGP_DENSE_PRUNE`).** The per-position candidate chain
+   emits ops for the function ids the *population* actually uses (`DensePrep.used_func_ids`) instead of
+   the full 28. The set is derived host-side in `prepare_dense` and is a *static* `cfg` entry (`cfg[6]`;
+   the loss variant's static `use_mse` is now `cfg[7]`), so it joins the compiled-graph cache key; the
+   chain still walks the ids in descending order, so `EVOGP_DENSE_PRUNE=0` (= `FULL_FUNC_IDS`) restores
+   the full chain byte-for-byte, and an empty set emits no candidate at all (every position keeps its
+   defined zero fallback). Measured (the `prune` stage of `device_resident_check.py`, in-process A/B
+   against `EVOGP_DENSE_PRUNE=0`, numpy, medians): candidate ops 420 → 60 (7.0×) on its 4-id fixture,
+   compile 1356.7 → 256.0 ms, warm SR loss P=64/N=1024 509.9 → 48.1 ms (10.6×) and P=16/N=1024
+   91.6 → 23.3 ms (3.9×); an 18-of-28-id (near-full) population still cuts the candidate chain by up to
+   ~1.55×. Pruned and full-chain graphs are **bit-exact** on numpy (value and loss, `per_row` both ways,
+   P+N-chunked, empty used set).
+   **Granularity:** the executable is a pure function of the shape AND the used-id set, so a population
+   whose used set differs from the last compiled one recompiles — it saturates quickly in a GP run
+   (the key carries the population-wide union, not per-individual structure), and
+   `dense_spike_check.py::case_compile_reuse` pins it (same population → 0 builds, different set → 1).
+   **Not measured:** no iree legs this round (the A/B is numpy-only); the churn *below* saturation
+   (recompiles per generation while the set is still growing) is unmeasured; and the dense-vs-specialized
+   ratios of §3/§6 — including the "numpy never dense" rationale — are full-chain measurements that have
+   not been re-run under the pruned default. Record: §10 of `device_resident_findings.md`.
 2. **The still-open measurements.** Direct dense at P≥64 and every dense ratio above ~5× rest on the
    earlier grid cells (some `fit(unit-cost)`), so they need a fresh direct pass; P=1000 (793 distinct
    programs) has never been run on the specialized side, its cells are anchored-law extrapolations; and
