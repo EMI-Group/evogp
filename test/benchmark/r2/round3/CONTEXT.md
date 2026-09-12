@@ -25,8 +25,10 @@ Owned artifacts: the matrix runner, the backend-agreement pre-flight runner, the
 - GPU 6 by default, never GPU 7 (hardware ECC fault); treat medians as ±10 % on this shared box.
 - The R2 stage probe patches the specialized engine's call sites only, so a dense-route run may carry an empty/degenerate `stages` block — documented limitation, not a gate failure.
 - IREE stays opt-in and explicitly non-primary; `O2`/`O3` are never used, and no IREE number is quotable until the agreement gate passes.
-- `last_run.txt` and the agreement runner's `run_agreement_r3.last_run.txt` are generated output: delete freely, never commit.
+- `last_run.txt` (the matrix runner's id→exit-code table) is generated output — `.gitignore`d, delete freely. The agreement runner's `results/backend_agreement/run_agreement_r3.last_run.txt` is the executed pre-flight's arm→exit-code evidence and stays committed.
 
 ## Status
-Scaffold in place (runner, manifest, validators, comparison tool, protocol doc) and verified without GPU execution; the round execution (agreement pre-flight + the three matrix groups) is pending.
-`SUMMARY.md` is written after the run from `compare_rounds.py` output plus the two gates' results.
+Scaffold in place (runner, manifest, validators, comparison tool, protocol doc) and verified without GPU execution.
+Gate (i) — the backend-agreement pre-flight — **has been executed** (2026-09-12, GPU 6, six arms, all exit 0, no retries): the records (`<stem>.json` + `<stem>_values.npy` + `<stem>.log` + `run_agreement_r3.last_run.txt`) are committed under `results/backend_agreement/`, and `check_agreement_r3.py` reports **PASS (32 checks, 0 failures)** — identical NaN/±inf counts per fixture, `numpy→iree` and `numpy→iree_spec` allclose at `rtol=atol=1e-4, equal_nan=True`, and `numpy↔iree_spec` bit-identical. IREE numbers from this round are quotable. Continuity vs the R2 anchors is INFO only: the specialized route (`numpy` + `iree_spec`) now differs from the R2 anchor by ≤2.03e-07 relative, while the dense-default `iree` arm reproduces the R2 anchor bitwise.
+The three matrix groups (`run_all.sh --group light|iree|iree-spec`) are pending.
+`SUMMARY.md` is written after the run from `compare_rounds.py` output plus the gates' results.

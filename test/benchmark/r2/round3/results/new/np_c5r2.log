@@ -1,0 +1,18 @@
+===============================================================================
+R3 config np_c5r2  (side=new group=light)  started 2026-09-12T22:00:30+08:00
+note: numpy mirror of leg_c5r2
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A246   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 3600s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 47, 22527
+cmd: timeout -s INT -k 30 3600 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --eval-reps 25 --stage-probe --tag NP_C5R2 --json-out test/benchmark/r2/round3/results/new/np_c5r2.json
+json: test/benchmark/r2/round3/results/new/np_c5r2.json
+--- run output ---
+[NP_C5R2] stage probe stage_probe/1: installed=True partial=False wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness] counters=CACHE.hits/CACHE.misses
+[NP_C5R2] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A246/src/evogp/__init__.py commit=49c5197fc5d65933cdc085199aeca2cdbecf5890 etl=0.1.0 json_out=test/benchmark/r2/round3/results/new/np_c5r2.json
+[NP_C5R2] stages[rep0/eval] 25 calls: cold 48 miss 163.2ms / warm 0 miss 0.0ms | decode 28.5 + build-hit 246.8 (1277) + build-miss 163.2 (48) + run 235.9 (1325) + readback 16.5 (1325) + upload 0.0 + loss 672.2 + misc 19.0 ms cold/warm totals 719.7ms (h2d 0 / d2h 0)
+[NP_C5R2] side=new rep0/1: first 198.2ms, warm-median 20.6ms (25 calls)
+[NP_C5R2] done side=new interrupted=False harness_wall_s=1.9 json_out=test/benchmark/r2/round3/results/new/np_c5r2.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 4, 22253
+R3 config np_c5r2  finished 2026-09-12T22:03:20+08:00
