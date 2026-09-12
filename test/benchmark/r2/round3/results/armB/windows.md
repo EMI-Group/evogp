@@ -504,3 +504,29 @@ time to a config.
   in each committed log; the contention-independent facts of this window are the exit codes, the build/miss
   counts, the fd telemetry and the bitwise-identical `sr` fitness trajectories. Treat the medians as ±10 % as
   always on this shared box.
+- execution record (appended after the window): nine `run_all_armB.sh --only` invocations, **9/9 exit 0**,
+  `complete: true` / `partial=false` everywhere, no GUARD-SKIP, no timeout, no interrupt, no kill, no re-run;
+  runner-level walls iree-spec 7 min 16 s (23:56:50 → 00:04:06), iree 2 min 30 s (00:04:14 → 00:06:44), numpy 24 s
+  (00:06:48 → 00:07:12). Winner's per-config `gpu (before)/(after)` pairs are in the logs; the ≈19.8 GB tenant on
+  GPU 0 (hyqiu pid 2497811, arrived ≈23:58, mid-`armB_iree_sr_a_spec`) overlaps the last six configs, and
+  `free_mb_start` never dropped below 28 576 MiB (guard floor 8 192), so no guard path was taken. Gate (ii) re-run
+  over the W2 records: `check_r3.py --manifest … --require-stages` → 9 complete / 34 checks / **0 failures** /
+  `CHECKER_EXIT=0` (`results/armB/status_check_r3_armB_w2_final.txt`). The agreement pre-flight was deliberately not
+  re-run.
+- post-run state, 2026-09-13T00:08:07+08:00 (UTC 2026-09-12 16:08:07) — taken right after the last config:
+  ```text
+  0, NVIDIA RTX A6000, 92, 19837, 49140
+  1, NVIDIA RTX A6000, 90, 20083, 49140
+  2, NVIDIA RTX A6000, 98, 21082, 49140
+  3, NVIDIA RTX A6000, 21, 15317, 49140
+  4, NVIDIA RTX A6000, 25, 15389, 49140
+  5, NVIDIA RTX A6000, 0, 24395, 49140
+  6, NVIDIA RTX A6000, 21, 30439, 49140
+  7, NVIDIA RTX A6000, 0, 1, 46068
+  ```
+  with hyqiu's two new jobs (pid 2497811 → GPU 0, 19 706 MiB, up 10 m; pid 2498391 → GPU 1, 20 076 MiB, up 10 m)
+  now resident — i.e. the two candidate devices the window chose from are both occupied again, which is why the
+  window was not repeated (no tenant-free device left: GPU 5 24 395 MiB, GPU 6's tenant 30 406 MiB, GPU 7
+  ECC-faulted). Uptime `00:08:08 up 252 days, 22:23, 45 users, load average: 80.89, 91.74, 91.25`; no
+  `bench_gp.py`/`iree-compile` process left behind and the shared lock released (`flock -n` re-acquires it
+  immediately). Every W2 JSON ends `complete: true`, every W2 log block ends `exit code: 0 (OK)`.

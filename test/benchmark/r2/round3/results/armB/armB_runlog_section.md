@@ -490,6 +490,127 @@ last word), no timeout (217 s / 597 s against the 3 600 s cap), no interrupt, an
 (0 not in the manifest)` / `34 check(s), 0 failure(s)` / `CHECKER_EXIT=0`
 (`results/armB/status_check_r3_armB_after_b2.txt`); `manifest_armB.txt` was not edited, so the frozen
 Arm B gate is untouched by this phase.
+#### Companion window (W2, GPU 0) — EXECUTED 2026-09-12 23:56:11–00:07:12 HKT (window 6): **all 9 ids re-measured, 9/9 exit 0 — the companion records of record**
+**Why a companion window.** Every W1 Arm B matrix window (windows 2/3/4) ran on the runner-default GPU 6 while the
+≈30 GB `syfang` tenant was resident and bursting to 85–100 %, so the W1 warm/first-call deltas are window-paired and
+noisy. R3 handled the same situation with a companion window on a free device (its light-group records of record are
+that companion re-measurement; both windows stay visible in the append-only logs, the earlier JSON snapshots in git
+history). W2 mirrors that pattern for Arm B: **all nine Arm B matrix ids re-run, one `run_all_armB.sh --only`
+invocation per config, on the least-contended device of the moment**, so the committed `results/armB/new/` JSONs
+become the W2 records of record while W1 stays retrievable (pointer sha below).
+**Device decision (window 6, from the snapshot in `windows.md`).** A 10-sample / 1 s series put **GPUs 0 and 1** at
+`0 %` utilization and `1 MiB` resident in *every* sample — the lowest foreign utilization on the box — with ≈48.7 GiB
+free device memory (≫ the ≥12 GB requirement and the configs' `--mem-guard-mb 8192` floor, which compares free
+device memory). The tie on both criteria was broken by the **lower index ⇒ GPU 0**, which is also the device of R3's
+own companion (Arm A light-group) window, so the `np_*` arms are additionally device-paired with their Arm A
+companions. GPU 5 was idle but carried 24 395 MiB of whhu's VLLM; GPUs 2/3/4 were busy (22–100 %); GPU 6 (the W1
+device) was bursting to 100 %; GPU 7 has a hardware ECC fault (2 263 uncorrected volatile errors) and was never
+touched. **Mid-window change:** hyqiu launched two new jobs while the window ran (pid 2497811 on GPU 0 at ≈23:58,
+19 706 MiB; pid 2498391 on GPU 1 at ≈00:00, 20 076 MiB), so the first three configs ran with GPU 0 free and the
+last six with that ≈19.8 GB tenant present (52–92 % util) — see the window-6 anomaly bullets; `free_mb_start` never
+fell below 28 576 MiB, so no guard path was triggered.
+**Commands (exact) — nine foreground `run_all_armB.sh --only <id>` invocations, in manifest order (iree-spec → iree
+→ numpy), each console captured to a NEW `status_<id>_w2.txt` (W1's `status_<id>.txt` untouched); the runner owns
+`ulimit -n 65536` → one `flock -w 7200 /tmp/gpbench_critical.lock` → `timeout -s INT -k 30 3600` (inside the lock):**
+```bash
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture64_n64_spec    # 23:56:50 → 23:57:13
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture200_n64_spec   # 23:57:25 → 23:58:39
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_sr_a_spec             # 23:58:45 → 00:04:06
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture64_n64          # 00:04:14 → 00:04:35
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture200_n64         # 00:04:35 → 00:04:57
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_sr_a                  # 00:05:08 → 00:06:44
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_c5r2                    # 00:06:48 → 00:06:52
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_fixture200_n64          # 00:06:52 → 00:06:59
+CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_sr_a                    # 00:06:59 → 00:07:12
+python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
+```
+`GPU=0` reached the runner through `CUDA_VISIBLE_DEVICES=0` (the runner reads `GPU="${CUDA_VISIBLE_DEVICES:-6}"`);
+the per-config command lines are the `cmd:` header line of each `results/armB/new/<id>.log` W2 block. The Arm B
+**agreement pre-flight was deliberately not re-run** — it is contention-independent and stays as recorded. No
+`flock` wait was observable (each config's `started` timestamp is seconds after its launch, and every invocation ran
+in the foreground of one long-budget call). Runner-level group walls: iree-spec **7 min 16 s** (23:56:50 →
+00:04:06), iree **2 min 30 s** (00:04:14 → 00:06:44), numpy **24 s** (00:06:48 → 00:07:12); nothing approached the
+3 600 s cap.
+**Per-config status table** (per-config exit code = the log's `exit code: 0 (OK)` footer *and* the runner's
+id→exit table in the same `status_<id>_w2.txt`; `first_ms`/`warm_ms` follow the metric rules at the top of this
+file — eval: `first_call_ms` and `median_warm_ms` over 25 calls; sr: rep0's `cold_first_gen_ms` as the first figure
+and the per-rep median of `per_gen_ms[1:]`):
+| id | exit | complete / partial | first_ms | warm_ms (rep0 / rep1) | cold builds (json `misses_max` / stage) | fds start→cold→end | wall (started→finished) | harness_wall_s | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| armB_iree_fixture64_n64_spec | 0 | `complete` / `partial=false` | 17 523.11 | 59.47 (25 calls) | 48 / 300 (json), stage 48 cold + 0 warm misses | 39 → 91 → 91 | 23 s (23:56:50 → 23:57:13) | 20.0 | GPU 0 free (0 % before → 0 % after, `used_start=4 MiB`, `free_mb_start=48 409`); stage block meaningful |
+| armB_iree_fixture200_n64_spec | 0 | `complete` / `partial=false` | 63 533.30 | 236.50 (25 calls) | 155 / 400 (json), stage 155 cold + 0 warm misses | 39 → 91 → 91 | 75 s (23:57:25 → 23:58:39) | 70.3 | GPU 0 still free (`used_start=4` → `used_end=441 MiB`, `free_mb_start=48 409`) |
+| armB_iree_sr_a_spec | 0 | `complete` / `partial=false` | 117 095.61 (rep0 cold gen) | 11 519.50 / 60.19 (median of `per_gen_ms[1:]`) | 517 / 1 500 (json), stage rep0 = 155 cold + 362 warm, rep1 = 0 | 39 → 91 → 91 | 322 s (23:58:45 → 00:04:06) | 317.1 | hyqiu's new GPU-0 job landed mid-config (`used` 4 → 3 542 MiB); `best_fitness_final=-0.2510969936847687`; per-rep repair rep0 cold 117 095.61 → rep1 cold 226.12 ms |
+| armB_iree_fixture64_n64 | 0 | `complete` / `partial=false` | 16 491.61 | 14.84 (25 calls) | 1 / 300 (json), stage 0 cold + 0 warm (dense route) | 39 → 91 → 91 | 22 s (00:04:14 → 00:04:35) | 17.6 | ≈19.8 GB foreign tenant now resident (`used_start=5 269`, `free_mb_start=43 144`, 70 % → 31 %); dense route, degenerate stage block |
+| armB_iree_fixture200_n64 | 0 | `complete` / `partial=false` | 18 010.95 | 10.03 (25 calls) | 1 / 400 (json), stage 0 cold + 0 warm (dense route) | 39 → 91 → 91 | 23 s (00:04:35 → 00:04:57) | 19.1 | tenant at ≈19.8 GB (`used_start=19 817`, `free_mb_start=28 596`, 64 % → 83 %); dense route, degenerate stage block |
+| armB_iree_sr_a | 0 | `complete` / `partial=false` | 14 003.97 (rep0 cold gen) | 82.56 / 126.79 (median of `per_gen_ms[1:]`) | 170 / 1 500 (json), stage rep0 = 0 cold + 169 warm, rep1 = 0 | 39 → 91 → 91 | 97 s (00:05:08 → 00:06:44) | 93.9 | tenant 52 % → 91 %; `best_fitness_final=-0.2510969936847687`; stage block non-degenerate |
+| armB_np_c5r2 | 0 | `complete` / `partial=false` | 194.00 | 22.81 (25 calls) | null (`enforced=false`, no budget) / stage 48 cold + 0 warm misses | 39 → 59 → 59 | 5 s (00:06:48 → 00:06:52) | 1.4 | numpy route, tenant 60 % → 63 %; stage block meaningful |
+| armB_np_fixture200_n64 | 0 | `complete` / `partial=false` | 969.27 | 90.15 (25 calls) | null (`enforced=false`) / stage 155 cold + 0 warm misses | 39 → 59 → 59 | 8 s (00:06:52 → 00:06:59) | 3.8 | tenant 77 % → 62 %; stage block meaningful |
+| armB_np_sr_a | 0 | `complete` / `partial=false` | 2 705.00 (rep0 cold gen) | 156.14 / 47.98 (median of `per_gen_ms[1:]`) | null (`enforced=false`) / stage rep0 = 155 cold + 362 warm, rep1 = 0 | 39 → 59 → 59 | 14 s (00:06:59 → 00:07:12) | 9.2 | tenant 63 % → 23 %; `best_fitness_final=-0.2510969936847687`; per-rep repair rep0 cold 2 705.00 → rep1 cold 161.62 ms |
+**`stages` quality — exactly the W1 pattern, reproduced:** all nine records carry `stages.partial=false`,
+`note=""`, `stages.status.installed=true`, the full `wrapped=[decode_population,_run_tree,build_cached,run,
+from_numpy,evaluate,sr_fitness]` (7), `missing=[]`, `nested_runs=0`, 25 eval records (eval ids) / 10 + 10 train
+records (the `sr` ids), and non-degenerate counters for every specialized-route config (`c5r2`, `fixture200_n64`,
+`np_sr_a` and the three `_spec` arms). The two **dense** eval arms (`armB_iree_fixture64_n64`,
+`armB_iree_fixture200_n64`) again carry the documented degenerate block (`decode_calls=build_calls=sr_fitness_calls=0`,
+only `run_calls=25` non-zero, the whole probe span in `misc_ms`) while `armB_iree_sr_a` reports real counters — i.e.
+the R3 stage-probe caveat is a property of the route, not of the window, and it reproduced on a different device.
+**W1 → W2 comparison (same ids, same flags, same shadow — only the window and the device differ; W1 = the records
+committed up to `b728466`, W2 = the JSONs committed here):**
+| id | W2 first_ms | W1 first_ms | Δ | W2 warm_ms | W1 warm_ms | Δ |
+|---|---|---|---|---|---|---|
+| iree_fixture64_n64_spec | 17 523.11 | 20 043.52 | −12.6 % | 59.47 | 62.19 | −4.4 % |
+| iree_fixture200_n64_spec | 63 533.30 | 82 065.28 | −22.6 % | 236.50 | 200.09 | +18.2 % |
+| iree_sr_a_spec (rep0 / rep1) | 117 095.61 (cold gen) | 64 950.88 (cold gen) | +80.3 % | 11 519.50 / 60.19 | 12 889.64 / 57.32 | −10.6 % / +5.1 % |
+| iree_fixture64_n64 | 16 491.61 | 18 011.84 | −8.4 % | 14.84 | 8.54 | +73.8 % |
+| iree_fixture200_n64 | 18 010.95 | 12 227.86 | +47.3 % | 10.03 | 5.20 | +93.1 % |
+| iree_sr_a (rep0 / rep1) | 14 003.97 (cold gen) | 15 965.23 (cold gen) | −12.3 % | 82.56 / 126.79 | 130.59 / 127.89 | −36.8 % / −0.9 % |
+| np_c5r2 | 194.00 | 191.31 | +1.4 % | 22.81 | 20.78 | +9.8 % |
+| np_fixture200_n64 | 969.27 | 995.50 | −2.6 % | 90.15 | 135.94 | −33.7 % |
+| np_sr_a (rep0 / rep1) | 2 705.00 (cold gen) | 2 255.92 (cold gen) | +19.9 % | 156.14 / 47.98 | 154.45 / 33.83 | +1.1 % / +41.8 % |
+**What is robust across the two windows (contention-independent) and what is window noise.**
+*Robust — identical in W1 and W2, and independent of the device:* every exit code and `complete`/`partial` flag;
+the cold-build traffic per config (json `misses_max` `48 / 155 / 517 / 1 / 1 / 170`, stage rep totals `48+0 /
+155+0 / 155+362 and 0+0 / 0+0 / 0+0 / 0+169 and 0+0 / 48+0 / 155+0 / 155+362`) — the same numbers as the Arm A
+twins; the fd telemetry (`39 → 91 → 91` on the six IREE configs, `39 → 59 → 59` on the three numpy ones); the
+nanobind teardown leak counts (dense `677 / 677 / 1 820` instances, `_spec` `4 052 / 12 902 / 3 854` — the same
+values W1 and window 3 reported); and the **bitwise-identical 10-generation fitness trajectory** of all three
+training ids (`per_gen_best_fitness` equal element-for-element between W1 and W2, `best_fitness_final` =
+`-0.2510969936847687` everywhere). No guard-skip, no timeout, no interrupt, no SIGSEGV, no re-run.
+*Window noise — do not read as regressions or improvements:* every first-call / warm / per-generation figure above.
+They move both ways (the `_spec` first calls −13 %/−23 %, the dense eval warms ×1.7 and ×1.9 on a 5–15 ms base, the
+numpy warm median −34 % on `fixture200_n64` and +9.8 % on `c5r2`, the `sr` rep-1 medians +5 %/−0.9 %/+42 %), they
+straddle the documented per-structure-compile spread (± a factor of a few) and the shared-host ±10 % band, and the
+`sr` per-generation series are bimodal in both windows — W2 `iree_sr_a` rep1 `per_gen_ms[1:]` =
+`[329.5, 167.0, 129.7, 126.8, 41.4, 40.7, 41.8, 52.6, 129.1]`, W1's the two-cluster shape documented in window 3 —
+so the median is an unstable comparison point. **No W1 claim flips in W2**: the Arm B-vs-Arm A verdict (the patched
+ETL changes no fitness, no build traffic and no number the round cares about) holds identically in both windows,
+which is exactly what the companion window was run to establish.
+**Validator (gate (ii), re-run over the W2 records — all 9 ids on disk, FINAL):**
+```text
+9 record(s): 9 complete, 0 partial, 0 skipped, 0 missing, 0 malformed (0 not in the manifest)
+34 check(s), 0 failure(s)
+armB_iree_fixture64_n64_spec   new   eval64  complete   17523.11      59.47  48 (reps[0].totals.cold_builds)   0 (reps[0].totals.warm_misses)
+armB_iree_fixture200_n64_spec  new   eval64  complete   63533.30     236.50  155 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_iree_sr_a_spec            new   sr      complete  117095.61   11519.50  155 (reps[0].totals.cold_builds)  362 (reps[0].totals.warm_misses)
+armB_iree_fixture64_n64        new   eval64  complete   16491.61      14.84  0 (reps[0].totals.cold_builds)    0 (reps[0].totals.warm_misses)
+armB_iree_fixture200_n64       new   eval64  complete   18010.95      10.03  0 (reps[0].totals.cold_builds)    0 (reps[0].totals.warm_misses)
+armB_iree_sr_a                 new   sr      complete   14003.97      82.56  0 (reps[0].totals.cold_builds)    169 (reps[0].totals.warm_misses)
+armB_np_c5r2                   new   eval64  complete     194.00      22.81  48 (reps[0].totals.cold_builds)   0 (reps[0].totals.warm_misses)
+armB_np_fixture200_n64         new   eval64  complete     969.27      90.15  155 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_np_sr_a                   new   sr      complete    2705.00     156.14  155 (reps[0].totals.cold_builds)  362 (reps[0].totals.warm_misses)
+CHECKER_EXIT=0
+```
+Full stdout kept verbatim as `results/armB/status_check_r3_armB_w2_final.txt` (raw checker stdout plus this phase's
+appended `CHECKER_EXIT=0` marker line, the same convention as `status_check_r3_armB_final.txt`). `manifest_armB.txt`
+was not edited: the same 9 ids, the same 9 paths, the same `stages` markers — only the JSON contents behind those
+paths changed (W2 above W1). The dense eval arms still show the stage-sourced `0` in the checker's `cold_builds`
+column against their JSON-level `1` — the documented dense-route display gap, unchanged.
+**Records of record.** The committed `results/armB/new/*.json` files are now the **W2** records of record; the
+**W1 JSONs remain retrievable in git history at the pre-window tip `b728466`** (`git show b728466:test/benchmark/
+r2/round3/results/armB/new/<id>.json`; every W1 JSON's own last-change commit is listed in the footer below), and the
+append-only per-config logs under `results/armB/new/*.log` carry **both** windows side by side (each W2 block starts
+with its own `Arm B config <id> (side=new …) started …` header and ends with `exit code:` / `gpu (after)` /
+`finished`; the W1 blocks above them are untouched).
 ### Deviations / anomalies
 **Tooling-window decisions carried into every Arm B run (recorded here once, on purpose):**
 * **`EVOGP_EVAL_MODE=auto` is passed EXPLICITLY on the three plain `iree` arms** (`armB_iree_fixture64_n64`,
@@ -660,6 +781,42 @@ Arm B gate is untouched by this phase.
   records are deliberately not manifest ids: `check_r3.py --manifest manifest_armB.txt --require-stages`
   still reports 9 complete / 34 checks / 0 failures with them on disk
   (`results/armB/status_check_r3_armB_after_b2.txt`), so the frozen Arm B gate is unaffected.
+* **Window 6 / GPU 0 — the companion window ran clean (9/9 exit 0, no GUARD-SKIP, no timeout, no interrupt, no kill,
+  no re-run), but the chosen device was taken over mid-window.** The device decision was taken on a genuinely idle
+  GPU 0 (0 % / 1 MiB in all 10 samples, ≈48.7 GiB free), and the first three configs (the `iree-spec` group) ran
+  free; at ≈23:58 hyqiu launched pid 2497811 on GPU 0 (19 706 MiB) and at ≈00:00 pid 2498391 on GPU 1
+  (20 076 MiB), so the last six configs ran with that ≈19.8 GB tenant on the chosen card (per-config `gpu
+  (before)/(after)` pairs in the logs: `0/4` → `70/31 %` → `64/83 %` → `52/91 %` → `60/63 %` → `77/62 %` → `63/23 %`,
+  with `nvidia_smi_used_mb_start` climbing 4 → 5 269 → 19 817 MiB). The configs' `--mem-guard-mb 8192` floor was
+  never close (`free_mb_start` minimum **28 576 MiB**), so the guard never armed and no exit-3 path was taken. A
+  companion window was **not** repeated on a third device: at window end no tenant-free GPU was left on the box
+  (GPU 5 has 24 395 MiB of VLLM resident, GPU 6's ≈30 GB tenant still bursting, GPU 7 is ECC-faulted), so the W1→W2
+  deltas above stay explicitly *window-paired* — the same reading rule the W1 tables carry.
+* **Window 6 — device-selection record.** GPUs 0 and 1 tied on both selection criteria (0 % util, 1 MiB resident in
+  every sample of the 10-sample series) and the tie was broken by the lower index ⇒ **GPU 0**, which is also the
+  device of R3's own companion (Arm A light-group) window; GPU 5 was idle but non-empty (24 395 MiB), GPUs 2/3/4 were
+  busy, GPU 6 was bursting to 100 %, GPU 7 was excluded (2 263 uncorrected volatile ECC errors). Full snapshot,
+  compute-app inventory and rationale are in `windows.md` window 6.
+* **Window 6 — no FD, guard or teardown incident**: every JSON is `complete: true` / `partial=false`, every log
+  footer reads `exit code: 0 (OK)` with a `gpu (after)` line, the fd trajectories are flat (`39 → 91 → 91` on the six
+  IREE configs, `39 → 59 → 59` on the three numpy ones, exactly the W1 values) and the nanobind teardown leak counts
+  equal W1's (dense `677 / 677 / 1 820`; `_spec` `4 052 / 12 902 / 3 854`); the shared lock was released after every
+  config and `ulimit -n 65536` was raised by the runner first.
+* **Window 6 — the stage-block route caveat reproduced on a different device, unchanged**: the two dense eval arms
+  carry the degenerate `stages` block, `armB_iree_sr_a` carries real counters, and the `_spec`/numpy configs carry
+  fully populated ones — evidence that the R3 caveat is a property of the evaluation route, not of the window or the
+  card. Gate (ii) is unaffected (all nine `stages` markers satisfied).
+* **Window 6 — operator-side naming mishap in the first pair of invocations (configs 4 and 5), caught before the
+  write-up.** The two dense-`iree` consoles were captured with a `${id}`-templated path that this platform shell
+  expands to empty, so both landed in one mis-named `status__w2.txt` (config 4's console overwritten by config 5's)
+  and the two per-config commits `c17d1c4` / `d88a03b` received the same truncated subject
+  `round3: Arm B W2 config (, exit 0, GPU 0)`. Repair (commit `b7aa8e4`): config 4's console restored verbatim from
+  `c17d1c4` (`git show`), config 5's from the working file, both committed under the correct
+  `status_armB_iree_fixture64_n64_w2.txt` / `status_armB_iree_fixture200_n64_w2.txt` names, and the mis-named file
+  removed. **No JSON, no log and no manifest row was ever affected** — the records and the append-only logs were
+  correct all along; only the console captures' filenames were wrong. The same shell quirk left config 1's
+  `status_*_w2.txt` `RUNNER_EXIT=` marker empty; that file now carries a corrected `RUNNER_EXIT=0` line plus an
+  operator annotation (commit `c24f999`), and every W2 status file still carries the runner's own id→exit table.
 **Analysis of record:** Arm B's write-up goes here once the round runs; the baseline it is read against
 is `round3/SUMMARY.md` (Arm A) and, one level up, `../REPORT.md` (R2) — Arm B's headline question is
 whether the patched ETL checkout changes any R3 number or fitness vector, so the tables to produce are
@@ -698,3 +855,22 @@ preserved mis-invoked first execution of attempt 2 — plus their three logs and
 hides `*.log`, exactly as for Arm A's records) and `174f33a`
 (`etl_import_probe.txt` sixth block + `windows.md` window 5), and this follow-up commit carries the
 filled-in `iree_sr_b2` re-attempt subsection and the three window-5 anomaly bullets.
+**W1 records pointer:** the pre-W2 tip of `results/armB/new/*.json` is **`b728466`** ("round3: iree_sr_b2
+re-attempt commits record (window-5 phase SHAs) in the Arm B runlog footer"), i.e. every W1 JSON snapshot is
+retrievable with `git show b728466:test/benchmark/r2/round3/results/armB/new/<id>.json`. Verified in the W2 window
+with `git log --oneline -1` and by listing where each W1 JSON last changed: `armB_iree_fixture64_n64_spec` `fc4e9dd`,
+`armB_iree_fixture200_n64_spec` `1795c0d`, `armB_iree_sr_a_spec` `72420d1`, `armB_iree_fixture64_n64` `8ee004c`,
+`armB_iree_fixture200_n64` `a59dac2`, `armB_iree_sr_a` `5fff188`, `armB_np_c5r2` `f3a4cae`,
+`armB_np_fixture200_n64` `8104481`, `armB_np_sr_a` `f347d47` (the three `iree_sr_b2*` records, not matrix ids, last
+changed in `186a25e` and were **not** re-run by W2).
+**Commits the W2 (companion) window covers:** `5f8e6fd` (`etl_import_probe.txt` seventh block + `windows.md`
+window 6, committed before the first invocation), `8f7b0a9` (`armB_iree_fixture64_n64_spec.{json,log}` +
+`status_*_w2.txt`), `2fc3e65` (`armB_iree_fixture200_n64_spec.*`), `425d780` (`armB_iree_sr_a_spec.*`), `c17d1c4` and
+`d88a03b` (the two dense-`iree` configs `armB_iree_fixture64_n64` / `armB_iree_fixture200_n64`; their subjects lost
+the id to the shell quirk documented in the window-6 anomaly bullets), `c086d85` (`armB_iree_sr_a.*`), `8a28d6c`
+(`armB_np_c5r2.*`), `0b70644` (`armB_np_fixture200_n64.*`), `b2f3af9` (`armB_np_sr_a.*`), `b7aa8e4` (status-file
+re-names + the two recovered consoles, minus the mis-named file removed), `c24f999` (`status_*_w2.txt` for config 1
+repaired with its corrected `RUNNER_EXIT=0` marker) and this follow-up commit, which carries the W2 subsection above,
+`results/armB/status_check_r3_armB_w2_final.txt` (the re-run gate, `CHECKER_EXIT=0`), the five window-6 anomaly
+bullets and the post-run state appended to `windows.md` window 6. Every W2 config commit used `git add -f` for the
+`*.log` files (`.gitignore:32` hides `*.log`, exactly as for Arm A's records).

@@ -1,0 +1,17 @@
+manifest: test/benchmark/r2/round3/manifest_armB.txt (9 expected ids, 9 expect stages)
+
+id                             side  task    status     first_ms    warm_ms   cold_builds   warm_misses
+-------------------------------------------------------------------------------------------------------
+armB_iree_fixture64_n64_spec   new   eval64  complete   17523.11      59.47  48 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_iree_fixture200_n64_spec  new   eval64  complete   63533.30     236.50  155 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_iree_sr_a_spec            new   sr      complete  117095.61   11519.50  155 (reps[0].totals.cold_builds)  362 (reps[0].totals.warm_misses)
+armB_iree_fixture64_n64        new   eval64  complete   16491.61      14.84  0 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_iree_fixture200_n64       new   eval64  complete   18010.95      10.03  0 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_iree_sr_a                 new   sr      complete   14003.97      82.56  0 (reps[0].totals.cold_builds)  169 (reps[0].totals.warm_misses)
+armB_np_c5r2                   new   eval64  complete     194.00      22.81  48 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_np_fixture200_n64         new   eval64  complete     969.27      90.15  155 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_np_sr_a                   new   sr      complete    2705.00     156.14  155 (reps[0].totals.cold_builds)  362 (reps[0].totals.warm_misses)
+
+9 record(s): 9 complete, 0 partial, 0 skipped, 0 missing, 0 malformed (0 not in the manifest)
+34 check(s), 0 failure(s)
+CHECKER_EXIT=0
