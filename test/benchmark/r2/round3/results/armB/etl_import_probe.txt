@@ -58,3 +58,32 @@ $ PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import importl
 # The read-only checkout at /tmp/evogp_etl_patched_51a7141 and the sibling ETL source
 # checkout /mnt/local-ssd/bchuang/etl were NOT modified by this probe (or by anything in
 # test/benchmark/r2/round3/**).
+
+########## 2026-09-12T22:54:14+08:00 (UTC 2026-09-12 14:54:14) -- agreement pre-flight window (gate (i), six arms, GPU 6) ##########
+# cwd: repository root of the Arm B pre-flight worktree (PYTHONPATH=src resolves it)
+# interpreter: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+# user: bchuang   host load average: 125.64 120.33 110.51
+
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import etl; print(etl.__file__)"
+/tmp/evogp_etl_patched_51a7141/etl/__init__.py
+
+$ PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import etl; print(etl.__file__)"
+/mnt/local-ssd/bchuang/etl/etl/__init__.py
+
+# same probe for the package metadata version -- still identical for both checkouts
+# (the reason this file exists rather than relying on the JSON's etl_version):
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import importlib.metadata as m; print(m.version('etl'))"
+0.1.0
+
+$ PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import importlib.metadata as m; print(m.version('etl'))"
+0.1.0
+
+# import smoke through the public submodule path with the shadow in place (the engine's own
+# `import etl` must resolve inside the patched checkout, not the stock editable install):
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import evogp.tree, etl; print('evogp.tree ok', etl.__file__)"
+evogp.tree ok /tmp/evogp_etl_patched_51a7141/etl/__init__.py
+
+# per-arm confirmation: the runner also writes the resolved etl.__file__ into every arm log
+# header (the `etl:` line of results/armB/backend_agreement/<stem>.log), so the shadow is
+# provable per arm and not only at window level.  Read-only probes; neither ETL checkout was
+# written by this window.

@@ -85,3 +85,57 @@ time to a config.
   follow the Arm A precedent of moving to a tenant-free card (GPU 0 was only occupied by hyqiu's
   ≈21 GB job at this snapshot, so a GPU choice must be re-checked per window, not assumed).
   Nothing measured in this window is a benchmark number — there are none.
+
+---
+## Window 1 — 2026-09-12 14:54 UTC (22:54 HKT) — Arm B agreement pre-flight (gate (i), six arms)
+- purpose / phase: agreement pre-flight — the six Arm B arms (`fixture64|fixture200` ×
+  `numpy|iree|iree_spec`) against the PATCHED ETL checkout, one fresh
+  `check_backend_agreement.py` process per arm, serialized on the shared benchmark lock.
+  Correctness gate only: no R3-style headline number comes out of this window, so shared-host
+  contention can slow it, but cannot make it wrong.
+- commands: `bash test/benchmark/r2/round3/run_agreement_armB.sh` (one invocation, all six arms,
+  launched with `nohup … > /tmp/armB_evidence/armB_agreement_console.log 2>&1 &` from the repo root
+  and polled; no wrapper lock, no `timeout` — the runner owns both), followed by
+  `python3 test/benchmark/r2/round3/check_agreement_armB.py`; plus the read-only ETL import probes
+  appended to `etl_import_probe.txt` at window start.
+- cwd / interpreter: repository root of the Arm B pre-flight worktree
+  (`/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A255`),
+  `/mnt/local-ssd/bchuang/evox/.venv/bin/python`
+- PYTHONPATH: `src:/tmp/evogp_etl_patched_51a7141`   (Arm B: the patched checkout shadows the stock
+  editable install — re-verified in this window, see `etl_import_probe.txt`)
+- CUDA_VISIBLE_DEVICES: 6   (the runner's default, kept because GPU 6 was at **0 % utilization** in
+  the snapshot below; never 7 — hardware ECC fault). All six arms used the one chosen device.
+- nvidia-smi (ALL GPUs), 2026-09-12T22:54:14+08:00 (UTC 14:54:14):
+  ```text
+  0, NVIDIA RTX A6000, 100, 22510, 49140
+  1, NVIDIA RTX A6000, 100, 22856, 49140
+  2, NVIDIA RTX A6000, 0, 16583, 49140
+  3, NVIDIA RTX A6000, 0, 15377, 49140
+  4, NVIDIA RTX A6000, 0, 15389, 49140
+  5, NVIDIA RTX A6000, 0, 24395, 49140
+  6, NVIDIA RTX A6000, 0, 30455, 49140
+  7, NVIDIA RTX A6000, 0, 1, 46068
+  ```
+- compute apps (pid → user, MiB), same snapshot:
+  - GPU 0 (`GPU-7ca10c94…`): 2394552 → hyqiu 19706, 2398977 → yzhou (nnUNetv2_predic) 2794
+  - GPU 1 (`GPU-38ba30b9…`): 2394555 → hyqiu 20052, 2398881 → yzhou (nnUNetv2_predic) 2794
+  - GPU 2 (`GPU-01343fc6…`): 1228200 → whhu (VLLM::EngineCore, 35 d) 16454
+  - GPU 3 (`GPU-25828e67…`): 1285079 → hyqiu (pt_main_thread, 1 d 11 h) 15320
+  - GPU 4 (`GPU-098b70f2…`): 1284680 → hyqiu 15300
+  - GPU 5 (`GPU-a4c47eb9…`): 1228191 → whhu (VLLM) 24274
+  - GPU 6 (`GPU-b8253071…`): 2246336 → syfang (python, up ≈2 h 59 m) 30406 — the same foreign tenant
+    the tooling window and Arm A's first window ran alongside (≈30 GB of the 49 GB card, **idle in
+    this snapshot**)
+  - GPU 7 (`GPU-0f5f6bfd…`): no compute apps (1 MiB resident) — the known hardware-ECC-fault card,
+    never used
+- uptime / loadavg: `22:54:14 up 252 days, 21:09, 46 users, load average: 125.64, 120.33, 110.51`
+  (`/proc/loadavg` 125.64 120.33 110.51 11/15866) — the host is under heavy load (≈126, 46 users)
+- ulimit -n (after the runner's raise): 65536
+- contention notes: GPU 6 was **0 % utilized / ≈30 GB resident** (syfang's job) when the device was
+  chosen, so the default card was kept; the arms' own `gpu (before)/(after)` snapshots in their logs
+  show that tenant's utilization fluctuating (0 → ≈97 %) while the six arms ran, i.e. the window is
+  shared exactly like Arm A's. The agreement gate compares fitness vectors, not times, so this window
+  is quotable as a *correctness* verdict regardless of the contention; any wall time quoted from it
+  carries the usual shared-box inflation and is not a benchmark number. Lock discipline is the
+  runner's: exactly one `flock -w 7200 /tmp/gpbench_critical.lock` per arm, never nested (other
+  agents share that lock), with no `timeout` wrapper inside it.
