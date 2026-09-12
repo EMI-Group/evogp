@@ -292,3 +292,62 @@ time to a config.
   numbers the shared-box ±10 % band; per-config evidence is the `gpu (before)/(after)` pair in each
   committed `results/armB/new/<id>.log`. The `sr` arm's fitness trajectory is contention-independent
   and is the cross-check that this window measured the same workload as Arm A / R2.
+
+---
+## Window 4 — 2026-09-12 15:26 UTC (23:26 HKT) — matrix group `numpy` (3 configs, GPU 6)
+- purpose / phase: matrix group `numpy` — the three default-`numpy`-backend configs
+  (`armB_np_c5r2`, `armB_np_fixture200_n64`, `armB_np_sr_a`; `--stage-probe` ON, no env overrides)
+  against the patched ETL shadow. On `numpy` the engine keeps the SPECIALIZED route, so unlike the
+  dense `iree` eval arms this group's `stages` blocks are expected to be meaningful — their contents
+  are recorded verbatim in the runlog section.
+- commands: one foreground invocation per config, in run order —
+  `bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_c5r2`,
+  `bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_fixture200_n64`,
+  `bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_sr_a`
+  (each console tee'd to `results/armB/status_<id>.txt`; the runner owns `ulimit`/`flock`/`timeout` —
+  one `flock -w 7200 /tmp/gpbench_critical.lock` per config with `timeout -s INT -k 30 3600` inside
+  it), plus the read-only ETL import probes appended to `etl_import_probe.txt` at window start and the
+  full-manifest validator (`check_r3.py --manifest ... --require-stages`) after the last config.
+- cwd / interpreter: repository root of the Arm B `numpy` matrix worktree,
+  `/mnt/local-ssd/bchuang/evox/.venv/bin/python`
+- PYTHONPATH: `src:/tmp/evogp_etl_patched_51a7141`   (shadow re-verified at window start, see
+  `etl_import_probe.txt` fifth block; patched-file hashes unchanged since the agreement window)
+- CUDA_VISIBLE_DEVICES: 6   (the runner default, **kept**: two utilization series of GPU 6 taken at
+  window start — 12 samples / 3 s: `0 0 0 0 0 0 0 0 85 42 98 97 %`, then 15 samples / 3 s:
+  `0 0 0 0 0 0 0 9 0 0 0 0 0 0 0 %` — show the ≈30 GB `syfang` tenant **bursting, not sustained
+  ≥90 %**, so the switch rule does not trigger; the group is the CPU-side reference interpreter
+  anyway, so the device only holds tensors. GPU 7 — hardware ECC fault — is never used.)
+- nvidia-smi (ALL GPUs), 2026-09-12T23:25:59+08:00 (UTC 15:25:59):
+  ```text
+  0, NVIDIA RTX A6000, 0, 1, 49140
+  1, NVIDIA RTX A6000, 0, 1, 49140
+  2, NVIDIA RTX A6000, 0, 16583, 49140
+  3, NVIDIA RTX A6000, 0, 15315, 49140
+  4, NVIDIA RTX A6000, 0, 15387, 49140
+  5, NVIDIA RTX A6000, 0, 24395, 49140
+  6, NVIDIA RTX A6000, 0, 30439, 49140
+  7, NVIDIA RTX A6000, 0, 1, 46068
+  ```
+- compute apps (pid → user, MiB), same snapshot:
+  - GPU 0 (`GPU-7ca10c94…`): no compute apps (1 MiB resident) — hyqiu's window-3 job has exited
+  - GPU 1 (`GPU-38ba30b9…`): no compute apps (1 MiB resident) — same
+  - GPU 2 (`GPU-01343fc6…`): 1228200 → whhu (VLLM::EngineCore, up 35 d) 16454
+  - GPU 3 (`GPU-25828e67…`): 1285079 → hyqiu (pt_main_thread, up 1 d 12 h) 15258
+  - GPU 4 (`GPU-098b70f2…`): 1284680 → hyqiu (pt_main_thread, up 1 d 12 h) 15298
+  - GPU 5 (`GPU-a4c47eb9…`): 1228191 → whhu (VLLM, up 35 d) 24274
+  - GPU 6 (`GPU-b8253071…`): 2246336 → syfang (`python main.py --config exps/video_attention.json`,
+    up 3 h 31 m) 30406 — the same ≈30 GB foreign tenant as windows 0/1/1b/2/3
+  - GPU 7 (`GPU-0f5f6bfd…`): no compute apps (1 MiB resident) — the known hardware-ECC-fault card,
+    never used
+- uptime / loadavg: `23:26:01 up 252 days, 21:41, 46 users, load average: 80.59, 82.54, 92.51`
+  (`/proc/loadavg` 80.59 82.54 92.51 5/13956)
+- ulimit -n (after the runner's raise): 65536
+- contention notes: GPUs 0 and 1 became tenant-free since window 3 (hyqiu's job that the `iree` group
+  shared the card with has exited), but GPU 6 was kept under the documented rule — the `syfang` tenant
+  bursts to 85–98 % for a few seconds and then idles, never sustained ≥90 % — so this window stays on
+  the same device as windows 1b/2/3 and is directly comparable to them. Host loadavg at window start
+  ≈81–93 / 46 users (lower than windows 2/3's ≈100–110). The three configs are the **numpy reference
+  interpreter** route, i.e. host-side (CPU) graph work: the shared-host load is the first-order
+  contention source, the GPU only holds the tensors, and each config's `gpu (before)/(after)` pair is
+  recorded in its committed log. The `sr` arm's fitness trajectory is contention-independent and is
+  the cross-check that this window measured the same workload as Arm A / R2.
