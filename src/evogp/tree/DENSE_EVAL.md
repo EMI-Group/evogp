@@ -38,11 +38,11 @@ shape: **one executable, whole population, one readback per call**, compile amor
 of the same shape.
 
 Measured consequence (§6): on IREE the dense path wins the **cold** phase by orders of magnitude (one
-13–17 s compile for the whole population against the 13–28 per-tree compiles of P=16–32, worth
-4.6–48.6 s in the grid cells), while its **warm** win is modest wherever both sides were measured
-directly (1.3–3.2× at N=64/1024 and 1.18× *slower* at N=10000, P=16). On the numpy reference
-interpreter it loses at every size (0.006–0.91× of the specialized warm throughput), which is why the
-default policy never selects it there.
+13.9 s compile at `L=32` / 31.6 s at the default cap `L=64` for the whole population against the 13–28
+per-tree compiles of P=16–32, worth 4.6–48.6 s in the grid cells), while its **warm** win is modest
+wherever both sides were measured directly (1.3–3.2× at N=64/1024 and 1.18× *slower* at N=10000, P=16).
+On the numpy reference interpreter it loses at every size (0.006–0.91× of the specialized warm
+throughput), which is why the default policy never selects it there.
 
 ---
 
@@ -52,7 +52,7 @@ default policy never selects it there.
 
 No per-tree host walk and no `decode_population`: the three `(pop_size, max_tree_len)` tensors are
 read to host once per call (`_as_numpy`) and turned into `(L, P)` **runtime input columns**, with
-`L = min(EVOGP_DENSE_MAX_TREE_LEN (32), max_tree_len)`:
+`L = min(EVOGP_DENSE_MAX_TREE_LEN (64), max_tree_len)`:
 
 | column | dtype | meaning |
 | --- | --- | --- |
@@ -170,7 +170,7 @@ accepted and still all mapping to the same engine path.
 | `EVOGP_EVAL_MODE` | `auto` | `dense` = always try dense (still falling back on `DenseUnsupported`); `specialized` = never; `auto` = the measured policy. `dynamic` is a first-class ALIAS of `dense` (case/whitespace-insensitive, in `EVAL_MODE_ALIASES`, never gated by the rows rule); unknown → `ValueError` |
 | `EVOGP_DENSE_AUTO_MIN_POP` | `16` | `auto`'s `pop_size` threshold on a non-numpy backend (`< 1` → `ValueError`) |
 | `EVOGP_DENSE_AUTO_MAX_ROWS` | `2048` | `auto`'s data-row ceiling for `per_row=False` calls: dense is rows-linear while the specialized engine is rows-flat, so more rows decline inside `evaluate_dense` (→ normal `DenseUnsupported` fallback; `< 1` → `ValueError`). `per_row=True` and an explicit `dense` are never gated |
-| `EVOGP_DENSE_MAX_TREE_LEN` | `32` | trace cap `L`; a longer tree → `DenseUnsupported` (`<= 0` → `ValueError`) |
+| `EVOGP_DENSE_MAX_TREE_LEN` | `64` | trace cap `L`; a longer tree → `DenseUnsupported` (`<= 0` → `ValueError`) (`L = min(cap, row_len)`, so a `max_tree_len=32` population still traces `L=32`) |
 | `EVOGP_DENSE_BUDGET_MB` | `2048` | chunking budget in MiB (`<= 0` → `ValueError`) |
 | `EVOGP_DENSE_UPDATE_MODE` | `grow` | `grow` / `concat` / `scatter` (unknown → `ValueError`; iree-`scatter` → `DenseUnsupported`) |
 | `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER` | unset | opt-in for `scatter` on iree |
@@ -205,8 +205,9 @@ specialized engine — never an error. Consequences:
   stay specialized on every backend unless `EVOGP_EVAL_MODE=dense` is set explicitly;
 * `CombinedForest` sub-forests are single-output populations forwarded through `Forest.forward` /
   `Forest.batch_forward`, so each sub-forest gets the same policy decision as any other population;
-* the threshold is a **flat** `pop_size` gate (it ignores `L`): at the L=32 cap one dense compile costs
-  13–17 s against ~0.5 s per distinct tree, so the compile-term crossover alone is ≈25–35 trees;
+* the threshold is a **flat** `pop_size` gate (it ignores `L`): one dense compile costs 13.9 s at
+  `L=32` and 31.6 s at the current default cap `L=64`, against ~0.5 s per distinct tree, so the
+  compile-term crossover alone is ≈25–35 trees at `L=32` and ≈45–60 at `L=64` (§9.4);
 * the rows ceiling is the second half of the measured rule: dense cost grows with the data-row count
   while the specialized engine's warm cost is rows-flat (1.24–1.94 ms/tree from N=64 to N=10000), so the
   warm crossover sits at ≈3.4–6.8k rows (P=16), 7.5–8.4k (P=32) and ~11k (P=64) and dense never wins
@@ -223,6 +224,17 @@ specialized engine — never an error. Consequences:
 * **Trace cap.** The longest declared tree must be `<= L = min(EVOGP_DENSE_MAX_TREE_LEN, row_len)`;
   longer trees fall back. `L` bounds trace time and graph size (the candidate chain is emitted `L`
   times).
+  **The default is 64, raised from 32 by the item-5 measurement round** (§9.4): on iree one compile
+  costs ≈13.9 s (`L=32`) / ≈31.6 s (`L=64`) / ≈69.0 s (`L=128`) per shape signature, and for a 33–64-node
+  population at P=64 the dense route (ONE build, ≈28.9 s cold, ≈11.6 ms warm) beats the silent fallback
+  it used to take (64 builds, ≈48.8 s cold, ≈110.3 ms warm; break-even ≈45–60 distinct structures).
+  At P=16 the same population trades 4.1× cold for 4.9× warm. `L=128` was rejected: it would tax every
+  `row_len >= 128` population — the shipped examples are 128/256/512 — with a ≈69 s compile.
+  Two consequences worth knowing before tuning this knob: (a) a population with `row_len >= 64` now
+  traces `L=64` **even when its realized trees are short** (the cap is a `row_len`-derived bound, not a
+  realized-length one), so a hot short-tree shape can pin `EVOGP_DENSE_MAX_TREE_LEN=32`; (b) numpy under
+  the default `auto` is unaffected (dense is never auto-selected there), and the suite's shapes (16/32
+  wide rows) keep tracing their old `L`.
 * **Both backends, one policy.** `numpy` = correct but slow by design; `iree` = the intended
   production backend for the dense path (CUDA HAL only, `O0`/`O1`).
 * **Shapes.** `per_row=True` needs `x.shape[0] == pop_size` and returns `(pop_size, output_len)`;
@@ -444,8 +456,21 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
    (`EVOGP_DENSE_AUTO_MAX_ROWS`, 2048 — ~2× below the tightest measured crossover), but
    `EVOGP_DENSE_AUTO_MIN_POP` is still a flat pop gate and the crossover also depends on `L`
    (compile ∝ L); a gate on `(pop_size, L, N)` is the obvious refinement.
-4. **`L > 32` economics.** The trace cap bounds compile time and chunk memory; raising it needs fresh
-   measurements (the graph op count is linear in `L`).
+4. **`L > 32` economics — measured, and the cap is now 64 (item 5, done).** The trace cap bounds
+   compile time and chunk memory (the graph op count is linear in `L`), so the raise was measured before
+   it was made: iree compile per shape signature ≈13.9 s (`L=32`) / ≈31.6 s (`L=64`) / ≈69.0 s
+   (`L=128`); for a 33–64-node population at P=64 the dense route (ONE build, ≈28.9 s cold, ≈11.6 ms
+   warm) beats the specialized fallback (64 builds, ≈48.8 s cold, ≈110.3 ms warm; break-even ≈45–60
+   distinct structures), and at P=16 it trades 4.1× cold for 4.9× warm (4.1×/4.9× are per-population
+   ratios at the same 33–64-node shape). **Decision: default 64, not 128** — `L=128` would pay a ≈69 s
+   compile for every `row_len >= 128` population, and the shipped descriptors are 128/256/512 wide.
+   Memory stayed safe across the round (peak RSS ≤ 2.7 GB, no grid cell skipped) and the numpy default
+   route is untouched (dense is never auto-selected on numpy). Full record:
+   `device_resident_findings.md` §9.
+   **Still open (documented, NOT implemented):** derive `L` from the REALIZED longest tree rounded up to
+   a power of two, clamped at the cap — that would stop a short-tree population with a wide row
+   (`row_len >= 64`) from paying `L=64`, at the cost of an extra compile per distinct realized length.
+   Unmeasured, so it is not in the code.
 5. **Cross-call caching of the prepared columns and `x`.** A generation re-evaluates a *new* population
    on the *same* `x`, so keeping the device-resident `x` block (and the columns' device copies) across
    calls would remove most of the per-chunk upload cost.

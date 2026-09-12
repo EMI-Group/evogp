@@ -57,9 +57,10 @@ One master switch, read **per call** (exactly like ``EVOGP_ETL_BACKEND`` in
     (:func:`sr_fitness_dense` goes through it too); ``per_row=True`` (one row per
     tree) and an explicit ``EVOGP_EVAL_MODE=dense`` are never gated, and a
     decline surfaces as the usual :class:`DenseUnsupported` fallback.
-    Rationale: the dense path pays ONE compile for the whole population (13-17 s
-    at ``L=32``) against ~0.5 s *per distinct structure* for the specialized
-    path, so the compile-term crossover is only ~25-35 trees (hence the flat
+    Rationale: the dense path pays ONE compile for the whole population (≈13.9 s
+    at ``L=32``, ≈31.6 s at the default cap ``L=64``) against ~0.5 s *per distinct
+    structure* for the specialized path, so the compile-term crossover is only
+    ~25-35 trees at ``L=32`` (≈45-60 at ``L=64``; hence the flat
     ``pop_size`` gate), while warm dense is 1.3-3.2x faster at small ``N`` where
     both sides are measured directly and 1.18x *slower* at ``P=16/N=10000`` --
     its cost grows with the data-row count while the specialized engine's is
@@ -84,9 +85,10 @@ Scheme (see :func:`_dense_body` for the trace-time body)
    (float32), ``var_index`` (truncated, validated, clamped) and the three prefix
    child positions ``child1/2/3`` (clamped to ``[0, L)``).
    ``L = min(cap, max_tree_len)`` where ``cap`` is :data:`MAX_TREE_LEN_ENV`
-   (default 32); a population whose longest tree exceeds ``L`` -- or that fails
-   *any* structural check -- raises :class:`DenseUnsupported` so the caller falls
-   back to the specialized path (which owns the error contract; this module
+   (default :data:`DEFAULT_MAX_TREE_LEN` = 64, so a ``max_tree_len=32`` population
+   still traces ``L=32``); a population whose longest tree exceeds ``L`` -- or that
+   fails *any* structural check -- raises :class:`DenseUnsupported` so the caller
+   falls back to the specialized path (which owns the error contract; this module
    deliberately does NOT reproduce
    :func:`etl_engine.decode_population`'s error messages).
 2. **One graph** (module-level ``@etl.defn _dense_step``) with a Python
@@ -156,7 +158,7 @@ Environment knobs
                                             a decline -> ``DenseUnsupported``
                                             fallback; ``per_row=True`` and an
                                             explicit ``dense`` are never gated
-``EVOGP_DENSE_MAX_TREE_LEN``    32          max trace length ``L``; longer trees
+``EVOGP_DENSE_MAX_TREE_LEN``    64          max trace length ``L``; longer trees
                                             -> :class:`DenseUnsupported`
 ``EVOGP_DENSE_BUDGET_MB``       2048        chunking memory budget (MiB)
 ``EVOGP_DENSE_UPDATE_MODE``     grow        ``grow`` / ``concat`` / ``scatter``
@@ -392,7 +394,8 @@ AUTO_MAX_ROWS_ENV = "EVOGP_DENSE_AUTO_MAX_ROWS"
 #: Max trace length ``L`` (``EVOGP_DENSE_MAX_TREE_LEN``): populations whose
 #: longest tree exceeds it fall back to the specialized engine.  This is the
 #: knob that bounds trace time and graph size (the candidate chain is emitted
-#: ``L`` times) -- see the ``L`` scaling curve in the module docstring.
+#: ``L`` times) -- see the ``L`` scaling curve in the module docstring and
+#: :data:`DEFAULT_MAX_TREE_LEN` for the measured default.
 MAX_TREE_LEN_ENV = "EVOGP_DENSE_MAX_TREE_LEN"
 #: Chunking memory budget in MiB (``EVOGP_DENSE_BUDGET_MB``).
 BUDGET_MB_ENV = "EVOGP_DENSE_BUDGET_MB"
@@ -433,7 +436,17 @@ DEFAULT_AUTO_MIN_POP = 16
 #: tightest crossover; env-overridable.
 DEFAULT_AUTO_MAX_ROWS = 2048
 
-DEFAULT_MAX_TREE_LEN = 32
+#: Trace cap default: 64, i.e. the shipped descriptors' practical maximum
+#: (``example/`` builds ``max_tree_len`` 128/256/512, whose REALIZED trees are far
+#: shorter).  Measured on iree (the item-5 measurement round): one compile costs
+#: ~13.9 s (L=32) / ~31.6 s (L=64) / ~69.0 s (L=128) per shape signature, so a
+#: 33-64-node population at P=64 (1 build, ~28.9 s cold, ~11.6 ms warm) beats the
+#: specialized fallback there (64 builds, ~48.8 s cold, ~110.3 ms warm;
+#: break-even ~45-60 distinct structures), while at P=16 it trades 4.1x cold for
+#: 4.9x warm.  L=128 is rejected: it would tax every ``row_len >= 128`` population
+#: -- the shipped examples are 128/256/512 -- with a ~69 s compile.  ``L`` is
+#: ``min(cap, row_len)``, so short rows are unaffected by the default.
+DEFAULT_MAX_TREE_LEN = 64
 DEFAULT_BUDGET_MB = 2048
 UPDATE_MODES = ("grow", "concat", "scatter")
 DEFAULT_UPDATE_MODE = "grow"
