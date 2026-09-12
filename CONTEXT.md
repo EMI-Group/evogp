@@ -43,6 +43,7 @@ Supported sequence on the validation box (repo root as CWD, `PYTHONPATH=src`, ve
 2. `PYTHONPATH=src <venv>/bin/python -m evogp.sr_test` — synthetic SR convergence smoke (~30 s; best fitness ≈ −0.17).
 3. `PYTHONPATH=src <venv>/bin/python -m pytest src/evogp/tests -q` — full suite (~107 s); `--ignore=src/evogp/tests/test_equivalence.py` for the fast subset (~119 tests), `-k golden` for the 6 legacy-golden cross-checks.
 4. Run the relevant `example/*.py` from the repository root (relative asset paths such as `imgs/` are CWD-dependent); `test/fix_bug.py` is a script (`python test/fix_bug.py`), not pytest.
+5. Performance work (old CUDA engine vs new ETL engine): read `test/benchmark/REPORT.md` first (verdict + ranked levers, §8); the re-runnable measurement protocol is `bash test/benchmark/r2/run_all.sh` (warm/steady-state, one process per config, GPU 6, medians; `NEW_PYTHONPATH` can shadow the editable `etl` install).
 Known coverage gaps: IREE numeric parity per shape, robotics rollouts, `CustomLoss` end to end, multi-output `CombinedForest` training route.
 ## Notes for Agents
 - Read `src/evogp/CONTEXT.md` first; it is the entry point to the library (API surface, dependency DAG, engine constraints).

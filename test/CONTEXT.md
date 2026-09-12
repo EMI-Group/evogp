@@ -3,13 +3,13 @@
 ## Intent
 Ad-hoc, human-driven validation layer for the repo: one small public-API regression script, the frozen
 **pre-ETL numeric reference** (`goldens/`) plus the script that captured and compares it, an ETL
-economics probe, and three scratch notebooks.
+economics probe, an old-vs-new performance benchmark subtree (`benchmark/`), and three scratch notebooks.
 Nothing here is imported by `evogp`, by the examples or by the pytest suite, and no runner collects these
 files (no CI, no pytest ini in the repo) — every file is executed by hand from the repository root.
 The real regression gate is the pytest suite in `../src/evogp/tests/` (independent plain-torch oracle,
 randomized/adversarial equivalence, operator invariants, API compatibility, convergence smoke): treat
-this directory as the layer *around* it, i.e. legacy cross-checks, an ETL tooling probe and
-human-watched demos.
+this directory as the layer *around* it, i.e. legacy cross-checks, an ETL tooling probe, the benchmark
+subtree and human-watched demos.
 Because there is no test framework here, a green run only means "it ran and its checks held"; only
 `fix_bug.py` (explicit checks that raise `AssertionError`) and the pytest suite verify numbers at all.
 
