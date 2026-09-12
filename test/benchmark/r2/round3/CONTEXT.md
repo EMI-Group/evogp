@@ -28,5 +28,7 @@ Owned artifacts: the matrix runner, the backend-agreement pre-flight runner, the
 - `last_run.txt` and the agreement runner's `run_agreement_r3.last_run.txt` are generated output: delete freely, never commit.
 
 ## Status
-Scaffold in place (runner, manifest, validators, comparison tool, protocol doc) and verified without GPU execution; the round execution (agreement pre-flight + the three matrix groups) is pending.
-`SUMMARY.md` is written after the run from `compare_rounds.py` output plus the two gates' results.
+Scaffold in place (runner, manifest, validators, comparison tool, protocol doc) and verified without GPU execution.
+Gate (i) — the backend-agreement pre-flight — **has been executed** (2026-09-12, GPU 6, six arms, all exit 0, no retries): the records (`<stem>.json` + `<stem>_values.npy` + `<stem>.log` + `run_agreement_r3.last_run.txt`) are committed under `results/backend_agreement/`, and `check_agreement_r3.py` reports **PASS (32 checks, 0 failures)** — identical NaN/±inf counts per fixture, `numpy→iree` and `numpy→iree_spec` allclose at `rtol=atol=1e-4, equal_nan=True`, and `numpy↔iree_spec` bit-identical. IREE numbers from this round are quotable. Continuity vs the R2 anchors is INFO only: the specialized route (`numpy` + `iree_spec`) now differs from the R2 anchor by ≤2.03e-07 relative, while the dense-default `iree` arm reproduces the R2 anchor bitwise.
+The three matrix groups (`run_all.sh --group light|iree|iree-spec`) are pending.
+`SUMMARY.md` is written after the run from `compare_rounds.py` output plus the gates' results.
