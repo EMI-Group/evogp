@@ -158,7 +158,7 @@ exit 0, 2 m 28 s total (`fixture200_iree_spec` is the slow one at 71 s of compil
 | GPU | `CUDA_VISIBLE_DEVICES=6` (runner default), NVIDIA RTX A6000, ~30.5 GiB already used by the foreign tenant (`free_mb_start` 17 628–17 935 MiB across the 8 records); **GPU 7 never touched** |
 | contention | a foreign tenant held ≈**30.5 GiB resident** on GPU 6 flat across the whole window (30 477–30 785 MiB); our own utilisation samples 0–73 % |
 | lock | exactly one `flock -w 7200 /tmp/gpbench_critical.lock` per record, `timeout` inside it, never nested; no lock wait, no timeout, `ulimit -n 65536` first |
-| env | `PYTHONPATH=src`, `ETL_DISABLE_LOCATIONS=1`, `CUDA_VISIBLE_DEVICES=6`, plus per config `EVOGP_EVAL_MODE=<mode>` and `EVOGP_ETL_BACKEND`/`EVOGP_ETL_IREE_{DEVICE,OPT_LEVEL}`; all other knobs are the runner defaults (`--reps 5 --warmup 10 --invocations 100|50 --e2e-companion 11 --mem-guard-mb 8192`, `--max-cold-builds 400` on iree) |
+| env | `PYTHONPATH=src`, `ETL_DISABLE_LOCATIONS=1`, `CUDA_VISIBLE_DEVICES=6`, plus per config `EVOGP_EVAL_MODE=<mode>` and `EVOGP_ETL_BACKEND`/`EVOGP_ETL_IREE_{DEVICE,OPT_LEVEL}`; all other knobs are the runner defaults (`--reps 5 --warmup 10 --invocations 100` on dense and `50` on specialized, `--e2e-companion 11 --mem-guard-mb 8192`, `--max-cold-builds 400` on iree) |
 | interpreter | `/mnt/local-ssd/bchuang/evox/.venv/bin/python` (py3.11, torch 2.6.0+cu124) |
 
 ```bash
