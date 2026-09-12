@@ -1,0 +1,128 @@
+{
+  "tag": "IREE_SR_B2",
+  "side": "new",
+  "task": "sr",
+  "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A165/src/evogp/__init__.py",
+  "evogp_commit": "e809c1fa46feb6b2afc316225976bcb2f74f3b9d",
+  "etl_version": "0.1.0",
+  "problem": "W1 synthetic SR: SymbolicRegression(func=x0**4/(x0**4+1)+x1**4/(x1**4+1), num_inputs=2, num_data=1000, lower_bounds=-5, upper_bounds=5); GenerateDescriptor(max_tree_len=128, input_len=2, output_len=1, const_prob=0.5, out_prob=0.5, using_funcs=['+','-','*','/'], layer_leaf_prob=0.2, const_range=(-5,5), sample_cnt=8, max_layer_cnt=5)",
+  "config": {
+    "pop": 1000,
+    "gens": 2,
+    "tree_len": 128,
+    "seed": 0,
+    "reps": 2,
+    "backend": "iree",
+    "iree_device": 0,
+    "iree_opt_level": "O1",
+    "data_rows": null,
+    "mem_guard_mb": 8192,
+    "max_cold_builds": 1500,
+    "allow_cold_builds": false,
+    "stage_probe": true
+  },
+  "env": {
+    "EVOGP_ETL_CACHE_SIZE": "8192",
+    "ETL_DISABLE_LOCATIONS": "1",
+    "EVOGP_ETL_BACKEND": "iree",
+    "EVOGP_ETL_IREE_DEVICE": "0",
+    "EVOGP_ETL_IREE_OPT_LEVEL": "O1",
+    "CUDA_VISIBLE_DEVICES": "6"
+  },
+  "gpu": {
+    "cuda_visible_devices": "6",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4",
+    "nvidia_smi_index": 6,
+    "nvidia_smi_used_mb_start": 4,
+    "free_mb_start": 48409
+  },
+  "wall_s": null,
+  "generation_loop_s": null,
+  "per_gen_ms": [],
+  "per_gen_best_fitness": [],
+  "cold_first_gen_ms": null,
+  "best_fitness_final": null,
+  "partial": false,
+  "projection": null,
+  "complete": false,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 0.7339149340987206,
+      "wall_s": null,
+      "partial": false,
+      "projection": null,
+      "complete": false,
+      "per_gen_ms": [],
+      "per_gen_best_fitness": [],
+      "generation_loop_s": null,
+      "cold_first_gen_ms": null,
+      "best_fitness_final": null
+    }
+  ],
+  "notes": "",
+  "started_at": "2026-09-12T15:20:39+08:00",
+  "finished_at": null,
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A165",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A165/test/benchmark/bench_gp.py",
+  "skipped": false,
+  "skip_reason": null,
+  "fds": {
+    "start": 39,
+    "after_cold": null,
+    "end": null
+  },
+  "nofile_rlimit": [
+    65536,
+    65536
+  ],
+  "stages": {
+    "probe": "stage_probe/1",
+    "side": "new",
+    "partial": false,
+    "note": "",
+    "status": {
+      "probe": "stage_probe/1",
+      "installed": true,
+      "partial": false,
+      "note": "",
+      "engine_module": "evogp.tree.etl_engine",
+      "etl_module": "etl",
+      "wrapped": [
+        "decode_population",
+        "_run_tree",
+        "build_cached",
+        "run",
+        "from_numpy",
+        "evaluate",
+        "sr_fitness"
+      ],
+      "missing": [],
+      "counters": "CACHE.hits/CACHE.misses",
+      "nested_runs": 0
+    },
+    "reps": [
+      {
+        "rep": 0,
+        "kind": "train",
+        "records": [],
+        "totals": null
+      }
+    ]
+  },
+  "cold_builds": {
+    "enforced": true,
+    "limit": 1500,
+    "allow_cold_builds": false,
+    "misses_start": 0,
+    "misses_last": 0,
+    "misses_max": 0,
+    "exceeded": false
+  },
+  "construct_s": 0.7339149340987206
+}
