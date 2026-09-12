@@ -103,14 +103,9 @@ Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) 
 `warnings.warn` and skipped, never failed.
 
 ## Known Issues / cross-node notes
-- `src/evogp/tests/test_equivalence.py::test_golden_fixtures` is the one failure of the canonical suite
-  (last full run: 1 failed / 286 passed / 3 skipped): the loader `pytest.fail`s on the first `*.npz` it
-  finds in `test/goldens/` because the raw legacy captures miss the flat fixture keys. The mismatch can be
-  resolved on either side — the tests node can skip/warn on files that are not in the fixture schema
-  (they are still valid `npz` data), or `goldens/` can gain derived flat-key fixtures
-  (`forest__node_*` -> `node_value`/`node_type`/`subtree_size`, `x`/`labels` as-is, `expected_fitness` =
-  `forest_sr_fitness__hybrid_parallel__mse` for `sr_fitness.npz`). The latter is deliberately not done
-  here: `goldens/**` is frozen reference data and `golden_capture.py verify` compares key sets exactly.
+- `goldens/**` stays frozen reference data: `golden_capture.py verify` compares key sets exactly, and the
+  raw captures are deliberately not converted into the flat engine-fixture schema — the pytest loader
+  consumes them in their own (legacy-capture) schema instead, see "Legacy goldens".
 - The multi-output combined model is only exercised by `../src/evogp/tests/test_api_compat.py`. The
   removed `formula=` / `share_input=` API is still called by `example/combined_sr.py` and
   `tutorial/combined_gp.ipynb` (both outside this node) and by `combined_test.ipynb` here.
