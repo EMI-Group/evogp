@@ -26,6 +26,14 @@ Stages (medians, ms): ``decode`` (``decode_population``), per-tree ``run_tree``
 ``evaluate`` (whole-population, warm) are timed separately; ``sr_fitness`` is
 timed as the public ``Forest.SR_fitness``.  ``--profile`` adds a cProfile dump so
 the residual can be attributed inside ETL as well.
+
+``build`` times the repeated-SAME-program case (one fixture tree), which hits
+``build_cached``'s one-slot fingerprint fast path.  The per-tree loop instead
+walks DIFFERENT programs back to back, so the probe also times one full
+population pass of ``_executable`` (``executable_cycle``) against the same pass
+straight through ``etl.build_cached`` (``build_cached_cycle``) -- the raw ETL
+side of the executable memo's A/B (both passes are per-pass medians, i.e.
+per-tree values on the fixture's distinct non-constant programs).
 """
 from __future__ import annotations
 
@@ -136,6 +144,55 @@ def main() -> int:
         max(20, args.reps),
     )
 
+    # The per-tree LOOP's access pattern is not the repeated-same-program one the
+    # measurement above uses: consecutive trees carry DIFFERENT programs, which is
+    # the worst case for ``build_cached``'s one-slot fingerprint fast path (the
+    # full codec + sha256 key walk on every hit).  One "pass" below = one call per
+    # distinct non-constant program of the fixture, i.e. what one evaluation of
+    # this population costs.  ``executable_cycle`` goes through the engine's memo
+    # (if present); ``build_cached_cycle`` is the same pass straight through
+    # ``etl.build_cached`` (what the engine did before the memo).
+    import etl  # local: the probe is otherwise etl-free
+
+    cycle_programs = [tree.program for tree in pop.trees if tree.program is not None]
+
+    def _executable_cycle() -> None:
+        for item in cycle_programs:
+            etl_engine._executable(
+                item, n_rows, input_len, backend[0], backend[1], backend[2]
+            )
+
+    def _build_cached_cycle() -> None:
+        for item in cycle_programs:
+            spec = etl.TensorSpec((n_rows, input_len), etl.float32)
+            if backend[0] == "numpy":
+                etl_engine.build_cached(
+                    etl_engine._eval_step,
+                    spec,
+                    item,
+                    backend=backend[0],
+                    device=backend[1],
+                    cache=etl_engine.CACHE,
+                )
+            else:
+                etl_engine.build_cached(
+                    etl_engine._eval_step,
+                    spec,
+                    item,
+                    backend=backend[0],
+                    device=backend[1],
+                    cache=etl_engine.CACHE,
+                    **backend[2],
+                )
+
+    cycle_reps = max(5, args.reps // 5)
+    if cycle_programs:
+        executable_cycle_times = timed(_executable_cycle, cycle_reps)
+        build_cached_cycle_times = timed(_build_cached_cycle, cycle_reps)
+    else:  # pragma: no cover - a fully constant fixture has nothing to look up
+        executable_cycle_times = []
+        build_cached_cycle_times = []
+
     invoked = sum(1 for tree in pop.trees if tree.const_out is None)
     summary = {
         "fixture": args.fixture,
@@ -152,6 +209,12 @@ def main() -> int:
         "executable_ms": _median(build_times),
         "decode_us_per_tree": _median(decode_times) / max(invoked, 1) * 1e3,
         "run_tree_us": _median(run_times) * 1e3,
+        "executable_cycle_ms": _median(executable_cycle_times),
+        "build_cached_cycle_ms": _median(build_cached_cycle_times),
+        "executable_cycle_us_per_tree": _median(executable_cycle_times) * 1e3
+        / max(len(cycle_programs), 1),
+        "build_cached_cycle_us_per_tree": _median(build_cached_cycle_times) * 1e3
+        / max(len(cycle_programs), 1),
     }
     print(
         f"{args.fixture} [{backend[0]} / {args.device}] pop={forest.pop_size} "
@@ -161,6 +224,12 @@ def main() -> int:
         print(f"  {key:16s} {summary[key]:9.3f} ms")
     print(f"  decode/tree      {summary['decode_us_per_tree']:9.2f} us")
     print(f"  run_tree         {summary['run_tree_us']:9.2f} us")
+    print(
+        f"  lookup cycle     {summary['executable_cycle_ms']:9.3f} ms "
+        f"({summary['executable_cycle_us_per_tree']:7.2f} us/tree)  "
+        f"raw build_cached {summary['build_cached_cycle_ms']:9.3f} ms "
+        f"({summary['build_cached_cycle_us_per_tree']:7.2f} us/tree)"
+    )
 
     if args.profile:
         profiler = cProfile.Profile()

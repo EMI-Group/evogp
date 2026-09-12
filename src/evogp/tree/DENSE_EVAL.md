@@ -38,11 +38,11 @@ shape: **one executable, whole population, one readback per call**, compile amor
 of the same shape.
 
 Measured consequence (§6): on IREE the dense path wins the **cold** phase by orders of magnitude (one
-13–17 s compile for the whole population against the 13–28 per-tree compiles of P=16–32, worth
-4.6–48.6 s in the grid cells), while its **warm** win is modest wherever both sides were measured
-directly (1.3–3.2× at N=64/1024 and 1.18× *slower* at N=10000, P=16). On the numpy reference
-interpreter it loses at every size (0.006–0.91× of the specialized warm throughput), which is why the
-default policy never selects it there.
+13.9 s compile at `L=32` / 31.6 s at the default cap `L=64` for the whole population against the 13–28
+per-tree compiles of P=16–32, worth 4.6–48.6 s in the grid cells), while its **warm** win is modest
+wherever both sides were measured directly (1.3–3.2× at N=64/1024 and 1.18× *slower* at N=10000, P=16).
+On the numpy reference interpreter it loses at every size (0.006–0.91× of the specialized warm
+throughput), which is why the default policy never selects it there.
 
 ---
 
@@ -52,7 +52,7 @@ default policy never selects it there.
 
 No per-tree host walk and no `decode_population`: the three `(pop_size, max_tree_len)` tensors are
 read to host once per call (`_as_numpy`) and turned into `(L, P)` **runtime input columns**, with
-`L = min(EVOGP_DENSE_MAX_TREE_LEN (32), max_tree_len)`:
+`L = min(EVOGP_DENSE_MAX_TREE_LEN (64), max_tree_len)`:
 
 | column | dtype | meaning |
 | --- | --- | --- |
@@ -68,6 +68,11 @@ subtree, subtree inside the declared tree length, leaf `subtree_size == 1`, fini
 indices and function ids, no OUT_NODE tag). Anything doubtful raises `DenseUnsupported` rather than
 reproducing the decoder's `ValueError` messages — the fallback path owns that contract.
 
+The same pass derives the population's **used function ids** (`DensePrep.used_func_ids`): the union over
+the decoded function nodes, canonical (sorted, unique), restricted to the candidate range `1…28`, empty
+for a population without function nodes. It is not a runtime column — it is the static set the graph's
+candidate chain is built from (§9 item 1).
+
 Padding is inert by construction: positions `i >= tree_len[p]` carry `opcode = 5` (every mask pred
 false → value `0.0`) with clamped child indices, so junk in the unused row tail can never influence a
 real value (pinned by the padding-invariance families of the batteries).
@@ -79,16 +84,19 @@ real value (pinned by the padding-invariance families of the batteries).
 have a larger index than their parent). Per position it reshapes the seven `(L, P)` columns' row `i`
 into `(P, 1)` symbolic tensors (`_col`), reads the three child values from the value buffer with the
 **flatten trick** (one `gather` over a flat view of the `(rows, P, N)` buffer, index
-`off * P * N + pn_off`, both clamped — `_read_buffer`), and computes the **whole candidate chain** for
-function ids 28…1 with the *same* private emitters the specialized engine uses
-(`etl_engine._emit_unary` / `_emit_binary` / `_emit_ternary` — parity by construction), selecting the
-node's own value with `select(pred, …)` and folding in the ternary / leaf cases with broadcast preds.
+`off * P * N + pn_off`, both clamped — `_read_buffer`), and computes the **candidate chain** for the
+population's used function ids, walked in **descending** id order (the *same* private emitters the
+specialized engine uses — `etl_engine._emit_unary` / `_emit_binary` / `_emit_ternary`, parity by
+construction; `EVOGP_DENSE_PRUNE=0` walks `FULL_FUNC_IDS` = 28…1 and reproduces the unpruned stream
+byte-for-byte — §9 item 1), selecting the node's own value with `select(pred, …)` and folding in the
+ternary / leaf cases with broadcast preds.
 `x` is read through a second flatten-gather (`x_flat` + `x_base`), where `x_base` selects per-tree
 rows (`per_row=True`, graph `N == 1`) or all data rows (`per_row=False`).
 
 The graph's shape is per **chunk**, not per call: `cfg = (L, P_chunk, N_chunk, input_len, per_row,
-update_mode)` is a *static* argument (it specializes the graph and is part of the cache key), so
-runtime tensors of a given shape never trigger a recompile.
+update_mode, used_func_ids)` is a *static* argument (it specializes the graph and is part of the cache
+key), so runtime tensors of a given shape never trigger a recompile while a different used-id set does
+(§9 item 1); the loss variant appends its static `use_mse` flag at index 7.
 
 ### 2.3 Value buffer & write modes (`EVOGP_DENSE_UPDATE_MODE`)
 
@@ -135,7 +143,8 @@ shape-control knob and watch host RSS on big grids.
 4096 via `EVOGP_ETL_CACHE_SIZE`, process-local, in-memory only). The key is the full spec tuple — the
 seven runtime `TensorSpec`s (shape + dtype) plus the static `cfg` — combined with backend / device /
 options, so one dense compile shows up as ONE miss in `etl_engine.cache_stats()` (against `pop_size`
-misses on the specialized path) and a later call of the same shape is a pure hit.
+misses on the specialized path) and a later call of the same shape **and the same used-id set** is a
+pure hit (that set is a static `cfg` entry — §2.2 / §9 item 1).
 
 ---
 
@@ -148,11 +157,23 @@ Five call sites try dense first and fall back **only** on `DenseUnsupported`: `F
 
 The fallback is silent but deliberate: the specialized path re-runs the very same call and owns the
 error contract for malformed trees; every other exception propagates. Result contracts are identical
-either way — fresh, contiguous, `requires_grad=False` float32 on `x`'s device unless `out_device`; the
-SR loss is a fresh writable `(pop_size,)` positive loss built with a torch reduction
-(`diff = label - prediction`, `diff²` or `|diff|`, summed over rows and outputs, divided by the row
-count), i.e. the same formula as `etl_engine.sr_fitness`, which reduces on the HOST with numpy instead —
-the two loss values differ only by float32 reduction order (~1e-7 relative on the fixtures).
+either way — fresh, contiguous, `requires_grad=False` float32 on `x`'s device unless `out_device`.
+**One decline warns**: an over-cap tree on a non-numpy backend, where the fallback really is the
+expensive outcome (`pop_size` per-structure compiles), emits a deduped once-per-process
+`RuntimeWarning` naming the longest tree, the cap, `EVOGP_DENSE_MAX_TREE_LEN` and that compile
+consequence (`dense_engine._warn_trace_cap`, pinned by the `policy` stage of
+`device_resident_check.py`). Every other decline reason — multi-output, structural doubt, the `auto`
+rows ceiling — stays silent, and the dedupe flag is only consumed by a real warning.
+
+**The SR hot path is LOSS-FOLDED.** `Forest.SR_fitness` / `Tree.SR_fitness` compile the *loss* variant
+(`_dense_loss_step`, `DensePlan.variant="loss"`, static `use_mse` in `cfg[7]`): the graph returns the
+per-tree `sum_N err` (`(p_chunk,)`), `run_loss_plan` assembles and divides by `N` host-side, and no
+prediction ever crosses back. `sr_fitness_dense` therefore does **not** route through `evaluate_dense`
+(one `inputs` D2H, one `labels` D2H, one `(P,)`-scale readback per chunk, one `torch.from_numpy((P,))`
++ H2D). The value path (`forward` / `batch_forward`) keeps the earlier route: one compiled graph, one
+`(P, N)` chunk readback per chunk, one assembled prediction tensor. `use_MSE` is part of the loss
+variant's cache key, so MSE and MAE are two graphs per shape signature; the loss value matches the
+specialized engine except for float32 reduction order (~1e-7 relative on the fixtures).
 Public API compatibility is complete: signatures unchanged,
 `use_MSE` / `per_row` / `out_device` honoured, and the five legacy `execute_mode` strings still
 accepted and still all mapping to the same engine path.
@@ -161,10 +182,11 @@ accepted and still all mapping to the same engine path.
 
 | variable | default | effect |
 | --- | --- | --- |
-| `EVOGP_EVAL_MODE` | `auto` | `dense` = always try dense (still falling back on `DenseUnsupported`); `specialized` = never; `auto` = the measured policy. Unknown → `ValueError` |
+| `EVOGP_EVAL_MODE` | `auto` | `dense` = always try dense (still falling back on `DenseUnsupported`); `specialized` = never; `auto` = the measured policy. `dynamic` is a first-class ALIAS of `dense` (case/whitespace-insensitive, in `EVAL_MODE_ALIASES`, never gated by the rows rule); unknown → `ValueError` |
 | `EVOGP_DENSE_AUTO_MIN_POP` | `16` | `auto`'s `pop_size` threshold on a non-numpy backend (`< 1` → `ValueError`) |
 | `EVOGP_DENSE_AUTO_MAX_ROWS` | `2048` | `auto`'s data-row ceiling for `per_row=False` calls: dense is rows-linear while the specialized engine is rows-flat, so more rows decline inside `evaluate_dense` (→ normal `DenseUnsupported` fallback; `< 1` → `ValueError`). `per_row=True` and an explicit `dense` are never gated |
-| `EVOGP_DENSE_MAX_TREE_LEN` | `32` | trace cap `L`; a longer tree → `DenseUnsupported` (`<= 0` → `ValueError`) |
+| `EVOGP_DENSE_MAX_TREE_LEN` | `64` | trace cap `L`; a longer tree → `DenseUnsupported` (`<= 0` → `ValueError`) and — on a non-numpy backend only — a once-per-process `RuntimeWarning` (`L = min(cap, row_len)`, so a `max_tree_len=32` population still traces `L=32`) |
+| `EVOGP_DENSE_PRUNE` | `1` | emit the per-position candidate chain for the population's used function ids only (`DensePrep.used_func_ids`, §9 item 1) instead of all 28; the set is a static `cfg` entry, i.e. part of the compiled-graph cache key, and a different set recompiles. `0`/`false`/`no`/`off` restores the full `FULL_FUNC_IDS` chain byte-for-byte (the A/B baseline); anything else → `ValueError` |
 | `EVOGP_DENSE_BUDGET_MB` | `2048` | chunking budget in MiB (`<= 0` → `ValueError`) |
 | `EVOGP_DENSE_UPDATE_MODE` | `grow` | `grow` / `concat` / `scatter` (unknown → `ValueError`; iree-`scatter` → `DenseUnsupported`) |
 | `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER` | unset | opt-in for `scatter` on iree |
@@ -199,8 +221,9 @@ specialized engine — never an error. Consequences:
   stay specialized on every backend unless `EVOGP_EVAL_MODE=dense` is set explicitly;
 * `CombinedForest` sub-forests are single-output populations forwarded through `Forest.forward` /
   `Forest.batch_forward`, so each sub-forest gets the same policy decision as any other population;
-* the threshold is a **flat** `pop_size` gate (it ignores `L`): at the L=32 cap one dense compile costs
-  13–17 s against ~0.5 s per distinct tree, so the compile-term crossover alone is ≈25–35 trees;
+* the threshold is a **flat** `pop_size` gate (it ignores `L`): one dense compile costs 13.9 s at
+  `L=32` and 31.6 s at the current default cap `L=64`, against ~0.5 s per distinct tree, so the
+  compile-term crossover alone is ≈25–35 trees at `L=32` and ≈45–60 at `L=64` (§9.4);
 * the rows ceiling is the second half of the measured rule: dense cost grows with the data-row count
   while the specialized engine's warm cost is rows-flat (1.24–1.94 ms/tree from N=64 to N=10000), so the
   warm crossover sits at ≈3.4–6.8k rows (P=16), 7.5–8.4k (P=32) and ~11k (P=64) and dense never wins
@@ -215,8 +238,19 @@ specialized engine — never an error. Consequences:
   multi-output populations (OUT_NODE tags, the out-node accumulation protocol) always run on the
   specialized engine, which implements that protocol.
 * **Trace cap.** The longest declared tree must be `<= L = min(EVOGP_DENSE_MAX_TREE_LEN, row_len)`;
-  longer trees fall back. `L` bounds trace time and graph size (the candidate chain is emitted `L`
-  times).
+  longer trees fall back (with the one warning above, device backends only). `L` bounds trace time and
+  graph size (the candidate chain is emitted `L` times).
+  **The default is 64, raised from 32 by the item-5 measurement round** (§9.4): on iree one compile
+  costs ≈13.9 s (`L=32`) / ≈31.6 s (`L=64`) / ≈69.0 s (`L=128`) per shape signature, and for a 33–64-node
+  population at P=64 the dense route (ONE build, ≈28.9 s cold, ≈11.6 ms warm) beats the silent fallback
+  it used to take (64 builds, ≈48.8 s cold, ≈110.3 ms warm; break-even ≈45–60 distinct structures).
+  At P=16 the same population trades 4.1× cold for 4.9× warm. `L=128` was rejected: it would tax every
+  `row_len >= 128` population — the shipped examples are 128/256/512 — with a ≈69 s compile.
+  Two consequences worth knowing before tuning this knob: (a) a population with `row_len >= 64` now
+  traces `L=64` **even when its realized trees are short** (the cap is a `row_len`-derived bound, not a
+  realized-length one), so a hot short-tree shape can pin `EVOGP_DENSE_MAX_TREE_LEN=32`; (b) numpy under
+  the default `auto` is unaffected (dense is never auto-selected there), and the suite's shapes (16/32
+  wide rows) keep tracing their old `L`.
 * **Both backends, one policy.** `numpy` = correct but slow by design; `iree` = the intended
   production backend for the dense path (CUDA HAL only, `O0`/`O1`).
 * **Shapes.** `per_row=True` needs `x.shape[0] == pop_size` and returns `(pop_size, output_len)`;
@@ -408,25 +442,48 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
 ## 8. Validation evidence (recorded in the repo; not re-run for this document)
 
 * `PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 <venv>/bin/python -m pytest src/evogp/tests -q` →
-  **307 passed, 4 skipped** (`-k golden` → 6/6).
-* Dense forced end to end (`EVOGP_EVAL_MODE=dense`, same suite) → 307 passed / 4 skipped;
-  instrumented: **510 dense attempts, 492 evaluated densely, 18 expected `DenseUnsupported` fallbacks**
-  (15 multi-output `output_len` 2/3 populations, 3 trees longer than the 32-node cap).
-* `dense_spike_check.py --backend numpy --skip-measure` → 37/37 (`--full --skip-measure` → 57/57).
-* `dense_integration_check.py --stage numpy,fallback` → 118/118; `--stage iree` → 7/7 (auto+iree picks
-  dense at P=32 with ONE compile per population; iree-vs-numpy-specialized parity clean).
-* `dense_adversarial_check.py --backend numpy` → 192/192 checks, 0 non-bit-exact finite values; the iree
-  leg (one family per fresh process) → 189/189 checks with a single 1-ulp `deep_chain` element.
+  **308 passed, 4 skipped** (~2 min), zero dense attempts (default `auto` on numpy).
+* Dense forced end to end (`EVOGP_EVAL_MODE=dense`): the cheap subset `-k "forward or fitness"` →
+  **31 passed / 2 skipped**; the full dense-forced suite is no longer re-runnable at the 64-node cap on
+  the 12 GB sandbox (host-memory OOM at ~23%) — the last full run (32-node cap) recorded 510 dense
+  attempts, 492 evaluated densely, 18 declines, of which the 3 over-cap trees are now supported.
+* `dense_spike_check.py --backend numpy --skip-measure` → **37/37** (the compile-reuse case pins the
+  used-id-set granularity; the `EVOGP_DENSE_PRUNE=0` path is pinned separately); the `--full` → 57/57
+  run is recorded pre-prune.
+* `dense_integration_check.py --stage numpy,fallback` → **119/119**; `--stage iree` → 7/7 (recorded
+  pre-prune).
+* `dense_adversarial_check.py --backend numpy` → **192/192 checks, 0 non-bit-exact finite values**;
+  the staged iree leg re-checked post-prune with one family (`--only binary_var --iree-max-pop 2`,
+  `--gpu 0`) → **10/10 checks, rc=0** (the full 19-family iree sweep → 189/189 is recorded pre-prune).
+* `device_resident_check.py --stage policy,hotpath,parity,seam,prune` → **104/104** (its prune stage's
+  in-process A/B: 420→60 candidate ops; compile 1.24–1.36 s → 0.25–0.37 s; warm SR loss P=64/N=1024
+  0.30–0.57 s → 0.044–0.048 s, ranges across loaded-box re-runs); `executable_memo_check.py` → 32/32;
+  `runner_check.py` → 48/48 numpy / 32/32 iree.
 
 ---
 
 ## 9. Future work (in the order the measurements suggest)
 
-1. **Function-id-set pruning (~3× op-count cut).** Pass the population's used function-id set (or the
-   descriptor's `using_funcs`) as a *static* `cfg` entry and emit only those candidates instead of the
-   full 28-candidate chain. Recompiles happen only when the id set changes (it saturates quickly in a GP
-   run), and it cuts both the dense compile time (≈264·L ops) and the numpy per-op cost — the first
-   follow-up if a round needs the iree crossover moved in.
+1. **Function-id-set pruning — DONE (default ON, `EVOGP_DENSE_PRUNE`).** The per-position candidate chain
+   emits ops for the function ids the *population* actually uses (`DensePrep.used_func_ids`) instead of
+   the full 28. The set is derived host-side in `prepare_dense` and is a *static* `cfg` entry (`cfg[6]`;
+   the loss variant's static `use_mse` is now `cfg[7]`), so it joins the compiled-graph cache key; the
+   chain still walks the ids in descending order, so `EVOGP_DENSE_PRUNE=0` (= `FULL_FUNC_IDS`) restores
+   the full chain byte-for-byte, and an empty set emits no candidate at all (every position keeps its
+   defined zero fallback). Measured (the `prune` stage of `device_resident_check.py`, in-process A/B
+   against `EVOGP_DENSE_PRUNE=0`, numpy, medians): candidate ops 420 → 60 (7.0×) on its 4-id fixture,
+   compile 1356.7 → 256.0 ms, warm SR loss P=64/N=1024 509.9 → 48.1 ms (10.6×) and P=16/N=1024
+   91.6 → 23.3 ms (3.9×); an 18-of-28-id (near-full) population still cuts the candidate chain by up to
+   ~1.55×. Pruned and full-chain graphs are **bit-exact** on numpy (value and loss, `per_row` both ways,
+   P+N-chunked, empty used set).
+   **Granularity:** the executable is a pure function of the shape AND the used-id set, so a population
+   whose used set differs from the last compiled one recompiles — it saturates quickly in a GP run
+   (the key carries the population-wide union, not per-individual structure), and
+   `dense_spike_check.py::case_compile_reuse` pins it (same population → 0 builds, different set → 1).
+   **Not measured:** no iree legs this round (the A/B is numpy-only); the churn *below* saturation
+   (recompiles per generation while the set is still growing) is unmeasured; and the dense-vs-specialized
+   ratios of §3/§6 — including the "numpy never dense" rationale — are full-chain measurements that have
+   not been re-run under the pruned default. Record: §10 of `device_resident_findings.md`.
 2. **The still-open measurements.** Direct dense at P≥64 and every dense ratio above ~5× rest on the
    earlier grid cells (some `fit(unit-cost)`), so they need a fresh direct pass; P=1000 (793 distinct
    programs) has never been run on the specialized side, its cells are anchored-law extrapolations; and
@@ -438,8 +495,22 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
    (`EVOGP_DENSE_AUTO_MAX_ROWS`, 2048 — ~2× below the tightest measured crossover), but
    `EVOGP_DENSE_AUTO_MIN_POP` is still a flat pop gate and the crossover also depends on `L`
    (compile ∝ L); a gate on `(pop_size, L, N)` is the obvious refinement.
-4. **`L > 32` economics.** The trace cap bounds compile time and chunk memory; raising it needs fresh
-   measurements (the graph op count is linear in `L`).
+4. **`L > 32` economics — measured, and the cap is now 64 (item 5, done).** The trace cap bounds
+   compile time and chunk memory (the graph op count is linear in `L`), so the raise was measured before
+   it was made: iree compile per shape signature ≈13.9 s (`L=32`) / ≈31.6 s (`L=64`) / ≈69.0 s
+   (`L=128`); for a 33–64-node population at P=64 the dense route (ONE build, ≈28.9 s cold, ≈11.6 ms
+   warm) beats the specialized fallback (64 builds, ≈48.8 s cold, ≈110.3 ms warm; break-even ≈45–60
+   distinct structures), and at P=16 it trades 4.1× cold for 4.9× warm (4.1×/4.9× are per-population
+   ratios at the same 33–64-node shape). **Decision: default 64, not 128** — `L=128` would pay a ≈69 s
+   compile for every `row_len >= 128` population, and the shipped descriptors are 128/256/512 wide.
+   Memory stayed safe across the round (peak RSS ≤ 2.7 GB, no grid cell skipped) and the numpy default
+   route is untouched (dense is never auto-selected on numpy). The over-cap fallback is the one decline
+   that now warns (once per process, device backends only — §3). Full record:
+   `device_resident_findings.md` §9.
+   **Still open (documented, NOT implemented):** derive `L` from the REALIZED longest tree rounded up to
+   a power of two, clamped at the cap — that would stop a short-tree population with a wide row
+   (`row_len >= 64`) from paying `L=64`, at the cost of an extra compile per distinct realized length.
+   Unmeasured, so it is not in the code.
 5. **Cross-call caching of the prepared columns and `x`.** A generation re-evaluates a *new* population
    on the *same* `x`, so keeping the device-resident `x` block (and the columns' device copies) across
    calls would remove most of the per-chunk upload cost.
@@ -450,6 +521,11 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
 ---
 
 ## 10. Pointers
+- `RUNNER_HOOKS.md` (this directory) — the build-once / run-many benchmark runners
+  (`build_dense_runner` / `build_specialized_runner`), i.e. the dense route's compiled forward pass with
+  no readback, no re-plan, no key derivation: `.run()` semantics per backend, the build-vs-run split and
+  the `runner_check.py` evidence battery.
+
 
 * `dense_engine.py` — the implementation; its module docstring is the condensed version of this file.
 * `ENGINE_SPEC.md` §13 (semantics unchanged) and `CONTEXT.md` (routing + operational notes).

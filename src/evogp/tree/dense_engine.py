@@ -32,10 +32,14 @@ The **fallback is silent but deliberate**: a :class:`DenseUnsupported` (a
 multi-output population, a tree longer than the trace cap, structural doubt)
 re-runs the very same call on the existing ``decode_population`` +
 ``etl_engine.evaluate`` / ``etl_engine.sr_fitness`` path, which owns the error
-contract for malformed trees.  Nothing else is caught -- every other exception
-propagates, and the result contracts are identical either way (fresh, contiguous,
-``requires_grad=False`` float32; SR fitness returns a fresh writable
-``(pop_size,)`` positive-loss tensor).
+contract for malformed trees.  The ONE exception is an over-cap tree on a
+non-numpy backend, where the fallback (``pop_size`` per-structure compiles)
+really is the expensive outcome: that decline emits a deduped once-per-process
+:class:`RuntimeWarning` naming the longest tree, the cap and the env var
+(:func:`_warn_trace_cap`) and then falls back exactly like the others.  Nothing
+else is caught -- every other exception propagates, and the result contracts are
+identical either way (fresh, contiguous, ``requires_grad=False`` float32; SR
+fitness returns a fresh writable ``(pop_size,)`` positive-loss tensor).
 
 Strategy switch: ``EVOGP_EVAL_MODE``
 ------------------------------------
@@ -57,9 +61,10 @@ One master switch, read **per call** (exactly like ``EVOGP_ETL_BACKEND`` in
     (:func:`sr_fitness_dense` goes through it too); ``per_row=True`` (one row per
     tree) and an explicit ``EVOGP_EVAL_MODE=dense`` are never gated, and a
     decline surfaces as the usual :class:`DenseUnsupported` fallback.
-    Rationale: the dense path pays ONE compile for the whole population (13-17 s
-    at ``L=32``) against ~0.5 s *per distinct structure* for the specialized
-    path, so the compile-term crossover is only ~25-35 trees (hence the flat
+    Rationale: the dense path pays ONE compile for the whole population (≈13.9 s
+    at ``L=32``, ≈31.6 s at the default cap ``L=64``) against ~0.5 s *per distinct
+    structure* for the specialized path, so the compile-term crossover is only
+    ~25-35 trees at ``L=32`` (≈45-60 at ``L=64``; hence the flat
     ``pop_size`` gate), while warm dense is 1.3-3.2x faster at small ``N`` where
     both sides are measured directly and 1.18x *slower* at ``P=16/N=10000`` --
     its cost grows with the data-row count while the specialized engine's is
@@ -84,11 +89,15 @@ Scheme (see :func:`_dense_body` for the trace-time body)
    (float32), ``var_index`` (truncated, validated, clamped) and the three prefix
    child positions ``child1/2/3`` (clamped to ``[0, L)``).
    ``L = min(cap, max_tree_len)`` where ``cap`` is :data:`MAX_TREE_LEN_ENV`
-   (default 32); a population whose longest tree exceeds ``L`` -- or that fails
-   *any* structural check -- raises :class:`DenseUnsupported` so the caller falls
-   back to the specialized path (which owns the error contract; this module
+   (default :data:`DEFAULT_MAX_TREE_LEN` = 64, so a ``max_tree_len=32`` population
+   still traces ``L=32``); a population whose longest tree exceeds ``L`` -- or that
+   fails *any* structural check -- raises :class:`DenseUnsupported` so the caller
+   falls back to the specialized path (which owns the error contract; this module
    deliberately does NOT reproduce
-   :func:`etl_engine.decode_population`'s error messages).
+   :func:`etl_engine.decode_population`'s error messages).  An over-cap tree is
+   the ONE decline that warns (once per process, on a device backend -- see
+   :func:`_warn_trace_cap`), because the specialized fallback there is the
+   expensive one.
 2. **One graph** (module-level ``@etl.defn _dense_step``) with a Python
    trace-time ``for i in range(L-1, -1, -1)`` unroll over node positions
    (reverse prefix order: children always have a larger index than their
@@ -288,13 +297,27 @@ Run: repo root, ``PYTHONPATH=src ETL_DISABLE_LOCATIONS=1``, venv
    candidates — roughly a 3× op-count cut, paid for by recompiles only when the
    used-id set changes (it saturates quickly in a GP run).  That would move the
    iree crossover down and is the first follow-up if a validation round needs it.
+
+Benchmark-support runner (not part of the public route)
+-------------------------------------------------------
+:func:`build_dense_runner` / :class:`DenseRunner` expose the dense evaluator as
+a build-once / run-many object for benchmarking harnesses: the build phase plans
++ compiles (or hits) the ONE shape-signature graph and stages every payload of
+the (single) chunk through the readback-free seam
+(:func:`_iter_plan_chunks` with an injected memo), then ``.run()`` executes only
+the forward pass -- one ``etl.run`` over the staged payloads, returning the raw
+backend result, with no readback, no host assembly, no re-plan and no key
+derivation.  It changes nothing about ``evaluate_dense`` / ``sr_fitness_dense``,
+is called by nothing in the library and is documented -- with the specialized
+twin, ``etl_engine.build_specialized_runner`` -- in ``RUNNER_HOOKS.md``.
 """
 
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -311,6 +334,7 @@ from .etl_engine import (  # private but deliberately reused: parity by construc
     _emit_unary,
     _env_int,
     _operand,
+    _population_inputs,
     _quiet,
     _resolve_backend,
     _trace_const,
@@ -326,13 +350,17 @@ __all__ = [
     "DEFAULT_BUDGET_MB",
     "DEFAULT_EVAL_MODE",
     "DEFAULT_MAX_TREE_LEN",
+    "DEFAULT_PRUNE",
     "DENSE_CACHE",
     "DensePlan",
     "DensePrep",
+    "DenseRunner",
     "DenseUnsupported",
     "EVAL_MODES",
     "EVAL_MODE_ENV",
+    "FULL_FUNC_IDS",
     "MAX_TREE_LEN_ENV",
+    "PRUNE_ENV",
     "OP_BFUNC",
     "OP_CONST",
     "OP_INACTIVE",
@@ -343,6 +371,7 @@ __all__ = [
     "UPDATE_MODE_ENV",
     "auto_rows_decline",
     "build_dense",
+    "build_dense_runner",
     "dense_peak_bytes",
     "describe_plan",
     "evaluate_dense",
@@ -352,6 +381,7 @@ __all__ = [
     "resolve_auto_min_pop",
     "resolve_backend_name",
     "resolve_eval_mode",
+    "resolve_prune",
     "should_use_dense",
     "sr_fitness_dense",
 ]
@@ -376,7 +406,8 @@ AUTO_MAX_ROWS_ENV = "EVOGP_DENSE_AUTO_MAX_ROWS"
 #: Max trace length ``L`` (``EVOGP_DENSE_MAX_TREE_LEN``): populations whose
 #: longest tree exceeds it fall back to the specialized engine.  This is the
 #: knob that bounds trace time and graph size (the candidate chain is emitted
-#: ``L`` times) -- see the ``L`` scaling curve in the module docstring.
+#: ``L`` times) -- see the ``L`` scaling curve in the module docstring and
+#: :data:`DEFAULT_MAX_TREE_LEN` for the measured default.
 MAX_TREE_LEN_ENV = "EVOGP_DENSE_MAX_TREE_LEN"
 #: Chunking memory budget in MiB (``EVOGP_DENSE_BUDGET_MB``).
 BUDGET_MB_ENV = "EVOGP_DENSE_BUDGET_MB"
@@ -387,6 +418,24 @@ ALLOW_UNSAFE_SCATTER_ENV = "EVOGP_DENSE_ALLOW_UNSAFE_SCATTER"
 
 EVAL_MODES = ("dense", "specialized", "auto")
 DEFAULT_EVAL_MODE = "auto"
+#: Accepted ALIASES of the canonical :data:`EVAL_MODES`, resolved by
+#: :func:`resolve_eval_mode` after case folding/trimming and before validation
+#: (so ``EVOGP_EVAL_MODE=dynamic`` and ``eval_mode="dynamic"`` behave exactly
+#: like ``dense``, the ``auto`` rows rule included).  ``dynamic`` names what the
+#: dense route actually *is*: one compiled "dynamic all-ops" graph that keeps the
+#: tree structure as runtime DATA (every candidate op is emitted once and the
+#: data-driven ``select`` chain picks the node's operation at run time), against
+#: the specialized engine's one-structure-per-graph strategy.  It is a
+#: first-class spelling, not a separate mode, so :data:`EVAL_MODES` stays
+#: canonical and :func:`should_use_dense` keeps branching on ``"dense"``.
+EVAL_MODE_ALIASES = {"dynamic": "dense"}
+
+#: ``DensePlan.variant`` values: the value graph (:func:`_dense_step`, the
+#: default) and the SR-loss graph (:func:`_dense_loss_step`, which folds the
+#: fitness reduction in so only ``(pop_size,)``-scale losses leave the engine).
+VALUE_VARIANT = "value"
+LOSS_VARIANT = "loss"
+PLAN_VARIANTS = (VALUE_VARIANT, LOSS_VARIANT)
 
 #: Crossover measured on iree (specialized's ~0.9 s *per tree* against one dense
 #: compile): ~``P = 10-20`` at small ``L``.  Rounded up; env-overridable.
@@ -399,12 +448,27 @@ DEFAULT_AUTO_MIN_POP = 16
 #: tightest crossover; env-overridable.
 DEFAULT_AUTO_MAX_ROWS = 2048
 
-DEFAULT_MAX_TREE_LEN = 32
+#: Trace cap default: 64, i.e. the shipped descriptors' practical maximum
+#: (``example/`` builds ``max_tree_len`` 128/256/512, whose REALIZED trees are far
+#: shorter).  Measured on iree (the item-5 measurement round): one compile costs
+#: ~13.9 s (L=32) / ~31.6 s (L=64) / ~69.0 s (L=128) per shape signature, so a
+#: 33-64-node population at P=64 (1 build, ~28.9 s cold, ~11.6 ms warm) beats the
+#: specialized fallback there (64 builds, ~48.8 s cold, ~110.3 ms warm;
+#: break-even ~45-60 distinct structures), while at P=16 it trades 4.1x cold for
+#: 4.9x warm.  L=128 is rejected: it would tax every ``row_len >= 128`` population
+#: -- the shipped examples are 128/256/512 -- with a ~69 s compile.  ``L`` is
+#: ``min(cap, row_len)``, so short rows are unaffected by the default.
+DEFAULT_MAX_TREE_LEN = 64
 DEFAULT_BUDGET_MB = 2048
 UPDATE_MODES = ("grow", "concat", "scatter")
 DEFAULT_UPDATE_MODE = "grow"
-
-#: The dense graphs live in the *same* compile cache as the specialized ones.
+#: Candidate-chain pruning (``EVOGP_DENSE_PRUNE``): emit the per-position
+#: candidate ops only for the function ids the POPULATION actually uses
+#: (:attr:`DensePrep.used_func_ids`) instead of all 28, which is where the bulk of
+#: the ``~264*L`` emitted ops goes.  On by default; ``=0`` restores the full chain
+#: byte-for-byte (the in-process "before" of an A/B).
+PRUNE_ENV = "EVOGP_DENSE_PRUNE"
+DEFAULT_PRUNE = True#: The dense graphs live in the *same* compile cache as the specialized ones.
 DENSE_CACHE = CACHE
 
 #: ``opcode`` values (mirroring ``NType`` base values, plus 5 for padding).
@@ -422,9 +486,13 @@ _BFUNC_MAX = 13
 #: Clamp for the truncated function id: ids ``>= 29`` are unmatched everywhere in
 #: the engine and therefore yield 0.0; clamping keeps the int32 chain in range.
 _FUNC_CLAMP = 29
+#: The full candidate-id range: what the chain emits with
+#: :data:`PRUNE_ENV` off, and the identity a pruned set is a subset of.  Id 0
+#: (``Func.IF``) is the separately emitted ternary, and ids outside ``1..28``
+#: match nothing anywhere (both are therefore no candidate emission at all).
+FULL_FUNC_IDS = tuple(range(1, _MAX_FUNC_ID + 1))
 #: Live ``(P, N)`` SSA candidates counted by :func:`dense_peak_bytes`.
 _LIVE_CANDIDATES = 40
-
 
 class DenseUnsupported(RuntimeError):
     """The dense path cannot (safely) evaluate this population.
@@ -469,20 +537,25 @@ def resolve_eval_mode(value: Optional[str] = None) -> str:
     Read per call -- like every knob here and like ``etl_engine._resolve_backend``
     reads ``EVOGP_ETL_BACKEND`` -- so a process can change strategy between calls
     (e.g. force ``specialized`` to produce a reference result).  Case-insensitive;
-    an empty value means the default ``"auto"``; anything else raises
-    ``ValueError`` naming the variable.
+    an empty value means the default ``"auto"``; the accepted aliases
+    (:data:`EVAL_MODE_ALIASES`, currently ``dynamic`` -> ``dense``) are folded in
+    before validation; anything else raises ``ValueError`` naming the variable.
     """
     raw = value if value is not None else os.environ.get(EVAL_MODE_ENV, "")
     mode = str(raw).strip().lower()
     if not mode:
         mode = DEFAULT_EVAL_MODE
+    mode = EVAL_MODE_ALIASES.get(mode, mode)
     if mode not in EVAL_MODES:
+        aliases = ", ".join(
+            f"{alias!r} = {target!r}" for alias, target in EVAL_MODE_ALIASES.items()
+        )
         raise ValueError(
             f"unsupported eval mode {mode!r}: evogp.tree.dense_engine supports "
-            f"{list(EVAL_MODES)} (set {EVAL_MODE_ENV!r} or pass eval_mode=); "
-            "'dense' = always try the dense evaluator and fall back on "
-            "DenseUnsupported, 'specialized' = never use it, 'auto' = the "
-            "measured policy"
+            f"{list(EVAL_MODES)} (plus the aliases {aliases}) (set "
+            f"{EVAL_MODE_ENV!r} or pass eval_mode=); 'dense' (alias 'dynamic') = "
+            "always try the dense evaluator and fall back on DenseUnsupported, "
+            "'specialized' = never use it, 'auto' = the measured policy"
         )
     return mode
 
@@ -629,6 +702,33 @@ def resolve_update_mode(value: Optional[str], backend_name: Optional[str]) -> st
     return mode
 
 
+#: Accepted spellings of :data:`PRUNE_ENV` (case-insensitive); empty = default.
+_PRUNE_TRUE = ("1", "true", "yes", "on")
+_PRUNE_FALSE = ("0", "false", "no", "off")
+
+
+def resolve_prune(value: Optional[bool] = None) -> bool:
+    """Resolve ``EVOGP_DENSE_PRUNE`` (explicit argument wins).
+
+    Read per call, like every other knob here.  Unset/empty means
+    :data:`DEFAULT_PRUNE` (pruned); ``0``/``false``/``no``/``off`` restores the
+    full candidate chain byte-for-byte; anything else raises ``ValueError``
+    naming the variable.
+    """
+    if value is not None:
+        return bool(value)
+    raw = os.environ.get(PRUNE_ENV, "").strip().lower()
+    if not raw:
+        return DEFAULT_PRUNE
+    if raw in _PRUNE_TRUE:
+        return True
+    if raw in _PRUNE_FALSE:
+        return False
+    raise ValueError(
+        f"unsupported {PRUNE_ENV}={raw!r}: dense_engine accepts "
+        f"{list(_PRUNE_TRUE + _PRUNE_FALSE)} or an empty value"
+    )
+
 # ---------------------------------------------------------------------------
 # host preprocessing
 # ---------------------------------------------------------------------------
@@ -664,11 +764,59 @@ class DensePrep:
     child1: np.ndarray
     child2: np.ndarray
     child3: np.ndarray
+    #: Canonical (sorted, unique) tuple of the function ids the population's
+    #: DECODED function nodes carry, restricted to the candidate range
+    #: (:data:`FULL_FUNC_IDS`): the ids the per-position candidate chain has to
+    #: emit for this population, an empty tuple for a population without function
+    #: nodes.  An id the chain does not emit leaves the node's value at 0.0, which
+    #: is exactly what the full chain's unmatched ``select`` chain yields.
+    used_func_ids: Tuple[int, ...] = ()
 
     @property
     def max_tree_length(self) -> int:
         """Longest declared tree in this population."""
         return int(self.tree_len.max(initial=0))
+
+#: Set once the over-cap decline has warned (see :func:`_warn_trace_cap`): the
+#: warning is emitted at most ONCE per process, so a training loop that keeps
+#: producing over-cap populations is not flooded.  Only the warning is deduped --
+#: the :class:`DenseUnsupported` fallback itself happens on every call.
+_TRACE_CAP_WARNED = False
+
+
+def _warn_trace_cap(longest: int, cap: int, row_len: int, backend_name: str) -> None:
+    """Warn ONCE per process about the one *expensive* decline: an over-cap tree.
+
+    Every other :class:`DenseUnsupported` decline stays silent by design: the
+    specialized engine is the cheap (or the only correct) answer there --
+    multi-output, a structural doubt, the ``auto`` rows ceiling -- and numpy is
+    cheap there too.  An over-cap tree on a NON-numpy backend is the exception:
+    the fallback compiles one graph PER DISTINCT TREE STRUCTURE (~0.5-2.6 s
+    each, i.e. up to ``pop_size`` compiles for a fresh population) where the
+    dense route would have paid ONE compile for the whole population, so the
+    user should know the cap ``EVOGP_DENSE_MAX_TREE_LEN`` is what did it.
+    ``backend_name`` is the already-resolved backend; the caller skips numpy
+    before calling.  The flag is process-global: the first over-cap population on
+    a device backend warns, later ones do not.
+    """
+    global _TRACE_CAP_WARNED
+    if _TRACE_CAP_WARNED:
+        return
+    _TRACE_CAP_WARNED = True
+    warnings.warn(
+        f"the dense evaluator declined a population whose longest tree is "
+        f"{longest} nodes because it exceeds the trace cap L={cap} "
+        f"({MAX_TREE_LEN_ENV}={cap}, row length {row_len}); the call falls back "
+        f"to the specialized engine on the {backend_name!r} backend, which "
+        "compiles one graph PER DISTINCT TREE STRUCTURE (well under a second on "
+        "numpy, but ~0.5-2.6 s each on a device backend, i.e. up to pop_size "
+        "compiles for a fresh population) instead of ONE graph for the whole "
+        f"population. Raise {MAX_TREE_LEN_ENV} to include these trees (one dense "
+        "compile per shape signature: ~13.9 s at L=32 and ~31.6 s at L=64 on "
+        "iree; see DENSE_EVAL.md §4/§9). This is reported once per process.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
 
 
 def prepare_dense(
@@ -679,6 +827,8 @@ def prepare_dense(
     output_len: int,
     *,
     max_tree_len: Optional[int] = None,
+    backend: Optional[str] = None,
+    iree_device_index: Optional[int] = None,
 ) -> DensePrep:
     """Decode/validate a population for the dense graph (host-side, vectorized).
 
@@ -686,6 +836,10 @@ def prepare_dense(
     structural checks, applied only to positions that belong to a tree: a
     population the dense path accepts is one the specialized decoder accepts
     too, and anything doubtful raises :class:`DenseUnsupported`.
+
+    ``backend`` / ``iree_device_index`` are used for ONE thing: deciding whether
+    the over-cap decline is worth a warning (:func:`_warn_trace_cap`).  They
+    change nothing about the decode or the raised ``DenseUnsupported``.
 
     Raises:
         DenseUnsupported: unsupported ``output_len``, an empty population, a tree
@@ -731,6 +885,11 @@ def prepare_dense(
         raise DenseUnsupported("non-positive subtree_size[0] (tree length)")
     longest = int(tree_len.max())
     if longest > L:
+        # The ONE expensive decline: report it (once per process, device backends
+        # only -- see _warn_trace_cap).  The fallback itself is unchanged.
+        backend_name = resolve_backend_name(backend, iree_device_index)
+        if backend_name != "numpy":
+            _warn_trace_cap(longest, cap, row_len, backend_name)
         raise DenseUnsupported(
             f"longest tree is {longest} nodes but the dense trace cap is {L} "
             f"({MAX_TREE_LEN_ENV}={cap}, row length {row_len}); raise the cap or "
@@ -745,6 +904,11 @@ def prepare_dense(
         L,
     )
     rows = np.arange(L, dtype=np.int32)[:, None]
+    real = np.ascontiguousarray(rows < tree_len[None, :])
+    # -- used function ids (host-side union over every function node) -----------
+    function_nodes = real & (columns[0] >= OP_UFUNC)
+    ids = np.unique(columns[1][function_nodes])
+    used_func_ids = tuple(int(v) for v in ids if 1 <= int(v) <= _MAX_FUNC_ID)
     return DensePrep(
         input_len=input_len,
         output_len=output_len,
@@ -752,7 +916,7 @@ def prepare_dense(
         row_len=row_len,
         trace_len=L,
         tree_len=tree_len,
-        real=np.ascontiguousarray(rows < tree_len[None, :]),
+        real=real,
         opcode=columns[0],
         func_id=columns[1],
         const_value=columns[2],
@@ -760,8 +924,8 @@ def prepare_dense(
         child1=columns[4],
         child2=columns[5],
         child3=columns[6],
+        used_func_ids=used_func_ids,
     )
-
 
 def _decode_columns(
     val_t: np.ndarray,
@@ -913,8 +1077,18 @@ def _dense_body(
 ) -> Any:
     """Trace-time body of the dense evaluator (``cfg`` is a static tuple).
 
-    ``cfg = (L, P, N, input_len, per_row, update_mode)``.  Returns the root
-    values, ``(P, N)`` (``per_row=True`` uses ``N == 1``).
+    ``cfg = (L, P, N, input_len, per_row, update_mode, used_func_ids)`` (the loss
+    variant appends its ``use_mse`` flag at index 7).  Returns the root values,
+    ``(P, N)`` (``per_row=True`` uses ``N == 1``).
+
+    ``used_func_ids`` is the population's used function ids (:func:`resolve_prune`
+    on, the default): a canonical tuple the candidate chain emits ops for, in
+    DESCENDING id order -- the exact order the full chain
+    (:data:`FULL_FUNC_IDS`, i.e. ``EVOGP_DENSE_PRUNE=0``) walks -- so with the
+    full set the emitted stream is byte-identical to the unpruned one.  It may be
+    empty (a population without function nodes): no candidate op is emitted at
+    all, the node value falls back to the ``zero`` the unmatched ``select`` chain
+    starts from, and every traced position still has a defined value.
     """
     L = int(cfg[0])
     P = int(cfg[1])
@@ -922,6 +1096,7 @@ def _dense_body(
     input_len = int(cfg[3])
     per_row = bool(cfg[4])
     mode = str(cfg[5])
+    used_func_ids = tuple(int(v) for v in cfg[6])
     PN = P * N
     pn_off = etl.add(
         etl.reshape(etl.cast(etl.arange(P), etl.int32) * N, (P, 1)),
@@ -979,9 +1154,11 @@ def _dense_body(
         if not has_children:
             val = leaf
         else:
-            # -- function value: the whole candidate chain, engine emitters -----
+            # -- function value: the candidate chain, engine emitters -------------
+            # Only the used ids are emitted (descending, like the full chain); an
+            # id that is emitted nowhere leaves ``prod`` at ``zero``.
             prod = zero
-            for fid in range(_MAX_FUNC_ID, 0, -1):
+            for fid in reversed(used_func_ids):
                 candidate = (
                     _emit_binary(fid, v1, v2)
                     if fid <= _BFUNC_MAX
@@ -1046,6 +1223,54 @@ def _dense_step(
     )
 
 
+@etl.defn
+def _dense_loss_step(
+    opcode,
+    func_id,
+    const_value,
+    var_index,
+    child1,
+    child2,
+    child3,
+    x,
+    labels,
+    keep,
+    cfg,
+):
+    """One compiled dense SR-LOSS pass (module-level: ``id(fn)`` is the key).
+
+    The same structure-as-data graph as :func:`_dense_step` (``cfg[:6]`` is
+    exactly :func:`_dense_body`'s config, ``cfg[6]`` the used-function-id tuple)
+    with the fitness reduction folded in: ``cfg[7]`` is the static ``use_MSE``
+    flag and the graph's only output is the
+    per-tree ``sum_N err`` (``(p_chunk,)``), so the SR hot path never brings a
+    prediction back to the host -- see :func:`sr_fitness_dense` /
+    :func:`run_loss_plan`.
+
+    ``labels`` is this data chunk's ``(n_chunk, output_len)`` label block (the
+    dense protocol is single-output, so ``output_len == 1``; anything else is
+    already :class:`DenseUnsupported`) and ``keep`` a ``(1, n_chunk)`` float32
+    mask (``1.0`` real data row, ``0.0`` padding row of a partial last chunk).
+    The mask is applied with ``select``, NOT a multiply: ``_pad_rows`` duplicates
+    row 0 into the padding slots, so a NaN/inf label there would otherwise poison
+    the sum (``NaN * 0 == NaN``); ``select`` replaces those slots with an exact
+    ``+0.0``.  The ``/ N`` and the ``(pop_size,)`` assembly are host-side
+    (:func:`run_loss_plan`) so that ``N`` never has to enter the cache key.
+    """
+    N = int(cfg[2])
+    use_mse = bool(cfg[7])
+    values = _dense_body(
+        opcode, func_id, const_value, var_index, child1, child2, child3, x, cfg
+    )  # (P, N)
+    zero = _trace_const(np.float32(0.0))
+    one = _trace_const(np.float32(1.0))
+    diff = etl.subtract(etl.reshape(labels, (1, N)), values)
+    err = etl.multiply(diff, diff) if use_mse else etl.abs(diff)
+    real = etl.equal(etl.reshape(keep, (1, N)), one)
+    err = etl.select(real, err, zero)
+    return etl.sum(err, axes=(1,))
+
+
 # ---------------------------------------------------------------------------
 # chunking & plan
 # ---------------------------------------------------------------------------
@@ -1088,9 +1313,13 @@ def _chunk_shape(
 class DensePlan:
     """Everything :func:`build_dense` / :func:`evaluate_dense` need.
 
-    ``specs`` is the exact ``build_cached`` spec tuple (runtime
-    :class:`etl.TensorSpec` leaves + the static ``cfg``); ``cfg`` alone is what
-    :func:`etl.run` must receive as the trailing static argument.
+    ``specs`` is the exact ``build_cached`` spec tuple of THIS plan's variant
+    (runtime :class:`etl.TensorSpec` leaves + the static ``cfg``); ``cfg`` alone
+    is what :func:`etl.run` must receive as the trailing static argument.
+    ``variant`` picks the module-level ``@etl.defn`` (:func:`_dense_step` or
+    :func:`_dense_loss_step`), i.e. the two variants are two distinct cache
+    entries per shape signature -- and their specs never have the same length, so
+    one variant can never be mistaken for the other.
     """
 
     prep: DensePrep
@@ -1106,7 +1335,16 @@ class DensePlan:
     input_len: int
     cfg: Tuple[Any, ...] = field(repr=False)
     specs: Tuple[Any, ...] = field(repr=False)
-
+    #: :data:`VALUE_VARIANT` or :data:`LOSS_VARIANT` (see :func:`plan_dense`)
+    variant: str = VALUE_VARIANT
+    #: loss variant only: the static MSE/MAE selector baked into ``cfg[7]``
+    use_mse: bool = True
+    #: The function ids the graph emits candidates for (``cfg[6]``): the
+    #: population's used ids when :func:`resolve_prune` is on, else
+    #: :data:`FULL_FUNC_IDS`.  Part of the cache key through ``cfg``.
+    used_func_ids: Tuple[int, ...] = FULL_FUNC_IDS
+    #: whether the candidate chain was pruned (:func:`resolve_prune`)
+    prune: bool = DEFAULT_PRUNE
     @property
     def trace_len(self) -> int:
         return self.prep.trace_len
@@ -1143,13 +1381,36 @@ def plan_dense(
     budget_mb: Optional[float] = None,
     update_mode: Optional[str] = None,
     backend: Optional[str] = None,
+    variant: str = VALUE_VARIANT,
+    use_mse: bool = True,
+    prune: Optional[bool] = None,
 ) -> DensePlan:
     """Preprocess the population, pick the chunk shape and build the specs.
 
     ``n_rows`` is ``x``'s row count in the :func:`etl_engine.evaluate` sense
     (``pop_size`` when ``per_row=True``, the data-point count otherwise).  The
     graph's own ``N`` is ``1`` for ``per_row=True``; chunking then shaves ``P``.
+
+    ``variant`` selects the compiled graph: :data:`VALUE_VARIANT` (the default,
+    one ``(P, N)`` value block per chunk -- :func:`evaluate_dense`) or
+    :data:`LOSS_VARIANT` (the SR loss folded in, one ``(P,)`` loss sum per chunk
+    -- :func:`sr_fitness_dense`); ``use_mse`` is the loss variant's static MSE/MAE
+    selector and therefore part of its cache key.  The loss variant needs
+    ``per_row=False`` (the SR protocol: every tree sees all data rows) and adds
+    two runtime payloads -- the chunk's ``(n_chunk, output_len)`` labels and a
+    ``(1, n_chunk)`` padding mask -- which is why its spec tuple is longer.
     """
+    if variant not in PLAN_VARIANTS:
+        raise ValueError(
+            f"unsupported plan variant {variant!r}: dense_engine supports "
+            f"{list(PLAN_VARIANTS)}"
+        )
+    if variant == LOSS_VARIANT and per_row:
+        raise ValueError(
+            "the loss variant implements sr_fitness only (per_row=False): a "
+            "per_row=True loss would need one label row per tree, which is not "
+            "the SR contract"
+        )
     prep = prepare_dense(
         batch_node_value,
         batch_node_type,
@@ -1157,6 +1418,7 @@ def plan_dense(
         input_len,
         output_len,
         max_tree_len=max_tree_len,
+        backend=backend,
     )
     # Same backend-name resolution as the runtime path (single-sourced in
     # resolve_backend_name, which delegates to etl_engine._resolve_backend).
@@ -1178,7 +1440,23 @@ def plan_dense(
     x_shape = (
         (p_chunk, prep.input_len) if per_row else (n_chunk, prep.input_len)
     )
-    cfg = (prep.trace_len, p_chunk, n_chunk, prep.input_len, bool(per_row), mode)
+    # Candidate-chain pruning (the one op-count lever): the graph emits candidate
+    # ops for the population's used function ids only.  ``prune=False`` -- or
+    # ``EVOGP_DENSE_PRUNE=0`` -- keeps :data:`FULL_FUNC_IDS`, the byte-identical
+    # full chain.  The tuple is a static cfg entry, so it specializes the graph
+    # and joins the ``build_cached`` key: a population whose used-id set changes
+    # recompiles (in a GP run the union saturates quickly).
+    pruned = resolve_prune(prune)
+    used_func_ids = prep.used_func_ids if pruned else FULL_FUNC_IDS
+    cfg = (
+        prep.trace_len,
+        p_chunk,
+        n_chunk,
+        prep.input_len,
+        bool(per_row),
+        mode,
+        used_func_ids,
+    )
     specs: Tuple[Any, ...] = (
         etl.TensorSpec(shape, etl.int32),
         etl.TensorSpec(shape, etl.int32),
@@ -1188,8 +1466,14 @@ def plan_dense(
         etl.TensorSpec(shape, etl.int32),
         etl.TensorSpec(shape, etl.int32),
         etl.TensorSpec(x_shape, etl.float32),
-        cfg,
     )
+    if variant == LOSS_VARIANT:
+        cfg = cfg + (bool(use_mse),)
+        specs = specs + (
+            etl.TensorSpec((n_chunk, prep.output_len), etl.float32),
+            etl.TensorSpec((1, n_chunk), etl.float32),
+        )
+    specs = specs + (cfg,)
     return DensePlan(
         prep=prep,
         per_row=bool(per_row),
@@ -1202,6 +1486,10 @@ def plan_dense(
         input_len=prep.input_len,
         cfg=cfg,
         specs=specs,
+        variant=variant,
+        use_mse=bool(use_mse),
+        used_func_ids=used_func_ids,
+        prune=bool(pruned),
     )
 
 
@@ -1221,6 +1509,11 @@ def describe_plan(plan: DensePlan) -> Dict[str, Any]:
         "p_chunks": plan.p_chunks,
         "n_chunks": plan.n_chunks,
         "peak_bytes": plan.peak_bytes,
+        "variant": plan.variant,
+        "use_mse": plan.use_mse,
+        "prune": plan.prune,
+        "used_func_ids": list(plan.used_func_ids),
+        "candidate_ops": len(plan.used_func_ids),
     }
 
 
@@ -1236,19 +1529,21 @@ def build_dense(
     pattern, the same shared cache, and the same explicit backend/device/options
     resolution (the ambient ``ETL_*`` env cannot change it).  The runtime tensor
     inputs are keyed once on their ``TensorSpec``, so new populations of the same
-    shape never recompile.
+    shape never recompile, and ``plan.variant`` picks the graph
+    (:func:`_dense_step` or :func:`_dense_loss_step`) -- one cache entry each.
     """
     backend_name, device, options = _resolve_backend(backend, iree_device_index)
+    fn = _dense_loss_step if plan.variant == LOSS_VARIANT else _dense_step
     if backend_name == "numpy":
         return etl.build_cached(
-            _dense_step,
+            fn,
             *plan.specs,
             backend=backend_name,
             device=device,
             cache=DENSE_CACHE,
         )
     return etl.build_cached(
-        _dense_step,
+        fn,
         *plan.specs,
         backend=backend_name,
         device=device,
@@ -1274,22 +1569,46 @@ def _pad_rows(array: np.ndarray, rows: int) -> np.ndarray:
     )
 
 
+def _chunk_rows(
+    array: np.ndarray, start: int, count: int, rows: int
+) -> np.ndarray:
+    """One contiguous ``[start:start+count]`` slice of ``array``, padded to ``rows``.
+
+    The host PREPARATION step of an ``x`` / ``labels`` chunk payload: with
+    ``per_row=False`` the payload depends only on the chunk's ``n0``, with
+    ``per_row=True`` only on ``p0``, so :func:`_iter_plan_chunks` memoizes it per
+    key (prepared once and, on a device backend, uploaded once per call).
+    """
+    chunk = np.ascontiguousarray(array[start : start + count])
+    return _pad_rows(chunk, rows)
+
+#: the runtime input columns of a :class:`DensePrep`, in
+#: :func:`plan_dense`'s ``specs`` order (and in ``cfg``-free argument order)
+_COLUMN_NAMES = (
+    "opcode",
+    "func_id",
+    "const_value",
+    "var_index",
+    "child1",
+    "child2",
+    "child3",
+)
+
+
+def _prep_column(
+    prep: DensePrep, index: int, p0: int, p_chunk: int
+) -> np.ndarray:
+    """One ``(L, p_chunk)`` contiguous runtime column of one ``p``-chunk."""
+    array = getattr(prep, _COLUMN_NAMES[index])
+    chunk = array[:, p0 : p0 + p_chunk]
+    return np.ascontiguousarray(_pad_rows(chunk.T, p_chunk).T)
+
+
 def _prep_columns(prep: DensePrep, p0: int, p_chunk: int) -> Tuple[np.ndarray, ...]:
     """``(L, p_chunk)`` contiguous slices of every runtime input of one chunk."""
-    columns: List[np.ndarray] = []
-    for array in (
-        prep.opcode,
-        prep.func_id,
-        prep.const_value,
-        prep.var_index,
-        prep.child1,
-        prep.child2,
-        prep.child3,
-    ):
-        chunk = array[:, p0 : p0 + p_chunk]
-        columns.append(np.ascontiguousarray(_pad_rows(chunk.T, p_chunk).T))
-    return tuple(columns)
-
+    return tuple(
+        _prep_column(prep, index, p0, p_chunk) for index in range(len(_COLUMN_NAMES))
+    )
 
 def run_plan(
     plan: DensePlan,
@@ -1307,41 +1626,186 @@ def run_plan(
     """
     prep = plan.prep
     out = np.empty((prep.pop_size, plan.n_rows), dtype=np.float32)
+    for (p0, p_chunk, n0, n_chunk), raw in _iter_plan_chunks(
+        plan, executable, x, backend_name=backend_name, device=device
+    ):
+        host = _to_host(raw, backend_name).reshape(plan.p_chunk, plan.n_chunk)
+        if plan.per_row:
+            out[p0 : p0 + p_chunk, 0] = host[:p_chunk, 0]
+        else:
+            out[p0 : p0 + p_chunk, n0 : n0 + n_chunk] = host[:p_chunk, :n_chunk]
+    return out
+
+
+def _keep_mask(n_chunk: int, n_real: int) -> np.ndarray:
+    """``(1, n_chunk)`` float32 padding mask: ``1.0`` for the ``n_real`` real rows.
+
+    The graph's last chunk is padded up to ``n_chunk`` (:func:`_pad_rows`), and
+    :func:`_dense_loss_step` selects the padding slots to an exact ``+0.0`` with
+    this mask, so a partial chunk reduces over its real rows only.
+    """
+    keep = np.zeros((1, n_chunk), dtype=np.float32)
+    keep[0, : max(0, min(int(n_real), int(n_chunk)))] = 1.0
+    return keep
+
+
+def _to_host(result: Any, backend_name: str) -> np.ndarray:
+    """Read one ETL result back to host as a float32 numpy array."""
+    if backend_name == "numpy":
+        return np.asarray(result.numpy(), dtype=np.float32)
+    return np.asarray(result.to(_CPU).numpy(), dtype=np.float32)
+
+
+def _iter_plan_chunks(
+    plan: DensePlan,
+    executable: Any,
+    x: np.ndarray,
+    labels: Optional[np.ndarray] = None,
+    *,
+    backend_name: str,
+    device: Any,
+    device_resident: bool = False,
+    staged: Optional[Dict[Any, Tuple[np.ndarray, Any]]] = None,
+):
+    """Yield ``((p0, p_chunk, n0, n_chunk), raw_etl_result)`` for every chunk.
+
+    This is the READBACK-FREE SEAM of the dense route: the iterator prepares and
+    uploads each distinct payload **at most once per call** and never reads a
+    result back, so a caller that can consume device-resident results (the
+    ``build_dense_runner`` / training-loop entry point, or any caller that keeps
+    the loss on the device) simply iterates and assembles itself.  The library's
+    own consumers read back explicitly -- :func:`run_plan` (values) and
+    :func:`run_loss_plan` (losses) -- through :func:`_to_host`.
+
+    The loop is ``p0``-outer/``n0``-inner with ONE per-call payload memo covering
+    both halves of a payload's life (the host preparation and the device upload),
+    because the node columns depend only on ``p0`` and the ``x`` / ``labels`` /
+    mask payloads only on ``n0``: a naive nesting re-preps and re-uploads both
+    blocks per ``(p0, n0)`` chunk (measured 296 host preparations instead of 37
+    for an 8x37 population in 1x1 chunks).  ``x``/``labels`` carry only the
+    CHUNK's rows, so the memo's extra host memory is one full input block plus
+    one full label block (and the same again as device tensors on a device
+    backend) -- all bounded by the call's own inputs, never by the chunk count.
+
+    ``labels`` is required by (and only by) the loss variant.
+    ``device_resident=True`` is the seam's flag for a readback-free consumer: it
+    refuses the numpy backend (a "device-resident" result would be a host array)
+    and an UNCHUNKED plan is required, because only then is one raw result the
+    whole block -- with chunking, a device-side assembly would need either an ETL
+    zero-copy export (``core.Tensor.__dlpack__`` raises for every payload-backed
+    tensor today, and ``etl.from_dlpack`` is host-memory v1 only) or a second
+    compiled graph fed with the chunk results (a compile per call).  Both are
+    upstream/structural and deliberately NOT emulated here.
+
+    ``staged`` is the **payload memo injection** :func:`build_dense_runner` uses
+    to split "stage the inputs" (build phase) from "run" (``.run()``): pass a
+    dict and the seam prepares + uploads every payload into it on the first
+    iteration, so every later iteration with the SAME dict is a pure
+    ``etl.run`` over the already-staged payloads (no preparation, no upload, no
+    readback).  ``None`` (the default) keeps the original per-call behaviour: a
+    private, empty memo.  The caller owns the dict; its values are
+    ``(host_array, device_tensor_or_None)`` per payload key, and re-using it is
+    only valid with the same ``plan``, ``x`` and ``labels``.
+    """
+    loss = plan.variant == LOSS_VARIANT
+    if loss and labels is None:
+        raise ValueError("the loss variant needs the labels payload")
+    if not loss and labels is not None:
+        raise ValueError("the value variant takes no labels payload")
+    if device_resident:
+        if backend_name == "numpy":
+            raise DenseUnsupported(
+                "device_resident results need a device backend: the numpy "
+                "backend returns host arrays (nothing to keep resident)"
+            )
+        if plan.p_chunks > 1 or plan.n_chunks > 1:
+            raise DenseUnsupported(
+                "device_resident results need a single-chunk plan: the chunk "
+                "results cannot be assembled on the device without an ETL "
+                f"zero-copy export (raise {BUDGET_MB_ENV} to stop chunking)"
+            )
     to_device = backend_name != "numpy"
+    #: payload key -> ``(host_array, device_tensor_or_None)``; both halves are
+    #: memoized together so the preparation count and the upload count of a
+    #: payload are the same number (``prepare`` runs exactly once per key).
+    prepared: Dict[Any, Tuple[np.ndarray, Any]] = {} if staged is None else staged
+    def payload(key: Any, prepare: Callable[..., np.ndarray], *args: Any) -> Any:
+        """The chunk payload for ``key``: prepared once, uploaded once, reused."""
+        entry = prepared.get(key)
+        if entry is None:
+            host = prepare(*args)
+            entry = (
+                host,
+                etl.from_numpy(host).to(device) if to_device else None,
+            )
+            prepared[key] = entry
+        return entry[1] if to_device else entry[0]
+
+    prep = plan.prep
+    n_chunks = 1 if plan.per_row else plan.n_chunks
     for p0 in range(0, prep.pop_size, plan.p_chunk):
         p_chunk = min(plan.p_chunk, prep.pop_size - p0)
-        columns = _prep_columns(prep, p0, plan.p_chunk)
-        n_chunks = 1 if plan.per_row else plan.n_chunks
+        columns = tuple(
+            payload(("column", index, p0), _prep_column, prep, index, p0, plan.p_chunk)
+            for index in range(len(_COLUMN_NAMES))
+        )
         for chunk_index in range(n_chunks):
             n0 = 0 if plan.per_row else chunk_index * plan.n_chunk
             n_chunk = min(plan.n_chunk, plan.n_rows - n0) if not plan.per_row else 1
             if plan.per_row:
-                xin = np.ascontiguousarray(x[p0 : p0 + p_chunk])
-                xin = _pad_rows(xin, plan.p_chunk)
-            else:
-                xin = np.ascontiguousarray(x[n0 : n0 + n_chunk])
-                xin = _pad_rows(xin, plan.n_chunk)
-            if to_device:
-                args = tuple(etl.from_numpy(a).to(device) for a in columns) + (
-                    etl.from_numpy(xin).to(device),
-                    plan.cfg,
+                args = columns + (
+                    payload(("x", p0), _chunk_rows, x, p0, p_chunk, plan.p_chunk),
                 )
             else:
-                args = columns + (xin, plan.cfg)
+                args = columns + (
+                    payload(("x", n0), _chunk_rows, x, n0, n_chunk, plan.n_chunk),
+                )
+                if loss:
+                    args = args + (
+                        payload(
+                            ("labels", n0),
+                            _chunk_rows,
+                            labels,
+                            n0,
+                            n_chunk,
+                            plan.n_chunk,
+                        ),
+                        payload(
+                            ("keep", n0), _keep_mask, plan.n_chunk, n_chunk
+                        ),
+                    )
+            args = args + (plan.cfg,)
             with _quiet():
-                result = etl.run(executable, *args)
-            if to_device:
-                host = np.asarray(result.to(_CPU).numpy(), dtype=np.float32)
-            else:
-                host = np.asarray(result.numpy(), dtype=np.float32)
-            host = host.reshape(plan.p_chunk, plan.n_chunk)
-            if plan.per_row:
-                out[p0 : p0 + p_chunk, 0] = host[:p_chunk, 0]
-            else:
-                out[p0 : p0 + p_chunk, n0 : n0 + n_chunk] = host[
-                    :p_chunk, :n_chunk
-                ]
-    return out
+                yield (p0, p_chunk, n0, n_chunk), etl.run(executable, *args)
+
+
+def run_loss_plan(    plan: DensePlan,
+    executable: Any,
+    x: np.ndarray,
+    labels: np.ndarray,
+    *,
+    backend_name: str,
+    device: Any,
+) -> np.ndarray:
+    """Run the loss variant and assemble the ``(pop_size,)`` loss (host).
+
+    Only ``(p_chunk,)``-scale chunk sums ever cross back to the host; they are
+    accumulated in float32 and divided by ``N`` (the data-point count) once, so
+    the result is ``sum_N sum_out err / N`` -- the same formula, and the same
+    float32 "sum then divide" order, as :func:`etl_engine.sr_fitness` (the
+    in-graph reduction order differs, ~1e-7 relative on the fixtures).
+    """
+    if plan.variant != LOSS_VARIANT:
+        raise ValueError(
+            f"run_loss_plan needs a {LOSS_VARIANT!r} plan, got {plan.variant!r}"
+        )
+    totals = np.zeros((plan.prep.pop_size,), dtype=np.float32)
+    for (p0, p_chunk, _n0, _n_chunk), raw in _iter_plan_chunks(
+        plan, executable, x, labels, backend_name=backend_name, device=device
+    ):
+        host = _to_host(raw, backend_name).reshape(plan.p_chunk)
+        totals[p0 : p0 + p_chunk] += host[:p_chunk]
+    return totals / np.float32(plan.n_rows)
 
 
 def _input_to_numpy(tensor: Any, input_len: int, name: str) -> np.ndarray:
@@ -1386,6 +1850,18 @@ def evaluate_dense(
     * The result is fresh, contiguous, ``requires_grad=False`` float32 on ``x``'s
       device (``out_device`` overrides).  ``x`` and the population tensors are
       never modified.
+
+    Host crossings: ``x`` is converted to host ONCE and the assembled prediction
+    is created as a torch tensor ONCE; the chunk results come back through
+    :func:`run_plan` (one readback per chunk -- exactly one for the default
+    unchunked plan).  A fully device-resident VALUE path (no readback, no H2D at
+    all) is **blocked on ETL upstream**: a payload-backed ``core.Tensor`` cannot
+    be exported zero-copy (``__dlpack__`` raises; ``etl.from_dlpack`` is
+    host-memory v1 only), and assembling chunk results on the device would need a
+    second compiled graph per call.  :func:`_iter_plan_chunks` is the seam a
+    future runner uses once that lands (see its docstring); the SR loss -- the
+    hot path -- already avoids the round trip entirely
+    (:func:`sr_fitness_dense`).
 
     Raises:
         DenseUnsupported: the population cannot be handled densely -- callers
@@ -1460,15 +1936,20 @@ def sr_fitness_dense(
     budget_mb: Optional[float] = None,
     update_mode: Optional[str] = None,
 ) -> torch.Tensor:
-    """Symbolic-regression fitness via the dense evaluator.
+    """Symbolic-regression fitness via the dense evaluator (IN-GRAPH loss).
 
     Same contract as :func:`etl_engine.sr_fitness`: ``inputs`` is
     ``(N, input_len)``, ``labels`` is ``(N, output_len)`` and the result is a
     ``(pop_size,)`` float32 POSITIVE loss ``sum_N sum_out err / N`` (MSE or MAE)
-    on ``inputs``' device unless ``out_device``; NaN/inf propagate.  The
-    reduction is a torch reduction over the assembled prediction; `etl_engine.sr_fitness`
-    reduces its host rows with numpy instead — same formula, differing only in
-    float32 summation order (~1e-7 relative on the fixtures).
+    on ``inputs``' device unless ``out_device``; NaN/inf propagate unsanitized.
+
+    Host crossings: ``inputs`` and ``labels`` are each converted to host ONCE
+    (never twice -- this path does not go through :func:`evaluate_dense`), both
+    are uploaded once per data chunk, and the ONLY engine result is the
+    ``(pop_size,)`` per-chunk loss sum, assembled in float32 and divided by ``N``
+    host-side (:func:`run_loss_plan`): no prediction crosses back.  ``use_MSE``
+    is a static cfg entry, so MSE and MAE are two compiled graphs per shape
+    signature.
     """
     xt = _input_to_numpy(inputs, int(input_len), "inputs")
     if xt.shape[0] <= 0:
@@ -1479,23 +1960,273 @@ def sr_fitness_dense(
             f"labels must have shape ({xt.shape[0]}, {int(output_len)}), got "
             f"{label.shape}"
         )
-    prediction = evaluate_dense(
+    # The wired call sites hand us only ``pop_size``, so the ``auto`` rows rule is
+    # enforced here (same decline -> DenseUnsupported as evaluate_dense).
+    decline = auto_rows_decline(int(xt.shape[0]))
+    if decline:
+        raise DenseUnsupported(decline)
+    plan = plan_dense(
         batch_node_value,
         batch_node_type,
         batch_subtree_size,
         int(input_len),
         int(output_len),
-        inputs,
+        int(xt.shape[0]),
         per_row=False,
-        out_device=out_device,
+        variant=LOSS_VARIANT,
+        use_mse=bool(use_MSE),
+        max_tree_len=max_tree_len,
+        budget_mb=budget_mb,
+        update_mode=update_mode,
+        backend=backend,
+    )
+    executable = build_dense(
+        plan, backend=backend, iree_device_index=iree_device_index
+    )
+    backend_name, device, _ = _resolve_backend(backend, iree_device_index)
+    totals = run_loss_plan(
+        plan, executable, xt, label, backend_name=backend_name, device=device
+    )
+    tensor = torch.from_numpy(totals).contiguous().detach().requires_grad_(False)
+    target = out_device if out_device is not None else getattr(inputs, "device", None)
+    if target is not None and torch.device(target) != tensor.device:
+        tensor = tensor.to(target)
+    return tensor
+
+
+# ---------------------------------------------------------------------------
+# benchmark-support runner: build once, run many (no readback, no re-key)
+# ---------------------------------------------------------------------------
+#
+# ``build_dense_runner`` / ``DenseRunner`` are the dense half of the two frozen
+# benchmark-support runner APIs; the specialized half is
+# ``etl_engine.build_specialized_runner``.  The shared contract (exact
+# signatures, what the build phase costs, what ``.run()`` does per backend and
+# what it returns) is documented in ``RUNNER_HOOKS.md`` (this directory) and
+# pinned by ``runner_check.py``; the short version:
+#
+# * the BUILD phase does everything that is not "the compiled forward pass" --
+#   host preprocessing (:func:`plan_dense`), the ONE compile of the shape
+#   signature (:func:`build_dense`), and the staging of every chunk payload
+#   (preparation + upload) through the readback-free seam
+#   (:func:`_iter_plan_chunks` with an injected payload memo), plus one warm-up
+#   run that does the staging;
+# * ``.run()`` executes ONLY the forward pass: one ``etl.run`` over the staged
+#   payloads, returning the RAW backend result -- device-resident on a device
+#   backend (no readback, no host assembly, no torch conversion) and
+#   host-backed on numpy (nothing is uploaded or read back there by
+#   construction).  N calls are N identical passes;
+# * nothing in the library calls them, they do not change the public route
+#   behaviour (``EVOGP_EVAL_MODE`` is NOT consulted: the caller picks the route
+#   by picking the builder) and they are not part of the training path.
+
+#: The payload keys/staging of a dense runner are plain dict entries of the
+#: injected seam memo (``(host_array, device_tensor_or_None)`` per key).
+
+
+class DenseRunner:
+    """A whole population behind ONE compiled dense graph and staged inputs.
+
+    The constructor IS the build phase (both :func:`build_dense_runner` and a
+    direct ``DenseRunner(...)`` build it the same way):
+
+    1. duck-type the population (:func:`etl_engine._population_inputs`) and
+       validate/convert ``inputs`` once (``(N, input_len)`` float32, ``N ==
+       pop_size`` when ``per_row``) -- the same semantics as :func:`evaluate_dense`;
+    2. :func:`plan_dense` the host preprocessing + chunk shape + graph specs and
+       :func:`build_dense` the ONE executable of the shape signature (a shape
+       already compiled is a pure cache hit -- ONE entry for the whole
+       population, against ``pop_size`` on the specialized route);
+    3. stage every payload of the (single) chunk ONCE via
+       :func:`_iter_plan_chunks` with an injected memo (:attr:`staged`), which
+       also performs the warm-up run that fills it.
+
+    The runner is single-chunk BY CONTRACT: a chunked plan raises
+    :class:`DenseUnsupported` at build time, because a chunked result cannot be
+    assembled without a host (or a second compiled graph) step, which is outside
+    "``.run()`` executes only the forward pass".  Raise ``EVOGP_DENSE_BUDGET_MB``
+    to keep a benchmark shape in one chunk.
+
+    Read-only attributes (diagnostics for harnesses):
+        plan: the :class:`DensePlan` (``trace_len`` / ``pop_size`` / ``n_rows`` /
+            chunk shape / ``peak_bytes`` / variant ...; see :func:`describe_plan`).
+        executable: the compiled (or cache-hit) ETL executable.
+        staged: the payload memo (payload key -> ``(host_array,
+            device_tensor_or_None)``) every ``.run()`` re-uses.
+        backend_name / device: the resolved :func:`_resolve_backend` pair
+            (frozen for every ``.run()``); ``device_resident`` is
+            ``backend_name != "numpy"``.
+        per_row, input_len, output_len, pop_size, n_rows (the graph's own ``N``:
+            ``1`` for ``per_row=True``).
+
+    The result stays in the backend's own memory: read it back yourself
+    (``raw.to(etl.core.Device("cpu", 0)).numpy()`` on a device backend,
+    ``raw.numpy()`` on numpy) -- that is the consumer's copy, not a runner step.
+    """
+
+    def __init__(
+        self,
+        population_or_forest: Any,
+        inputs: Any,
+        *,
+        per_row: bool = False,
+        backend: Optional[str] = None,
+        iree_device_index: Optional[int] = None,
+        max_tree_len: Optional[int] = None,
+        budget_mb: Optional[float] = None,
+        update_mode: Optional[str] = None,
+    ) -> None:
+        values, types, sizes, input_len, output_len = _population_inputs(
+            population_or_forest
+        )
+        self.input_len = int(input_len)
+        self.output_len = int(output_len)
+        self.per_row = bool(per_row)
+        xin = _input_to_numpy(inputs, self.input_len, "inputs")
+        plan = plan_dense(
+            values,
+            types,
+            sizes,
+            self.input_len,
+            self.output_len,
+            int(xin.shape[0]),
+            per_row=self.per_row,
+            max_tree_len=max_tree_len,
+            budget_mb=budget_mb,
+            update_mode=update_mode,
+            backend=backend,
+        )
+        if self.per_row and int(xin.shape[0]) != plan.pop_size:
+            raise ValueError(
+                f"per_row=True needs inputs.shape[0] == {plan.pop_size} "
+                f"(pop_size), got {xin.shape[0]}"
+            )
+        if plan.p_chunks > 1 or plan.n_chunks > 1:
+            raise DenseUnsupported(
+                "build_dense_runner needs a single-chunk plan, got "
+                f"{plan.p_chunks}x{plan.n_chunks} chunks of "
+                f"(P_chunk={plan.p_chunk}, N_chunk={plan.n_chunk}): a chunked "
+                "result cannot be assembled without a host (or a second "
+                "compiled graph) step, which is outside this API's "
+                f"no-readback contract.  Raise {BUDGET_MB_ENV} (currently "
+                f"{plan.budget_mb}) to keep this shape in one chunk."
+            )
+        self.plan = plan
+        self.executable = build_dense(
+            plan, backend=backend, iree_device_index=iree_device_index
+        )
+        self.backend_name, self.device, _ = _resolve_backend(backend, iree_device_index)
+        self.device_resident = self.backend_name != "numpy"
+        self.staged: Dict[Any, Tuple[np.ndarray, Any]] = {}
+        self._x = np.ascontiguousarray(xin)
+        chunks = list(
+            _iter_plan_chunks(
+                plan,
+                self.executable,
+                self._x,
+                backend_name=self.backend_name,
+                device=self.device,
+                device_resident=self.device_resident,
+                staged=self.staged,
+            )
+        )
+        if len(chunks) != 1:  # pragma: no cover - guarded by the chunk check above
+            raise DenseUnsupported(
+                f"the plan yielded {len(chunks)} chunks but the runner contract "
+                "is exactly one"
+            )
+
+    @property
+    def invocations(self) -> int:
+        """How many ``etl.run`` calls one :meth:`run` issues (always one chunk)."""
+        return 1
+
+    def run(self) -> Any:
+        """Execute ONE forward pass -- the only thing a harness times.
+
+        Returns:
+            The RAW ``etl.run`` result of this plan's single chunk: an ``etl``
+            runtime tensor of shape ``(pop_size, n_rows)`` (``n_rows == 1`` for
+            ``per_row=True``), **device-resident** on a device backend
+            (``iree``: no readback, no host assembly, no torch conversion) and
+            host-backed on the ``numpy`` backend (which never leaves the host,
+            so there is nothing to read back and nothing is copied).
+
+        Nothing else happens: the payloads staged by the build phase are re-used
+        by reference (no re-preparation, no re-upload), the executable is held
+        directly (no ``build_cached`` key derivation, no ``_executable``
+        lookup), the plan is never rebuilt and no result is converted.  The
+        static ``cfg`` is re-passed by value exactly as the frozen engine does
+        (:func:`_iter_plan_chunks`).
+        """
+        iterator = _iter_plan_chunks(
+            self.plan,
+            self.executable,
+            self._x,
+            backend_name=self.backend_name,
+            device=self.device,
+            device_resident=self.device_resident,
+            staged=self.staged,
+        )
+        _chunk, raw = next(iterator)
+        return raw
+
+
+def build_dense_runner(
+    population_or_forest: Any,
+    inputs: Any,
+    *,
+    per_row: bool = False,
+    backend: Optional[str] = None,
+    iree_device_index: Optional[int] = None,
+    max_tree_len: Optional[int] = None,
+    budget_mb: Optional[float] = None,
+    update_mode: Optional[str] = None,
+) -> DenseRunner:
+    """Build a repeatable dense-evaluator runner (the frozen benchmark API).
+
+    Args:
+        population_or_forest: any ``Forest``-like container (duck-typed on
+            ``batch_node_value`` / ``batch_node_type`` / ``batch_subtree_size``
+            / ``input_len`` / ``output_len``; no import of the container).
+        inputs: ``x`` with the semantics of :func:`evaluate_dense` -- ``(N,
+            input_len)``, converted to float32 host once for the build; ``N ==
+            pop_size`` when ``per_row=True`` (tree ``i`` sees row ``i``), else
+            the data points every tree is evaluated on.
+        per_row: per-tree inputs (default ``False``: every tree sees all rows).
+        backend / iree_device_index / max_tree_len / budget_mb / update_mode:
+            exactly :func:`evaluate_dense`'s knobs (backend and device index
+            override the environment; the trace cap and the chunk budget are the
+            dense-specific ones).
+
+    Returns:
+        A :class:`DenseRunner`; ``.run()`` is the compiled forward pass only (one
+        ``etl.run`` over the staged payloads; see its docstring for the exact
+        return contract).
+
+    Raises:
+        DenseUnsupported: the population is outside the dense subset
+            (multi-output, over the trace cap, malformed) OR the plan chunks --
+            see the class docstring.
+        TypeError: the container is not Forest-like (or the population tensors
+            are not 2-D).
+        ValueError: bad ``inputs`` shape, a ``per_row`` row-count mismatch, or an
+            unsupported ``max_tree_len`` / ``budget_mb`` / ``update_mode``.
+        ValueError: an unsupported backend name (from :func:`_resolve_backend`).
+
+    Note:
+        The ``EVOGP_EVAL_MODE`` policy is NOT consulted: this API selects the
+        dense route explicitly, exactly like ``eval_mode="dense"`` does, but
+        without the silent fallback -- an unsupported population raises here
+        instead of running on the specialized engine.
+    """
+    return DenseRunner(
+        population_or_forest,
+        inputs,
+        per_row=per_row,
         backend=backend,
         iree_device_index=iree_device_index,
         max_tree_len=max_tree_len,
         budget_mb=budget_mb,
         update_mode=update_mode,
     )
-    target = torch.from_numpy(label).to(prediction.device)
-    diff = target.unsqueeze(0) - prediction
-    err = diff * diff if use_MSE else diff.abs()
-    loss = err.sum(dim=(1, 2)) / float(xt.shape[0])
-    return loss.contiguous().detach().requires_grad_(False)

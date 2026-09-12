@@ -15,8 +15,9 @@ graph:
    load, memoized in one shared :class:`etl.CompileCache`), then run it.
 3. Compiled executables are cached per *(tree structure, input shape)* pair, so
    re-evaluating the same structure (elite trees, repeated rows, the same
-   population next generation) is a pure cache hit.
-
+   population next generation) is a pure cache hit; a bounded value-keyed
+   in-process memo in front of it skips ``build_cached``'s own per-call key
+   derivation (see "Per-tree executable memo" below).
 The step function ``_eval_step`` is the ONLY ``@etl.defn`` in this module and
 lives at module level so its ``id(fn)`` -- part of the ``build_cached`` key --
 is stable for the lifetime of the process.  There is no in-graph recursion:
@@ -35,6 +36,17 @@ exactly these names) -- see each docstring for the exact contract::
 Documented additions to the frozen signatures (backwards compatible, all
 keyword-only and defaulted): ``backend`` and ``iree_device_index`` on
 ``evaluate`` / ``sr_fitness``.  They only override the environment defaults.
+
+Benchmark-support runner (not part of the public route)
+-------------------------------------------------------
+:func:`build_specialized_runner` / :class:`SpecializedRunner` expose the SAME
+engine as a build-once / run-many object for benchmarking harnesses: the build
+phase decodes the population and resolves every per-tree executable, ``.run()``
+executes only the compiled forward pass (one ``etl.run`` per non-constant tree,
+staged per-tree inputs, raw results, no readback and no cache lookup at all).
+It changes nothing about ``evaluate`` / ``sr_fitness``, is called by nothing in
+the library and is documented -- with the dense twin,
+``dense_engine.build_dense_runner`` -- in ``RUNNER_HOOKS.md``.
 
 Backend & device policy
 -----------------------
@@ -85,6 +97,50 @@ with unusual shapes (e.g. every ``N`` in ``per_row=False``) can push out hot
 entries.  :func:`cache_stats` / :func:`clear_cache` expose and reset the table.
 The cache is **in-memory only** -- no artifact is written to disk and nothing
 is shared across processes (documented ETL limitation).
+
+Per-tree executable memo (in-process front table)
+-------------------------------------------------
+``build_cached`` is a memoized build, but its HIT path still re-derives the
+cache key on every call (program re-encode + sha256, behind a one-slot
+pickle-fingerprint fast path): measured 160-207 us per tree on the two probe
+fixtures (30-63-node trees) when consecutive lookups carry DIFFERENT programs
+-- which is exactly the per-tree loop's access pattern -- against 2.4-2.8 us
+per tree for a plain value-keyed dict lookup doing the same work (see
+``warm_path_findings.md`` section 11; the battery is
+``executable_memo_check.py``).  The engine therefore keeps a bounded LRU memo
+(:data:`_EXECUTABLE_MEMO`, one entry per executable, ``maxsize`` =
+:data:`CACHE`'s) keyed by
+:func:`_executable_key` -- everything ``build_cached`` keys on: ``id(_eval_step)``,
+the ``program`` value, ``n_rows``, ``input_len``, the backend name, the device
+and the canonicalized options.  A repeated lookup for the same
+*(structure, shape, backend, device, options)* returns the very ``Executable``
+:data:`CACHE` holds (identity, as on a ``build_cached`` hit) without touching
+ETL at all, and only a memo miss constructs the ``TensorSpec`` and re-derives
+``build_cached``'s own key.  The key is value-typed, so a re-decoded elite tree
+hits.
+
+Consequences: (a) ``CACHE.hits`` no longer counts repeated ``_executable``
+lookups -- :func:`cache_stats` reports the front table as ``memo_hits`` /
+``memo_misses`` / ``memo_entries`` / ``memo_maxsize`` (memo misses are the
+lookups that went on to ``build_cached``, so they still land in ``CACHE``'s
+counters); (b) :func:`clear_cache` resets both tables in lockstep (the ETL
+documented "clear the cache after changing a process-env compile knob" advice
+therefore holds unchanged); (c) the memo holds a strong reference to its keys
+and values, so it can pin up to ``maxsize`` executables that ``CACHE`` has
+already evicted -- bounded by design and the only cost of the front table;
+(d) ambient ``ETL_TARGET_BACKENDS`` is the one env knob that still enters
+``build_cached``'s key for the numpy path (``_resolve_backend_device`` adds it
+when no explicit ``target_backends`` is passed) and is deliberately NOT part of
+the memo key: the numpy backend documents the option as accepted-and-ignored
+and the module always passes backend/device/``target_backends`` itself, so it
+cannot change what this module computes (see :func:`_executable_key`).
+
+ADOPTION POINT: the memo is a deliberate stopgap for the ETL-side ``etl.jit`` /
+pre-bound-runner machinery, which should absorb it -- a pre-bound runner skips
+both ``build_cached``'s per-call key derivation AND ``etl.run``'s statics
+re-validation.  When that lands, delete :data:`_EXECUTABLE_MEMO` (and the
+``memo_*`` counters in :func:`cache_stats`) in favor of the pre-bound runner;
+nothing else in the engine depends on it.
 
 Speed knob: ``ETL_DISABLE_LOCATIONS=1``
 --------------------------------------
@@ -177,6 +233,8 @@ from __future__ import annotations
 
 import math
 import os
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -193,6 +251,8 @@ __all__ = [
     "DEFAULT_CACHE_SIZE",
     "DecodedTree",
     "Population",
+    "SpecializedRunner",
+    "build_specialized_runner",
     "cache_stats",
     "clear_cache",
     "decode_population",
@@ -256,23 +316,112 @@ def _default_cache_size() -> int:
 CACHE = CompileCache(maxsize=_default_cache_size())
 
 
-def cache_stats() -> Dict[str, int]:
-    """Snapshot of the shared :data:`CACHE` (``hits``/``misses``/``entries``).
+class _ExecutableMemo(OrderedDict):
+    """Bounded LRU ``key -> Executable`` memo in front of :data:`CACHE`.
 
-    ``entries`` counts cached executables, ``maxsize`` the LRU limit; the
-    counters are reset by :func:`clear_cache`.
+    ``etl.build_cached`` memoizes the build, but its hit path re-derives the
+    cache key on every call (program re-encode + sha256); this table is the
+    plain dict lookup that skips it (see the module docstring's "Per-tree
+    executable memo" section for the measurements and the full contract).
+
+    * A hit returns the very ``Executable`` object :data:`CACHE` holds
+      (``build_cached`` returns identity on a hit, and an executable is
+      immutable and stateless -- the static program is re-passed by value at
+      every ``etl.run``), so the memo can never serve a different executable
+      than ``build_cached`` would for the same key.
+    * ``maxsize`` bounds the table (plain LRU via :meth:`popitem`); it is set to
+      :data:`CACHE`'s ``maxsize`` so both tables cover the same working set.
+      Entries hold a strong reference to their key (the program tuple) and
+      value, so the memo can pin up to ``maxsize`` executables that
+      :data:`CACHE` has already evicted -- bounded, and the only cost of the
+      front table (an entry whose executable is still CACHE-resident costs one
+      key reference).
+    * The counters are what :func:`cache_stats` reports; :meth:`reset` is
+      :func:`clear_cache`'s half of the invalidation.
+    * Like :data:`CACHE` -- whose ``CompileCache`` guards its dict and counters
+      with a lock -- every operation here runs under one :class:`threading.RLock`,
+      so a caller that evaluates from several threads gets the same
+      first-insert-wins behaviour as ``build_cached`` (a duplicated build would
+      be identical by construction: the key determines the executable).
+    """
+
+    def __init__(self, maxsize: int) -> None:
+        super().__init__()
+        self.maxsize = int(maxsize)
+        self.hits = 0
+        self.misses = 0
+        self._lock = threading.RLock()
+
+    def lookup(self, key: Any) -> Any:
+        """The memoized executable for ``key``, or ``None`` (counter updated).
+
+        ``None`` is the "not memoized" answer: executables are never ``None``.
+        """
+        with self._lock:
+            try:
+                executable = self[key]
+            except KeyError:
+                self.misses += 1
+                return None
+            self.hits += 1
+            self.move_to_end(key)  # LRU: a hit refreshes the entry
+            return executable
+
+    def store(self, key: Any, executable: Any) -> None:
+        """Insert ``key`` -> ``executable`` (never for a present key) and trim."""
+        with self._lock:
+            self[key] = executable
+            while len(self) > self.maxsize:
+                self.popitem(last=False)
+
+    def reset(self) -> None:
+        """Drop every entry and zero the hit/miss counters."""
+        with self._lock:
+            OrderedDict.clear(self)
+            self.hits = 0
+            self.misses = 0
+
+
+#: LRU memo of per-(program, shape, backend, device, options) executables;
+#: populated by :func:`_executable`, keyed by :func:`_executable_key`.
+_EXECUTABLE_MEMO = _ExecutableMemo(CACHE.maxsize)
+
+
+def cache_stats() -> Dict[str, int]:
+    """Snapshot of the shared :data:`CACHE` and the executable front memo.
+
+    ``hits``/``misses``/``entries``/``maxsize`` describe the ``etl.CompileCache``
+    (the compile table); ``memo_*`` describe :data:`_EXECUTABLE_MEMO`, the
+    in-process value-keyed table in front of it: ``memo_hits`` are lookups
+    served without touching the compile cache at all, ``memo_misses`` are the
+    lookups that went on to ``build_cached`` (and are therefore also counted in
+    ``CACHE``'s ``hits``/``misses``), ``memo_entries``/``memo_maxsize`` its size
+    and bound.  ``CACHE.hits`` therefore no longer grows with repeated
+    ``_executable`` lookups -- that is the memo working as documented, not a
+    dropped hit.  Every counter is reset by :func:`clear_cache`.
     """
     return {
         "hits": CACHE.hits,
         "misses": CACHE.misses,
         "entries": len(CACHE),
         "maxsize": CACHE.maxsize,
+        "memo_hits": _EXECUTABLE_MEMO.hits,
+        "memo_misses": _EXECUTABLE_MEMO.misses,
+        "memo_entries": len(_EXECUTABLE_MEMO),
+        "memo_maxsize": _EXECUTABLE_MEMO.maxsize,
     }
 
 
 def clear_cache() -> None:
-    """Drop every cached executable and reset the hit/miss counters."""
+    """Drop every cached executable and reset the hit/miss counters.
+
+    Both tables are reset: the :data:`CACHE` compile cache and the
+    :data:`_EXECUTABLE_MEMO` front table, in lockstep (see the module docstring:
+    that is what makes ETL's "clear the cache after changing a process-env
+    compile knob" advice hold for the memo too).
+    """
     CACHE.clear()
+    _EXECUTABLE_MEMO.reset()
 
 
 # ---------------------------------------------------------------------------
@@ -901,6 +1050,72 @@ def _resolve_backend(
     return name, device, {"target_backends": ["cuda"], "opt_level": opt_level}
 
 
+def _freeze_options(value: Any) -> Any:
+    """Hashable, order-insensitive, immutable snapshot of an option value.
+
+    Mirrors ``etl.build_cache._canonicalize_options`` exactly -- dicts become
+    sorted ``(key, value)`` item tuples, lists/tuples sorted tuples of their
+    frozen items, scalars pass through, and a ``TypeError`` from sorting
+    (incomparable mixed types) keeps the original order -- so two option sets
+    that ``build_cached`` keys identically also key identically here.  The
+    result shares no mutable state with the caller's dicts/lists, so a memo key
+    can never be changed from the outside.
+    """
+    if isinstance(value, dict):
+        try:
+            return tuple(
+                sorted((key, _freeze_options(item)) for key, item in value.items())
+            )
+        except TypeError:  # incomparable mixed keys/values: keep the given order
+            return tuple((key, _freeze_options(item)) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        try:
+            return tuple(sorted(_freeze_options(item) for item in value))
+        except TypeError:
+            return tuple(_freeze_options(item) for item in value)
+    return value
+
+
+def _executable_key(
+    program: Tuple[int, Sequence[Sequence[int]]],
+    n_rows: int,
+    input_len: int,
+    backend_name: str,
+    device: Any,
+    options: Dict[str, Any],
+) -> Tuple[Any, ...]:
+    """Memo key of one executable: everything ``build_cached`` keys on.
+
+    ``(id(_eval_step), program, n_rows, input_len, backend_name, device,
+    frozen options)`` -- the same components ``build_cached`` derives its own
+    key from (``id(fn)``, the traced spec tree -- here always
+    ``TensorSpec((n_rows, input_len), float32)`` --, the resolved backend, the
+    resolved device and the canonicalized resolved options), so the memo is as
+    discriminating as :data:`CACHE` and can never serve an executable built for
+    a different combination.  The key is value-typed and immutable: a re-decode
+    of an unchanged tree yields an equal ``program`` tuple and therefore hits
+    (the elite case), and the device is a frozen ``etl.core.Device`` (kind +
+    index, the same content the ``build_cached`` codec encodes).
+
+    Ambient ``ETL_BACKEND`` / ``ETL_DEVICE`` / ``ETL_TARGET_BACKENDS`` are not
+    part of the key, deliberately: this module always passes backend, device and
+    (for iree) ``target_backends`` itself, so they cannot change what it
+    computes -- the numpy backend documents ``target_backends`` as
+    accepted-and-ignored (``etl/backends/options.py``), which is the only one of
+    the three that can still enter ``build_cached``'s resolved options.  A memo
+    hit is therefore the same executable ``build_cached`` would return.
+    """
+    return (
+        id(_eval_step),
+        program,
+        int(n_rows),
+        int(input_len),
+        backend_name,
+        device,
+        _freeze_options(options),
+    )
+
+
 def _executable(
     program: Tuple[int, Sequence[Sequence[int]]],
     n_rows: int,
@@ -909,21 +1124,35 @@ def _executable(
     device: Any,
     options: Dict[str, Any],
 ) -> Any:
-    """Memoized per-(structure, shape) executable (a hit returns identity)."""
+    """Memoized per-(structure, shape) executable (a hit returns identity).
+
+    One value-keyed lookup in :data:`_EXECUTABLE_MEMO` (:func:`_executable_key`)
+    in front of ``etl.build_cached``; only a memo miss builds the
+    ``TensorSpec`` and re-derives ``build_cached``'s own (far more expensive)
+    key.  ``_ExecutableMemo`` documents the contract and
+    ``executable_memo_check.py`` pins it.
+    """
+    key = _executable_key(program, n_rows, input_len, backend_name, device, options)
+    executable = _EXECUTABLE_MEMO.lookup(key)
+    if executable is not None:
+        return executable
     spec = etl.TensorSpec((int(n_rows), int(input_len)), etl.float32)
     if backend_name == "numpy":
-        return build_cached(
+        executable = build_cached(
             _eval_step, spec, program, backend=backend_name, device=device, cache=CACHE
         )
-    return build_cached(
-        _eval_step,
-        spec,
-        program,
-        backend=backend_name,
-        device=device,
-        cache=CACHE,
-        **options,
-    )
+    else:
+        executable = build_cached(
+            _eval_step,
+            spec,
+            program,
+            backend=backend_name,
+            device=device,
+            cache=CACHE,
+            **options,
+        )
+    _EXECUTABLE_MEMO.store(key, executable)
+    return executable
 
 
 # ---------------------------------------------------------------------------
@@ -1505,3 +1734,257 @@ def sr_fitness(
     if dest is not None and torch.device(dest) != loss.device:
         loss = loss.to(dest)
     return loss
+
+
+# ---------------------------------------------------------------------------
+# benchmark-support runner: build once, run many (no readback, no re-key)
+# ---------------------------------------------------------------------------
+#
+# ``build_specialized_runner`` / ``SpecializedRunner`` are the specialized half
+# of the two frozen benchmark-support runner APIs; the dense half is
+# ``dense_engine.build_dense_runner``.  The shared contract (exact signatures,
+# what the build phase costs, what ``.run()`` does per backend and what it
+# returns) is documented in ``RUNNER_HOOKS.md`` (this directory) and pinned by
+# ``runner_check.py``; the short version:
+#
+# * the BUILD phase does everything that is not "the compiled forward pass" --
+#   host decode, per-tree executable resolution (compile or cache hit), input
+#   validation + conversion + staging on its final device;
+# * ``.run()`` executes ONLY the forward pass: it re-uses the staged inputs and
+#   the already-resolved executables, never re-decodes/re-plans/re-keys and
+#   never moves a result back to the host.  N calls are N identical passes;
+# * nothing in the library calls them, they do not change the public route
+#   behaviour (``EVOGP_EVAL_MODE`` is NOT consulted: the caller picks the route
+#   by picking the builder) and they are not part of the training path.
+
+#: The attributes a ``Forest``-like container must expose for the runners.
+#: Duck typing on purpose: ``forest.py`` imports THIS module, so a module-level
+#: import back would create an import cycle.
+_POPULATION_ATTRS = (
+    "batch_node_value",
+    "batch_node_type",
+    "batch_subtree_size",
+    "input_len",
+    "output_len",
+)
+
+
+def _population_inputs(population_or_forest: Any) -> Tuple[Any, Any, Any, int, int]:
+    """Duck-typed ``(values, types, sizes, input_len, output_len)`` of a population.
+
+    Accepts any object carrying the five attributes of ``evogp.tree.Forest``
+    (``batch_node_value`` / ``batch_node_type`` / ``batch_subtree_size`` /
+    ``input_len`` / ``output_len``); the runners never import the container.
+    Tensors may live on any device and may be numpy arrays, exactly as
+    :func:`decode_population` accepts them.
+
+    Raises:
+        TypeError: ``population_or_forest`` is missing one of the attributes
+            (the message names them and the offending type).
+    """
+    missing = [
+        name for name in _POPULATION_ATTRS if not hasattr(population_or_forest, name)
+    ]
+    if missing:
+        raise TypeError(
+            "expected a Forest-like container exposing "
+            f"{list(_POPULATION_ATTRS)}, got "
+            f"{type(population_or_forest).__name__} (missing {missing})"
+        )
+    return (
+        population_or_forest.batch_node_value,
+        population_or_forest.batch_node_type,
+        population_or_forest.batch_subtree_size,
+        int(population_or_forest.input_len),
+        int(population_or_forest.output_len),
+    )
+
+
+class SpecializedRunner:
+    """A decoded population with every per-tree executable already resolved.
+
+    The constructor IS the build phase (both :func:`build_specialized_runner`
+    and a direct ``SpecializedRunner(...)`` build it the same way):
+
+    1. duck-type the population (:func:`_population_inputs`) and validate/convert
+       ``inputs`` once (``(N, input_len)`` float32, ``N == pop_size`` when
+       ``per_row``) -- the same semantics as :func:`evaluate`;
+    2. :func:`decode_population` the population (host decode + validation);
+    3. resolve one executable per NON-constant tree through :func:`_executable`
+       (value-keyed memo in front of ``build_cached``), so a structure already
+       compiled for this shape is a pure lookup;
+    4. stage the input block(s) for their final device: ONE shared ``(N,
+       input_len)`` upload for ``per_row=False``, one uploaded ``(1, input_len)``
+       row per non-constant tree for ``per_row=True`` (exactly what
+       :func:`_evaluate_rows` does within a call, but once instead of per call).
+
+    Read-only attributes (diagnostics for harnesses):
+        population: the decoded :class:`Population`.
+        executables: ``pop_size``-long tuple; ``None`` for constant trees.
+        payloads: ``pop_size``-long tuple of the staged per-tree inputs
+            (host numpy arrays on the numpy backend, device tensors otherwise);
+            ``None`` for constant trees.
+        constant_rows: ``pop_size``-long tuple; for a constant tree a READ-ONLY
+            ``(n_rows, output_len)`` float32 broadcast view of the rows every
+            data point sees, else ``None``.
+        backend_name / device / options: the resolved
+            :func:`_resolve_backend` triple (frozen for every ``.run()``).
+        per_row, n_rows, input_len, output_len, pop_size.
+
+    Callers that need the values on the host read the raw results back
+    themselves (``raw.to(cpu).numpy()`` / ``raw.numpy()``) -- which is the
+    consumer's copy, not a runner step; see :meth:`run`.
+    """
+
+    def __init__(
+        self,
+        population_or_forest: Any,
+        inputs: Any,
+        *,
+        per_row: bool = False,
+        backend: Optional[str] = None,
+        iree_device_index: Optional[int] = None,
+    ) -> None:
+        values, types, sizes, input_len, output_len = _population_inputs(
+            population_or_forest
+        )
+        self.input_len = int(input_len)
+        self.output_len = int(output_len)
+        self.per_row = bool(per_row)
+        self.population = decode_population(
+            values, types, sizes, self.input_len, self.output_len
+        )
+        self.pop_size = self.population.pop_size
+        xin = _input_to_numpy(inputs, self.input_len, "inputs")
+        if self.per_row and xin.shape[0] != self.pop_size:
+            raise ValueError(
+                f"per_row=True needs inputs.shape[0] == {self.pop_size} "
+                f"(pop_size), got {xin.shape[0]}"
+            )
+        self.n_rows = 1 if self.per_row else int(xin.shape[0])
+        self.backend_name, self.device, self.options = _resolve_backend(
+            backend, iree_device_index
+        )
+        to_device = self.backend_name != "numpy"
+        shared = (
+            etl.from_numpy(np.ascontiguousarray(xin)).to(self.device)
+            if to_device and not self.per_row
+            else None
+        )
+        executables: List[Optional[Any]] = []
+        payloads: List[Optional[Any]] = []
+        constant_rows: List[Optional[np.ndarray]] = []
+        for index, tree in enumerate(self.population.trees):
+            if tree.const_out is not None:
+                # Constant tree: folded at decode time, nothing was compiled.
+                executables.append(None)
+                payloads.append(None)
+                constant_rows.append(
+                    np.broadcast_to(
+                        _bits_to_float_arr(tree.const_out),
+                        (self.n_rows, self.output_len),
+                    )
+                )
+                continue
+            executables.append(
+                _executable(
+                    tree.program,
+                    self.n_rows,
+                    self.input_len,
+                    self.backend_name,
+                    self.device,
+                    self.options,
+                )
+            )
+            if self.per_row:
+                row = xin[index : index + 1]
+                payloads.append(
+                    etl.from_numpy(np.ascontiguousarray(row)).to(self.device)
+                    if to_device
+                    else row
+                )
+            else:
+                payloads.append(shared if to_device else xin)
+            constant_rows.append(None)
+        self.executables: Tuple[Optional[Any], ...] = tuple(executables)
+        self.payloads: Tuple[Optional[Any], ...] = tuple(payloads)
+        self.constant_rows: Tuple[Optional[np.ndarray], ...] = tuple(constant_rows)
+
+    @property
+    def invocations(self) -> int:
+        """How many ``etl.run`` calls one :meth:`run` issues (non-constant trees)."""
+        return sum(1 for executable in self.executables if executable is not None)
+
+    def run(self) -> Tuple[Optional[Any], ...]:
+        """Execute ONE forward pass -- the only thing a harness times.
+
+        Returns:
+            A ``pop_size``-long tuple: entry ``i`` is the RAW ``etl.run`` result
+            of tree ``i`` -- an ``etl`` runtime tensor of shape ``(n_rows,
+            output_len)``, host-backed on the numpy backend and device-resident
+            on a device backend -- or ``None`` for a constant tree (never
+            compiled; its rows are staged in :attr:`constant_rows`).
+
+        Nothing else happens: no readback, no torch conversion, no host-side
+        assembly, no executable lookup, no decode.  ``.run()`` is repeatable --
+        the executables and the staged inputs are re-used as-is, and the static
+        program is re-passed by value exactly as the frozen engine does.
+        """
+        results: List[Optional[Any]] = []
+        with _quiet():
+            for executable, payload, tree in zip(
+                self.executables, self.payloads, self.population.trees
+            ):
+                if executable is None:  # constant tree: nothing to run
+                    results.append(None)
+                    continue
+                # ADOPTION POINT (ETL-side, deliberately NOT implemented here):
+                # ``etl.run`` re-validates the statics by value in O(#tokens) per
+                # call and walks the executable's structure every time.  The
+                # upstream ``etl.jit`` / pre-bound-runner work would carry a
+                # bound invocation that skips both; nothing in this repository
+                # emulates it and /mnt/local-ssd/bchuang/etl is not modified --
+                # when it lands, this is the one line to swap.
+                results.append(etl.run(executable, payload, tree.program))
+        return tuple(results)
+
+
+def build_specialized_runner(
+    population_or_forest: Any,
+    inputs: Any,
+    *,
+    per_row: bool = False,
+    backend: Optional[str] = None,
+    iree_device_index: Optional[int] = None,
+) -> SpecializedRunner:
+    """Build a repeatable specialized-engine runner (the frozen benchmark API).
+
+    Args:
+        population_or_forest: any ``Forest``-like container (duck-typed on
+            ``batch_node_value`` / ``batch_node_type`` / ``batch_subtree_size``
+            / ``input_len`` / ``output_len``; no import of the container).
+        inputs: ``x`` with the semantics of :func:`evaluate` -- ``(N,
+            input_len)``, converted to float32 host once; ``N == pop_size`` when
+            ``per_row=True`` (tree ``i`` sees row ``i``), else the data points
+            every tree is evaluated on.
+        per_row: per-tree inputs (default ``False``: every tree sees all rows).
+        backend / iree_device_index: exactly :func:`evaluate`'s overrides of the
+            ``EVOGP_ETL_BACKEND`` / ``EVOGP_ETL_IREE_DEVICE`` environment.
+
+    Returns:
+        A :class:`SpecializedRunner`; ``.run()`` is the compiled forward pass
+        only (see its docstring for the exact return contract).
+
+    Raises:
+        TypeError: the container is not Forest-like.
+        ValueError: bad ``inputs`` shape, a ``per_row`` row-count mismatch, or a
+            malformed tree (from :func:`decode_population`, naming row + node).
+        ValueError: an unsupported backend name (from :func:`_resolve_backend`).
+    """
+    return SpecializedRunner(
+        population_or_forest,
+        inputs,
+        per_row=per_row,
+        backend=backend,
+        iree_device_index=iree_device_index,
+    )
