@@ -730,11 +730,13 @@ def case_dense_unsupported(args, report, results: Dict[str, Any]) -> bool:
         "tree length beyond the row",
         lambda: D.prepare_dense(values, bad_sizes, sizes, 2, 1, max_tree_len=40),
     )
-    bad_var = values.copy()
-    bad_var[0, 1] = 99.0  # assume node 1 is a VAR in this row
+    var_values, var_types, var_sizes = pack_trees(
+        [TreeSpec([("b", float(Func.ADD)), ("var", 0.0), ("var", 1.0)])], row_len=8
+    )
+    var_values[0, 1] = 99.0  # node 1 is a VAR -> index 99 is out of range for input_len=2
     ok &= expect(
         "variable index out of range",
-        lambda: D.prepare_dense(bad_var, types, sizes, 2, 1),
+        lambda: D.prepare_dense(var_values, var_types, var_sizes, 2, 1),
     )
     bad_struct = sizes.copy()
     bad_struct[0, 0] = max(1, int(bad_struct[0, 0]) - 1)

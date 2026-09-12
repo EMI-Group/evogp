@@ -848,7 +848,7 @@ def plan_dense(
         mode,
         budget * 1024.0 * 1024.0,
     )
-    shape = (prep.trace_len, prep.pop_size)
+    shape = (prep.trace_len, p_chunk)
     x_shape = (
         (p_chunk, prep.input_len) if per_row else (n_chunk, prep.input_len)
     )
