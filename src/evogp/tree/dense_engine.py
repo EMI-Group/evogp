@@ -294,7 +294,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -1386,22 +1386,46 @@ def _pad_rows(array: np.ndarray, rows: int) -> np.ndarray:
     )
 
 
+def _chunk_rows(
+    array: np.ndarray, start: int, count: int, rows: int
+) -> np.ndarray:
+    """One contiguous ``[start:start+count]`` slice of ``array``, padded to ``rows``.
+
+    The host PREPARATION step of an ``x`` / ``labels`` chunk payload: with
+    ``per_row=False`` the payload depends only on the chunk's ``n0``, with
+    ``per_row=True`` only on ``p0``, so :func:`_iter_plan_chunks` memoizes it per
+    key (prepared once and, on a device backend, uploaded once per call).
+    """
+    chunk = np.ascontiguousarray(array[start : start + count])
+    return _pad_rows(chunk, rows)
+
+#: the runtime input columns of a :class:`DensePrep`, in
+#: :func:`plan_dense`'s ``specs`` order (and in ``cfg``-free argument order)
+_COLUMN_NAMES = (
+    "opcode",
+    "func_id",
+    "const_value",
+    "var_index",
+    "child1",
+    "child2",
+    "child3",
+)
+
+
+def _prep_column(
+    prep: DensePrep, index: int, p0: int, p_chunk: int
+) -> np.ndarray:
+    """One ``(L, p_chunk)`` contiguous runtime column of one ``p``-chunk."""
+    array = getattr(prep, _COLUMN_NAMES[index])
+    chunk = array[:, p0 : p0 + p_chunk]
+    return np.ascontiguousarray(_pad_rows(chunk.T, p_chunk).T)
+
+
 def _prep_columns(prep: DensePrep, p0: int, p_chunk: int) -> Tuple[np.ndarray, ...]:
     """``(L, p_chunk)`` contiguous slices of every runtime input of one chunk."""
-    columns: List[np.ndarray] = []
-    for array in (
-        prep.opcode,
-        prep.func_id,
-        prep.const_value,
-        prep.var_index,
-        prep.child1,
-        prep.child2,
-        prep.child3,
-    ):
-        chunk = array[:, p0 : p0 + p_chunk]
-        columns.append(np.ascontiguousarray(_pad_rows(chunk.T, p_chunk).T))
-    return tuple(columns)
-
+    return tuple(
+        _prep_column(prep, index, p0, p_chunk) for index in range(len(_COLUMN_NAMES))
+    )
 
 def run_plan(
     plan: DensePlan,
@@ -1461,21 +1485,23 @@ def _iter_plan_chunks(
 ):
     """Yield ``((p0, p_chunk, n0, n_chunk), raw_etl_result)`` for every chunk.
 
-    This is the READBACK-FREE SEAM of the dense route: the iterator uploads each
-    distinct payload **at most once per call** and never reads a result back, so
-    a caller that can consume device-resident results (a future benchmark /
-    training runner, or any caller that keeps the loss on the device) simply
-    iterates and assembles itself.  The library's own consumers read back
-    explicitly -- :func:`run_plan` (values) and :func:`run_loss_plan` (losses) --
-    through :func:`_to_host`.
+    This is the READBACK-FREE SEAM of the dense route: the iterator prepares and
+    uploads each distinct payload **at most once per call** and never reads a
+    result back, so a caller that can consume device-resident results (the
+    ``build_dense_runner`` / training-loop entry point, or any caller that keeps
+    the loss on the device) simply iterates and assembles itself.  The library's
+    own consumers read back explicitly -- :func:`run_plan` (values) and
+    :func:`run_loss_plan` (losses) -- through :func:`_to_host`.
 
-    The loop is ``p0``-outer/``n0``-inner with a per-call payload memo, because
-    the node columns depend only on ``p0`` and the ``x`` / ``labels`` / mask
-    payloads only on ``n0``: a naive nesting re-preps and re-uploads both blocks
-    per ``(p0, n0)`` chunk (measured 296 preparations instead of 37 for an 8x37
-    population by 1x1 chunks).  ``x``/``labels`` carry only the CHUNK's rows, so
-    the memo's peak extra device memory is one full input block plus one full
-    label block.
+    The loop is ``p0``-outer/``n0``-inner with ONE per-call payload memo covering
+    both halves of a payload's life (the host preparation and the device upload),
+    because the node columns depend only on ``p0`` and the ``x`` / ``labels`` /
+    mask payloads only on ``n0``: a naive nesting re-preps and re-uploads both
+    blocks per ``(p0, n0)`` chunk (measured 296 host preparations instead of 37
+    for an 8x37 population in 1x1 chunks).  ``x``/``labels`` carry only the
+    CHUNK's rows, so the memo's extra host memory is one full input block plus
+    one full label block (and the same again as device tensors on a device
+    backend) -- all bounded by the call's own inputs, never by the chunk count.
 
     ``labels`` is required by (and only by) the loss variant.
     ``device_resident=True`` is the seam's flag for a readback-free consumer: it
@@ -1505,51 +1531,62 @@ def _iter_plan_chunks(
                 f"zero-copy export (raise {BUDGET_MB_ENV} to stop chunking)"
             )
     to_device = backend_name != "numpy"
-    prepared: Dict[Any, Any] = {}
+    #: payload key -> ``(host_array, device_tensor_or_None)``; both halves are
+    #: memoized together so the preparation count and the upload count of a
+    #: payload are the same number (``prepare`` runs exactly once per key).
+    prepared: Dict[Any, Tuple[np.ndarray, Any]] = {}
 
-    def payload(key: Any, array: np.ndarray) -> Any:
-        """The chunk payload: uploaded once, then reused (device backends)."""
-        if not to_device:
-            return array
-        cached = prepared.get(key)
-        if cached is None:
-            cached = etl.from_numpy(array).to(device)
-            prepared[key] = cached
-        return cached
+    def payload(key: Any, prepare: Callable[..., np.ndarray], *args: Any) -> Any:
+        """The chunk payload for ``key``: prepared once, uploaded once, reused."""
+        entry = prepared.get(key)
+        if entry is None:
+            host = prepare(*args)
+            entry = (
+                host,
+                etl.from_numpy(host).to(device) if to_device else None,
+            )
+            prepared[key] = entry
+        return entry[1] if to_device else entry[0]
 
     prep = plan.prep
     n_chunks = 1 if plan.per_row else plan.n_chunks
     for p0 in range(0, prep.pop_size, plan.p_chunk):
         p_chunk = min(plan.p_chunk, prep.pop_size - p0)
         columns = tuple(
-            payload(("column", index, p0), array)
-            for index, array in enumerate(_prep_columns(prep, p0, plan.p_chunk))
+            payload(("column", index, p0), _prep_column, prep, index, p0, plan.p_chunk)
+            for index in range(len(_COLUMN_NAMES))
         )
         for chunk_index in range(n_chunks):
             n0 = 0 if plan.per_row else chunk_index * plan.n_chunk
             n_chunk = min(plan.n_chunk, plan.n_rows - n0) if not plan.per_row else 1
             if plan.per_row:
-                xin = np.ascontiguousarray(x[p0 : p0 + p_chunk])
-                xin = _pad_rows(xin, plan.p_chunk)
-                args = columns + (payload(("x", p0), xin),)
+                args = columns + (
+                    payload(("x", p0), _chunk_rows, x, p0, p_chunk, plan.p_chunk),
+                )
             else:
-                xin = np.ascontiguousarray(x[n0 : n0 + n_chunk])
-                xin = _pad_rows(xin, plan.n_chunk)
-                args = columns + (payload(("x", n0), xin),)
+                args = columns + (
+                    payload(("x", n0), _chunk_rows, x, n0, n_chunk, plan.n_chunk),
+                )
                 if loss:
-                    label = np.ascontiguousarray(labels[n0 : n0 + n_chunk])
-                    label = _pad_rows(label, plan.n_chunk)
                     args = args + (
-                        payload(("labels", n0), label),
-                        payload(("keep", n0), _keep_mask(plan.n_chunk, n_chunk)),
+                        payload(
+                            ("labels", n0),
+                            _chunk_rows,
+                            labels,
+                            n0,
+                            n_chunk,
+                            plan.n_chunk,
+                        ),
+                        payload(
+                            ("keep", n0), _keep_mask, plan.n_chunk, n_chunk
+                        ),
                     )
             args = args + (plan.cfg,)
             with _quiet():
                 yield (p0, p_chunk, n0, n_chunk), etl.run(executable, *args)
 
 
-def run_loss_plan(
-    plan: DensePlan,
+def run_loss_plan(    plan: DensePlan,
     executable: Any,
     x: np.ndarray,
     labels: np.ndarray,
