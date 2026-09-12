@@ -1,0 +1,90 @@
+===============================================================================
+Arm B config armB_iree_fixture64_n64_spec  (side=new group=iree-spec)  started 2026-09-12T23:09:12+08:00
+note: forced specialized (R2-era route) for wave attribution; Arm A twin iree_fixture64_n64_spec
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A256   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+etl: /tmp/evogp_etl_patched_51a7141/etl/__init__.py
+timeout: 3600s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 0, 30447
+cmd: timeout -s INT -k 30 3600 env PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141 CUDA_VISIBLE_DEVICES=6 EVOGP_EVAL_MODE=specialized /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --eval-reps 25 --backend iree --stage-probe --tag ARMB_IREE_FIXTURE64_N64_SPEC --json-out test/benchmark/r2/round3/results/armB/new/armB_iree_fixture64_n64_spec.json
+json: test/benchmark/r2/round3/results/armB/new/armB_iree_fixture64_n64_spec.json
+--- run output ---
+[ARMB_IREE_FIXTURE64_N64_SPEC] cold-build guard ACTIVE: stop when the cumulative ETL compile misses exceed --max-cold-builds=300
+[ARMB_IREE_FIXTURE64_N64_SPEC] stage probe stage_probe/1: installed=True partial=False wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness] counters=CACHE.hits/CACHE.misses
+[ARMB_IREE_FIXTURE64_N64_SPEC] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A256/src/evogp/__init__.py commit=144f1fe0cc98e75b872a0986fd769fb713f90adb etl=0.1.0 json_out=test/benchmark/r2/round3/results/armB/new/armB_iree_fixture64_n64_spec.json
+[ARMB_IREE_FIXTURE64_N64_SPEC] stages[rep0/eval] 25 calls: cold 48 miss 19864.5ms / warm 0 miss 0.0ms | decode 38.2 + build-hit 327.5 (1277) + build-miss 19864.5 (48) + run 1164.7 (1325) + readback 502.5 (1325) + upload 0.0 + loss 21895.0 + misc 55.5 ms cold/warm totals 21988.7ms (h2d 25 / d2h 1325)
+[ARMB_IREE_FIXTURE64_N64_SPEC] side=new rep0/1: first 20043.5ms, warm-median 62.2ms (25 calls)
+[ARMB_IREE_FIXTURE64_N64_SPEC] done side=new interrupted=False harness_wall_s=22.8 json_out=test/benchmark/r2/round3/results/armB/new/armB_iree_fixture64_n64_spec.json
+nanobind: leaked 4052 instances!
+ - leaked instance 0x7fa571362ec8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fa571360808 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fa57134a8a8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fa57131fbf8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fa57133bac8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fa57134cb28 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fa571338d88 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fa57135cfc8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fa57137bf48 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fa571362dc8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fa57135b338 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fa57135d988 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fa57134bfa8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fa571361b88 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fa57133ae48 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fa57133c188 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fa571378288 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fa57133bde8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fa57135c0a8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fa57137ed88 of type "iree._runtime_libs._runtime.HalAllocator"
+ - ... skipped remainder
+nanobind: leaked 4051 keep_alive records!
+nanobind: leaked 5 types!
+ - leaked type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked type "iree._runtime_libs._runtime.HalDevice"
+ - leaked type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked type "iree._runtime_libs._runtime.HalDriver"
+nanobind: leaked 39 functions!
+ - leaked function "create_default_device"
+ - leaked function "queue_dealloca"
+ - leaked function "query"
+ - leaked function "end_profiling"
+ - leaked function "map"
+ - leaked function "__iree_vm_cast__"
+ - leaked function ""
+ - leaked function "create_dlpack_capsule"
+ - leaked function ""
+ - leaked function "query_buffer_compatibility"
+ - leaked function "trim"
+ - leaked function "byte_length"
+ - leaked function "queue_execute"
+ - leaked function "fill_zero"
+ - leaked function ""
+ - leaked function "queue_alloca"
+ - leaked function "create_semaphore"
+ - leaked function "__repr__"
+ - leaked function "flush_profiling"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "query_available_devices"
+ - leaked function "allocate_buffer"
+ - leaked function "create_device_by_uri"
+ - leaked function "begin_profiling"
+ - leaked function "dump_device_info"
+ - leaked function "create_view"
+ - leaked function "__iree_vm_type__"
+ - leaked function "queue_copy"
+ - leaked function "asarray"
+ - leaked function "__repr__"
+ - leaked function ""
+ - leaked function "memory_type"
+ - leaked function "allocate_host_staging_buffer_copy"
+ - leaked function "__eq__"
+ - leaked function "create_device"
+ - leaked function "allowed_usage"
+ - leaked function "from_dlpack_capsule"
+ - leaked function "allocate_buffer_copy"
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 30445
+Arm B config armB_iree_fixture64_n64_spec  finished 2026-09-12T23:09:37+08:00
