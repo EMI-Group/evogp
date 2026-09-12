@@ -95,6 +95,15 @@ type 2) next to the existing end-to-end eval tasks (measurement type 1)::
                                      ``build_{dense,specialized}_runner`` API, ``fallback`` =
                                      this harness' own re-implementation, ``auto`` = frozen
                                      when present else fallback; the JSON records which ran
+    --output-checksum                after ALL timing (reps + e2e companion), ONE extra
+                                     out-of-band invocation is captured to the host and
+                                     fingerprinted (sha256 + shapes/dtypes/NaN/+-inf census)
+                                     under ``pure.output_checksum``; no timed number ever
+                                     includes it
+    --save-output-dir DIR            implies ``--output-checksum`` and additionally writes
+                                     the captured blocks to ``<DIR>/<TAG>_output.npz``
+                                     (keys ``block_0..block_{k-1}``), recorded as
+                                     ``pure.output_checksum.saved``
 
 ``eval-pure`` reuses ``--fixture`` (with the ``eval64`` ``--data-rows`` tiling), the
 memory / cold-build guards, the FD + peak-memory telemetry and the JSON conventions; it
@@ -368,6 +377,22 @@ def parse_args(argv=None):
         "harness' own re-implementation (forces the fallback even when the frozen API "
         "exists), 'auto' = frozen when present else fallback.  Recorded as "
         "pure.runner_source",
+    )
+    parser.add_argument(
+        "--output-checksum",
+        action="store_true",
+        help="eval-pure only: after ALL timing (the reps and the e2e companion), capture ONE "
+        "extra out-of-band invocation to the host and record its sha256 + block shapes / "
+        "dtypes / NaN / +-inf census under pure.output_checksum.  The capture (and its "
+        "readback) is never part of any timed number.  Absent -> the JSON keeps exactly today's "
+        "schema",
+    )
+    parser.add_argument(
+        "--save-output-dir",
+        default=None,
+        help="eval-pure only: implies --output-checksum and additionally writes the captured "
+        "blocks to <DIR>/<TAG>_output.npz (keys block_0..block_{k-1}, TAG = --tag); the file "
+        "is recorded under pure.output_checksum.saved (relative to the cwd when it is inside it)",
     )
     parser.add_argument("--notes", default="", help="free-form text stored in the JSON")
     args = parser.parse_args(argv)
@@ -990,6 +1015,26 @@ def summary_pure(tag, side, record, reps):
     )
 
 
+def save_output_blocks(blocks, directory, tag):
+    """Write captured host blocks to ``<directory>/<tag>_output.npz``; returns the path.
+
+    One ``block_<i>`` array per captured block, in capture order (dense: a single
+    ``(pop_size, n_rows)`` block; specialized: one ``(n_rows, output_len)`` block per
+    non-constant tree).  ``--save-output-dir`` only; the directory is created when missing.
+    """
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, f"{tag}_output.npz")
+    np.savez(path, **{f"block_{index}": block for index, block in enumerate(blocks)})
+    return path
+
+
+def relative_to_cwd(path):
+    """``path`` relative to the cwd when it lives inside it, else the absolute path."""
+    absolute = os.path.abspath(path)
+    relative = os.path.relpath(absolute, os.getcwd())
+    return absolute if relative.startswith(os.pardir) else relative
+
+
 # ---------------------------------------------------------------------------
 # R2 accounting: file descriptors, device memory, cold-build guard
 # ---------------------------------------------------------------------------
@@ -1561,6 +1606,37 @@ def run_pure(mods, args, payload, flush, guard=None, probe=None):
                 flush=True,
             )
         flush()
+    # ---- output capture (out of band: never inside a timed region) -----------
+    # Deliberately LAST: the capture performs one extra invocation plus a consumer-side
+    # readback, so it must sit after the timed reps AND after the e2e companion to stay out
+    # of every timed number (see ``pure_forward.PureRunner.capture_outputs``).  A capture
+    # failure propagates: a record claiming a checksum it could not produce is worse than a
+    # failed run.  Interrupted / guard-skipped runs keep the frozen schema (no key at all)
+    # rather than a digest of a capture that never happened.
+    if (args.output_checksum or args.save_output_dir) and not interrupted and not payload["skipped"]:
+        blocks = runner.capture_outputs()
+        digest = pure_forward.digest_blocks(blocks)
+        if args.save_output_dir:
+            digest["saved"] = relative_to_cwd(
+                save_output_blocks(blocks, args.save_output_dir, args.tag)
+            )
+        digest["note"] = pure_forward.OUTPUT_CHECKSUM_NOTE
+        pure["output_checksum"] = digest
+        flush()
+        print(
+            f"[{args.tag}] output capture (out of band, after all timing): "
+            f"n_blocks={digest['n_blocks']} shapes={digest['shapes']} "
+            f"total_elems={digest['total_elems']} nan={digest['nan_count']} "
+            f"inf={digest['inf_count']} sha256={digest['sha256']}"
+            + (f" saved={digest['saved']}" if "saved" in digest else ""),
+            flush=True,
+        )
+    elif args.output_checksum or args.save_output_dir:
+        print(
+            f"[{args.tag}] output capture skipped (interrupted={interrupted} "
+            f"skipped={payload['skipped']}): no pure.output_checksum key is written",
+            flush=True,
+        )
     return interrupted
 
 
@@ -1795,6 +1871,12 @@ def main(argv=None):
         print(
             f"[{args.tag}] warning: --data-rows is only applied by --task eval64 / eval-pure; "
             f"ignored for --task {args.task}",
+            flush=True,
+        )
+    if (args.output_checksum or args.save_output_dir) and args.task not in PURE_TASKS:
+        print(
+            f"[{args.tag}] warning: --output-checksum / --save-output-dir are only applied by "
+            f"--task eval-pure; ignored for --task {args.task}",
             flush=True,
         )
     # R2 stage probe: install the monkeypatches before the first timed call

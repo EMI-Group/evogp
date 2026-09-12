@@ -22,10 +22,15 @@ Two construction paths, selected by ``runner_source`` (``--pure-runner``):
 ``frozen``
     the frozen API of the parallel code round --
     ``dense_engine.build_dense_runner(forest, x)`` for the dense mode and
-    ``etl_engine.build_specialized_runner(forest, x)`` for the specialized mode (two
-    positional arguments: the ``Forest`` and the ``x`` tensor).  When the API is absent on
-    this checkout, ``--pure-runner frozen`` fails hard and ``auto`` silently uses the
-    fallback; the JSON's ``pure.runner_source`` always says which one ran.
+    ``etl_engine.build_specialized_runner(forest, x)`` for the specialized mode.  The
+    validated call forms (``src/evogp/tree/RUNNER_HOOKS.md`` §1/§3, both builders landed in
+    this checkout) are **two positional arguments at build** (the ``Forest`` and the ``x``
+    tensor -- ``per_row=False``, the backend from the environment) and a **no-arg
+    ``runner.run()``** at invoke time, returning the raw ``etl`` result(s): one
+    ``(pop_size, n_rows)`` tensor for dense, a ``pop_size``-long tuple for specialized
+    (``None`` at a constant tree).  When the API is absent on this checkout,
+    ``--pure-runner frozen`` fails hard and ``auto`` silently uses the fallback; the JSON's
+    ``pure.runner_source`` always says which one ran.
 ``fallback``
     the local re-implementation below, which replicates exactly what the engine does per
     evaluate call, minus the key derivation, the readback and the row assembly:
@@ -50,8 +55,20 @@ the per-chunk loop for the dense route, which is one call per chunk).
 (``<= n_trees``: the specialized route skips constant trees, which the engine evaluates as a
 constant and never invokes) -- the divisor that turns a per-invocation number into
 ``per_graph_call_ms``.
+
+``capture_outputs()`` (:func:`PureRunner.capture_outputs`, wired by ``bench_gp.py
+--output-checksum`` / ``--save-output-dir``) is the **out-of-band** counterpart of an
+invocation: it performs ONE further invocation and materializes the raw results on the host
+(``numpy`` backend: the result is already host-backed; device backend: an explicit
+``to(Device("cpu", 0))`` copy) as float32 C-contiguous blocks -- dense: one
+``(pop_size, n_rows)`` block; specialized: one ``(n_rows, output_len)`` block per
+NON-constant tree, in population order.  :func:`digest_blocks` then frames those blocks
+deterministically into a sha256 (plus shape/dtype/NaN/+-inf census).  None of this is ever
+timed: the harness captures after the last timed block, and the readback is a consumer-side
+copy by definition.
 """
 
+import hashlib
 import statistics
 import time
 
@@ -82,6 +99,16 @@ E2E_COMPANION_NOTE = (
     "fitness reduction (host-glue + readback overhead)"
 )
 
+#: The canonical digital-digest framing of :func:`digest_blocks` -- one frame per block, in
+#: order: this prefix (ndim, shape, ``dtype.str``, byte count) followed by the C-order bytes.
+DIGEST_FRAMING = "b'block:<ndim>:<d0,d1,...>:<dtype.str>:<nbytes>:' + block.tobytes(order='C')"
+
+#: ``pure.output_checksum.note`` -- what the captured digest is (and is not) for a reader.
+OUTPUT_CHECKSUM_NOTE = (
+    "one out-of-band capture_outputs() invocation after ALL timing (the reps and the e2e "
+    "companion): an extra invocation plus a consumer-side host readback, never part of any "
+    f"timed number; sha256 frames one block per entry in order as {DIGEST_FRAMING}"
+)
 
 # ---------------------------------------------------------------------------
 # lazy module access (never imports evogp/etl at import time)
@@ -167,6 +194,11 @@ class PureRunner:
     nothing: the results are deliberately dropped (they are device-resident on iree; nothing
     is read back, and nothing is retained -- holding ``N`` population outputs would only
     grow the allocator).
+
+    ``capture_outputs()`` is the deliberate exception, and it is **out of band**: one further
+    invocation whose raw results ARE materialized on the host (a consumer-side readback) so a
+    harness can fingerprint the numbers without contaminating a timed block.  See
+    :func:`digest_blocks`.
     """
 
     def __init__(
@@ -182,6 +214,7 @@ class PureRunner:
         n_graph_calls_per_run,
         n_graph_calls_source,
         invoke,
+        capture=None,
     ):
         self.source = source
         self.mode = mode
@@ -193,10 +226,29 @@ class PureRunner:
         self.n_graph_calls_per_run = int(n_graph_calls_per_run)
         self.n_graph_calls_source = n_graph_calls_source
         self._invoke = invoke
+        self._capture = capture
 
     def invoke(self):
         """One full-population forward on the fixed ``x`` (result dropped)."""
         self._invoke()
+
+    def capture_outputs(self):
+        """ONE extra invocation, read back to host -- out of band, NEVER timed.
+
+        Returns the captured host blocks (float32, C-contiguous): dense -> a one-element
+        list holding the ``(pop_size, n_rows)`` block; specialized -> one
+        ``(n_rows, output_len)`` block per NON-constant tree, in population order.
+
+        This is the only method that reads a result back, and it pays exactly one extra
+        invocation plus the readback: call it after the last timed block (which is what
+        ``bench_gp.py --output-checksum`` does).  Errors are deliberately not caught -- a
+        failed capture is a failed run, never a silently empty digest.
+        """
+        if self._capture is None:
+            raise RuntimeError(
+                "this PureRunner carries no capture callable (constructed without one)"
+            )
+        return self._capture()
 
     def describe(self):
         """The static part of the ``pure`` JSON block (the harness adds the timings)."""
@@ -236,24 +288,118 @@ def _frozen_attr(obj, *names):
     return None
 
 
-def _frozen_invoke(frozen_runner, x):
-    """Adapter for the frozen runner's call form -- see the FROZEN-ADAPTER note.
+def _frozen_call(frozen_runner, x):
+    """The frozen runner's call form as a zero-arg callable RETURNING the raw result.
 
-    FROZEN-ADAPTER: this round's evidence is a zero-argument call (the ``x``, or a
-    population-tile of it, was bound at construction).  If the landed API wants the input
-    per call instead, adjust only this function (``runner(x)``) -- nothing else depends on
-    the call form.
+    FROZEN-ADAPTER: the validated forms at this commit are ``build_dense_runner(forest, x)``
+    / ``build_specialized_runner(forest, x)`` (two positional arguments -- the input is bound
+    at build, ``per_row=False``, backend from the environment) and a **no-arg**
+    ``runner.run()`` returning the raw ``etl`` result(s); see
+    ``src/evogp/tree/RUNNER_HOOKS.md`` §1/§3 (and §3's own recorded ``.run()`` numbers) for
+    the contract this was checked against.  The two older guesses are kept behind it, in
+    order, so the adapter stays honest against a foreign checkout: a bare callable, then
+    ``.run()``, then ``.forward(x)``.  Change ONLY this function when a call form changes --
+    nothing else depends on it.
     """
     if callable(frozen_runner):
         return lambda: frozen_runner()
+    run = getattr(frozen_runner, "run", None)
+    if callable(run):
+        return lambda: run()
     forward = getattr(frozen_runner, "forward", None)
     if callable(forward):
         return lambda: forward(x)
     raise TypeError(
         "frozen runner of type "
-        f"{type(frozen_runner).__name__} is neither callable nor does it expose .forward()"
+        f"{type(frozen_runner).__name__} is neither callable nor does it expose "
+        ".run()/.forward()"
     )
 
+
+def _frozen_invoke(frozen_runner, x):
+    """The timed invocation on the frozen runner (result deliberately dropped).
+
+    Same validated call form as :func:`_frozen_call` -- a missing one raises ``TypeError``
+    here, at build time, never inside the timed loop.
+    """
+    call = _frozen_call(frozen_runner, x)
+    return lambda: call()
+
+
+def to_host_block(raw, backend_name):
+    """One raw ``etl`` result -> host float32 C-contiguous numpy (an out-of-band readback).
+
+    ``numpy`` backend: the result never left the host, so ``.numpy()`` is a view/copy of the
+    runner's own memory.  Device backend: an explicit ``to(Device("cpu", 0))`` copy, i.e. a
+    consumer-side readback -- exactly the hop no pure number pays for.  Called only from the
+    capture path, never from a timed block.
+    """
+    import etl  # lazy: only the new side reaches this function
+
+    if backend_name == "numpy":
+        host = raw.numpy()
+    else:
+        host = raw.to(etl.core.Device("cpu", 0)).numpy()
+    return np.ascontiguousarray(host, dtype=np.float32)
+
+
+def _capture_blocks(mode, raw, backend_name):
+    """Raw runner result(s) -> captured host blocks (dense: one; specialized: non-constants).
+
+    ``mode`` is the resolved route: ``specialized`` returns a ``pop_size``-long tuple whose
+    ``None`` entries are the constant trees (no graph was compiled, so there is nothing to
+    read back), and only the real results become blocks.
+    """
+    if mode == "dense":
+        return [to_host_block(raw, backend_name)]
+    return [to_host_block(entry, backend_name) for entry in raw if entry is not None]
+
+
+def digest_blocks(blocks):
+    """Deterministic digest of captured host blocks (out-of-band evidence, never timed).
+
+    Every block is normalized to float32 C-order first, then hashed through the canonical
+    framing :data:`DIGEST_FRAMING` -- one frame per block, in order, so the same values with
+    a different shape, dtype or trailing padding cannot collide by accident.
+
+    Returns ``{"sha256", "n_blocks", "shapes", "dtypes", "total_elems", "nan_count",
+    "inf_count"}``: the sha256 (64 hex chars) of the framed concatenation, the block count,
+    the per-block shapes (``[[d0, d1, ...], ...]``) and ``dtype.str`` names, the element
+    total, and the NaN / +-inf census of the same host blocks (worth recording here because
+    the engine's ``-inf`` NaN-replacement semantics make both real).
+    """
+    hasher = hashlib.sha256()
+    shapes = []
+    dtypes = []
+    total_elems = 0
+    nan_count = 0
+    inf_count = 0
+    for block in blocks:
+        array = np.ascontiguousarray(block, dtype=np.float32)
+        shape = [int(dim) for dim in array.shape]
+        hasher.update(
+            "block:"
+            f"{array.ndim}:"
+            f"{','.join(str(dim) for dim in shape)}:"
+            f"{array.dtype.str}:"
+            f"{array.nbytes}:".encode()
+        )
+        hasher.update(array.tobytes(order="C"))
+        shapes.append(shape)
+        dtypes.append(array.dtype.str)
+        total_elems += int(array.size)
+        if array.size:
+            nan_count += int(np.count_nonzero(np.isnan(array)))
+            inf_count += int(np.count_nonzero(np.isinf(array)))
+    return {
+        "sha256": hasher.hexdigest(),
+        "n_blocks": len(blocks),
+        "shapes": shapes,
+        "dtypes": dtypes,
+        "total_elems": total_elems,
+        "nan_count": nan_count,
+        "inf_count": inf_count,
+    }
 
 # ---------------------------------------------------------------------------
 # construction
@@ -330,8 +476,12 @@ def _construct_frozen(forest, x, *, mode, backend_name):
     hits_after, misses_after = _cache_counters()
 
     n_trees = _frozen_attr(frozen_runner, "n_trees", "pop_size")
-    n_const_trees = _frozen_attr(frozen_runner, "n_const_trees")
-    n_graph_calls = _frozen_attr(frozen_runner, "n_graph_calls_per_run", "n_graph_calls")
+    # The landed runners name the counter ``invocations`` (dense: 1; specialized: the number
+    # of non-constant trees); the older candidate names stay ahead of it for a foreign
+    # checkout, and only a runner without ANY counter falls back to the assumed 1.
+    n_graph_calls = _frozen_attr(
+        frozen_runner, "n_graph_calls_per_run", "n_graph_calls", "invocations"
+    )
     if n_graph_calls is None:
         # No graph-call counter on the frozen object: the cheap honest choice is 1 (a single
         # fused population call), recorded as an assumption, never as a measurement.
@@ -343,17 +493,40 @@ def _construct_frozen(forest, x, *, mode, backend_name):
             f"frozen runner reports n_graph_calls_per_run={n_graph_calls}: a pure invocation "
             "must make at least one graph call"
         )
+    # The landed runners report the constant trees as rows instead of as a count:
+    # ``constant_rows`` is ``pop_size``-long with ``None`` at every non-constant tree
+    # (specialized only).  The dense route evaluates constant trees like any other, so it
+    # has zero skipped trees by construction -- the same convention the fallback uses.
+    constant_rows = _frozen_attr(frozen_runner, "constant_rows")
+    if constant_rows is not None:
+        n_const_trees = sum(1 for row in constant_rows if row is not None)
+    elif mode == "dense":
+        n_const_trees = 0
+    else:
+        n_const_trees = _frozen_attr(frozen_runner, "n_const_trees")
+    # The runner resolved the backend itself (``backend=None`` -> the environment, which
+    # ``bench_gp.py`` sets from ``--backend``); prefer its own answer when it has one.
+    runner_backend = _frozen_attr(frozen_runner, "backend_name") or backend_name
+    call = _frozen_call(frozen_runner, x)  # FROZEN-ADAPTER: raises TypeError if unsupported
+
+    def invoke():
+        call()  # the raw result is deliberately dropped (see PureRunner.invoke)
+
+    def capture():
+        return _capture_blocks(mode, call(), runner_backend)
+
     runner = PureRunner(
         source=source,
         mode=mode,
-        backend_name=backend_name,
+        backend_name=runner_backend,
         per_row=False,
         pop_size=int(forest.pop_size),
         n_trees=int(forest.pop_size) if n_trees is None else int(n_trees),
         n_const_trees=None if n_const_trees is None else int(n_const_trees),
         n_graph_calls_per_run=int(n_graph_calls),
         n_graph_calls_source=n_graph_calls_source,
-        invoke=_frozen_invoke(frozen_runner, x),
+        invoke=invoke,
+        capture=capture,
     )
     return runner, {
         "decode_plan_ms": None,
@@ -424,6 +597,16 @@ def _fallback_dense(forest, x, *, backend_name):
             with quiet():
                 etl.run(executable, *args)
 
+    def capture():
+        # Same calls, same order, same args as ``invoke`` -- only the results are kept, then
+        # read back to the host.  Out of band by construction (see PureRunner.capture_outputs).
+        blocks = []
+        for args in args_per_chunk:
+            with quiet():
+                raw = etl.run(executable, *args)
+            blocks.append(to_host_block(raw, backend_name))
+        return blocks
+
     runner = PureRunner(
         source=FALLBACK_DENSE,
         mode="dense",
@@ -437,6 +620,7 @@ def _fallback_dense(forest, x, *, backend_name):
         n_graph_calls_per_run=len(args_per_chunk),
         n_graph_calls_source="measured",
         invoke=invoke,
+        capture=capture,
     )
     return runner, {
         "decode_plan_ms": (decode_plan_end - start) * 1000.0,
@@ -489,6 +673,17 @@ def _fallback_specialized(forest, x, *, backend_name):
             with quiet():
                 etl.run(executable, input_arg, program)
 
+    def capture():
+        # Same calls, same order, same args as ``invoke`` -- only the results are kept.  The
+        # constant trees are not in ``built``, so they contribute no block (matching the
+        # dense/specialized block convention documented in PureRunner.capture_outputs).
+        blocks = []
+        for program, executable in built:
+            with quiet():
+                raw = etl.run(executable, input_arg, program)
+            blocks.append(to_host_block(raw, backend_resolved))
+        return blocks
+
     runner = PureRunner(
         source=FALLBACK_SPECIALIZED,
         mode="specialized",
@@ -502,6 +697,7 @@ def _fallback_specialized(forest, x, *, backend_name):
         n_graph_calls_per_run=len(built),
         n_graph_calls_source="measured",
         invoke=invoke,
+        capture=capture,
     )
     return runner, {
         "decode_plan_ms": (decode_plan_end - start) * 1000.0,
@@ -619,12 +815,16 @@ __all__ = [
     "RUNNERS",
     "CONVENTIONS",
     "E2E_COMPANION_NOTE",
+    "DIGEST_FRAMING",
+    "OUTPUT_CHECKSUM_NOTE",
     "PureRunner",
     "build_pure_runner",
+    "digest_blocks",
     "frozen_availability",
     "resolve_backend_name",
     "resolve_mode",
     "summarize",
     "time_block",
     "time_e2e_companion",
+    "to_host_block",
 ]
