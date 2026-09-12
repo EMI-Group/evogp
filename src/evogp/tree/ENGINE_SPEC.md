@@ -543,10 +543,14 @@ engine only: a multi-output population makes the dense path decline and fall bac
 
 Selection is per call, by the `EVOGP_EVAL_MODE` environment variable (an explicit `eval_mode=`
 argument wins): `specialized` never uses dense, `dense` always attempts it, `auto` (the default)
-resolves to *non-numpy backend and `pop_size >= EVOGP_DENSE_AUTO_MIN_POP` (16)*. A population outside
-the dense subset (multi-output, a tree longer than `EVOGP_DENSE_MAX_TREE_LEN` = 32, any structural
-doubt) raises `DenseUnsupported` and is re-evaluated by the specialized engine, which owns the error
-contract of §9 for malformed trees; that fallback is silent, every other exception propagates.
+resolves to *non-numpy backend, `pop_size >= EVOGP_DENSE_AUTO_MIN_POP` (16)* and — for `per_row=False`
+calls, where the data-row count is known — *at most `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) rows* (dense is
+rows-linear there while the specialized engine is rows-flat; the wired call sites pass `pop_size` only,
+so that half of the rule is enforced inside `evaluate_dense`). A population outside the dense subset
+(multi-output, a tree longer than `EVOGP_DENSE_MAX_TREE_LEN` = 32, more rows than the `auto` ceiling,
+any structural doubt) raises `DenseUnsupported` and is re-evaluated by the specialized engine, which
+owns the error contract of §9 for malformed trees; that fallback is silent, every other exception
+propagates.
 
 Design rationale, the chunking / peak-memory model, all knobs, the numeric tolerances and the measured
 economics live in **`DENSE_EVAL.md`** (this directory); the wiring is `Forest.forward` /
