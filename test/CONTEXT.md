@@ -105,12 +105,13 @@ are keyed `forest__node_value`/… and are *not* in it.
   coverage of the robotics/classification problems, and nothing in this directory is wired into CI.
 - `etl_jit_probe.py` is bound to the `etl` package in the read-only foreign repo
   `/mnt/local-ssd/bchuang/etl`; it needs an idle GPU for quotable timings (the host is shared).
-- No tooling here compares legacy (CUDA-kernel) vs current (ETL) *performance*: the old engine is deleted
-  (its sources are retrievable only from git history at revision `b613503`, and the historical build recipe
-  in `goldens/README.md` is not executable against the current tree), and `etl_jit_probe.py` times the
-  `etl` package only.
-  The old-vs-new comparisons that do exist are numeric (goldens) or qualitative (the `vis.ipynb` note that
-  the kernel-era budget of 100000 trees / 1000 generations is not runnable under per-structure ETL JIT builds).
+- No old-vs-new *performance* tooling exists on this branch, but a completed benchmark round does: branch
+  `genesis/agent_823a8aef` (tip `df89238`) adds `test/benchmark/` (frozen SPEC, harnesses, raw JSONs,
+  `SUMMARY.md`: the legacy CUDA engine measured ~34x-7,670x faster per warm generation than the ETL numpy
+  backend). Its legacy `b613503` checkout, built with the `evogp_cuda` extension, is currently materialized at
+  `/tmp/evogp_legacy_bench` (session-scoped; rebuild needs `/tmp/evogp_t1a263` assets and the CUDA 12.6 nvcc at
+  `/opt/miniforge3/envs/wenet_tiktoken`); the old-vs-new comparisons on this branch are numeric (goldens) or
+  qualitative (the `vis.ipynb` kernel-era budget note).
 
 ## Test Strategy
 - Manual smoke sequence for a post-rewrite change: `test/fix_bug.py` (public-API numerics, ~3 s) ->
