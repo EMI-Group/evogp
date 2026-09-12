@@ -54,6 +54,7 @@ That is the same index space the crossover fallback produces via `survivor_indic
 - This subpackage must **not** import from `../crossover/` — `crossover/diversity.py` and `crossover/leaf_biased.py` do `from ..selection import BaseSelector`, so a reverse import creates a cycle.
 - `evogp.tree.Forest` is the only dependency to import from outside the package, and only `DefaultSelection`/`Rank`/`Roulette`/`Tournament`/`Truncation` need it (for `pop_size`).
 - Device is hardcoded to CUDA in every implementation except `DefaultSelection`; any new operator should avoid adding more `.cuda()` calls.
+- Fitness itself is never moved off its device by any operator here (no `.item()`/`.cpu()`/`.numpy()`/`print` on it and no host `if` on a fitness-derived tensor), so selection adds no device→host sync to `GeneticProgramming.step`; the `.cuda()` calls only relocate operator-created helper tensors (no-ops for an already-CUDA fitness).
 
 ## Design Decisions
 - Two interfaces exist because the two callers need different things: the GP loop needs both an elite set (fixed-size copy budget) and an ordered/variable-size parent pool, while crossovers only need "give me N parents by fitness" on demand.
