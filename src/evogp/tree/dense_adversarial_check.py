@@ -417,12 +417,16 @@ class Block:
         row_len: int,
         *,
         note: str = "",
+        group_key: Optional[Callable[[Row], str]] = None,
     ) -> None:
         self.name = name
         self.rows = list(rows)
         self.input_len = input_len
         self.row_len = row_len
         self.note = note
+        #: Optional row -> group key: rows of one group are the SAME tree with
+        #: different padding, so their results must be identical bit for bit.
+        self.group_key = group_key
         for row in self.rows:  # one x row of exactly input_len columns per tree
             if len(row.x) != int(input_len):
                 raise ValueError(
@@ -590,7 +594,7 @@ def compare(
         name,
         ok,
         detail,
-        bit_exact=bool(np.array_equal(a, b)),
+        bit_exact=_bit_equal(a, b),
         nan_mask_ok=bool(mask_nan),
         inf_mask_ok=bool(mask_inf),
         zero_sign_ok=bool(zero_exact),
@@ -635,7 +639,7 @@ def compare(
                 f"(row {row.note if row is not None else ''}) oracle={_fmt(entry['oracle'])} "
                 f"dense={_fmt(entry['got'])}"
             )
-    elif not np.array_equal(a, b):
+    elif not _bit_equal(a, b):
         print(
             f"        {name}: all differing elements are non-finite (payload bits only)"
         )
@@ -644,6 +648,15 @@ def compare(
 
 def _bits_equal(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return a.view(np.int32) == b.view(np.int32)
+
+
+def _bit_equal(a: Any, b: Any) -> bool:
+    """Bit-pattern equality (``np.array_equal`` is False for NaN == NaN)."""
+    x = np.asarray(_host(a), dtype=np.float32)
+    y = np.asarray(_host(b), dtype=np.float32)
+    if x.shape != y.shape:
+        return False
+    return bool(_bits_equal(x, y).all())
 
 
 # --------------------------------------------------------------------------- #
@@ -1080,7 +1093,14 @@ def build_junk_tail() -> Block:
                     note=f"base={base_name} junk={variant_name}",
                 )
             )
-    return Block("junk_tail", rows, 1, 24)
+    return Block(
+        "junk_tail",
+        rows,
+        1,
+        24,
+        group_key=lambda row: row.note.split(" junk=")[0].replace("base=", ""),
+        note="same tree, five hostile padding tails",
+    )
 
 
 def build_unknown_id() -> Block:
@@ -1173,7 +1193,7 @@ def build_random_pop(seed: int) -> Block:
         input_len=3,
         output_len=1,
         using_funcs=list(FUNCS_NAMES),
-        max_layer_cnt=4,
+        max_layer_cnt=3,  # IF in using_funcs -> the worst case is (3**3-1)/2 = 13
         const_prob=0.35,
         const_range=(-2.0, 2.0),
         sample_cnt=8,
@@ -1358,9 +1378,25 @@ def run_block(
     direct = D.evaluate_dense(vt, tt, st, block.input_len, 1, x, per_row=True)
     report.add(
         f"{label}: public dense == direct dense_engine",
-        bool(np.array_equal(dense_fwd_h, np.asarray(_host(direct), dtype=np.float32))),
+        _bit_equal(dense_fwd_h, direct),
     )
 
+    if block.group_key is not None:
+        # Same tree, different padding: the tail must not leak, so every variant
+        # of a group has to produce the identical bit pattern.
+        groups: Dict[str, List[int]] = {}
+        for index, row in enumerate(rows):
+            groups.setdefault(block.group_key(row), []).append(index)
+        for key, members in groups.items():
+            reference_row = dense_fwd_h[members[0]]
+            same = all(
+                _bit_equal(dense_fwd_h[index], reference_row) for index in members[1:]
+            )
+            report.add(
+                f"{label}: padding invariance [{key}]",
+                same,
+                f"{len(members)} variants bit-identical",
+            )
     if not args.skip_batch:
         ref_batch = reference.batch_forward_from_rows(values, types, sizes, xb.cpu(), out_len=1)
         with eval_mode("dense"):
@@ -1464,7 +1500,7 @@ def case_long_tree(args, report: Report, results: Dict[str, Any]) -> bool:
         got = forest.forward(x)
     report.add(
         f"{label}: long trees equal tree length",
-        bool(np.array_equal(np.asarray(_host(got), dtype=np.float32), np.asarray(_host(ref), dtype=np.float32))),
+        _bit_equal(got, ref),
         "forced-dense public call fell back and matched the oracle bit for bit",
     )
     results["long_tree"] = {"rows": len(rows), "row_len": cap + 8}
