@@ -239,3 +239,26 @@ operator's write scope); flagged here and in the completion report for the round
 
 Next round (after the parallel code round lands the frozen `build_{dense,specialized}_runner` API): re-run
 `r4/run_pure.sh` unchanged and A/B the `local-fallback:*` records above against the `frozen-api:*` ones.
+
+---
+
+## Post-campaign addendum
+
+**`check_r4.py` invariant corrected — commit `04fd739`** (the four failures reported in "Anomalies" #2 and in
+the sanity triage were a *validator over-assertion, not a data problem*: `median > mean` is legitimate for an
+odd, left-skewed sample of 5 blocks, and the recorded `min` / `median` / `mean` equal the statistics recomputed
+from `per_invocation_ms` in all 8 records).  The `min <= median <= mean` check was replaced by the always-valid
+bounds `min <= median <= max` and `min <= mean <= max` (`max` recomputed from the per-rep list; the sample-free
+`min <= median` / `min <= mean` when that list is unusable), with the recorded-summaries == recomputed-statistics
+equality checks kept as they were.  **No record, log or npy was touched.**
+
+Final gates after the fix:
+
+```bash
+python3 test/benchmark/r4/check_r4.py --manifest test/benchmark/r4/manifest.txt --require-companion
+#   -> 8 record(s): 8 complete, 0 partial, 0 skipped, 0 missing, 0 malformed; 369 check(s), 0 failure(s)   (exit 0)
+python3 test/benchmark/r4/check_r4.py --manifest test/benchmark/r4/results/smoke/manifest_smoke.txt --require-companion
+#   -> 3 record(s): 3 complete, ...; 139 check(s), 0 failure(s)   (exit 0; the three custom-`--tag` notes stay, as expected)
+```
+
+(369 = 361 + one extra bounds check per record.)  The round's write-up is `SUMMARY.md`.

@@ -16,11 +16,17 @@ residual the R2/R3 reports describe qualitatively (per-tree dispatch/readback, r
 validation, host `rows` assembly).  R4 measures both sides of that difference in the *same
 process* (`--e2e-companion K`), so the subtraction is not a cross-window comparison.
 
-**Status: harness + smoke complete; the 8-config campaign is NOT run yet** (a later agent runs
-`run_pure.sh`).  The after-round will, once the parallel code round lands the frozen
-`build_{dense,specialized}_runner` API: (1) re-run this same script unchanged, (2) compare the
-`local-fallback:*` records against the `frozen-api:*` ones (the A/B equivalence check below),
-(3) fold the numbers into `../REPORT.md` and the round write-up.
+**Status: before-baselines RECORDED.**  The 8-config campaign ran on 2026-09-13 (HKT 03:46–03:56,
+GPU 6) at evogp `e272714` against the etl checkout `51a7141`, one process per config, 8/8 `complete`,
+every record `local-fallback:*` (the frozen `build_{dense,specialized}_runner` API does not exist at
+that HEAD).  Gate: `check_r4.py --manifest manifest.txt --require-companion` → 8 complete / 369 checks
+/ 0 failures; pre-flight `check_agreement_r4.py` → PASS (30 checks).  **The analysis of record is
+[`SUMMARY.md`](SUMMARY.md)**; the records are in [`results/`](results/) and the operator log in
+[`RUNLOG.md`](RUNLOG.md).  The after-round will, once the parallel code round lands the frozen
+`build_{dense,specialized}_runner` API: (1) re-run the agreement pre-flight first (the ETL changed),
+(2) re-run this same script unchanged, (3) compare the `local-fallback:*` records against the
+`frozen-api:*` ones with the A/B equivalence check below, (4) fold the numbers into `../REPORT.md` and
+the round write-up (checklist: `SUMMARY.md` §H).
 
 ## Scope — 8 configs in two groups
 
@@ -215,9 +221,11 @@ HEAD is recorded, default `/mnt/local-ssd/bchuang/etl`).
 | `README.md` | this protocol |
 | `run_pure.sh` | the 8-config matrix runner (`--group numpy\|iree\|all`, `--only`, `--list`, `--dry-run`, `--timeout`); writes `results/<id>.{json,log}` and `last_run.txt` (generated, gitignored) |
 | `manifest.txt` | the validator's expectation list (`id <TAB> mode <TAB> backend <TAB> path`), 8 canonical ids in runner order |
-| `check_r4.py` | stdlib-only record validator (structure, modes/backends vs manifest, timing-list consistency, derived normalizations, optional companion gate); exit 1 on any failure |
+| `check_r4.py` | stdlib-only record validator (structure, modes/backends vs manifest, timing-list consistency, always-valid ordering bounds, derived normalizations, optional companion gate); exit 1 on any failure |
+| `SUMMARY.md` | the round's analysis of record: before-baseline table, derived observations, agreement verdict, provenance/commands, caveats, after-round checklist |
+| `RUNLOG.md` | the operator log of the executed campaign (window/identity, pre-flight, matrix, anomalies, artifacts) |
 | `results/smoke/` | the pre-campaign plumbing records (3 pure smokes + one `eval64` regression control) and their scratch manifest; **not** manifest ids |
-| `results/<id>.json` | the campaign records (written by the next agent) |
+| `results/<id>.json` | the 8 canonical campaign records (recorded 2026-09-13; the manifest's paths) |
 | `CONTEXT.md` | the node's routing/context file |
 
 `last_run.txt` is generated output and gitignored; the smoke records are committed as plumbing
