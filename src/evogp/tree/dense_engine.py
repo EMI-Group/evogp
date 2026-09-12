@@ -350,6 +350,7 @@ __all__ = [
     "DEFAULT_BUDGET_MB",
     "DEFAULT_EVAL_MODE",
     "DEFAULT_MAX_TREE_LEN",
+    "DEFAULT_PRUNE",
     "DENSE_CACHE",
     "DensePlan",
     "DensePrep",
@@ -357,7 +358,9 @@ __all__ = [
     "DenseUnsupported",
     "EVAL_MODES",
     "EVAL_MODE_ENV",
+    "FULL_FUNC_IDS",
     "MAX_TREE_LEN_ENV",
+    "PRUNE_ENV",
     "OP_BFUNC",
     "OP_CONST",
     "OP_INACTIVE",
@@ -378,6 +381,7 @@ __all__ = [
     "resolve_auto_min_pop",
     "resolve_backend_name",
     "resolve_eval_mode",
+    "resolve_prune",
     "should_use_dense",
     "sr_fitness_dense",
 ]
@@ -458,8 +462,13 @@ DEFAULT_MAX_TREE_LEN = 64
 DEFAULT_BUDGET_MB = 2048
 UPDATE_MODES = ("grow", "concat", "scatter")
 DEFAULT_UPDATE_MODE = "grow"
-
-#: The dense graphs live in the *same* compile cache as the specialized ones.
+#: Candidate-chain pruning (``EVOGP_DENSE_PRUNE``): emit the per-position
+#: candidate ops only for the function ids the POPULATION actually uses
+#: (:attr:`DensePrep.used_func_ids`) instead of all 28, which is where the bulk of
+#: the ``~264*L`` emitted ops goes.  On by default; ``=0`` restores the full chain
+#: byte-for-byte (the in-process "before" of an A/B).
+PRUNE_ENV = "EVOGP_DENSE_PRUNE"
+DEFAULT_PRUNE = True#: The dense graphs live in the *same* compile cache as the specialized ones.
 DENSE_CACHE = CACHE
 
 #: ``opcode`` values (mirroring ``NType`` base values, plus 5 for padding).
@@ -477,9 +486,13 @@ _BFUNC_MAX = 13
 #: Clamp for the truncated function id: ids ``>= 29`` are unmatched everywhere in
 #: the engine and therefore yield 0.0; clamping keeps the int32 chain in range.
 _FUNC_CLAMP = 29
+#: The full candidate-id range: what the chain emits with
+#: :data:`PRUNE_ENV` off, and the identity a pruned set is a subset of.  Id 0
+#: (``Func.IF``) is the separately emitted ternary, and ids outside ``1..28``
+#: match nothing anywhere (both are therefore no candidate emission at all).
+FULL_FUNC_IDS = tuple(range(1, _MAX_FUNC_ID + 1))
 #: Live ``(P, N)`` SSA candidates counted by :func:`dense_peak_bytes`.
 _LIVE_CANDIDATES = 40
-
 
 class DenseUnsupported(RuntimeError):
     """The dense path cannot (safely) evaluate this population.
@@ -689,6 +702,33 @@ def resolve_update_mode(value: Optional[str], backend_name: Optional[str]) -> st
     return mode
 
 
+#: Accepted spellings of :data:`PRUNE_ENV` (case-insensitive); empty = default.
+_PRUNE_TRUE = ("1", "true", "yes", "on")
+_PRUNE_FALSE = ("0", "false", "no", "off")
+
+
+def resolve_prune(value: Optional[bool] = None) -> bool:
+    """Resolve ``EVOGP_DENSE_PRUNE`` (explicit argument wins).
+
+    Read per call, like every other knob here.  Unset/empty means
+    :data:`DEFAULT_PRUNE` (pruned); ``0``/``false``/``no``/``off`` restores the
+    full candidate chain byte-for-byte; anything else raises ``ValueError``
+    naming the variable.
+    """
+    if value is not None:
+        return bool(value)
+    raw = os.environ.get(PRUNE_ENV, "").strip().lower()
+    if not raw:
+        return DEFAULT_PRUNE
+    if raw in _PRUNE_TRUE:
+        return True
+    if raw in _PRUNE_FALSE:
+        return False
+    raise ValueError(
+        f"unsupported {PRUNE_ENV}={raw!r}: dense_engine accepts "
+        f"{list(_PRUNE_TRUE + _PRUNE_FALSE)} or an empty value"
+    )
+
 # ---------------------------------------------------------------------------
 # host preprocessing
 # ---------------------------------------------------------------------------
@@ -724,12 +764,18 @@ class DensePrep:
     child1: np.ndarray
     child2: np.ndarray
     child3: np.ndarray
+    #: Canonical (sorted, unique) tuple of the function ids the population's
+    #: DECODED function nodes carry, restricted to the candidate range
+    #: (:data:`FULL_FUNC_IDS`): the ids the per-position candidate chain has to
+    #: emit for this population, an empty tuple for a population without function
+    #: nodes.  An id the chain does not emit leaves the node's value at 0.0, which
+    #: is exactly what the full chain's unmatched ``select`` chain yields.
+    used_func_ids: Tuple[int, ...] = ()
 
     @property
     def max_tree_length(self) -> int:
         """Longest declared tree in this population."""
         return int(self.tree_len.max(initial=0))
-
 
 #: Set once the over-cap decline has warned (see :func:`_warn_trace_cap`): the
 #: warning is emitted at most ONCE per process, so a training loop that keeps
@@ -858,6 +904,11 @@ def prepare_dense(
         L,
     )
     rows = np.arange(L, dtype=np.int32)[:, None]
+    real = np.ascontiguousarray(rows < tree_len[None, :])
+    # -- used function ids (host-side union over every function node) -----------
+    function_nodes = real & (columns[0] >= OP_UFUNC)
+    ids = np.unique(columns[1][function_nodes])
+    used_func_ids = tuple(int(v) for v in ids if 1 <= int(v) <= _MAX_FUNC_ID)
     return DensePrep(
         input_len=input_len,
         output_len=output_len,
@@ -865,7 +916,7 @@ def prepare_dense(
         row_len=row_len,
         trace_len=L,
         tree_len=tree_len,
-        real=np.ascontiguousarray(rows < tree_len[None, :]),
+        real=real,
         opcode=columns[0],
         func_id=columns[1],
         const_value=columns[2],
@@ -873,8 +924,8 @@ def prepare_dense(
         child1=columns[4],
         child2=columns[5],
         child3=columns[6],
+        used_func_ids=used_func_ids,
     )
-
 
 def _decode_columns(
     val_t: np.ndarray,
@@ -1026,8 +1077,18 @@ def _dense_body(
 ) -> Any:
     """Trace-time body of the dense evaluator (``cfg`` is a static tuple).
 
-    ``cfg = (L, P, N, input_len, per_row, update_mode)``.  Returns the root
-    values, ``(P, N)`` (``per_row=True`` uses ``N == 1``).
+    ``cfg = (L, P, N, input_len, per_row, update_mode, used_func_ids)`` (the loss
+    variant appends its ``use_mse`` flag at index 7).  Returns the root values,
+    ``(P, N)`` (``per_row=True`` uses ``N == 1``).
+
+    ``used_func_ids`` is the population's used function ids (:func:`resolve_prune`
+    on, the default): a canonical tuple the candidate chain emits ops for, in
+    DESCENDING id order -- the exact order the full chain
+    (:data:`FULL_FUNC_IDS`, i.e. ``EVOGP_DENSE_PRUNE=0``) walks -- so with the
+    full set the emitted stream is byte-identical to the unpruned one.  It may be
+    empty (a population without function nodes): no candidate op is emitted at
+    all, the node value falls back to the ``zero`` the unmatched ``select`` chain
+    starts from, and every traced position still has a defined value.
     """
     L = int(cfg[0])
     P = int(cfg[1])
@@ -1035,6 +1096,7 @@ def _dense_body(
     input_len = int(cfg[3])
     per_row = bool(cfg[4])
     mode = str(cfg[5])
+    used_func_ids = tuple(int(v) for v in cfg[6])
     PN = P * N
     pn_off = etl.add(
         etl.reshape(etl.cast(etl.arange(P), etl.int32) * N, (P, 1)),
@@ -1092,9 +1154,11 @@ def _dense_body(
         if not has_children:
             val = leaf
         else:
-            # -- function value: the whole candidate chain, engine emitters -----
+            # -- function value: the candidate chain, engine emitters -------------
+            # Only the used ids are emitted (descending, like the full chain); an
+            # id that is emitted nowhere leaves ``prod`` at ``zero``.
             prod = zero
-            for fid in range(_MAX_FUNC_ID, 0, -1):
+            for fid in reversed(used_func_ids):
                 candidate = (
                     _emit_binary(fid, v1, v2)
                     if fid <= _BFUNC_MAX
@@ -1176,8 +1240,9 @@ def _dense_loss_step(
     """One compiled dense SR-LOSS pass (module-level: ``id(fn)`` is the key).
 
     The same structure-as-data graph as :func:`_dense_step` (``cfg[:6]`` is
-    exactly :func:`_dense_body`'s config) with the fitness reduction folded in:
-    ``cfg[6]`` is the static ``use_MSE`` flag and the graph's only output is the
+    exactly :func:`_dense_body`'s config, ``cfg[6]`` the used-function-id tuple)
+    with the fitness reduction folded in: ``cfg[7]`` is the static ``use_MSE``
+    flag and the graph's only output is the
     per-tree ``sum_N err`` (``(p_chunk,)``), so the SR hot path never brings a
     prediction back to the host -- see :func:`sr_fitness_dense` /
     :func:`run_loss_plan`.
@@ -1193,7 +1258,7 @@ def _dense_loss_step(
     (:func:`run_loss_plan`) so that ``N`` never has to enter the cache key.
     """
     N = int(cfg[2])
-    use_mse = bool(cfg[6])
+    use_mse = bool(cfg[7])
     values = _dense_body(
         opcode, func_id, const_value, var_index, child1, child2, child3, x, cfg
     )  # (P, N)
@@ -1272,9 +1337,14 @@ class DensePlan:
     specs: Tuple[Any, ...] = field(repr=False)
     #: :data:`VALUE_VARIANT` or :data:`LOSS_VARIANT` (see :func:`plan_dense`)
     variant: str = VALUE_VARIANT
-    #: loss variant only: the static MSE/MAE selector baked into ``cfg[6]``
+    #: loss variant only: the static MSE/MAE selector baked into ``cfg[7]``
     use_mse: bool = True
-
+    #: The function ids the graph emits candidates for (``cfg[6]``): the
+    #: population's used ids when :func:`resolve_prune` is on, else
+    #: :data:`FULL_FUNC_IDS`.  Part of the cache key through ``cfg``.
+    used_func_ids: Tuple[int, ...] = FULL_FUNC_IDS
+    #: whether the candidate chain was pruned (:func:`resolve_prune`)
+    prune: bool = DEFAULT_PRUNE
     @property
     def trace_len(self) -> int:
         return self.prep.trace_len
@@ -1313,6 +1383,7 @@ def plan_dense(
     backend: Optional[str] = None,
     variant: str = VALUE_VARIANT,
     use_mse: bool = True,
+    prune: Optional[bool] = None,
 ) -> DensePlan:
     """Preprocess the population, pick the chunk shape and build the specs.
 
@@ -1369,7 +1440,23 @@ def plan_dense(
     x_shape = (
         (p_chunk, prep.input_len) if per_row else (n_chunk, prep.input_len)
     )
-    cfg = (prep.trace_len, p_chunk, n_chunk, prep.input_len, bool(per_row), mode)
+    # Candidate-chain pruning (the one op-count lever): the graph emits candidate
+    # ops for the population's used function ids only.  ``prune=False`` -- or
+    # ``EVOGP_DENSE_PRUNE=0`` -- keeps :data:`FULL_FUNC_IDS`, the byte-identical
+    # full chain.  The tuple is a static cfg entry, so it specializes the graph
+    # and joins the ``build_cached`` key: a population whose used-id set changes
+    # recompiles (in a GP run the union saturates quickly).
+    pruned = resolve_prune(prune)
+    used_func_ids = prep.used_func_ids if pruned else FULL_FUNC_IDS
+    cfg = (
+        prep.trace_len,
+        p_chunk,
+        n_chunk,
+        prep.input_len,
+        bool(per_row),
+        mode,
+        used_func_ids,
+    )
     specs: Tuple[Any, ...] = (
         etl.TensorSpec(shape, etl.int32),
         etl.TensorSpec(shape, etl.int32),
@@ -1401,6 +1488,8 @@ def plan_dense(
         specs=specs,
         variant=variant,
         use_mse=bool(use_mse),
+        used_func_ids=used_func_ids,
+        prune=bool(pruned),
     )
 
 
@@ -1422,6 +1511,9 @@ def describe_plan(plan: DensePlan) -> Dict[str, Any]:
         "peak_bytes": plan.peak_bytes,
         "variant": plan.variant,
         "use_mse": plan.use_mse,
+        "prune": plan.prune,
+        "used_func_ids": list(plan.used_func_ids),
+        "candidate_ops": len(plan.used_func_ids),
     }
 
 
