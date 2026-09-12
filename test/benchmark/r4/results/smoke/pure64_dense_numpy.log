@@ -1,0 +1,7 @@
+[SMOKE64_DENSE_NUMPY] harness=bench_gp.py side=new task=eval-pure pop=None gens=None tree_len=None seed=0 reps=2 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=numpy CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A140/src/evogp/__init__.py commit=fcf0d0c90ce95934f5765b98d236fe7b28367ef0 etl=0.1.0 json_out=test/benchmark/r4/results/smoke/pure64_dense_numpy.json
+[SMOKE64_DENSE_NUMPY] pure: pop=64 n_rows=64 mode_requested=dense mode_resolved=dense backend=numpy runner=auto invocations=20 warmup=5 reps=2 e2e_companion=4
+[SMOKE64_DENSE_NUMPY] constructed pure runner: source=local-fallback:dense n_trees=64 n_const_trees=0 graph_calls/invocation=1 (measured); compile 1858.4ms (decode_plan 0.9ms + build 1857.1ms; 1 cache misses)
+[SMOKE64_DENSE_NUMPY] side=new rep0/2: per-invocation 124.3ms (block 2485.4ms)
+[SMOKE64_DENSE_NUMPY] side=new rep1/2: per-invocation 126.1ms (block 2521.2ms)
+[SMOKE64_DENSE_NUMPY] e2e companion: first 138.8ms, warm median 151.9ms over 4 problem.evaluate() calls (pure median 125.2ms)
+[SMOKE64_DENSE_NUMPY] done side=new interrupted=False harness_wall_s=9.0 json_out=test/benchmark/r4/results/smoke/pure64_dense_numpy.json
