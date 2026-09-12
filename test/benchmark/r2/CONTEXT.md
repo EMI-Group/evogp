@@ -13,7 +13,7 @@ What this node hands to a later round is a *method* (config table, lock/`ulimit`
 - `backend_agreement.md` → the pre-flight verdict and method of record, including the fixture npz hashes, the per-backend `values_sha256` anchors and the rule that no IREE number is quotable before this gate passes.
 - `RUNLOG.md` → the executed-round operator log (per-group environment, exact commands, per-config status, FD/stage telemetry, validator output, deviations).
 - `last_run.txt` → generated output of `run_all.sh` (disposable, not in the manifest).
-- `round3/` → the round-3 sub-node: the R2 headline configs re-measured with the same methodology after the `etl_engine.py` host-side cuts and the `dense_engine.py` wave; entry point and gates in `round3/README.md`, node context in `round3/CONTEXT.md`.
+- `round3/` → the round-3 sub-node: the R2 headline configs re-measured with the same methodology after the `etl_engine.py` host-side cuts and the `dense_engine.py` wave; entry point and gates in `round3/README.md`, node context in `round3/CONTEXT.md`; it also carries Arm B (the same nine new-side configs under a patched-ETL shadow): `round3/run_all_armB.sh`, `round3/manifest_armB.txt`, `round3/check_agreement_armB.py`, records under `round3/results/armB/`, write-up `round3/SUMMARY_armB.md`.
 - `../../new/results/r2/`, `../../legacy/results/r2/` → the R2 records themselves (JSON + appended logs) with their `backend_agreement/` pre-flight evidence; each JSON carries its own engine identity (`evogp_commit`, `evogp_file`, `etl_version`, `env`, `gpu`).
 
 ## Constraints
