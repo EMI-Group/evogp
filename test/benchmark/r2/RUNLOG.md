@@ -172,9 +172,215 @@ Far below the "10–20 min" estimate: the legacy side is sub-second per workload
 
 ---
 
-## IREE group — (pending; to be appended by the iree operator)
+## IREE group (eval configs) — 2026-09-12 14:56–15:13 HKT
 
-Not run in this entry. The 12 `iree_*` configs are the remaining manifest ids (expected wall: tens of
-minutes; `iree_sr_b2` is the heaviest and may need `--timeout 7200`). Append a section in the same shape:
-environment + GPU state, exact commands, per-config status table, `check_r2.py --manifest` result, wall clock,
-deviations.
+**Operator:** worker `worker_T3_A161` (iree eval-config operator). **Scope:** only the 10 eval configs of the
+iree group — `new/results/r2/iree_*.{json,log}` and this section. No harness/runner/validator/library file and no
+other config's results were touched. The training pair `iree_sr_a` / `iree_sr_b2` is **not** part of this entry —
+it is measured separately by the training-pair operator (see the hand-off note at the end).
+
+### Environment
+
+| item | value |
+|---|---|
+| repo root (cwd for every command) | this worker's worktree root |
+| interpreter | `/mnt/local-ssd/bchuang/evox/.venv/bin/python` (py3.11, torch 2.6.0+cu124) |
+| GPU | `CUDA_VISIBLE_DEVICES=6` — the runner default, **kept**, because GPU 6 was the least-busy non-7 device. Snapshot before (14:55:52): `6, NVIDIA RTX A6000, 0 %, 1 MiB`; the rest of the box was busy — GPU 0 / 1 at 65 % / 99 % with ~19.7 / 20.1 GiB of tenant allocation, GPUs 2–5 at 0 % util but 6.8–24.4 GiB held by tenants, GPU 7 = 2263 uncorrected ECC errors (never touched). Snapshot after (15:12:48): `6, …, 0 %, 1 MiB` (GPU 0/1 at 96 %/89 %). Inside the configs `nvidia_smi_used_mb` on GPU 6 was 4 → 501 MiB, `free_mb_start` ≈ 48 409 MiB; peak torch allocation of any config = 23.14 MiB (`iree_fixture200_n10000`) |
+| lock | `/tmp/gpbench_critical.lock` — exactly one `flock -w 7200` per config (added by the runner, never nested); no lock-wait delay in any log |
+| engine under test | `new` = `PYTHONPATH=src` (this worktree, no source file touched: the JSONs carry `evogp_commit=dc5c0f55425e…` for the first config and the SHA of the preceding chunk commit for the later ones — `1eb9a75`, `87b6122`, `e73080a`, `28def1f`, all the same engine tree), `etl 0.1.0`, backend `iree`, `EVOGP_ETL_IREE_OPT_LEVEL=O1`, `EVOGP_ETL_IREE_DEVICE=0`, `ETL_DISABLE_LOCATIONS=1` (runner defaults; recorded in each JSON's `env`) |
+| fixtures | `test/goldens/forest_random.npz` (64 trees) and `test/benchmark/fixtures/forest200_tree64_random.npz` (200 trees) present → no GUARD-SKIP |
+| FD limit | `nofile_rlimit = [65536, 65536]` in every JSON (the runner's `ulimit -n 65536` applied) |
+
+### Commands (exact; one bash call per chunk)
+
+```bash
+bash test/benchmark/r2/run_all.sh --only iree_fixture64_n64,iree_fixture64_n1024,iree_fixture64_n10000,iree_fixture200_n64,iree_fixture200_n1024,iree_fixture200_n10000,iree_fresh16,iree_fixture64_n64_noprobe,iree_fresh16_noprobe,iree_c7r --dry-run   # 14:55:52, 10 configs planned, nothing executed, last_run.txt NOT written
+# chunk 1 (calibration: per-build rate + FD/build)
+bash test/benchmark/r2/run_all.sh --only iree_fixture64_n64 --timeout 1800
+# chunk 2
+bash test/benchmark/r2/run_all.sh --only iree_fixture64_n1024,iree_fixture64_n10000 --timeout 1800
+# chunk 3
+bash test/benchmark/r2/run_all.sh --only iree_fixture200_n64,iree_fixture200_n1024,iree_fixture200_n10000 --timeout 1800
+# chunk 4 (fresh16 + the two probe-off A/B controls)
+bash test/benchmark/r2/run_all.sh --only iree_fresh16,iree_fixture64_n64_noprobe,iree_fresh16_noprobe --timeout 1800
+# chunk 5 (round-1 C7 anchor re-run)
+bash test/benchmark/r2/run_all.sh --only iree_c7r --timeout 1200
+```
+
+Each config is its own process (`PYTHONPATH=src`, `CUDA_VISIBLE_DEVICES=6`, the config's flags, `--tag` =
+uppercase id); the exact per-config command is reproduced in that config's log header. Before chunk 3 the FD
+projection from chunk 1 (`33 fds / cold build × ≤400 builds ≈ 13 k fds` + warm-hit leak) was checked against
+the 65 536 limit — safe, so all three ran in one call.
+
+### Per-config status (10/10 exit 0, `complete=true`, `partial=false`, no `skipped`, no `skip_reason`)
+
+| id | task | trees | data rows | exit→status | first_ms | warm median ms | cold_builds | cold_build_ms | warm_misses | fds end | peak MiB | harness wall s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| iree_fixture64_n64 | eval64 | 64 | native | 0→OK | 82065.19 | 69.61 | 48 | 81854.0 | 0 | 2395 | 0.08 | 84.6 |
+| iree_fixture64_n1024 | eval64 | 64 | 1024 | 0→OK | 74575.53 | 73.39 | 48 | 74369.1 | 0 | 1947 | 0.80 | 76.7 |
+| iree_fixture64_n10000 | eval64 | 64 | 10000 | 0→OK | 16636.48 | 79.37 | 48 | 16423.7 | 0 | 1947 | 7.51 | 18.1 |
+| iree_fixture200_n64 | eval64 | 200 | native | 0→OK | 105645.73 | 229.49 | 155 | 105201.1 | 0 | 5819 | 0.25 | 112.0 |
+| iree_fixture200_n1024 | eval64 | 200 | 1024 | 0→OK | 335615.71 | 238.46 | 155 | 335082.0 | 0 | 5371 | 2.46 | 339.3 |
+| iree_fixture200_n10000 | eval64 | 200 | 10000 | 0→OK | 86662.64 | 260.36 | 155 | 86089.4 | 0 | 5371 | 23.14 | 89.9 |
+| iree_fresh16 | evalfresh | 16 | native | 0→OK | 14039.21 | 24.50 | 15 | 13950.8 | 0 | 859 | 0.08 | 15.2 |
+| iree_c7r | sr | 50 × 3 gens | native | 0→OK | 20737.42 | 5229.58 (derived median of `per_gen_ms[1:]`) | 39 | 20016.0 | 24 | 2171 | 0.62 | 32.8 |
+| iree_fixture64_n64_noprobe | eval64 | 64 | native | 0→OK | 25532.48 | 68.02 | – (no probe) | – | – | 2395 | 0.08 | 28.2 |
+| iree_fresh16_noprobe | evalfresh | 16 | native | 0→OK | 7320.03 | 19.79 | – (no probe) | – | – | 859 | 0.08 | 8.5 |
+
+`first_ms` = harness `first_call_ms` (eval tasks) / `cold_first_gen_ms` (`iree_c7r`). `cold_builds` /
+`cold_build_ms` / `warm_misses` are `stages.reps[0].totals` fields — **not** the top-level `cold_builds` (that
+one is the guard object: `{enforced: true, limit: 300|400|200, misses_max: 48|155|15|63, exceeded: false}` for
+every config, i.e. the `--max-cold-builds` budget was never reached and no config guard-stopped).
+
+Top-level `per_call_ms` warm min/median/max (excludes call 0): n64 68.67 / 69.61 / 93.73; n1024 72.24 / 73.39 /
+80.93; n10000 77.48 / 79.37 / 89.64; fixture200 n64 226.06 / 229.49 / 352.71; n1024 231.16 / 238.46 / 249.81;
+n10000 248.58 / 260.36 / 287.96; fresh16 21.49 / 24.50 / 31.49; noprobe pair 64.86 / 68.02 / 104.96 and
+19.36 / 19.79 / 44.12. `iree_c7r` `per_gen_ms = [20737.42, 4310.13, 6149.04]`,
+`per_gen_best_fitness = [-0.2510969936847687] × 3`.
+
+### Warm stage decomposition (median over `stages.reps[0].records[i>0]`, ms per call)
+
+These are **fixture** configs, so every warm call is fully warm: `build_miss = 0.00` and `warm_misses == 0` in
+`totals` on all six — that equality is the proof that the warm path never recompiled anything. `build_calls` per
+call = `trees_invoked`/`calls`, the rest of the call is bookkeeping: `total_ms` = decode + build_hit + build_miss
++ run + readback + upload + loss + misc.
+
+| id | decode | build_hit | build_miss | run | readback | upload | loss | misc | total | dominant |
+|---|---|---|---|---|---|---|---|---|---|---|
+| iree_fixture64_n64 | 1.68 | 11.09 | 0.00 | 35.76 | 20.22 | 0.50 | 0.17 | 0.09 | 69.61 | run 51 % + readback 29 % |
+| iree_fixture64_n1024 | 1.70 | 11.16 | 0.00 | 34.73 | 21.63 | 4.07 | 0.20 | 0.10 | 73.38 | run 47 % + readback 29 % |
+| iree_fixture64_n10000 | 1.72 | 11.36 | 0.00 | 26.78 | 24.62 | 14.68 | 0.25 | 0.11 | 79.37 | readback 31 % + run 34 % + upload 18 % |
+| iree_fixture200_n64 | 7.36 | 46.36 | 0.00 | 108.39 | 65.31 | 1.52 | 0.23 | 0.27 | 229.49 | run 47 % + readback 28 % |
+| iree_fixture200_n1024 | 7.63 | 46.35 | 0.00 | 107.98 | 68.64 | 6.17 | 0.27 | 0.31 | 238.46 | run 45 % + readback 29 % |
+| iree_fixture200_n10000 | 7.35 | 46.08 | 0.00 | 90.87 | 71.08 | 45.39 | 0.32 | 0.45 | 260.36 | readback 27 % + run 35 % + upload 17 % |
+| iree_fresh16 (control pair) | 1.08 | 5.93 | 0.00 | 9.48 | 7.61 | 0.27 | 0.21 | 0.10 | 24.68 / 24.50 | run 39 % + readback 31 % |
+
+Reading: the IREE warm per-call cost is **run + readback** (the device round-trip: `run_ms` and the `d2h` of
+the outputs), not decode and not the cache bookkeeping — the same shape as the numpy mirrors, but scaled up
+(`np_c5r2` warm 21.06 ms with `run` 8.59 + `readback` 0.63 ms; the IREE readback is ~30× the numpy one at the
+same tree count). `build_hit_ms` (11 – 46 ms) is the per-tree cache lookup, `decode_ms` is host-side tree
+decoding; the *cold* path is a different animal — see the calibration below.
+`iree_c7r` is the one training config here and is **not** fully warm: 39 cold builds + 24 warm misses
+(63 misses total, `warm_misses` 24, `warm_build_miss_ms` 10336.3) — its warm-ish per-gen median 5229.58 ms is
+dominated by `build_miss` 5168.16 ms, exactly as the `np_sr_a` behaviour predicts for a churning population.
+
+### Build-rate calibration (chunk 1, and the same rate measured on the other configs)
+
+| config | cold_builds | cold_build_ms | **ms / build** | fds after_cold − start | **fds / cold build** | fds end |
+|---|---|---|---|---|---|---|
+| iree_fixture64_n64 (calibration) | 48 | 81854.0 | **1705.3** | 1588 | **33.08** | 2395 |
+| iree_fixture64_n1024 | 48 | 74369.1 | 1549.4 | 1588 | 33.08 | 1947 |
+| iree_fixture64_n10000 | 48 | 16423.7 | 342.2 | 1588 | 33.08 | 1947 |
+| iree_fixture200_n64 | 155 | 105201.1 | 678.7 | 5012 | 32.34 | 5819 |
+| iree_fixture200_n1024 | 155 | 335082.0 | 2161.8 | 5012 | 32.34 | 5371 |
+| iree_fixture200_n10000 | 155 | 86089.4 | 555.4 | 5012 | 32.34 | 5371 |
+| iree_fresh16 | 15 | 13950.8 | 930.1 | 532 | 35.47 | 859 |
+| iree_c7r (63 misses total) | 39 | 20016.0 | 513.2 | 1300 | 33.33 | 2171 |
+
+* **FD rate is the reproducible number: 32–35 fds per compiled structure** — identical (33.08 / 32.34) for every
+  config that shares a tree count, i.e. it is a function of the build, not of the data length. On top of it the
+  warm path leaks ~0.6–3 fds per build call (`(fds_end − fds_start) / build_calls` = 1.35 – 3.27 on the fixture
+  configs). Projection that was checked before chunk 3: 155 builds × 32.3 ≈ 5.0 k fds (measured `after_cold`
+  5051 ✓), and even the full 400-build budget would be ≈ 13 k fds ≪ 65 536; the whole group peaked at 5819 fds.
+* **ms / build is *not* reproducible on this shared box: 342 → 2162 ms per structure (6.3× spread) for identical
+  build counts.** `iree_fixture64_n10000` (48 builds) compiled in 16.4 s right after `iree_fixture64_n1024`'s
+  identical 48 builds took 74.4 s, and `iree_fixture200_n1024` (155 builds) took 335.1 s versus 105.2 s / 86.1 s
+  for the two other 155-build configs. Take ~1.1 s/build at face value (663 builds, 733.0 s of
+  `cold_build_ms` in total) and treat `first_call_ms`/`cold_build_ms` as ±(a factor of a few), not ±10 %.
+* Group-level economics: **733.0 s of the group's 805.4 s total `harness_wall_s` (91 %) is per-structure IREE
+  compilation** — the IREE backend is compile-bound at population scale, exactly as `README.md` predicts. For
+  contrast the numpy mirrors build the same structures in ~3.2 ms each (`np_c5r2`: 48 builds / 151.5 ms), i.e.
+  IREE's build is ~110–680× the numpy interpreter's, and the warm per-call penalty is ~3.3× on the 64-tree
+  fixture (69.6 vs `np_c5r2` 21.1 ms) and ~2.5× on the 200-tree one (229.5 vs `np_fixture200_n64` 93.7 ms).
+
+### A/B probe overhead
+
+| pair | probe warm median | noprobe warm median | delta | first_call probe vs noprobe | harness wall |
+|---|---|---|---|---|---|
+| `iree_fixture64_n64` vs `iree_fixture64_n64_noprobe` | 69.61 ms | 68.02 ms | **+1.59 ms / +2.34 %** | 82.1 s vs 25.5 s (compile-bound, not probe) | 84.6 vs 28.2 s |
+| `iree_fresh16` vs `iree_fresh16_noprobe` | 24.50 ms | 19.79 ms | **+4.71 ms / +23.8 %** | 14.04 s vs 7.32 s | 15.2 vs 8.5 s |
+
+The eval64 pair (+2.3 %, i.e. ≈ the light group's ≲1 ms / ≈1 % probe tax on 21 ms) is inside the ±10 % band. The
+`fresh16` pair is **not** resolvable either: the noprobe control also compiled its 15 structures ~2× faster
+(7.32 s vs 14.04 s, same 15 builds) because it landed in a faster box window, so the +4.7 ms mixes probe tax with
+box noise — the probe does add per-call bookkeeping proportional to `build_calls`, but this round cannot separate
+it. Neither reading changes any R2 conclusion.
+
+### C7 anchor vs round 1 (pop 50 / gens 3 / tree 32, `--max-cold-builds 200`)
+
+| quantity | round 1 (`new/results/C7.json`) | this round (`iree_c7r`) | delta |
+|---|---|---|---|
+| `per_gen_ms` | [21830.84, 12591.85, 26017.30] | [20737.42, 4310.13, 6149.04] | gen0 −5 %, gen1 −66 %, gen2 −76 % |
+| generation loop (`probe_span_ms` here / `generation_loop_s` r1) | 60.44 s | 31.20 s | **−48 %** |
+| `per_gen_best_fitness` | −0.2510969936847687 (×3) | −0.2510969936847687 (×3) | **bit-identical** |
+| cold builds / misses | 50 builds at gen 0 | 39 cold builds + 24 warm misses = 63 | guard not tripped (`limit 200`) |
+
+The same seed reproduces the round-1 trajectory **exactly** on best fitness, so the speed-up is engine/box, not a
+different workload. Its source is visible in the split: gen 0 costs 39 builds = 20.0 s, gens 1–2 add only 24
+misses = 10.3 s, and the whole run is 31.2 s vs 60.4 s — the same order-of-magnitude as the round-1 build cost
+(~0.5 s/build) with the box-dependent spread documented above. `iree_c7r` **did not** guard-stop, so it is a
+complete record, not a partial/SKIP outcome.
+
+### Validation
+
+```bash
+python3 test/benchmark/r2/check_r2.py --manifest test/benchmark/r2/manifest.txt     # exit 1
+#   -> 35 record(s): 33 complete, 0 partial, 0 skipped, 2 missing, 0 malformed; 118 check(s), 2 failure(s)
+#      FAIL iree_sr_a  (missing JSON) ; FAIL iree_sr_b2 (missing JSON)
+python3 test/benchmark/r2/check_r2.py test/benchmark/new/results/r2 test/benchmark/legacy/results/r2   # exit 1
+#   -> 48 record(s): 45 complete, 2 partial, 1 skipped, 0 missing, 0 malformed; 115 check(s), 2 failure(s)
+#      FAIL C5  (missing required eval keys ['task','config','complete'], legacy/results/r2/C5.json)
+#      FAIL C5b (same, legacy/results/r2/C5b.json)
+#      notes: h1_guard SKIP (cold-builds-exceeded:4>1); leg_smoke tag 'LEG-smoke' != 'ID.upper()' (prior-round artifact)
+```
+
+Both outcomes are exactly the expected ones: the **2 manifest failures are the two training-pair ids** that this
+entry deliberately does not cover (they were still MISSING when this section was written; the training-pair
+operator writes them), and the **2 directory-scan failures are pre-existing prior-round driver artifacts**
+(`C5.json` / `C5b.json`, written by round 1's `legacy/run_matrix.py` — same 2 failures the light-group entry
+reported). **Zero failures are attributable to the 10 configs of this group**: all 8 probed ids carry a valid
+`stages` block and the 2 `*_noprobe` controls correctly carry none.
+
+### Wall clock
+
+| phase | wall |
+|---|---|
+| dry run | < 1 s (14:55:52) |
+| chunk 1 (calibration) | 86 s (14:56:01 → 14:57:27) |
+| chunk 2 | 108 s (14:57:53 → 14:59:41) |
+| chunk 3 (three fixture200 configs) | 668 s (14:59:46 → 15:10:54) |
+| chunk 4 | 59 s (15:11:00 → 15:11:59) |
+| chunk 5 (C7) | 36 s (15:12:05 → 15:12:41) |
+| **total (dry run + 5 chunks)** | **≈ 15 min 58 s** (14:55:52 → 15:12:41, incl. commit/telemetry pauses between chunks) |
+| harness-reported `harness_wall_s` sum over the 10 configs | 805.4 s (of which 733.0 s = `cold_build_ms`) |
+
+### Deviations / anomalies
+
+* **Compile-rate variance (main anomaly).** 6.3× spread in ms/build across configs with identical build counts
+  (see the calibration table). Every value is a genuine harness measurement of that window; the group's robust
+  statement is "~1.1 s/build average, ±a factor of a few", and `first_call_ms` for all `iree_*` evals should be
+  read as "cold-build total", not as a stable hardware constant.
+* **No guard trip, no timeout, no interrupt.** 10/10 exit 0; every `cold_builds.exceeded = false`; no 124/137/130;
+  no FAIL; no GUARD-SKIP (→ no missing JSON for this group); every JSON `complete=true`, `partial=false`.
+* **warm_misses == 0 held everywhere it must**: the 6 fixture configs + `iree_fresh16` (`warm_misses` 0,
+  `warm_build_miss_ms` 0.0) and, as expected, the 2 probe-off controls have no `stages` block at all. The single
+  non-zero case is `iree_c7r` (`warm_misses` 24), which is a **training** config whose population changes every
+  generation — that is the documented cache-miss behaviour, not a regression.
+* **FD pressure did not materialise**: max `fds.end` = 5819 of the 65 536 limit; `ulimit -n` was raised by the
+  runner and `nofile_rlimit` confirms `[65536, 65536]` inside every process.
+* **nanobind reference-leak warning in every IREE log tail** (`leaked function "…"`, "likely caused by a reference
+  counting issue in the binding code"). Pre-existing IREE-python binding teardown noise: it appears after the
+  harness has written its JSON and does not affect the exit code (all 0) or any measured number. Not patched here.
+* **GPU contention** limited to the other tenants (GPU 0/1 65–99 % throughout, GPU 3's allocation dropped
+  15.7 → 6.8 GiB mid-round); GPU 6 stayed at 0 % util / ≤501 MiB used and GPU 7 was never touched, so no config
+  was run under local contention — the variance above is therefore inside the IREE compile path / box-wide noise,
+  not explained by a neighbour on GPU 6.
+* `test/benchmark/r2/last_run.txt` was rewritten by every chunk (it holds chunk 5 only, as documented) and is
+  **not** committed; the chunk summaries above are the evidence.
+* No harness/runner/validator/library file was modified; the only files written are the 10 `.json` + 10 `.log`
+  pairs under `test/benchmark/new/results/r2/` and this section.
+* **Hand-off (not this operator's configs):** `iree_sr_a` / `iree_sr_b2` are the remaining 2 manifest ids. The
+  measured FD rate (≈33 fds per compiled structure) makes `iree_sr_a` comfortable (its `np_sr_a` mirror churned
+  ~520 builds ⇒ ≈17 k fds) but implies `iree_sr_b2`'s 2200-build budget projects to ≈73 k fds, i.e. **above the
+  65 536 `ulimit -n`** — the training-pair operator should expect `EMFILE` before the `--max-cold-builds 2200`
+  guard trips, and may want a lower budget. Reported here rather than changed: the runner's budget is frozen.
