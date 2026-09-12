@@ -1,0 +1,66 @@
+{
+  "tag": "SMOKE_EVALFRESH",
+  "side": "new",
+  "task": "evalfresh",
+  "eval_kind": "fresh",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6/test/goldens/forest_random.npz",
+  "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6/src/evogp/__init__.py",
+  "evogp_commit": "7e6cd0fba2d369c4ad94a365df3714f811afbc5a",
+  "etl_version": "0.1.0",
+  "problem": "W3' fresh population: Forest.random_generate(pop_size=100, descriptor=W1-style GenerateDescriptor(max_tree_len=32)) + SymbolicRegression(datapoints=x[(64, 2)], labels=labels[(64, 1)]) from test/goldens/forest_random.npz",
+  "config": {
+    "pop": 100,
+    "tree_len": 32,
+    "seed": 0,
+    "reps": 1,
+    "eval_reps": 3
+  },
+  "env": {
+    "ETL_DISABLE_LOCATIONS": "1",
+    "CUDA_VISIBLE_DEVICES": "4"
+  },
+  "gpu": {
+    "cuda_visible_devices": "4",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4"
+  },
+  "per_call_ms": [
+    501.0797567665577,
+    45.1834499835968,
+    44.33532804250717
+  ],
+  "first_call_ms": 501.0797567665577,
+  "median_warm_ms": 44.75938901305199,
+  "wall_s": 0.7311411201953888,
+  "partial": false,
+  "projection": null,
+  "complete": true,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 0.1365090347826481,
+      "wall_s": 0.7311411201953888,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "per_call_ms": [
+        501.0797567665577,
+        45.1834499835968,
+        44.33532804250717
+      ],
+      "first_call_ms": 501.0797567665577,
+      "median_warm_ms": 44.75938901305199
+    }
+  ],
+  "notes": "",
+  "started_at": "2026-09-11T21:05:46+08:00",
+  "finished_at": "2026-09-11T21:05:48+08:00",
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6/test/benchmark/bench_gp.py",
+  "construct_s": 0.1365090347826481,
+  "harness_wall_s": 1.8649180755019188
+}

@@ -1,0 +1,133 @@
+===================================================================
+config C5  started 2026-09-11T21:07:20+08:00
+note: none
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6
+PY: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 900s (SIGINT first, SIGKILL after 30s), inside flock /tmp/gpbench_critical.lock
+env: PYTHONPATH=src CUDA_VISIBLE_DEVICES=5 
+flock wrapper: flock -w 7200 /tmp/gpbench_critical.lock bash -c '<cmd>'
+cmd: timeout -s INT -k 30 900 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=5 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --eval-reps 25 --tag C5 --json-out test/benchmark/new/results/C5.json
+--- nvidia-smi (before) ---
+Fri Sep 11 21:07:20 2026       
++---------------------------------------------------------------------------------------+
+| NVIDIA-SMI 535.247.01             Driver Version: 535.247.01   CUDA Version: 12.2     |
+|-----------------------------------------+----------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |         Memory-Usage | GPU-Util  Compute M. |
+|                                         |                      |               MIG M. |
+|=========================================+======================+======================|
+|   0  NVIDIA RTX A6000               On  | 00000000:01:00.0 Off |                  Off |
+| 36%   65C    P2             192W / 300W |   1119MiB / 49140MiB |     30%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   1  NVIDIA RTX A6000               On  | 00000000:25:00.0 Off |                  Off |
+| 43%   69C    P2             197W / 300W |   7152MiB / 49140MiB |     42%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   2  NVIDIA RTX A6000               On  | 00000000:41:00.0 Off |                  Off |
+| 35%   66C    P2             188W / 300W |  17702MiB / 49140MiB |     36%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   3  NVIDIA RTX A6000               On  | 00000000:61:00.0 Off |                  Off |
+| 32%   56C    P2             177W / 300W |  16484MiB / 49140MiB |     32%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   4  NVIDIA RTX A6000               On  | 00000000:81:00.0 Off |                  Off |
+| 30%   50C    P2             182W / 300W |  15373MiB / 49140MiB |     45%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   5  NVIDIA RTX A6000               On  | 00000000:A1:00.0 Off |                  Off |
+| 30%   32C    P8              35W / 300W |  24399MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   6  NVIDIA RTX A6000               On  | 00000000:C1:00.0 Off |                  Off |
+| 49%   75C    P2             295W / 300W |   4933MiB / 49140MiB |     99%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   7  NVIDIA RTX A6000               On  | 00000000:E1:00.0 Off |                 2263 |
+| 30%   33C    P8              28W / 300W |      1MiB / 46068MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+                                                                                         
++---------------------------------------------------------------------------------------+
+| Processes:                                                                            |
+|  GPU   GI   CI        PID   Type   Process name                            GPU Memory |
+|        ID   ID                                                             Usage      |
+|=======================================================================================|
+|    0   N/A  N/A   1503940      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    1   N/A  N/A   1503941      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    1   N/A  N/A   1547196      C   ...conda3/envs/task-vectors/bin/python     6030MiB |
+|    2   N/A  N/A   1228200      C   VLLM::EngineCore                          16454MiB |
+|    2   N/A  N/A   1503942      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    3   N/A  N/A   1285079      C   ...naconda3/envs/merge-qwen/bin/python    15236MiB |
+|    3   N/A  N/A   1503943      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    4   N/A  N/A   1284680      C   ...naconda3/envs/merge-qwen/bin/python    15240MiB |
+|    5   N/A  N/A   1228191      C   VLLM::EngineCore                          24274MiB |
+|    6   N/A  N/A   1593785      C   ...ction_ela_20260911/.venv/bin/python     4926MiB |
++---------------------------------------------------------------------------------------+
+--- run output ---
+[C5] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=5 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6/src/evogp/__init__.py commit=7e6cd0fba2d369c4ad94a365df3714f811afbc5a etl=0.1.0 json_out=test/benchmark/new/results/C5.json
+[C5] side=new rep0/1: first 229.2ms, warm-median 20.8ms (25 calls)
+[C5] done side=new interrupted=False harness_wall_s=1.8 json_out=test/benchmark/new/results/C5.json
+--- run output end ---
+exit code: 0
+config C5  finished 2026-09-11T21:07:25+08:00
+--- nvidia-smi (after) ---
+Fri Sep 11 21:07:25 2026       
++---------------------------------------------------------------------------------------+
+| NVIDIA-SMI 535.247.01             Driver Version: 535.247.01   CUDA Version: 12.2     |
+|-----------------------------------------+----------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |         Memory-Usage | GPU-Util  Compute M. |
+|                                         |                      |               MIG M. |
+|=========================================+======================+======================|
+|   0  NVIDIA RTX A6000               On  | 00000000:01:00.0 Off |                  Off |
+| 36%   66C    P2             188W / 300W |   1119MiB / 49140MiB |     42%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   1  NVIDIA RTX A6000               On  | 00000000:25:00.0 Off |                  Off |
+| 43%   68C    P2             202W / 300W |   7152MiB / 49140MiB |     70%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   2  NVIDIA RTX A6000               On  | 00000000:41:00.0 Off |                  Off |
+| 35%   64C    P2             192W / 300W |  17702MiB / 49140MiB |     42%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   3  NVIDIA RTX A6000               On  | 00000000:61:00.0 Off |                  Off |
+| 32%   54C    P2              83W / 300W |  16484MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   4  NVIDIA RTX A6000               On  | 00000000:81:00.0 Off |                  Off |
+| 30%   54C    P2             236W / 300W |  15373MiB / 49140MiB |     74%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   5  NVIDIA RTX A6000               On  | 00000000:A1:00.0 Off |                  Off |
+| 30%   33C    P2              78W / 300W |  24399MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   6  NVIDIA RTX A6000               On  | 00000000:C1:00.0 Off |                  Off |
+| 49%   74C    P2             233W / 300W |   4933MiB / 49140MiB |     86%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   7  NVIDIA RTX A6000               On  | 00000000:E1:00.0 Off |                 2263 |
+| 30%   33C    P8              28W / 300W |      1MiB / 46068MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+                                                                                         
++---------------------------------------------------------------------------------------+
+| Processes:                                                                            |
+|  GPU   GI   CI        PID   Type   Process name                            GPU Memory |
+|        ID   ID                                                             Usage      |
+|=======================================================================================|
+|    0   N/A  N/A   1503940      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    1   N/A  N/A   1503941      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    1   N/A  N/A   1547196      C   ...conda3/envs/task-vectors/bin/python     6030MiB |
+|    2   N/A  N/A   1228200      C   VLLM::EngineCore                          16454MiB |
+|    2   N/A  N/A   1503942      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    3   N/A  N/A   1285079      C   ...naconda3/envs/merge-qwen/bin/python    15236MiB |
+|    3   N/A  N/A   1503943      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    4   N/A  N/A   1284680      C   ...naconda3/envs/merge-qwen/bin/python    15240MiB |
+|    5   N/A  N/A   1228191      C   VLLM::EngineCore                          24274MiB |
+|    6   N/A  N/A   1593785      C   ...ction_ela_20260911/.venv/bin/python     4926MiB |
++---------------------------------------------------------------------------------------+
+json: test/benchmark/new/results/C5.json

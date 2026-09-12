@@ -1,0 +1,143 @@
+
+=== [2026-09-11 20:59:53] materialize legacy checkout at /tmp/evogp_legacy_bench (ref b613503) ===
+SKIP materialize: checkout already present (/tmp/evogp_legacy_bench/src/evogp/cuda/forward.cu)
+
+=== [2026-09-11 20:59:53] environment ===
+REPO_ROOT   = /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A5
+LEGACY_REF  = b613503 (b613503c3107db23222f69bfaad2a329639f28fe)
+BENCH_DIR   = /tmp/evogp_legacy_bench
+PY          = /mnt/local-ssd/bchuang/evox/.venv/bin/python (Python 3.11.2)
+CUDA_HOME   = /opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux
+NVCC        = /opt/miniforge3/envs/wenet_tiktoken/bin/nvcc — Build cuda_12.6.r12.6/compiler.34431801_0
+ccbin       = /usr/bin/g++ -> 12
+CPATH       = /tmp/evogp_t1a263/pydev/usr/include/python3.11:/tmp/evogp_t1a263/pydev/usr/include:/tmp/evogp_t1a263/pydev/usr/include/x86_64-linux-gnu
+TORCH_CUDA_ARCH_LIST = 8.6   MAX_JOBS(requested) = 8
+LOCK        = /tmp/gpbench_critical.lock (waits up to 7200s per phase)
+
+=== [2026-09-11 20:59:53] build evogp.evogp_cuda (this is the only heavy step besides the smoke) ===
+compiler output -> /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A5/test/benchmark/legacy/results/logs/build_20260911_2059.log
+running build_ext
+/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/utils/cpp_extension.py:448: UserWarning: The detected CUDA version (12.6) has a minor version mismatch with the version that was used to compile PyTorch (12.4). Most likely this shouldn't be a problem.
+  warnings.warn(CUDA_MISMATCH_WARN.format(cuda_str_version, torch.version.cuda))
+/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/utils/cpp_extension.py:458: UserWarning: There are no x86_64-linux-gnu-g++ version bounds defined for CUDA version 12.6
+  warnings.warn(f'There are no {compiler_name} version bounds defined for CUDA version {cuda_str_version}')
+building 'evogp.evogp_cuda' extension
+Emitting ninja build file /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/build.ninja...
+Compiling objects...
+Using envvar MAX_JOBS (128) as the number of workers...
+[1/4] /opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux/bin/nvcc --generate-dependencies-with-compile --dependency-output /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/mutation.o.d -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/torch/csrc/api/include -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/TH -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/THC -I/opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux/include -I/mnt/local-ssd/bchuang/evox/.venv/include -I/usr/include/python3.11 -c -c /tmp/evogp_legacy_bench/src/evogp/cuda/mutation.cu -o /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/mutation.o -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 --expt-relaxed-constexpr --ptxas-options=-v -Xptxas=-O3 -lineinfo -lcudart -use_fast_math -maxrregcount=32 -DTORCH_API_INCLUDE_EXTENSION_H '-DPYBIND11_COMPILER_TYPE="_gcc"' '-DPYBIND11_STDLIB="_libstdcpp"' '-DPYBIND11_BUILD_ABI="_cxxabi1011"' -DTORCH_EXTENSION_NAME=evogp_cuda -D_GLIBCXX_USE_CXX11_ABI=0 -gencode=arch=compute_86,code=sm_86 -std=c++17
+ptxas info    : Overriding maximum register limit 256 for '_Z21treeGPCrossoverKerneliiiPKfPKsS2_PKiS4_S4_S4_PfPsS6_' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z20treeGPMutationKernelPKfPKsS2_PKiS0_S2_S2_PfPsS6_ii' with  32 of maxrregcount option
+ptxas info    : 7 bytes gmem, 56 bytes cmem[4]
+ptxas info    : Compiling entry function '_Z21treeGPCrossoverKerneliiiPKfPKsS2_PKiS4_S4_S4_PfPsS6_' for 'sm_86'
+ptxas info    : Function properties for _Z21treeGPCrossoverKerneliiiPKfPKsS2_PKiS4_S4_S4_PfPsS6_
+    8208 bytes stack frame, 8 bytes spill stores, 16 bytes spill loads
+ptxas info    : Used 32 registers, used 0 barriers, 8208 bytes cumulative stack size, 448 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z20treeGPMutationKernelPKfPKsS2_PKiS0_S2_S2_PfPsS6_ii' for 'sm_86'
+ptxas info    : Function properties for _Z20treeGPMutationKernelPKfPKsS2_PKiS0_S2_S2_PfPsS6_ii
+    8192 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 0 barriers, 8192 bytes cumulative stack size, 440 bytes cmem[0]
+[2/4] /opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux/bin/nvcc --generate-dependencies-with-compile --dependency-output /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/generate.o.d -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/torch/csrc/api/include -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/TH -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/THC -I/opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux/include -I/mnt/local-ssd/bchuang/evox/.venv/include -I/usr/include/python3.11 -c -c /tmp/evogp_legacy_bench/src/evogp/cuda/generate.cu -o /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/generate.o -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 --expt-relaxed-constexpr --ptxas-options=-v -Xptxas=-O3 -lineinfo -lcudart -use_fast_math -maxrregcount=32 -DTORCH_API_INCLUDE_EXTENSION_H '-DPYBIND11_COMPILER_TYPE="_gcc"' '-DPYBIND11_STDLIB="_libstdcpp"' '-DPYBIND11_BUILD_ABI="_cxxabi1011"' -DTORCH_EXTENSION_NAME=evogp_cuda -D_GLIBCXX_USE_CXX11_ABI=0 -gencode=arch=compute_86,code=sm_86 -std=c++17
+ptxas info    : Overriding maximum register limit 256 for '_Z14treeGPGenerateILb0EEvjjjjjffPfPsS1_PKjPKfS5_S5_' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z14treeGPGenerateILb1EEvjjjjjffPfPsS1_PKjPKfS5_S5_' with  32 of maxrregcount option
+ptxas info    : 7 bytes gmem, 56 bytes cmem[4]
+ptxas info    : Compiling entry function '_Z14treeGPGenerateILb0EEvjjjjjffPfPsS1_PKjPKfS5_S5_' for 'sm_86'
+ptxas info    : Function properties for _Z14treeGPGenerateILb0EEvjjjjjffPfPsS1_PKjPKfS5_S5_
+    12400 bytes stack frame, 56 bytes spill stores, 56 bytes spill loads
+ptxas info    : Used 32 registers, used 0 barriers, 12400 bytes cumulative stack size, 440 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z14treeGPGenerateILb1EEvjjjjjffPfPsS1_PKjPKfS5_S5_' for 'sm_86'
+ptxas info    : Function properties for _Z14treeGPGenerateILb1EEvjjjjjffPfPsS1_PKjPKfS5_S5_
+    12400 bytes stack frame, 64 bytes spill stores, 64 bytes spill loads
+ptxas info    : Used 32 registers, used 0 barriers, 12400 bytes cumulative stack size, 440 bytes cmem[0]
+[3/4] /opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux/bin/nvcc --generate-dependencies-with-compile --dependency-output /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/forward.o.d -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/torch/csrc/api/include -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/TH -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/THC -I/opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux/include -I/mnt/local-ssd/bchuang/evox/.venv/include -I/usr/include/python3.11 -c -c /tmp/evogp_legacy_bench/src/evogp/cuda/forward.cu -o /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/forward.o -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 --expt-relaxed-constexpr --ptxas-options=-v -Xptxas=-O3 -lineinfo -lcudart -use_fast_math -maxrregcount=32 -DTORCH_API_INCLUDE_EXTENSION_H '-DPYBIND11_COMPILER_TYPE="_gcc"' '-DPYBIND11_STDLIB="_libstdcpp"' '-DPYBIND11_BUILD_ABI="_cxxabi1011"' -DTORCH_EXTENSION_NAME=evogp_cuda -D_GLIBCXX_USE_CXX11_ABI=0 -gencode=arch=compute_86,code=sm_86 -std=c++17
+ptxas info    : Overriding maximum register limit 256 for '_Z43constant_vars_treeGPRegressionFitnessKernelILb0ELb0EEvPKfPKsS3_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z43constant_vars_treeGPRegressionFitnessKernelILb1ELb0EEvPKfPKsS3_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z43constant_vars_treeGPRegressionFitnessKernelILb1ELb1EEvPKfPKsS3_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z43constant_vars_treeGPRegressionFitnessKernelILb0ELb1EEvPKfPKsS3_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z43constant_tree_treeGPRegressionFitnessKernelILb0ELb0EEviPKfS1_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z43constant_tree_treeGPRegressionFitnessKernelILb0ELb1EEviPKfS1_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z43constant_tree_treeGPRegressionFitnessKernelILb1ELb0EEviPKfS1_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z43constant_tree_treeGPRegressionFitnessKernelILb1ELb1EEviPKfS1_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z29treeGPRegressionFitnessKernelILb0ELb0EEvPKfPKsS3_S1_S1_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z29treeGPRegressionFitnessKernelILb0ELb1EEvPKfPKsS3_S1_S1_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z29treeGPRegressionFitnessKernelILb1ELb0EEvPKfPKsS3_S1_S1_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z29treeGPRegressionFitnessKernelILb1ELb1EEvPKfPKsS3_S1_S1_Pfjjjjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z25averageFitnessValueKernelPfjj' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z16treeGPEvalKernelILb1EEvjjjjPKfPKsS3_S1_Pf' with  32 of maxrregcount option
+ptxas info    : Overriding maximum register limit 256 for '_Z16treeGPEvalKernelILb0EEvjjjjPKfPKsS3_S1_Pf' with  32 of maxrregcount option
+ptxas info    : 4974 bytes gmem, 14340 bytes cmem[3], 312 bytes cmem[4]
+ptxas info    : Compiling entry function '_Z43constant_vars_treeGPRegressionFitnessKernelILb0ELb0EEvPKfPKsS3_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z43constant_vars_treeGPRegressionFitnessKernelILb0ELb0EEvPKfPKsS3_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 0 barriers, 8208 bytes cumulative stack size, 404 bytes cmem[0], 8 bytes cmem[2]
+ptxas info    : Compiling entry function '_Z43constant_vars_treeGPRegressionFitnessKernelILb1ELb0EEvPKfPKsS3_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z43constant_vars_treeGPRegressionFitnessKernelILb1ELb0EEvPKfPKsS3_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 0 barriers, 8208 bytes cumulative stack size, 404 bytes cmem[0], 16 bytes cmem[2]
+ptxas info    : Compiling entry function '_Z43constant_vars_treeGPRegressionFitnessKernelILb1ELb1EEvPKfPKsS3_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z43constant_vars_treeGPRegressionFitnessKernelILb1ELb1EEvPKfPKsS3_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 0 barriers, 8208 bytes cumulative stack size, 404 bytes cmem[0], 16 bytes cmem[2]
+ptxas info    : Compiling entry function '_Z43constant_vars_treeGPRegressionFitnessKernelILb0ELb1EEvPKfPKsS3_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z43constant_vars_treeGPRegressionFitnessKernelILb0ELb1EEvPKfPKsS3_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 0 barriers, 8208 bytes cumulative stack size, 404 bytes cmem[0], 8 bytes cmem[2]
+ptxas info    : Compiling entry function '_Z43constant_tree_treeGPRegressionFitnessKernelILb0ELb0EEviPKfS1_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z43constant_tree_treeGPRegressionFitnessKernelILb0ELb0EEviPKfS1_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 31 registers, used 1 barriers, 8208 bytes cumulative stack size, 4096 bytes smem, 404 bytes cmem[0], 8 bytes cmem[2]
+ptxas info    : Compiling entry function '_Z43constant_tree_treeGPRegressionFitnessKernelILb0ELb1EEviPKfS1_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z43constant_tree_treeGPRegressionFitnessKernelILb0ELb1EEviPKfS1_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 31 registers, used 1 barriers, 8208 bytes cumulative stack size, 4096 bytes smem, 404 bytes cmem[0], 8 bytes cmem[2]
+ptxas info    : Compiling entry function '_Z43constant_tree_treeGPRegressionFitnessKernelILb1ELb0EEviPKfS1_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z43constant_tree_treeGPRegressionFitnessKernelILb1ELb0EEviPKfS1_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 31 registers, used 1 barriers, 8208 bytes cumulative stack size, 4096 bytes smem, 404 bytes cmem[0], 8 bytes cmem[2]
+ptxas info    : Compiling entry function '_Z43constant_tree_treeGPRegressionFitnessKernelILb1ELb1EEviPKfS1_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z43constant_tree_treeGPRegressionFitnessKernelILb1ELb1EEviPKfS1_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 31 registers, used 1 barriers, 8208 bytes cumulative stack size, 4096 bytes smem, 404 bytes cmem[0], 8 bytes cmem[2]
+ptxas info    : Compiling entry function '_Z29treeGPRegressionFitnessKernelILb0ELb0EEvPKfPKsS3_S1_S1_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z29treeGPRegressionFitnessKernelILb0ELb0EEvPKfPKsS3_S1_S1_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 1 barriers, 8208 bytes cumulative stack size, 4096 bytes smem, 420 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z29treeGPRegressionFitnessKernelILb0ELb1EEvPKfPKsS3_S1_S1_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z29treeGPRegressionFitnessKernelILb0ELb1EEvPKfPKsS3_S1_S1_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 1 barriers, 8208 bytes cumulative stack size, 4096 bytes smem, 420 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z29treeGPRegressionFitnessKernelILb1ELb0EEvPKfPKsS3_S1_S1_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z29treeGPRegressionFitnessKernelILb1ELb0EEvPKfPKsS3_S1_S1_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 1 barriers, 8208 bytes cumulative stack size, 4096 bytes smem, 420 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z29treeGPRegressionFitnessKernelILb1ELb1EEvPKfPKsS3_S1_S1_Pfjjjjj' for 'sm_86'
+ptxas info    : Function properties for _Z29treeGPRegressionFitnessKernelILb1ELb1EEvPKfPKsS3_S1_S1_Pfjjjjj
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 1 barriers, 8208 bytes cumulative stack size, 4096 bytes smem, 420 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z25averageFitnessValueKernelPfjj' for 'sm_86'
+ptxas info    : Function properties for _Z25averageFitnessValueKernelPfjj
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 8 registers, used 0 barriers, 368 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z16treeGPEvalKernelILb1EEvjjjjPKfPKsS3_S1_Pf' for 'sm_86'
+ptxas info    : Function properties for _Z16treeGPEvalKernelILb1EEvjjjjPKfPKsS3_S1_Pf
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 0 barriers, 8208 bytes cumulative stack size, 408 bytes cmem[0]
+ptxas info    : Compiling entry function '_Z16treeGPEvalKernelILb0EEvjjjjPKfPKsS3_S1_Pf' for 'sm_86'
+ptxas info    : Function properties for _Z16treeGPEvalKernelILb0EEvjjjjPKfPKsS3_S1_Pf
+    8208 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 32 registers, used 0 barriers, 8208 bytes cumulative stack size, 408 bytes cmem[0]
+[4/4] /opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux/bin/nvcc --generate-dependencies-with-compile --dependency-output /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/torch_wrapper.o.d -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/torch/csrc/api/include -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/TH -I/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/include/THC -I/opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux/include -I/mnt/local-ssd/bchuang/evox/.venv/include -I/usr/include/python3.11 -c -c /tmp/evogp_legacy_bench/src/evogp/cuda/torch_wrapper.cu -o /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/torch_wrapper.o -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr --compiler-options ''"'"'-fPIC'"'"'' -O3 --expt-relaxed-constexpr --ptxas-options=-v -Xptxas=-O3 -lineinfo -lcudart -use_fast_math -maxrregcount=32 -DTORCH_API_INCLUDE_EXTENSION_H '-DPYBIND11_COMPILER_TYPE="_gcc"' '-DPYBIND11_STDLIB="_libstdcpp"' '-DPYBIND11_BUILD_ABI="_cxxabi1011"' -DTORCH_EXTENSION_NAME=evogp_cuda -D_GLIBCXX_USE_CXX11_ABI=0 -gencode=arch=compute_86,code=sm_86 -std=c++17
+ptxas info    : Overriding maximum register limit 256 for '__cuda_dummy_entry__' with  32 of maxrregcount option
+ptxas info    : 10 bytes gmem, 80 bytes cmem[4]
+x86_64-linux-gnu-g++ -Wsign-compare -DNDEBUG -g -fwrapv -O2 -Wall -g -fstack-protector-strong -Wformat -Werror=format-security -g -fwrapv -O2 -shared -Wl,-O1 -Wl,-Bsymbolic-functions /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/forward.o /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/generate.o /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/mutation.o /tmp/evogp_legacy_bench/build/temp.linux-x86_64-cpython-311/src/evogp/cuda/torch_wrapper.o -L/mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/lib -L/opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux/lib -L/usr/lib/x86_64-linux-gnu -lc10 -ltorch -ltorch_cpu -ltorch_python -lcudart -lc10_cuda -ltorch_cuda -o build/lib.linux-x86_64-cpython-311/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so
+copying build/lib.linux-x86_64-cpython-311/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so -> src/evogp
+built /tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so
+-rwxr-xr-x 1 bchuang users 1112488 Sep 11 21:00 /tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so
+
+=== [2026-09-11 21:00:58] smoke import (one lock acquisition) ===
+ok
+
+=== [2026-09-11 21:01:00] DONE ===
+legacy checkout : /tmp/evogp_legacy_bench  (materialized via 'git archive b613503' — not a git repo)
+extension       : /tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so
+smoke           : import evogp.tree + evogp.evogp_cuda -> ok

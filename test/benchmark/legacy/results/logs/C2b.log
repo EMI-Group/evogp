@@ -1,0 +1,30 @@
+=== run_matrix.py /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A7/test/benchmark/legacy/run_matrix.py
+=== side=old commit=b613503 evogp_file=/tmp/evogp_legacy_bench/src/evogp/__init__.py python=3.11.2
+=== gpu=NVIDIA RTX A6000 (CUDA_VISIBLE_DEVICES=4)
+=== env={"ETL_DISABLE_LOCATIONS": null, "EVOGP_ETL_BACKEND": null, "CUDA_VISIBLE_DEVICES": "4"}
+=== out=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A7/test/benchmark/legacy/results fixture=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A7/test/goldens/forest_random.npz
+=== plan=['C2b']
+[C2b] START C2b workload=W1 pop=1000 gens=20 tree_len=128 seed=0
+[C2b] gen 0: 520.301 ms best=-0.2511
+[C2b] gen 1: 2.052 ms best=-0.2511
+[C2b] gen 2: 1.694 ms best=-0.2257
+[C2b] gen 3: 1.609 ms best=-0.2257
+[C2b] gen 4: 1.903 ms best=-0.2257
+[C2b] gen 5: 1.593 ms best=-0.2257
+[C2b] gen 6: 1.791 ms best=-0.2257
+[C2b] gen 7: 1.627 ms best=-0.2257
+[C2b] gen 8: 1.955 ms best=-0.2257
+[C2b] gen 9: 1.580 ms best=-0.2257
+[C2b] gen 10: 1.564 ms best=-0.2257
+[C2b] gen 11: 1.582 ms best=-0.2257
+[C2b] gen 12: 1.570 ms best=-0.2257
+[C2b] gen 13: 1.576 ms best=-0.2257
+[C2b] gen 14: 1.582 ms best=-0.2257
+[C2b] gen 15: 1.585 ms best=-0.2257
+[C2b] gen 16: 1.663 ms best=-0.2257
+[C2b] gen 17: 1.607 ms best=-0.2257
+[C2b] gen 18: 1.607 ms best=-0.2257
+[C2b] gen 19: 1.606 ms best=-0.2257
+[C2b] DONE gens=20 wall=1.355s best=-0.225680 cold_first_gen_ms=520.301
+[C2b] wrote /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A7/test/benchmark/legacy/results/C2b.json
+=== ALL DONE (1 run(s): C2b)

@@ -1,0 +1,72 @@
+=== diagnostic_details_overhead.py on NVIDIA RTX A6000 (CUDA_VISIBLE_DEVICES=4)
+=== side=old evogp_file=/tmp/evogp_legacy_bench/src/evogp/__init__.py env={'ETL_DISABLE_LOCATIONS': None, 'EVOGP_ETL_BACKEND': None, 'CUDA_VISIBLE_DEVICES': '4'}
+=== workload = C2/C2b W1 (pop=1000 gens=100 tree_len=128 seed=0); phases of 20 generations after 3 warm-up generations
+=== A details OFF: median 3.931 ms  min 1.583  max 7.304  (n=20)
+Generation: 0, Cost time: 13.04ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -495610.6562, mean: -1080.5641, std: 16766.4043
+
+Generation: 0, Cost time: 11.98ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -6626001.5000, mean: -9091.2930, std: 213622.8438
+
+Generation: 0, Cost time: 23.08ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -1340000.6250, mean: -1978.8663, std: 43097.8008
+
+Generation: 0, Cost time: 24.30ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -6626001.5000, mean: -7698.3584, std: 211000.1250
+
+Generation: 0, Cost time: 24.49ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -3133321.2500, mean: -4137.5605, std: 100390.1016
+
+Generation: 0, Cost time: 23.36ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -2996590.5000, mean: -3851.4395, std: 95412.5547
+
+Generation: 0, Cost time: 22.83ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -71137.1016, mean: -466.9489, std: 3897.9421
+
+Generation: 0, Cost time: 9.20ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -175447.1562, mean: -592.7495, std: 6713.3857
+
+Generation: 0, Cost time: 11.83ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -2827833.5000, mean: -4114.3403, std: 91663.6172
+
+Generation: 0, Cost time: 12.02ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -528433.7500, mean: -2389.0940, std: 25828.9629
+
+Generation: 0, Cost time: 11.97ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -71256600.0000, mean: -74293.1641, std: 2256800.2500
+
+Generation: 0, Cost time: 12.13ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -4065501.0000, mean: -11814.6318, std: 161649.1406
+
+Generation: 0, Cost time: 16.32ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -2227137.7500, mean: -5260.8936, std: 74056.4531
+
+Generation: 0, Cost time: 16.72ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -64572744.0000, mean: -125598.7422, std: 2357044.5000
+
+Generation: 0, Cost time: 19.94ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -89574448.0000, mean: -124190.1016, std: 2879234.0000
+
+Generation: 0, Cost time: 23.97ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -65874456.0000, mean: -90072.6797, std: 2108425.7500
+
+Generation: 0, Cost time: 23.47ms
+ 	fitness: valid cnt: 992, max: -0.2257, min: -51482960.0000, mean: -80705.9062, std: 1720906.8750
+
+Generation: 0, Cost time: 21.00ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -8453322.0000, mean: -19276.1699, std: 297973.8438
+
+Generation: 0, Cost time: 25.58ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -59198752.0000, mean: -68053.9453, std: 1880340.5000
+
+Generation: 0, Cost time: 25.95ms
+ 	fitness: valid cnt: 992, max: -0.2257, min: -73531336.0000, mean: -145621.0938, std: 2732983.2500
+
+=== B details ON : median 20.534 ms  min 9.269  max 26.018  (n=20)
+=== C details OFF: median 7.815 ms  min 4.618  max 23.153  (n=20)
+Generation: 0, Cost time: 7.45ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -46993536.0000, mean: -96069.4297, std: 1793055.7500
+
+=== micro (n=1000 valid=996): mask 0.058 ms | builtin max/min 7.373 ms | mean/std 0.031 ms | whole show_details(incl. print) 7.501 ms
+=== SUMMARY: details OFF 5.873 ms/gen (phase A/C drift 3.884 ms), details ON 20.534 ms/gen -> show_details overhead 14.661 ms/gen (2.5x)
+=== SUMMARY: BUILD_NOTES sr_test smoke (details ON) median 10.90 ms / min 9.00 ms vs this run's details-ON median 20.534 ms (difference -9.634 ms = shared-host conditions, not workload)

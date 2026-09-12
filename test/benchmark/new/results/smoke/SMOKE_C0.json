@@ -1,0 +1,72 @@
+{
+  "tag": "SMOKE_C0",
+  "side": "new",
+  "task": "sr",
+  "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6/src/evogp/__init__.py",
+  "evogp_commit": "7e6cd0fba2d369c4ad94a365df3714f811afbc5a",
+  "etl_version": "0.1.0",
+  "problem": "W1 synthetic SR: SymbolicRegression(func=x0**4/(x0**4+1)+x1**4/(x1**4+1), num_inputs=2, num_data=1000, lower_bounds=-5, upper_bounds=5); GenerateDescriptor(max_tree_len=32, input_len=2, output_len=1, const_prob=0.5, out_prob=0.5, using_funcs=['+','-','*','/'], layer_leaf_prob=0.2, const_range=(-5,5), sample_cnt=8, max_layer_cnt=5)",
+  "config": {
+    "pop": 20,
+    "gens": 2,
+    "tree_len": 32,
+    "seed": 0,
+    "reps": 1
+  },
+  "env": {
+    "ETL_DISABLE_LOCATIONS": "0",
+    "CUDA_VISIBLE_DEVICES": "4"
+  },
+  "gpu": {
+    "cuda_visible_devices": "4",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4"
+  },
+  "wall_s": 1.7219064235687256,
+  "generation_loop_s": 0.8694626912474632,
+  "per_gen_ms": [
+    839.9281427264214,
+    29.53454852104187
+  ],
+  "per_gen_best_fitness": [
+    -0.2510969936847687,
+    -0.2510969936847687
+  ],
+  "cold_first_gen_ms": 839.9281427264214,
+  "best_fitness_final": -0.2510969936847687,
+  "partial": false,
+  "projection": null,
+  "complete": true,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 0.8495438322424889,
+      "wall_s": 1.7219064235687256,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "per_gen_ms": [
+        839.9281427264214,
+        29.53454852104187
+      ],
+      "per_gen_best_fitness": [
+        -0.2510969936847687,
+        -0.2510969936847687
+      ],
+      "generation_loop_s": 0.8694626912474632,
+      "cold_first_gen_ms": 839.9281427264214,
+      "best_fitness_final": -0.2510969936847687
+    }
+  ],
+  "notes": "",
+  "started_at": "2026-09-11T21:05:50+08:00",
+  "finished_at": "2026-09-11T21:05:52+08:00",
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6/test/benchmark/bench_gp.py",
+  "construct_s": 0.8495438322424889,
+  "harness_wall_s": 2.4324482567608356
+}

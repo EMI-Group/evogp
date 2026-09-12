@@ -1,0 +1,20 @@
+=== cpu_micro_show_details.log — adversarial-clean lower bound for StandardPipeline.show_details
+=== taken: 2026-09-11 21:08:19 HKT   (no GPU, no lock; torch-only, no evogp import)
+=== command: /mnt/local-ssd/bchuang/evox/.venv/bin/python (inline heredoc, body below)
+micro rep 0: mask 0.466 ms, builtin max/min 7.834 ms, mean/std 0.196 ms
+micro rep 1: mask 0.048 ms, builtin max/min 7.398 ms, mean/std 0.029 ms
+micro rep 2: mask 0.042 ms, builtin max/min 7.423 ms, mean/std 0.027 ms
+micro rep 3: mask 0.041 ms, builtin max/min 7.770 ms, mean/std 0.029 ms
+micro rep 4: mask 0.043 ms, builtin max/min 7.405 ms, mean/std 0.028 ms
+micro rep 5: mask 0.041 ms, builtin max/min 7.446 ms, mean/std 0.029 ms
+micro rep 6: mask 0.042 ms, builtin max/min 7.400 ms, mean/std 0.027 ms
+micro rep 7: mask 0.042 ms, builtin max/min 7.402 ms, mean/std 0.028 ms
+micro rep 8: mask 0.041 ms, builtin max/min 7.459 ms, mean/std 0.038 ms
+micro rep 9: mask 0.052 ms, builtin max/min 7.397 ms, mean/std 0.038 ms
+micro rep 10: mask 0.054 ms, builtin max/min 7.407 ms, mean/std 0.033 ms
+SUMMARY mask             min 0.041 median 0.042 max 0.054 ms (n=10, reps 1..10)
+SUMMARY builtin max/min  min 7.397 median 7.406 max 7.770 ms (n=10, reps 1..10)
+SUMMARY mean/std         min 0.027 median 0.029 max 0.038 ms (n=10, reps 1..10)
+SUMMARY total(+print)    min 7.474 median 7.495 max 7.844 ms (n=10, reps 1..10)
+SUMMARY n=1000 CPU float32 tensor; builtin max()/min() iterate element-by-element in Python
+SUMMARY torch 2.6.0+cu124 | no GPU used, no evogp import, no flock needed

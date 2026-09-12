@@ -1,0 +1,41 @@
+=== check_results.log — post-run validation of every legacy-side record
+=== taken: 2026-09-11 21:09:47 HKT  |  command: /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/legacy/check_results.py <records> --gpu 4 [--golden test/goldens/sr_fitness.npz]
+
+### 1) all 6 configs (8 records)
+checking test/benchmark/legacy/results/C1_r1.json
+  C1_r1: gens=100 wall=1.516s gen0=532.104 ms warm median/min/max=1.633/1.499/2.640 ms best_final=-0.086839
+checking test/benchmark/legacy/results/C1_r2.json
+  C1_r2: gens=100 wall=0.172s gen0=1.607 ms warm median/min/max=1.617/1.480/2.828 ms best_final=-0.086839
+checking test/benchmark/legacy/results/C2b.json
+  C2b: gens=20 wall=1.355s gen0=520.301 ms warm median/min/max=1.607/1.564/2.052 ms best_final=-0.225680
+checking test/benchmark/legacy/results/C2.json
+  C2: gens=100 wall=1.713s gen0=609.124 ms warm median/min/max=3.451/1.565/3.880 ms best_final=-0.225680
+checking test/benchmark/legacy/results/C4_r1.json
+  C4_r1: gens=100 wall=0.886s gen0=519.475 ms warm median/min/max=1.756/1.701/9.386 ms best_final=-0.250000
+checking test/benchmark/legacy/results/C4_r2.json
+  C4_r2: gens=100 wall=0.184s gen0=1.837 ms warm median/min/max=1.769/1.712/2.051 ms best_final=-0.250000
+checking test/benchmark/legacy/results/C5b.json
+  C5b: evals=10 wall=0.190s first_call_ms=20.878 warm median/min/max=0.602/0.593/0.900 ms nan_count=66 fitness_mean=-59.737519580878846
+checking test/benchmark/legacy/results/C5.json
+  C5: evals=25 wall=0.168s first_call_ms=21.766 warm median/min/max=0.604/0.595/0.810 ms nan_count=3 fitness_mean=-18.048504493275626
+
+PASS — 8 record(s) checked, all SPEC consistency checks held
+exit=0
+
+### 2) C5 golden cross-check against the frozen pre-ETL capture
+checking test/benchmark/legacy/results/C5.json
+  C5: evals=25 wall=0.168s first_call_ms=21.766 warm median/min/max=0.604/0.595/0.810 ms nan_count=3 fitness_mean=-18.048504493275626
+  C5: GOLDEN nan_count PASS — 3 vs golden 3
+  C5: GOLDEN fitness_mean PASS — -18.048504493275626 vs golden -nanmean(finite)=-18.048504493275626 (rtol=atol=1e-4, n=64)
+
+PASS — 1 record(s) checked, all SPEC consistency checks held
+exit=0
+
+### 3) C4 re-run records (results/c4_rerun/)
+checking test/benchmark/legacy/results/c4_rerun/C4_r1.json
+  C4_r1: gens=100 wall=1.283s gen0=530.315 ms warm median/min/max=3.910/1.699/21.201 ms best_final=-0.250000
+checking test/benchmark/legacy/results/c4_rerun/C4_r2.json
+  C4_r2: gens=100 wall=0.776s gen0=3.309 ms warm median/min/max=5.353/1.697/20.850 ms best_final=-0.250000
+
+PASS — 2 record(s) checked, all SPEC consistency checks held
+exit=0

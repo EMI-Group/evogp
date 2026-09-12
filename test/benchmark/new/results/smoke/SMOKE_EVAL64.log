@@ -1,0 +1,3 @@
+[SMOKE_EVAL64] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=4 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=4 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6/src/evogp/__init__.py commit=7e6cd0fba2d369c4ad94a365df3714f811afbc5a etl=0.1.0 json_out=test/benchmark/new/results/smoke/SMOKE_EVAL64.json
+[SMOKE_EVAL64] side=new rep0/1: first 225.2ms, warm-median 21.9ms (4 calls)
+[SMOKE_EVAL64] done side=new interrupted=False harness_wall_s=0.9 json_out=test/benchmark/new/results/smoke/SMOKE_EVAL64.json

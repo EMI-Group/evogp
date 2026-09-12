@@ -1,0 +1,80 @@
+{
+  "tag": "C5b",
+  "side": "new",
+  "task": "evalfresh",
+  "eval_kind": "fresh",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A8/test/goldens/forest_random.npz",
+  "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A8/src/evogp/__init__.py",
+  "evogp_commit": "9159e10bd5b5dc690c24562350f98d5abe7a43a3",
+  "etl_version": "0.1.0",
+  "problem": "W3' fresh population: Forest.random_generate(pop_size=1000, descriptor=W1-style GenerateDescriptor(max_tree_len=64)) + SymbolicRegression(datapoints=x[(64, 2)], labels=labels[(64, 1)]) from test/goldens/forest_random.npz",
+  "config": {
+    "pop": 1000,
+    "tree_len": 64,
+    "seed": 0,
+    "reps": 1,
+    "eval_reps": 10
+  },
+  "env": {
+    "ETL_DISABLE_LOCATIONS": "1",
+    "CUDA_VISIBLE_DEVICES": "1"
+  },
+  "gpu": {
+    "cuda_visible_devices": "1",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4"
+  },
+  "per_call_ms": [
+    5622.19475209713,
+    505.20598143339157,
+    502.42357701063156,
+    503.6983825266361,
+    531.3026458024979,
+    511.29335165023804,
+    510.8192563056946,
+    511.13974303007126,
+    522.4504545331001,
+    516.234926879406
+  ],
+  "first_call_ms": 5622.19475209713,
+  "median_warm_ms": 511.13974303007126,
+  "wall_s": 10.477037776261568,
+  "partial": false,
+  "projection": null,
+  "complete": true,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 0.22763748839497566,
+      "wall_s": 10.477037776261568,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "per_call_ms": [
+        5622.19475209713,
+        505.20598143339157,
+        502.42357701063156,
+        503.6983825266361,
+        531.3026458024979,
+        511.29335165023804,
+        510.8192563056946,
+        511.13974303007126,
+        522.4504545331001,
+        516.234926879406
+      ],
+      "first_call_ms": 5622.19475209713,
+      "median_warm_ms": 511.13974303007126
+    }
+  ],
+  "notes": "",
+  "started_at": "2026-09-11T21:49:21+08:00",
+  "finished_at": "2026-09-11T21:49:33+08:00",
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A8",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A8/test/benchmark/bench_gp.py",
+  "construct_s": 0.22763748839497566,
+  "harness_wall_s": 11.867891047149897
+}

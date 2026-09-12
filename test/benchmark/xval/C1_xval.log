@@ -1,0 +1,19 @@
+=== xval C1 (OLD side, unified harness bench_gp.py) ===
+date: 2026-09-11T22:11:00+08:00
+command: flock -w 7200 /tmp/gpbench_critical.lock bash -c "CUDA_VISIBLE_DEVICES=0 PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils timeout 900 /mnt/local-ssd/bchuang/evox/.venv/bin/python -u test/benchmark/bench_gp.py --task sr --pop 200 --gens 100 --tree-len 64 --seed 0 --tag C1_xval --json-out test/benchmark/xval/C1_xval.json"
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A12
+venv python: 3.11.2
+--- nvidia-smi snapshot at start (GPU pick: index 0 = lowest util 0%, lowest mem 1119 MiB among 0-6; index 7 excluded, ECC fault) ---
+index, name, utilization.gpu [%], memory.used [MiB], memory.total [MiB], temperature.gpu
+0, NVIDIA RTX A6000, 0 %, 1119 MiB, 49140 MiB, 51
+1, NVIDIA RTX A6000, 0 %, 1119 MiB, 49140 MiB, 49
+2, NVIDIA RTX A6000, 12 %, 17702 MiB, 49140 MiB, 49
+3, NVIDIA RTX A6000, 83 %, 16488 MiB, 49140 MiB, 65
+4, NVIDIA RTX A6000, 83 %, 15373 MiB, 49140 MiB, 68
+5, NVIDIA RTX A6000, 0 %, 24399 MiB, 49140 MiB, 34
+6, NVIDIA RTX A6000, 92 %, 4933 MiB, 49140 MiB, 79
+7, NVIDIA RTX A6000, 0 %, 1 MiB, 46068 MiB, 33
+--- run output ---
+[C1_xval] harness=bench_gp.py side=old task=sr pop=200 gens=100 tree_len=64 seed=0 reps=1 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=0 gpu=NVIDIA RTX A6000 evogp=/tmp/evogp_legacy_bench/src/evogp/__init__.py commit=f66fc00cff44c5c3be5d74c5f8c50a4963e68d9e etl=0.1.0 json_out=test/benchmark/xval/C1_xval.json
+[C1_xval] side=old rep0/1: 100 gens in 1.5s, per-gen median 1.7ms, first-gen 559.2ms, best_fitness_final=-0.0868
+[C1_xval] done side=old interrupted=False harness_wall_s=2.9 json_out=test/benchmark/xval/C1_xval.json

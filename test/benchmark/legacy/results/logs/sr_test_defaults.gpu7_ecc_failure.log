@@ -1,0 +1,51 @@
+############################################################
+# legacy sr_test — shipped defaults (W1 / SPEC.md C2)
+#   pop 1000, max_tree_len 128, 100 generations, seed 0
+#   checkout : /tmp/evogp_legacy_bench  (git archive b613503, not a git repo)
+#   engine   : evogp.evogp_cuda (hand-written CUDA kernels)
+#   host     : bmi-9   Linux 6.1.0-41-amd64
+#   interpreter: /mnt/local-ssd/bchuang/evox/.venv/bin/python (Python 3.11.2)  torch 2.6.0+cu124
+#   runner   : flock -w 7200 /tmp/gpbench_critical.lock bash -c '<inner cmd>'
+#   inner    : timeout 1500 $PY -u -m evogp.sr_test   (under flock; -u = unbuffered)
+############################################################
+### start 2026-09-11 21:01:13 HKT
+### lock state at start: FREE
+### nvidia-smi BEFORE (GPU 7 / cuda:0 of the visible set):
+0, 0 %, 1119 MiB, 49140 MiB, 64
+1, 96 %, 2776 MiB, 49140 MiB, 68
+2, 29 %, 17702 MiB, 49140 MiB, 64
+3, 33 %, 16488 MiB, 49140 MiB, 54
+4, 0 %, 15393 MiB, 49140 MiB, 37
+5, 0 %, 24399 MiB, 49140 MiB, 32
+6, 99 %, 24948 MiB, 49140 MiB, 76
+7, 0 %, 1 MiB, 46068 MiB, 32
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/tmp/evogp_legacy_bench/src/evogp/sr_test.py", line 22, in <module>
+    problem = SymbolicRegression(
+              ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/evogp_legacy_bench/src/evogp/problem/symbolic_regression.py", line 39, in __init__
+    self.datapoints, self.labels = self.generate_data(
+                                   ^^^^^^^^^^^^^^^^^^^
+  File "/tmp/evogp_legacy_bench/src/evogp/problem/symbolic_regression.py", line 45, in generate_data
+    upper_bounds = torch.full(
+                   ^^^^^^^^^^^
+RuntimeError: CUDA error: uncorrectable ECC error encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+
+### end 2026-09-11 21:01:22 HKT   wall 4s   exit code 1  (124 = timeout 1500s hit)
+### lock state at start: (see above)
+### nvidia-smi AFTER:
+0, 42 %, 1119 MiB, 49140 MiB, 64
+1, 55 %, 2776 MiB, 49140 MiB, 67
+2, 41 %, 17702 MiB, 49140 MiB, 63
+3, 42 %, 4564 MiB, 49140 MiB, 54
+4, 0 %, 3469 MiB, 49140 MiB, 39
+5, 0 %, 24399 MiB, 49140 MiB, 32
+6, 100 %, 24948 MiB, 49140 MiB, 76
+7, 0 %, 1 MiB, 46068 MiB, 32

@@ -1,0 +1,336 @@
+############################################################
+# legacy sr_test — shipped defaults (W1 / SPEC.md C2) — RUN 2 (GPU 4)
+#   pop 1000, max_tree_len 128, 100 generations, seed 0
+#   checkout : /tmp/evogp_legacy_bench  (git archive b613503, not a git repo)
+#   engine   : evogp.evogp_cuda (hand-written CUDA kernels, sm_86)
+#   host     : bmi-9   Linux 6.1.0-41-amd64
+#   interpreter: /mnt/local-ssd/bchuang/evox/.venv/bin/python (Python 3.11.2)  torch 2.6.0+cu124
+#   runner   : flock -w 7200 /tmp/gpbench_critical.lock bash -c '<inner cmd>'  (one lock, not nested)
+#   inner    : timeout 1500 $PY -u -m evogp.sr_test   (-u = unbuffered, partial output survives a timeout)
+#   GPU note : device 7 (first choice) is hardware-faulted (ECC) -> fell back to device 4.
+#              earlier failed attempt on GPU 7: results/logs/sr_test_defaults.gpu7_ecc_failure.log
+############################################################
+### start 2026-09-11 21:02:04 HKT
+### lock state at start: HELD_BY_SIBLING
+### nvidia-smi BEFORE (all devices; job pinned to GPU 4):
+0, 42 %, 1119 MiB, 49140 MiB, 64, 199.08 W
+1, 100 %, 7152 MiB, 49140 MiB, 70, 292.64 W
+2, 27 %, 17702 MiB, 49140 MiB, 64, 182.12 W
+3, 41 %, 4564 MiB, 49140 MiB, 55, 189.43 W
+4, 1 %, 4238 MiB, 49140 MiB, 36, 73.66 W
+5, 0 %, 24399 MiB, 49140 MiB, 32, 35.87 W
+6, 100 %, 24948 MiB, 49140 MiB, 76, 295.86 W
+7, 0 %, 1 MiB, 46068 MiB, 32, 29.00 W
+
+Generation: 0, Cost time: 572.35ms
+ 	fitness: valid cnt: 944, max: -0.2511, min: -44432384.0000, mean: -429232.1250, std: 2920053.5000
+
+Generation: 1, Cost time: 10.01ms
+ 	fitness: valid cnt: 997, max: -0.2511, min: -30110310.0000, mean: -36344.8203, std: 956518.7500
+
+Generation: 2, Cost time: 9.42ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -33971292.0000, mean: -67882.5000, std: 1208081.5000
+
+Generation: 3, Cost time: 9.70ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -6625997.0000, mean: -8176.7749, std: 210961.4219
+
+Generation: 4, Cost time: 9.07ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -1561896.5000, mean: -2490.4756, std: 51093.8789
+
+Generation: 5, Cost time: 9.30ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -1185628.0000, mean: -1972.2697, std: 39508.2734
+
+Generation: 6, Cost time: 9.07ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -1143276.8750, mean: -1779.8021, std: 36525.4766
+
+Generation: 7, Cost time: 9.29ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -42085.5625, mean: -389.7809, std: 2707.6985
+
+Generation: 8, Cost time: 9.06ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -871913.3125, mean: -1789.9753, std: 29870.7051
+
+Generation: 9, Cost time: 9.13ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -379316.7500, mean: -918.0376, std: 13469.7285
+
+Generation: 10, Cost time: 9.00ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -62502504.0000, mean: -68211.8203, std: 1981257.6250
+
+Generation: 11, Cost time: 9.11ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -379450.7188, mean: -1048.4971, std: 13533.9541
+
+Generation: 12, Cost time: 9.07ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -24525.2188, mean: -346.0544, std: 2185.7385
+
+Generation: 13, Cost time: 9.55ms
+ 	fitness: valid cnt: 1000, max: -0.2257, min: -358117.1875, mean: -1266.9666, std: 14940.5586
+
+Generation: 14, Cost time: 9.13ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -1412024.5000, mean: -2618.4585, std: 46882.3789
+
+Generation: 15, Cost time: 9.13ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -401433.5312, mean: -1070.4388, std: 15961.8350
+
+Generation: 16, Cost time: 9.26ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -244768.2031, mean: -737.4709, std: 8671.6670
+
+Generation: 17, Cost time: 9.23ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -1517788.3750, mean: -2445.4058, std: 49552.8711
+
+Generation: 18, Cost time: 9.14ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -618554.1875, mean: -1584.4493, std: 23587.2930
+
+Generation: 19, Cost time: 9.19ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -2014733.1250, mean: -2774.7551, std: 64604.8906
+
+Generation: 20, Cost time: 9.22ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -1447861.6250, mean: -1972.9852, std: 45990.9375
+
+Generation: 21, Cost time: 9.12ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -790676.5000, mean: -1739.7549, std: 27553.2988
+
+Generation: 22, Cost time: 9.25ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -1471013.7500, mean: -2931.2083, std: 50383.3984
+
+Generation: 23, Cost time: 9.07ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -495610.6562, mean: -1080.5641, std: 16766.4043
+
+Generation: 24, Cost time: 9.11ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -6626001.5000, mean: -9091.2930, std: 213622.8438
+
+Generation: 25, Cost time: 9.13ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -1340000.6250, mean: -1978.8663, std: 43097.8008
+
+Generation: 26, Cost time: 9.14ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -6626001.5000, mean: -7698.3584, std: 211000.1250
+
+Generation: 27, Cost time: 9.13ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -3133321.2500, mean: -4137.5605, std: 100390.1016
+
+Generation: 28, Cost time: 9.18ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -2996590.5000, mean: -3851.4395, std: 95412.5547
+
+Generation: 29, Cost time: 9.73ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -71137.1016, mean: -466.9489, std: 3897.9421
+
+Generation: 30, Cost time: 9.20ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -175447.1562, mean: -592.7495, std: 6713.3857
+
+Generation: 31, Cost time: 9.32ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -2827833.5000, mean: -4114.3403, std: 91663.6172
+
+Generation: 32, Cost time: 9.49ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -528433.7500, mean: -2389.0940, std: 25828.9629
+
+Generation: 33, Cost time: 9.61ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -71256600.0000, mean: -74293.1641, std: 2256800.2500
+
+Generation: 34, Cost time: 9.66ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -4065501.0000, mean: -11814.6318, std: 161649.1406
+
+Generation: 35, Cost time: 9.86ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -2227137.7500, mean: -5260.8936, std: 74056.4531
+
+Generation: 36, Cost time: 10.00ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -64572744.0000, mean: -125598.7422, std: 2357044.5000
+
+Generation: 37, Cost time: 10.01ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -89574448.0000, mean: -124190.1016, std: 2879234.0000
+
+Generation: 38, Cost time: 10.12ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -65874456.0000, mean: -90072.6797, std: 2108425.7500
+
+Generation: 39, Cost time: 10.21ms
+ 	fitness: valid cnt: 992, max: -0.2257, min: -51482960.0000, mean: -80705.9062, std: 1720906.8750
+
+Generation: 40, Cost time: 10.38ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -8453322.0000, mean: -19276.1699, std: 297973.8438
+
+Generation: 41, Cost time: 10.45ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -59198752.0000, mean: -68053.9453, std: 1880340.5000
+
+Generation: 42, Cost time: 10.67ms
+ 	fitness: valid cnt: 992, max: -0.2257, min: -73531336.0000, mean: -145621.0938, std: 2732983.2500
+
+Generation: 43, Cost time: 10.53ms
+ 	fitness: valid cnt: 991, max: -0.2257, min: -10398348.0000, mean: -13101.8496, std: 333848.5938
+
+Generation: 44, Cost time: 10.82ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -81762736.0000, mean: -139175.8125, std: 2812476.5000
+
+Generation: 45, Cost time: 10.96ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -90963472.0000, mean: -94356.6016, std: 2878034.5000
+
+Generation: 46, Cost time: 11.05ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -3637231.2500, mean: -7608.8564, std: 124739.2266
+
+Generation: 47, Cost time: 15.73ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -4178780.2500, mean: -5662.2510, std: 133804.4062
+
+Generation: 48, Cost time: 11.03ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -2942855.7500, mean: -6261.6289, std: 110213.8438
+
+Generation: 49, Cost time: 11.01ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -955017.1250, mean: -2117.9399, std: 32791.1719
+
+Generation: 50, Cost time: 11.06ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -44740216.0000, mean: -57063.0508, std: 1430552.5000
+
+Generation: 51, Cost time: 11.33ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -85062008.0000, mean: -145364.8906, std: 2944163.5000
+
+Generation: 52, Cost time: 11.08ms
+ 	fitness: valid cnt: 995, max: -0.2257, min: -5566981.5000, mean: -11522.6426, std: 201855.6406
+
+Generation: 53, Cost time: 11.08ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -52771228.0000, mean: -73319.0391, std: 1753725.3750
+
+Generation: 54, Cost time: 11.01ms
+ 	fitness: valid cnt: 995, max: -0.2257, min: -10100362.0000, mean: -22399.2285, std: 378265.6562
+
+Generation: 55, Cost time: 11.12ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -30696556.0000, mean: -51662.3555, std: 1034709.8125
+
+Generation: 56, Cost time: 10.96ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -9747229.0000, mean: -22015.4434, std: 343087.5312
+
+Generation: 57, Cost time: 10.96ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -20162864.0000, mean: -21255.1152, std: 639917.9375
+
+Generation: 58, Cost time: 10.93ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -27490334.0000, mean: -46879.7227, std: 947677.7500
+
+Generation: 59, Cost time: 10.88ms
+ 	fitness: valid cnt: 995, max: -0.2257, min: -30456996.0000, mean: -50665.5664, std: 1071773.7500
+
+Generation: 60, Cost time: 10.92ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -21616078.0000, mean: -51400.7305, std: 941679.0625
+
+Generation: 61, Cost time: 11.02ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -22840386.0000, mean: -40703.2227, std: 768193.7500
+
+Generation: 62, Cost time: 10.96ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -46993536.0000, mean: -96069.4297, std: 1793055.7500
+
+Generation: 63, Cost time: 11.06ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -1297988.6250, mean: -5951.4146, std: 72174.6719
+
+Generation: 64, Cost time: 11.03ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -11881326.0000, mean: -19813.9414, std: 391379.6250
+
+Generation: 65, Cost time: 11.06ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -11701462.0000, mean: -23434.8379, std: 408706.0312
+
+Generation: 66, Cost time: 11.04ms
+ 	fitness: valid cnt: 995, max: -0.2257, min: -21604948.0000, mean: -34653.1992, std: 700506.7500
+
+Generation: 67, Cost time: 11.04ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -12623086.0000, mean: -30267.0566, std: 459334.0625
+
+Generation: 68, Cost time: 10.95ms
+ 	fitness: valid cnt: 991, max: -0.2257, min: -47207212.0000, mean: -66181.1094, std: 1529107.5000
+
+Generation: 69, Cost time: 10.93ms
+ 	fitness: valid cnt: 999, max: -0.2257, min: -11365055.0000, mean: -36044.7656, std: 448440.4062
+
+Generation: 70, Cost time: 10.91ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -74683520.0000, mean: -89853.6250, std: 2380287.5000
+
+Generation: 71, Cost time: 10.90ms
+ 	fitness: valid cnt: 997, max: -0.2257, min: -11365152.0000, mean: -21543.6309, std: 375781.3125
+
+Generation: 72, Cost time: 10.85ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -65424176.0000, mean: -131168.4062, std: 2448950.2500
+
+Generation: 73, Cost time: 11.14ms
+ 	fitness: valid cnt: 995, max: -0.2257, min: -46367384.0000, mean: -128522.8516, std: 2043604.3750
+
+Generation: 74, Cost time: 10.85ms
+ 	fitness: valid cnt: 989, max: -0.2257, min: -37811820.0000, mean: -43561.9453, std: 1203762.8750
+
+Generation: 75, Cost time: 10.90ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -88369632.0000, mean: -125004.8359, std: 2847265.5000
+
+Generation: 76, Cost time: 11.08ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -50982960.0000, mean: -69870.8438, std: 1628926.6250
+
+Generation: 77, Cost time: 11.18ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -5883095.5000, mean: -20236.0195, std: 226894.6406
+
+Generation: 78, Cost time: 10.97ms
+ 	fitness: valid cnt: 995, max: -0.2257, min: -2307582.0000, mean: -7442.9609, std: 109594.5938
+
+Generation: 79, Cost time: 10.95ms
+ 	fitness: valid cnt: 992, max: -0.2257, min: -12889188.0000, mean: -18851.7051, std: 420084.6562
+
+Generation: 80, Cost time: 10.95ms
+ 	fitness: valid cnt: 995, max: -0.2257, min: -84784696.0000, mean: -107049.3906, std: 2697898.5000
+
+Generation: 81, Cost time: 10.87ms
+ 	fitness: valid cnt: 992, max: -0.2257, min: -4606117.0000, mean: -22565.7051, std: 262137.2812
+
+Generation: 82, Cost time: 11.26ms
+ 	fitness: valid cnt: 991, max: -0.2257, min: -39143980.0000, mean: -48192.3828, std: 1247674.3750
+
+Generation: 83, Cost time: 11.03ms
+ 	fitness: valid cnt: 995, max: -0.2257, min: -5574853.5000, mean: -20542.8418, std: 228036.4688
+
+Generation: 84, Cost time: 11.08ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -47807180.0000, mean: -132620.7344, std: 1975159.3750
+
+Generation: 85, Cost time: 10.98ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -4008714.2500, mean: -33859.4648, std: 289202.6562
+
+Generation: 86, Cost time: 11.20ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -49786944.0000, mean: -118023.3047, std: 2073226.6250
+
+Generation: 87, Cost time: 11.10ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -3365615.7500, mean: -14247.9180, std: 170136.9531
+
+Generation: 88, Cost time: 11.31ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -14406733.0000, mean: -38413.4375, std: 519932.3125
+
+Generation: 89, Cost time: 11.07ms
+ 	fitness: valid cnt: 994, max: -0.2257, min: -80520840.0000, mean: -279793.2188, std: 3906123.0000
+
+Generation: 90, Cost time: 11.01ms
+ 	fitness: valid cnt: 992, max: -0.2257, min: -30277498.0000, mean: -50837.1836, std: 982308.3750
+
+Generation: 91, Cost time: 11.16ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -77653184.0000, mean: -176847.0000, std: 3095113.0000
+
+Generation: 92, Cost time: 10.92ms
+ 	fitness: valid cnt: 987, max: -0.2257, min: -48815128.0000, mean: -144203.1719, std: 2153634.0000
+
+Generation: 93, Cost time: 10.98ms
+ 	fitness: valid cnt: 991, max: -0.2257, min: -40108640.0000, mean: -62580.4805, std: 1299933.1250
+
+Generation: 94, Cost time: 10.97ms
+ 	fitness: valid cnt: 993, max: -0.2257, min: -93354336.0000, mean: -341722.4375, std: 4761665.0000
+
+Generation: 95, Cost time: 11.24ms
+ 	fitness: valid cnt: 992, max: -0.2257, min: -86057120.0000, mean: -137804.8906, std: 2974614.2500
+
+Generation: 96, Cost time: 11.03ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -68695528.0000, mean: -169962.8750, std: 2885090.5000
+
+Generation: 97, Cost time: 11.04ms
+ 	fitness: valid cnt: 987, max: -0.2257, min: -15221603.0000, mean: -36106.3281, std: 575999.9375
+
+Generation: 98, Cost time: 11.05ms
+ 	fitness: valid cnt: 996, max: -0.2257, min: -27935000.0000, mean: -53343.8047, std: 989386.0000
+
+Generation: 99, Cost time: 11.32ms
+ 	fitness: valid cnt: 998, max: -0.2257, min: -37310796.0000, mean: -53530.2773, std: 1195268.1250
+
+Generation limit reached!
+
+### end 2026-09-11 21:02:12 HKT   wall 8s   exit code 0  (124 = the 1500s timeout was hit)
+### nvidia-smi AFTER:
+0, 27 %, 1119 MiB, 49140 MiB, 63, 187.92 W
+1, 100 %, 7152 MiB, 49140 MiB, 70, 292.18 W
+2, 29 %, 17702 MiB, 49140 MiB, 62, 181.44 W
+3, 36 %, 5248 MiB, 49140 MiB, 55, 183.21 W
+4, 22 %, 4153 MiB, 49140 MiB, 37, 79.55 W
+5, 0 %, 24399 MiB, 49140 MiB, 32, 35.67 W
+6, 100 %, 24948 MiB, 49140 MiB, 76, 298.53 W
+7, 0 %, 1 MiB, 46068 MiB, 32, 28.72 W

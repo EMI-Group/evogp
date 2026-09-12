@@ -1,0 +1,113 @@
+usage: bench_gp.py [-h] --task {sr,xor,eval64,evalfresh} [--pop POP]
+                   [--gens GENS] [--tree-len TREE_LEN] [--seed SEED]
+                   [--tag TAG] [--json-out JSON_OUT] [--reps REPS]
+                   [--eval-reps EVAL_REPS] [--fixture FIXTURE]
+                   [--no-disable-locations] [--max-wall-s MAX_WALL_S]
+                   [--min-gens MIN_GENS] [--notes NOTES]
+
+``bench_gp.py`` -- side-agnostic benchmark harness for the legacy-CUDA vs ETL comparison.
+
+One file, two checkouts: it drives *either* engine through the same public
+``evogp`` API, selected by ``PYTHONPATH``:
+
+* NEW = this repository at HEAD (pure-torch/ETL "true jit" engine,
+  ``evogp/tree/etl_engine.py``), default ``"numpy"`` backend;
+* OLD = the legacy custom-CUDA checkout at ``b613503`` (``evogp.evogp_cuda`` /
+  ``src/evogp/cuda/*.cu``; no CPU fallback there).
+
+The methodology, workloads W1-W3 and the C0-C7 config matrix are frozen in
+``test/benchmark/SPEC.md``; this script implements them (see ``test/benchmark/new/NOTES.md``
+for the run log, per-rep semantics and caveats).
+
+Usage (from the repository root, i.e. the checkout root)::
+
+    PYTHONPATH=src python test/benchmark/bench_gp.py --task sr --pop 200 --gens 100         --tree-len 64 --tag C1 --reps 2 --json-out test/benchmark/new/results/C1.json
+
+    PYTHONPATH=src python test/benchmark/bench_gp.py --task eval64 --eval-reps 25         --tag C5 --json-out test/benchmark/new/results/C5.json
+
+Tasks: ``sr`` (W1: synthetic SR training), ``xor`` (W2: parity-table training),
+``eval64`` (W3: repeated ``evaluate`` on the forest rebuilt from a committed
+fixture) and ``evalfresh`` (W3': repeated ``evaluate`` on a freshly generated
+random population).
+
+Environment contract (set *before* importing evogp, as the SPEC requires):
+``ETL_DISABLE_LOCATIONS=1`` by default (``=0`` with ``--no-disable-locations``);
+``EVOGP_ETL_BACKEND`` / ``EVOGP_ETL_IREE_DEVICE`` / ``EVOGP_ETL_IREE_OPT_LEVEL``
+are read by the new engine only and are simply inert on the old one.
+
+The fixture (``--fixture``, default ``test/goldens/forest_random.npz`` relative to
+the cwd) is only read by ``eval64``/``evalfresh``.  The legacy ``b613503`` checkout
+has no ``test/goldens/``, so the old side must pass ``--fixture <absolute path>``.
+
+Old-compat audit (every evogp symbol/kwarg this harness uses, checked against the
+``b613503`` blobs; ``OK`` = present with a call-compatible signature)::
+
+    symbol / call form                              b613503 file:line        result
+    Forest(input_len, output_len, batch_node_value, src/evogp/tree/forest.py OK (ctor byte-identical)
+           batch_node_type, batch_subtree_size)               :13
+    Forest.random_generate(pop_size=, descriptor=)  src/evogp/tree/forest.py OK (staticmethod; body
+                                                                      :43    dispatches evogp_cuda)
+    GenerateDescriptor(max_tree_len, input_len,     src/evogp/tree/descriptor.py OK (same kwargs;
+      output_len, const_prob, out_prob, using_funcs,               :31      const_range/sample_cnt
+      layer_leaf_prob, const_range, sample_cnt,                             used only when
+      max_layer_cnt, const_samples)                                        const_samples is None)
+    GenerateDescriptor.update(**kwargs)            descriptor.py:186         OK (returns a new one)
+    GeneticProgramming(initial_forest, crossover,   algorithm/                 OK
+      mutation, selection, enable_pareto_front)     genetic_programming.py:21
+    DefaultCrossover()                              algorithm/crossover/      OK
+                                                    default.py:13
+    DefaultMutation(mutation_rate=, descriptor=)    algorithm/mutation/        OK
+                                                    default.py:19
+    DefaultSelection(survival_rate=, elite_rate=)   algorithm/selection/       OK
+                                                    default.py:15
+    SymbolicRegression(func=, num_inputs=,          problem/                   OK
+      num_data=, lower_bounds=, upper_bounds=)      symbolic_regression.py:11
+    SymbolicRegression(datapoints=, labels=)        (same ctor)               OK
+    SymbolicRegression.evaluate(forest)             (same file)               OK (default use_MSE=True;
+      .problem_dim / .solution_dim                                            old side only adds a
+                                                                              CombinedForest assert)
+    StandardPipeline(algorithm, problem,            pipeline/standard.py:7    OK (byte-identical
+      generation_limit=, is_show_details=)                                    between revisions)
+    StandardPipeline.step() / .best_fitness         (same file)               OK (best_fitness is a
+                                                                              float -inf, then a 0-dim
+                                                                              CPU tensor -> float())
+    import evogp / evogp.tree / evogp.algorithm /   src/evogp/__init__.py     OK (old evogp/tree/
+      evogp.problem / evogp.pipeline                + package __init__ files   __init__.py imports
+                                                                              evogp.evogp_cuda, i.e.
+                                                                              the CUDA extension is a
+                                                                              hard prerequisite there)
+    torch.manual_seed / torch.cuda.manual_seed /    --                        OK (SPEC-wide)
+      torch.cuda.synchronize / torch.cuda.get_device_name
+
+Known asymmetric bits (do not fail the old side): ``enable_pareto_front`` is only
+passed for ``--task xor`` (as in ``example/basic.py``); ``ETL_*`` env vars are inert
+on the old side (C7 therefore degenerates to a plain legacy run); the old side reads
+its RNG stream from the kernels, so population structures/fitness differ from the new
+side -- compare *times*, use fitness only as a convergence sanity check.
+
+options:
+  -h, --help            show this help message and exit
+  --task {sr,xor,eval64,evalfresh}
+                        workload
+  --pop POP             population size
+  --gens GENS           generations to run
+  --tree-len TREE_LEN   max_tree_len
+  --seed SEED           torch RNG seed
+  --tag TAG             label for logs/JSON (default: task)
+  --json-out JSON_OUT   JSON output path (rewritten after every step)
+  --reps REPS           repeat the whole run N times (same seed)
+  --eval-reps EVAL_REPS
+                        repeated evaluate() calls (eval tasks)
+  --fixture FIXTURE     npz fixture for the eval tasks (default:
+                        test/goldens/forest_random.npz, cwd-relative)
+  --no-disable-locations
+                        force ETL_DISABLE_LOCATIONS=0 (verbose ETL call-site
+                        capture)
+  --max-wall-s MAX_WALL_S
+                        soft wall-clock cap per rep, checked after every
+                        generation
+  --min-gens MIN_GENS   never stop early (--max-wall-s) before this many
+                        completed generations
+  --notes NOTES         free-form text stored in the JSON
+
+Unspecified workload parameters fall back to the SPEC.md defaults for the chosen task; see TASK_DEFAULTS in this file.

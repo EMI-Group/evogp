@@ -1,0 +1,27 @@
+
+=== [2026-09-11 21:02:31] materialize legacy checkout at /tmp/evogp_legacy_bench (ref b613503) ===
+SKIP materialize: checkout already present (/tmp/evogp_legacy_bench/src/evogp/cuda/forward.cu)
+
+=== [2026-09-11 21:02:31] environment ===
+REPO_ROOT   = /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A5
+LEGACY_REF  = b613503 (b613503c3107db23222f69bfaad2a329639f28fe)
+BENCH_DIR   = /tmp/evogp_legacy_bench
+PY          = /mnt/local-ssd/bchuang/evox/.venv/bin/python (Python 3.11.2)
+CUDA_HOME   = /opt/miniforge3/envs/wenet_tiktoken/targets/x86_64-linux
+NVCC        = /opt/miniforge3/envs/wenet_tiktoken/bin/nvcc — Build cuda_12.6.r12.6/compiler.34431801_0
+ccbin       = /usr/bin/g++ -> 12
+CPATH       = /tmp/evogp_t1a263/pydev/usr/include/python3.11:/tmp/evogp_t1a263/pydev/usr/include:/tmp/evogp_t1a263/pydev/usr/include/x86_64-linux-gnu
+TORCH_CUDA_ARCH_LIST = 8.6   MAX_JOBS(requested) = 8
+LOCK        = /tmp/gpbench_critical.lock (waits up to 7200s per phase)
+
+=== [2026-09-11 21:02:31] build SKIPPED — extension already built ===
+/tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so
+-rwxr-xr-x 1 bchuang users 1112488 Sep 11 21:00 /tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so
+
+=== [2026-09-11 21:02:31] smoke import (one lock acquisition) ===
+ok
+
+=== [2026-09-11 21:02:37] DONE ===
+legacy checkout : /tmp/evogp_legacy_bench  (materialized via 'git archive b613503' — not a git repo)
+extension       : /tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so
+smoke           : import evogp.tree + evogp.evogp_cuda -> ok

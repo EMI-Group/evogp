@@ -1,0 +1,25 @@
+{
+  "tag": "C5_xval_fitness",
+  "side": "old",
+  "task": "eval64",
+  "eval_kind": "fixture",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/test/goldens/forest_random.npz",
+  "evogp_file": "/tmp/evogp_legacy_bench/src/evogp/__init__.py",
+  "problem": "W3 fixed fixture: Forest(input_len=2, output_len=1, pop_size=64, max_tree_len=63) rebuilt from /mnt/local-ssd/bchuang/evogp/test/goldens/forest_random.npz[forest__node_value/_node_type/_subtree_size] via the class constructor + SymbolicRegression(datapoints=x[(64, 2)], labels=labels[(64, 1)])",
+  "pop": 64,
+  "tree_len": 63,
+  "eval_reps": 25,
+  "seed": 0,
+  "construct_s": 0.0028210096061229706,
+  "wall_s": 0.04059130698442459,
+  "first_call_ms": 23.00088480114937,
+  "median_warm_ms": 0.5877725780010223,
+  "fitness_shape": [
+    64
+  ],
+  "nan_count": 3,
+  "fitness_mean": -18.048504493275626,
+  "cuda_visible_devices": "0",
+  "gpu_name": "NVIDIA RTX A6000",
+  "note": "wave-1 fitness-sanity semantics: last call, MAXIMIZED fitness, nan_count=isnan(fitness).sum(), fitness_mean=nanmean(fitness) in float64 on CPU"
+}

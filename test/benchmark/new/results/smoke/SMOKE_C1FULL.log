@@ -1,0 +1,3 @@
+[SMOKE_C1FULL] harness=bench_gp.py side=new task=sr pop=200 gens=100 tree_len=64 seed=0 reps=1 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=4 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6/src/evogp/__init__.py commit=7e6cd0fba2d369c4ad94a365df3714f811afbc5a etl=0.1.0 json_out=test/benchmark/new/results/smoke/SMOKE_C1FULL.json
+[SMOKE_C1FULL] side=new rep0/1: 100 gens in 24.3s, per-gen median 90.5ms, first-gen 1452.0ms, best_fitness_final=-0.1720
+[SMOKE_C1FULL] done side=new interrupted=False harness_wall_s=25.4 json_out=test/benchmark/new/results/smoke/SMOKE_C1FULL.json

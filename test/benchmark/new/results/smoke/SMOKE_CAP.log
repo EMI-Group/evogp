@@ -1,0 +1,4 @@
+[SMOKE_CAP] harness=bench_gp.py side=new task=sr pop=50 gens=200 tree_len=32 seed=0 reps=1 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=4 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A6/src/evogp/__init__.py commit=7e6cd0fba2d369c4ad94a365df3714f811afbc5a etl=0.1.0 json_out=test/benchmark/new/results/smoke/SMOKE_CAP.json
+[SMOKE_CAP] side=new soft wall cap --max-wall-s=4.0s reached after 88/200 gens
+[SMOKE_CAP] side=new rep0/1: 88 gens in 4.0s, per-gen median 25.2ms, first-gen 714.9ms, best_fitness_final=-0.2305 (PARTIAL)
+[SMOKE_CAP] done side=new interrupted=False harness_wall_s=5.4 json_out=test/benchmark/new/results/smoke/SMOKE_CAP.json

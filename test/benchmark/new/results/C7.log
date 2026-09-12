@@ -1,0 +1,201 @@
+===================================================================
+config C7  started 2026-09-11T21:55:19+08:00
+note: opt-in IREE backend (EVOGP_ETL_BACKEND=iree, O1), cap 15 min
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A8
+PY: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 960s (SIGINT first, SIGKILL after 30s), inside flock /tmp/gpbench_critical.lock
+env: PYTHONPATH=src CUDA_VISIBLE_DEVICES=1 EVOGP_ETL_BACKEND=iree EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1
+flock wrapper: flock -w 7200 /tmp/gpbench_critical.lock bash -c '<cmd>'
+cmd: timeout -s INT -k 30 960 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=1 EVOGP_ETL_BACKEND=iree EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task sr --pop 50 --gens 3 --tree-len 32 --tag C7 --max-wall-s 900 --notes opt-in\ IREE\ backend\,\ cap\ 15min --json-out test/benchmark/new/results/C7.json
+--- nvidia-smi (before) ---
+Fri Sep 11 21:55:19 2026       
++---------------------------------------------------------------------------------------+
+| NVIDIA-SMI 535.247.01             Driver Version: 535.247.01   CUDA Version: 12.2     |
+|-----------------------------------------+----------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |         Memory-Usage | GPU-Util  Compute M. |
+|                                         |                      |               MIG M. |
+|=========================================+======================+======================|
+|   0  NVIDIA RTX A6000               On  | 00000000:01:00.0 Off |                  Off |
+| 30%   59C    P2             127W / 300W |   1119MiB / 49140MiB |     17%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   1  NVIDIA RTX A6000               On  | 00000000:25:00.0 Off |                  Off |
+| 30%   57C    P2             106W / 300W |   1119MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   2  NVIDIA RTX A6000               On  | 00000000:41:00.0 Off |                  Off |
+| 30%   58C    P2             112W / 300W |  17702MiB / 49140MiB |     21%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   3  NVIDIA RTX A6000               On  | 00000000:61:00.0 Off |                  Off |
+| 30%   48C    P2             129W / 300W |  16508MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   4  NVIDIA RTX A6000               On  | 00000000:81:00.0 Off |                  Off |
+| 30%   37C    P8              30W / 300W |  15393MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   5  NVIDIA RTX A6000               On  | 00000000:A1:00.0 Off |                  Off |
+| 30%   34C    P8              36W / 300W |  24399MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   6  NVIDIA RTX A6000               On  | 00000000:C1:00.0 Off |                  Off |
+| 46%   73C    P2             216W / 300W |   4933MiB / 49140MiB |      3%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   7  NVIDIA RTX A6000               On  | 00000000:E1:00.0 Off |                 2263 |
+| 30%   34C    P8              29W / 300W |      1MiB / 46068MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+                                                                                         
++---------------------------------------------------------------------------------------+
+| Processes:                                                                            |
+|  GPU   GI   CI        PID   Type   Process name                            GPU Memory |
+|        ID   ID                                                             Usage      |
+|=======================================================================================|
+|    0   N/A  N/A   1503940      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    1   N/A  N/A   1503941      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    2   N/A  N/A   1228200      C   VLLM::EngineCore                          16454MiB |
+|    2   N/A  N/A   1503942      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    3   N/A  N/A   1285079      C   ...naconda3/envs/merge-qwen/bin/python    15260MiB |
+|    3   N/A  N/A   1503943      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    4   N/A  N/A   1284680      C   ...naconda3/envs/merge-qwen/bin/python    15260MiB |
+|    5   N/A  N/A   1228191      C   VLLM::EngineCore                          24274MiB |
+|    6   N/A  N/A   1593785      C   ...ction_ela_20260911/.venv/bin/python     4926MiB |
++---------------------------------------------------------------------------------------+
+--- run output ---
+[C7] harness=bench_gp.py side=new task=sr pop=50 gens=3 tree_len=32 seed=0 reps=1 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree CUDA_VISIBLE_DEVICES=1 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A8/src/evogp/__init__.py commit=9159e10bd5b5dc690c24562350f98d5abe7a43a3 etl=0.1.0 json_out=test/benchmark/new/results/C7.json
+[C7] side=new rep0/1: 3 gens in 61.2s, per-gen median 21830.8ms, first-gen 21830.8ms, best_fitness_final=-0.2511
+[C7] done side=new interrupted=False harness_wall_s=62.4 json_out=test/benchmark/new/results/C7.json
+nanobind: leaked 343 instances!
+ - leaked instance 0x7fb96be00868 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fb9149be0c8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fb914974928 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fb91499ade8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fb9102607c8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fb91c1ae4d8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fb9101f01c8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fb9101f3668 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fb914dd34a8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fb914975168 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fb914dd29c8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fb914975a88 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fb914dd1c08 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fb914976728 of type "iree._runtime_libs._runtime.HalDevice"
+ - leaked instance 0x7fb914dd1f28 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fb910261348 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fb91c331df8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fb9149760e8 of type "iree._runtime_libs._runtime.HalDevice"
+ - leaked instance 0x7fb910261268 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fb9101f35a8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - ... skipped remainder
+nanobind: leaked 342 keep_alive records!
+nanobind: leaked 5 types!
+ - leaked type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked type "iree._runtime_libs._runtime.HalDevice"
+ - leaked type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked type "iree._runtime_libs._runtime.HalDriver"
+nanobind: leaked 39 functions!
+ - leaked function ""
+ - leaked function "queue_copy"
+ - leaked function "asarray"
+ - leaked function "create_dlpack_capsule"
+ - leaked function "flush_profiling"
+ - leaked function "queue_alloca"
+ - leaked function ""
+ - leaked function "end_profiling"
+ - leaked function ""
+ - leaked function "query_available_devices"
+ - leaked function "query_buffer_compatibility"
+ - leaked function "queue_dealloca"
+ - leaked function "__iree_vm_cast__"
+ - leaked function "__repr__"
+ - leaked function "from_dlpack_capsule"
+ - leaked function "byte_length"
+ - leaked function "trim"
+ - leaked function ""
+ - leaked function "__repr__"
+ - leaked function "create_device_by_uri"
+ - leaked function "map"
+ - leaked function "queue_execute"
+ - leaked function "allocate_buffer"
+ - leaked function "create_default_device"
+ - leaked function ""
+ - leaked function "allocate_host_staging_buffer_copy"
+ - leaked function "begin_profiling"
+ - leaked function "create_view"
+ - leaked function "allocate_buffer_copy"
+ - leaked function "memory_type"
+ - leaked function "allowed_usage"
+ - leaked function "__iree_vm_type__"
+ - leaked function "fill_zero"
+ - leaked function "create_semaphore"
+ - leaked function "create_device"
+ - leaked function ""
+ - leaked function "query"
+ - leaked function "dump_device_info"
+ - leaked function "__eq__"
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html--- run output end ---
+exit code: 0
+config C7  finished 2026-09-11T21:56:25+08:00
+--- nvidia-smi (after) ---
+Fri Sep 11 21:56:25 2026       
++---------------------------------------------------------------------------------------+
+| NVIDIA-SMI 535.247.01             Driver Version: 535.247.01   CUDA Version: 12.2     |
+|-----------------------------------------+----------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |         Memory-Usage | GPU-Util  Compute M. |
+|                                         |                      |               MIG M. |
+|=========================================+======================+======================|
+|   0  NVIDIA RTX A6000               On  | 00000000:01:00.0 Off |                  Off |
+| 30%   57C    P2              96W / 300W |   1119MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   1  NVIDIA RTX A6000               On  | 00000000:25:00.0 Off |                  Off |
+| 30%   54C    P2             111W / 300W |   1119MiB / 49140MiB |     21%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   2  NVIDIA RTX A6000               On  | 00000000:41:00.0 Off |                  Off |
+| 30%   52C    P2              89W / 300W |  17702MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   3  NVIDIA RTX A6000               On  | 00000000:61:00.0 Off |                  Off |
+| 30%   46C    P2              93W / 300W |  16508MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   4  NVIDIA RTX A6000               On  | 00000000:81:00.0 Off |                  Off |
+| 30%   41C    P2              75W / 300W |  15393MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   5  NVIDIA RTX A6000               On  | 00000000:A1:00.0 Off |                  Off |
+| 30%   33C    P8              35W / 300W |  24399MiB / 49140MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   6  NVIDIA RTX A6000               On  | 00000000:C1:00.0 Off |                  Off |
+| 50%   78C    P2             241W / 300W |   4933MiB / 49140MiB |     99%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+|   7  NVIDIA RTX A6000               On  | 00000000:E1:00.0 Off |                 2263 |
+| 30%   33C    P8              29W / 300W |      1MiB / 46068MiB |      0%      Default |
+|                                         |                      |                  N/A |
++-----------------------------------------+----------------------+----------------------+
+                                                                                         
++---------------------------------------------------------------------------------------+
+| Processes:                                                                            |
+|  GPU   GI   CI        PID   Type   Process name                            GPU Memory |
+|        ID   ID                                                             Usage      |
+|=======================================================================================|
+|    0   N/A  N/A   1503940      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    1   N/A  N/A   1503941      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    2   N/A  N/A   1228200      C   VLLM::EngineCore                          16454MiB |
+|    2   N/A  N/A   1503942      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    3   N/A  N/A   1285079      C   ...naconda3/envs/merge-qwen/bin/python    15260MiB |
+|    3   N/A  N/A   1503943      C   ...nda3/envs/model_merge_v2/bin/python     1112MiB |
+|    4   N/A  N/A   1284680      C   ...naconda3/envs/merge-qwen/bin/python    15260MiB |
+|    5   N/A  N/A   1228191      C   VLLM::EngineCore                          24274MiB |
+|    6   N/A  N/A   1593785      C   ...ction_ela_20260911/.venv/bin/python     4926MiB |
++---------------------------------------------------------------------------------------+
+json: test/benchmark/new/results/C7.json

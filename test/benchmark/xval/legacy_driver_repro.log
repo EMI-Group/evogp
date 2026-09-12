@@ -1,0 +1,11 @@
+=== driver-scope probe: fresh-process mimic (--scope-only --no-presync) ===
+date: 2026-09-11T22:13:46+08:00
+command: flock -w 7200 /tmp/gpbench_critical.lock bash -c "CUDA_VISIBLE_DEVICES=0 PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils timeout 600 /mnt/local-ssd/bchuang/evox/.venv/bin/python -u test/benchmark/xval/legacy_driver_scope_probe.py --fixture test/goldens/forest_random.npz --scope-only --no-presync"
+side=old evogp_file=/tmp/evogp_legacy_bench/src/evogp/__init__.py cuda_visible_devices=0 scope_only=True presync=False
+driver-style scope (build + 25 calls): wall=189.1 ms, sum(per_call)=37.7 ms, residual=151.4 ms, first untimed pre-call synchronize()=0.1 ms, first call=22.59 ms, warm-median=0.601 ms
+
+=== driver-scope probe: warm-CUDA mode (construction breakdown + scope) ===
+command: flock -w 7200 /tmp/gpbench_critical.lock bash -c "CUDA_VISIBLE_DEVICES=0 PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils timeout 600 /mnt/local-ssd/bchuang/evox/.venv/bin/python -u test/benchmark/xval/legacy_driver_scope_probe.py --fixture test/goldens/forest_random.npz"
+side=old evogp_file=/tmp/evogp_legacy_bench/src/evogp/__init__.py cuda_visible_devices=0 scope_only=False presync=True
+np.load=1.17 ms | torch.tensor(device=cuda) x3=144.29 ms | Forest(...)=0.05 ms | _fixture_problem=1.05 ms | from_numpy().to(cuda) x3=0.62 ms | first evaluate=23.56 ms | num_data=64 fitness_shape=(64,)
+driver-style scope (build + 25 calls): wall=17.1 ms, sum(per_call)=15.5 ms, residual=1.6 ms, first untimed pre-call synchronize()=0.0 ms, first call=0.74 ms, warm-median=0.601 ms

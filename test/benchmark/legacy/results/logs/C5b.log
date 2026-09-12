@@ -1,0 +1,20 @@
+=== run_matrix.py /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A7/test/benchmark/legacy/run_matrix.py
+=== side=old commit=b613503 evogp_file=/tmp/evogp_legacy_bench/src/evogp/__init__.py python=3.11.2
+=== gpu=NVIDIA RTX A6000 (CUDA_VISIBLE_DEVICES=4)
+=== env={"ETL_DISABLE_LOCATIONS": null, "EVOGP_ETL_BACKEND": null, "CUDA_VISIBLE_DEVICES": "4"}
+=== out=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A7/test/benchmark/legacy/results fixture=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A7/test/goldens/forest_random.npz
+=== plan=['C5b']
+[C5b] START C5b workload=W3 pop=1000 gens=0 tree_len=64 seed=0
+[C5b] eval 0: 20.878 ms
+[C5b] eval 1: 0.811 ms
+[C5b] eval 2: 0.609 ms
+[C5b] eval 3: 0.602 ms
+[C5b] eval 4: 0.598 ms
+[C5b] eval 5: 0.595 ms
+[C5b] eval 6: 0.593 ms
+[C5b] eval 7: 0.900 ms
+[C5b] eval 8: 0.790 ms
+[C5b] eval 9: 0.602 ms
+[C5b] DONE evals=10 wall=0.190s first_call_ms=20.878 median_warm_ms=0.602 nan_count=66
+[C5b] wrote /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A7/test/benchmark/legacy/results/C5b.json
+=== ALL DONE (1 run(s): C5b)

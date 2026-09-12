@@ -1,0 +1,24 @@
+=== xval C5 (OLD side, unified harness bench_gp.py) ===
+date: 2026-09-11T22:11:09+08:00
+command: flock -w 7200 /tmp/gpbench_critical.lock bash -c "CUDA_VISIBLE_DEVICES=0 PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils timeout 900 /mnt/local-ssd/bchuang/evox/.venv/bin/python -u test/benchmark/bench_gp.py --task eval64 --fixture /mnt/local-ssd/bchuang/evogp/test/goldens/forest_random.npz --eval-reps 25 --tag C5_xval --json-out test/benchmark/xval/C5_xval.json"
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A12
+wave-1 C5 flags cross-check (test/benchmark/new/run_matrix.sh): C5) CONFIG_TIMEOUT=900; CONFIG_ARGS=(--task eval64 --eval-reps 25 --tag C5)
+--- nvidia-smi snapshot at start (GPU pick: index 0 = lowest util 0%, lowest mem 1119 MiB among 0-6; index 7 excluded, ECC fault) ---
+index, name, utilization.gpu [%], memory.used [MiB], memory.total [MiB], temperature.gpu
+0, NVIDIA RTX A6000, 0 %, 1119 MiB, 49140 MiB, 51
+1, NVIDIA RTX A6000, 0 %, 1119 MiB, 49140 MiB, 51
+2, NVIDIA RTX A6000, 14 %, 17702 MiB, 49140 MiB, 50
+3, NVIDIA RTX A6000, 55 %, 16488 MiB, 49140 MiB, 67
+4, NVIDIA RTX A6000, 79 %, 15373 MiB, 49140 MiB, 70
+5, NVIDIA RTX A6000, 0 %, 24399 MiB, 49140 MiB, 34
+6, NVIDIA RTX A6000, 99 %, 4933 MiB, 49140 MiB, 79
+7, NVIDIA RTX A6000, 0 %, 1 MiB, 46068 MiB, 33
+--- run output ---
+[C5_xval] harness=bench_gp.py side=old task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=0 gpu=NVIDIA RTX A6000 evogp=/tmp/evogp_legacy_bench/src/evogp/__init__.py commit=f66fc00cff44c5c3be5d74c5f8c50a4963e68d9e etl=0.1.0 json_out=test/benchmark/xval/C5_xval.json
+[C5_xval] side=old rep0/1: first 22.2ms, warm-median 0.6ms (25 calls)
+[C5_xval] done side=old interrupted=False harness_wall_s=1.4 json_out=test/benchmark/xval/C5_xval.json
+
+--- auxiliary fitness-sanity run (same workload, harness construction reused) ---
+date: 2026-09-11T22:11:38+08:00
+command: flock -w 7200 /tmp/gpbench_critical.lock bash -c "CUDA_VISIBLE_DEVICES=0 PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils timeout 900 /mnt/local-ssd/bchuang/evox/.venv/bin/python -u test/benchmark/xval/c5_fitness_stats.py --fixture /mnt/local-ssd/bchuang/evogp/test/goldens/forest_random.npz --eval-reps 25 --json-out test/benchmark/xval/C5_xval_fitness.json"
+result: side=old first_call_ms=23.00088480114937 median_warm_ms=0.5877725780010223 wall_s=0.04059130698442459 nan_count=3 fitness_mean=-18.048504493275626 fitness_shape=[64] pop=64 tree_len=63 (see C5_xval_fitness.json)

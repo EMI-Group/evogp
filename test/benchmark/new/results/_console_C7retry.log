@@ -1,0 +1,9 @@
+GPU: EXCLUDING index 7 (NVIDIA RTX A6000): 2263 uncorrectable volatile ECC errors
+GPU: picked physical index 1 (A6000-preferred, least utilization, then least memory).
+run_matrix.sh: PY=/mnt/local-ssd/bchuang/evox/.venv/bin/python lock=/tmp/gpbench_critical.lock results=test/benchmark/new/results configs=[C7] CUDA_VISIBLE_DEVICES=1
+config C7: OK (exit 0) -> test/benchmark/new/results/C7.json ; log test/benchmark/new/results/C7.log
+
+=== run_matrix.sh summary (CUDA_VISIBLE_DEVICES=1) ===
+CONFIG STATUS EXIT     LOG
+C7     OK     exit=0   test/benchmark/new/results/C7.log
+ok: 1  failed: 0

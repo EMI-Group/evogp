@@ -1,0 +1,28 @@
+================================================================================
+# GPU snapshot — preflight of legacy benchmark matrix (run_matrix.py, commit b613503)
+# taken: 2026-09-11 21:04:44 HKT  (UTC 2026-09-11 13:04:44)
+# host lock /tmp/gpbench_critical.lock: FREE
+# query: nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader
+0, 42 %, 1119 MiB, 49140 MiB, 62, 196.22 W
+1, 30 %, 7152 MiB, 49140 MiB, 68, 228.25 W
+2, 32 %, 17702 MiB, 49140 MiB, 63, 189.44 W
+3, 83 %, 16484 MiB, 49140 MiB, 66, 269.43 W
+4, 0 %, 15373 MiB, 49140 MiB, 58, 82.85 W
+5, 0 %, 24399 MiB, 49140 MiB, 32, 35.45 W
+6, 92 %, 4933 MiB, 49140 MiB, 74, 295.23 W
+7, 0 %, 1 MiB, 46068 MiB, 32, 28.99 W
+# CHOSEN GPU INDEX: 4  (0 % util, lowest active-GPU power; same device as the BUILD_NOTES smoke baseline)
+# GPU 7 EXCLUDED: hardware-faulted (uncorrectable ECC), see gpu7_ecc_evidence.txt
+#   index 4 has 15.4 GB resident from other tenants but 0 % utilization; 5 is idle-compute too but hosts a 24 GB vLLM engine
+================================================================================
+# GPU snapshot — post-run (all SPEC configs finished; last timing phase ended 21:07:55)
+# taken: 2026-09-11 21:09:15 HKT
+# query: nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader
+0, 42 %, 1119 MiB, 49140 MiB, 65, 199.76 W
+1, 31 %, 7152 MiB, 49140 MiB, 71, 251.98 W
+2, 35 %, 17702 MiB, 49140 MiB, 63, 190.28 W
+3, 87 %, 16486 MiB, 49140 MiB, 67, 268.88 W
+4, 0 %, 15373 MiB, 49140 MiB, 59, 84.41 W
+5, 0 %, 24399 MiB, 49140 MiB, 32, 35.55 W
+6, 99 %, 4933 MiB, 49140 MiB, 76, 296.63 W
+7, 0 %, 1 MiB, 46068 MiB, 33, 29.09 W
