@@ -112,6 +112,7 @@ The legacy `kernel_type` dispatch is gone and **all five map to the same ETL eng
 - `randint` truncates toward zero after `torch.rand` (biased for negative `low`); `dict2prob` is torch-only now and validates names against `FUNCS_NAMES`.
 - `Tree.to_infix` warns and returns a single string when `output_len != 1`; `__python_forward` / `__assert_valid` are debug-only and not on any production path.
 - The engine is correctness-first: the numpy backend does one `etl.run` per tree per call — profile before assuming throughput.
+- For raw timing use the unmerged benchmark harness `test/benchmark/bench_gp.py` (retrievable from the refs listed in `test/CONTEXT.md`; it times `problem.evaluate(forest)` with `--task evalfresh` cold/warm and JSON output). `src/evogp/tests/perf_probe.py` and `test/etl_jit_probe.py` model ETL build/run economics but never import `evogp`, so they cover no decode/input-copy/output-assembly cost.
 - `etl_engine.py` (~1.3k lines) is intentionally a single module: decode, op emission, the multi-output protocol and the cache policy form one compilation unit and were frozen together after oracle validation — do not split without failing-test evidence.
 
 ## Test Strategy
