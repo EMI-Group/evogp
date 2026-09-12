@@ -132,8 +132,9 @@ it: wave 1 shows up inside the specialized stages, wave 2 is invisible to the R2
   *specialized* engine's call sites, so the dense-route records degenerate: the two `auto` eval configs
   report `build_calls=0`, `trees_invoked=0`, only `run_calls=25` non-zero, with the whole 25-call span in
   the uninstrumented `misc` bucket (14 400.7 / 13 779.4 ms), while their JSON-level guard still counts the
-  one dense compile. The on-the-wire behaviour is therefore read off the record itself (`SUMMARY.md` §3,
-  `iree_sr_a` rep0): gen 0 = **dense compile ≈ 16 551.8 ms** (1 `run` call, 0 trees invoked), gens 1–2 =
+  one dense compile. The on-the-wire behaviour is therefore read off the record itself
+  (`r2/round3/SUMMARY.md` §3, `iree_sr_a` rep0): gen 0 = **dense compile ≈ 16 551.8 ms** (1 `run` call,
+  0 trees invoked), gens 1–2 =
   **specialized fallback** because the mutated trees exceed the 32-node dense trace cap (127/200 and
   102/200 trees invoked, 33 184.2 / 34 461.8 ms), gens 3–9 = **dense** again (138.26 … 37.28 ms), rep1
   fully warm (229 build hits, **0 misses**, median 38.39 ms). Build economy at that scale: **170** cumulative
@@ -177,16 +178,19 @@ per-executable memo), **batched readback / multi-program execution** (structural
 
 ### Where the remaining gap lives
 
-On the default fixture-eval path the legacy engine is still **16.8× / 16.5×** ahead (Arm A; 23.5× / 15.8×
-in Arm B) against the frozen anchor of **0.632 ms** (fixture64), and **≈94–372×** ahead of the
-forced-specialized route — so the compression above is a *route* story, not a general one. What is left
-sits in three places: (a) the **K per-tree dispatch + readback** shape that the specialized route (numpy
-default, forced-spec `iree`) still pays — §2/§4(i)–(iii) of the R2 analysis below remain accurate for it;
-(b) the **`etl.run` statics re-validation and the `build_cached` hit-path re-encode**, both still upstream
-(A-2, B-1/B-2) at ≈ µs per leaf × tokens per tree; and (c) the **dense-route glue the R2 probe cannot see**
-(the whole warm cost of the two dense eval configs lands in its `misc` bucket), i.e. the dense path has no
-per-stage profile yet. Closing more of the gap needs the upstream batched-readback / multi-program item —
-the one that is structurally blocked — rather than more evogp-side tuning.
+The legacy engine is still ahead on every route this round measured: on the **default fixture-eval path**
+**16.8× / 16.5×** (Arm A) and 23.5× / 15.8× (Arm B); on the **`numpy` backend** **36.8× / 185.0×** (Arm A)
+and 36.1× / 141.8× (Arm B); on the **fully warm `sr_a` generation** **24.3×** (Arm A, iree dense), 19.5× /
+30.4× (numpy) and 38.1× (forced specialized, Arm B); and with R2's per-structure route forced back on,
+**≈94–372×** across the arms — so the compression above is a *route* story, not a general one, and the
+frozen anchor (0.632 ms fixture64) is unchanged. What is left sits in three places: (a) the **K per-tree
+dispatch + readback** shape that the specialized route (numpy default, forced-spec `iree`) still pays —
+§2/§4(i)–(iii) of the R2 analysis below remain accurate for it; (b) the **`etl.run` statics re-validation
+and the `build_cached` hit-path re-encode**, both still upstream (A-2, B-1/B-2) at ≈ µs per leaf × tokens
+per tree; and (c) the **dense-route glue the R2 probe cannot see** (the whole warm cost of the two dense
+eval configs lands in its `misc` bucket), i.e. the dense path has no per-stage profile yet. Closing more of
+the gap needs the upstream batched-readback / multi-program item — the one that is structurally blocked —
+rather than more evogp-side tuning.
 
 ### `iree_sr_b2` re-attempt (non-headline, not a manifest id)
 
@@ -639,11 +643,12 @@ Impact-ranked; each lever states its evidence and expected direction.
 
 ## 9. What supersedes what
 
-Read the rounds as a chain: **`SUMMARY.md` (round 1) → the R2 sections of this file (§1–§10, the R2
-baseline) → the "Round 3" section at the head of this file (current verdict)**, with the detailed arm
-write-ups in `r2/round3/SUMMARY.md` (Arm A) and `r2/round3/SUMMARY_armB.md` (Arm B) and the R3 protocol in
-`r2/round3/README.md`. The Round 3 numbers do not replace the R2 ones they are diffed against — the R2
-records stay frozen history, and every R3/Arm B record carries its own engine identity and window.
+Read the rounds as a chain: **`SUMMARY.md` (round 1, the numpy-side record in this directory) → the R2
+sections of this file (§1–§10, the R2 baseline) → the "Round 3" section at the head of this file (current
+verdict)**, with the detailed arm write-ups in `r2/round3/SUMMARY.md` (Arm A) and
+`r2/round3/SUMMARY_armB.md` (Arm B) and the R3 protocol in `r2/round3/README.md`. The Round 3 numbers do
+not replace the R2 ones they are diffed against — the R2 records stay frozen history, and every R3/Arm B
+record carries its own engine identity and window.
 
 `SUMMARY.md` remains the round-1 record for the **numpy side** (34×–7 670×, C0–C7 matrix). This
 REPORT.md supersedes it as the current GPU verdict: R2 adds the IREE-cuda backend on the same
