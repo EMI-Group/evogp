@@ -493,6 +493,17 @@ def stage_numpy(args, report: Report) -> None:
         "auto+numpy=False (even at P=1e4), dense=True, specialized=False, "
         "auto+iree: P=16 -> True, P=15 -> False",
     )
+    report.add(
+        "should_use_dense() auto rows gate (iree)",
+        D.should_use_dense(16, backend="iree", rows=2048) is True
+        and D.should_use_dense(16, backend="iree", rows=2049) is False
+        and D.should_use_dense(16, backend="iree", rows=None) is True
+        and D.should_use_dense(15, backend="iree", rows=64) is False
+        and D.should_use_dense(16, backend="iree", rows=10**6, eval_mode="dense") is True,
+        f"auto+iree: 2048 rows -> True, 2049 -> False (EVOGP_DENSE_AUTO_MAX_ROWS="
+        f"{D.resolve_auto_max_rows()}), rows=None (per_row=True) -> True, "
+        "P=15 -> False; explicit dense (rows=1e6) -> True, never gated",
+    )
 
     # -- the combined multi-output container forwards through Forest ------------
     print("-- combined multi-output container (CombinedForest -> Forest) --")
