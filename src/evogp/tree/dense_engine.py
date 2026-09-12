@@ -32,10 +32,14 @@ The **fallback is silent but deliberate**: a :class:`DenseUnsupported` (a
 multi-output population, a tree longer than the trace cap, structural doubt)
 re-runs the very same call on the existing ``decode_population`` +
 ``etl_engine.evaluate`` / ``etl_engine.sr_fitness`` path, which owns the error
-contract for malformed trees.  Nothing else is caught -- every other exception
-propagates, and the result contracts are identical either way (fresh, contiguous,
-``requires_grad=False`` float32; SR fitness returns a fresh writable
-``(pop_size,)`` positive-loss tensor).
+contract for malformed trees.  The ONE exception is an over-cap tree on a
+non-numpy backend, where the fallback (``pop_size`` per-structure compiles)
+really is the expensive outcome: that decline emits a deduped once-per-process
+:class:`RuntimeWarning` naming the longest tree, the cap and the env var
+(:func:`_warn_trace_cap`) and then falls back exactly like the others.  Nothing
+else is caught -- every other exception propagates, and the result contracts are
+identical either way (fresh, contiguous, ``requires_grad=False`` float32; SR
+fitness returns a fresh writable ``(pop_size,)`` positive-loss tensor).
 
 Strategy switch: ``EVOGP_EVAL_MODE``
 ------------------------------------
@@ -90,7 +94,10 @@ Scheme (see :func:`_dense_body` for the trace-time body)
    fails *any* structural check -- raises :class:`DenseUnsupported` so the caller
    falls back to the specialized path (which owns the error contract; this module
    deliberately does NOT reproduce
-   :func:`etl_engine.decode_population`'s error messages).
+   :func:`etl_engine.decode_population`'s error messages).  An over-cap tree is
+   the ONE decline that warns (once per process, on a device backend -- see
+   :func:`_warn_trace_cap`), because the specialized fallback there is the
+   expensive one.
 2. **One graph** (module-level ``@etl.defn _dense_step``) with a Python
    trace-time ``for i in range(L-1, -1, -1)`` unroll over node positions
    (reverse prefix order: children always have a larger index than their
@@ -158,7 +165,7 @@ Environment knobs
                                             a decline -> ``DenseUnsupported``
                                             fallback; ``per_row=True`` and an
                                             explicit ``dense`` are never gated
-``EVOGP_DENSE_MAX_TREE_LEN``    64          max trace length ``L``; longer trees
+``EVOGP_DENSE_MAX_TREE_LEN``    32          max trace length ``L``; longer trees
                                             -> :class:`DenseUnsupported`
 ``EVOGP_DENSE_BUDGET_MB``       2048        chunking memory budget (MiB)
 ``EVOGP_DENSE_UPDATE_MODE``     grow        ``grow`` / ``concat`` / ``scatter``
@@ -308,6 +315,7 @@ twin, ``etl_engine.build_specialized_runner`` -- in ``RUNNER_HOOKS.md``.
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -723,6 +731,48 @@ class DensePrep:
         return int(self.tree_len.max(initial=0))
 
 
+#: Set once the over-cap decline has warned (see :func:`_warn_trace_cap`): the
+#: warning is emitted at most ONCE per process, so a training loop that keeps
+#: producing over-cap populations is not flooded.  Only the warning is deduped --
+#: the :class:`DenseUnsupported` fallback itself happens on every call.
+_TRACE_CAP_WARNED = False
+
+
+def _warn_trace_cap(longest: int, cap: int, row_len: int, backend_name: str) -> None:
+    """Warn ONCE per process about the one *expensive* decline: an over-cap tree.
+
+    Every other :class:`DenseUnsupported` decline stays silent by design: the
+    specialized engine is the cheap (or the only correct) answer there --
+    multi-output, a structural doubt, the ``auto`` rows ceiling -- and numpy is
+    cheap there too.  An over-cap tree on a NON-numpy backend is the exception:
+    the fallback compiles one graph PER DISTINCT TREE STRUCTURE (~0.5-2.6 s
+    each, i.e. up to ``pop_size`` compiles for a fresh population) where the
+    dense route would have paid ONE compile for the whole population, so the
+    user should know the cap ``EVOGP_DENSE_MAX_TREE_LEN`` is what did it.
+    ``backend_name`` is the already-resolved backend; the caller skips numpy
+    before calling.  The flag is process-global: the first over-cap population on
+    a device backend warns, later ones do not.
+    """
+    global _TRACE_CAP_WARNED
+    if _TRACE_CAP_WARNED:
+        return
+    _TRACE_CAP_WARNED = True
+    warnings.warn(
+        f"the dense evaluator declined a population whose longest tree is "
+        f"{longest} nodes because it exceeds the trace cap L={cap} "
+        f"({MAX_TREE_LEN_ENV}={cap}, row length {row_len}); the call falls back "
+        f"to the specialized engine on the {backend_name!r} backend, which "
+        "compiles one graph PER DISTINCT TREE STRUCTURE (well under a second on "
+        "numpy, but ~0.5-2.6 s each on a device backend, i.e. up to pop_size "
+        "compiles for a fresh population) instead of ONE graph for the whole "
+        f"population. Raise {MAX_TREE_LEN_ENV} to include these trees (one dense "
+        "compile per shape signature: ~13.9 s at L=32 and ~31.6 s at L=64 on "
+        "iree; see DENSE_EVAL.md §4/§9). This is reported once per process.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
 def prepare_dense(
     batch_node_value: Any,
     batch_node_type: Any,
@@ -731,6 +781,8 @@ def prepare_dense(
     output_len: int,
     *,
     max_tree_len: Optional[int] = None,
+    backend: Optional[str] = None,
+    iree_device_index: Optional[int] = None,
 ) -> DensePrep:
     """Decode/validate a population for the dense graph (host-side, vectorized).
 
@@ -738,6 +790,10 @@ def prepare_dense(
     structural checks, applied only to positions that belong to a tree: a
     population the dense path accepts is one the specialized decoder accepts
     too, and anything doubtful raises :class:`DenseUnsupported`.
+
+    ``backend`` / ``iree_device_index`` are used for ONE thing: deciding whether
+    the over-cap decline is worth a warning (:func:`_warn_trace_cap`).  They
+    change nothing about the decode or the raised ``DenseUnsupported``.
 
     Raises:
         DenseUnsupported: unsupported ``output_len``, an empty population, a tree
@@ -783,6 +839,11 @@ def prepare_dense(
         raise DenseUnsupported("non-positive subtree_size[0] (tree length)")
     longest = int(tree_len.max())
     if longest > L:
+        # The ONE expensive decline: report it (once per process, device backends
+        # only -- see _warn_trace_cap).  The fallback itself is unchanged.
+        backend_name = resolve_backend_name(backend, iree_device_index)
+        if backend_name != "numpy":
+            _warn_trace_cap(longest, cap, row_len, backend_name)
         raise DenseUnsupported(
             f"longest tree is {longest} nodes but the dense trace cap is {L} "
             f"({MAX_TREE_LEN_ENV}={cap}, row length {row_len}); raise the cap or "
@@ -1286,6 +1347,7 @@ def plan_dense(
         input_len,
         output_len,
         max_tree_len=max_tree_len,
+        backend=backend,
     )
     # Same backend-name resolution as the runtime path (single-sourced in
     # resolve_backend_name, which delegates to etl_engine._resolve_backend).

@@ -549,8 +549,9 @@ rows-linear there while the specialized engine is rows-flat; the wired call site
 so that half of the rule is enforced inside `evaluate_dense`). A population outside the dense subset
 (multi-output, a tree longer than `EVOGP_DENSE_MAX_TREE_LEN` = 64, more rows than the `auto` ceiling,
 any structural doubt) raises `DenseUnsupported` and is re-evaluated by the specialized engine, which
-owns the error contract of §9 for malformed trees; that fallback is silent, every other exception
-propagates.
+owns the error contract of §9 for malformed trees; that fallback is silent — except the over-cap case
+on a non-numpy backend, which emits a deduped once-per-process `RuntimeWarning` (the specialized
+fallback there is `pop_size` per-structure compiles, not one) — and every other exception propagates.
 
 Design rationale, the chunking / peak-memory model, all knobs, the numeric tolerances and the measured
 economics live in **`DENSE_EVAL.md`** (this directory); the wiring is `Forest.forward` /

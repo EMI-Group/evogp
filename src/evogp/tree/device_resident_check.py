@@ -88,6 +88,7 @@ import os
 import statistics
 import sys
 import time
+import warnings
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -102,7 +103,7 @@ import etl  # noqa: E402
 from evogp.tree import Forest  # noqa: E402
 from evogp.tree import dense_engine as D  # noqa: E402
 from evogp.tree import etl_engine as E  # noqa: E402
-from evogp.tree.utils import FUNCS_NAMES  # noqa: E402
+from evogp.tree.utils import FUNCS_NAMES, Func, NType  # noqa: E402
 
 # Small helpers shared with the integration battery (same directory): the report
 # object, the float32 comparison policy and the contract checks.  Reusing them
@@ -433,6 +434,67 @@ def fixture(
     return forest, inputs, labels
 
 
+def cap_chain(
+    longest: int, row_len: int
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """One tree of EXACTLY ``longest`` nodes: ``longest-1`` SIN nodes over a VAR.
+
+    A right-leaning chain, so the declared tree length is deterministic -- which
+    is what the trace-cap checks need (a random population's REALIZED length is
+    not).  Returned as the raw ``(node_value, node_type, subtree_size)`` triple
+    of a one-row population, in the ``(pop, max_tree_len)`` layout
+    ``prepare_dense`` consumes.
+    """
+    values = np.zeros((1, row_len), dtype=np.float32)
+    types = np.zeros((1, row_len), dtype=np.int16)
+    sizes = np.ones((1, row_len), dtype=np.int16)
+    for index in range(longest - 1):
+        types[0, index] = int(NType.UFUNC)
+        values[0, index] = float(Func.SIN)
+        sizes[0, index] = longest - index
+    types[0, longest - 1] = int(NType.VAR)
+    values[0, longest - 1] = 0.0
+    sizes[0, longest - 1] = 1
+    return (
+        torch.from_numpy(values),
+        torch.from_numpy(types),
+        torch.from_numpy(sizes),
+    )
+
+
+def _cap_attempt(
+    longest: int,
+    row_len: int,
+    *,
+    backend: Optional[str] = None,
+    output_len: int = 1,
+) -> Tuple[Any, Optional[str], List[str]]:
+    """``prepare_dense`` on one chain, with its ``RuntimeWarning``s captured.
+
+    Returns ``(DensePrep or None, DenseUnsupported reason or None, warning
+    messages)``.  The ``EVOGP_DENSE_MAX_TREE_LEN`` dedupe flag is process-global,
+    so the caller resets ``D._TRACE_CAP_WARNED`` when it counts warnings.
+    """
+    values, types, sizes = cap_chain(longest, row_len)
+    kwargs: Dict[str, Any] = {}
+    if backend is not None:
+        kwargs["backend"] = backend
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        prep: Any = None
+        reason: Optional[str] = None
+        try:
+            prep = D.prepare_dense(values, types, sizes, 1, output_len, **kwargs)
+        except D.DenseUnsupported as exc:
+            reason = str(exc)
+    warnings_seen = [
+        str(item.message)
+        for item in recorded
+        if issubclass(item.category, RuntimeWarning)
+    ]
+    return prep, reason, warnings_seen
+
+
 def plan_for(
     forest: Forest,
     rows: int,
@@ -559,6 +621,108 @@ def stage_policy(args: Any, report: Report) -> None:
         tuple(D.EVAL_MODES) == ("dense", "specialized", "auto")
         and aliases.get("dynamic") == "dense",
         f"EVAL_MODES={tuple(D.EVAL_MODES)} EVAL_MODE_ALIASES={aliases}",
+    )
+
+    # -- the trace cap (`EVOGP_DENSE_MAX_TREE_LEN`) and its ONE warning ------
+    # ``L = min(cap, row_len)``: the cap may never change what a SHORT row
+    # traces, and the default cap must accept the populations the raise was
+    # measured for (33-64 nodes) while still declining longer ones.
+    previous_cap = os.environ.pop(D.MAX_TREE_LEN_ENV, None)
+    try:
+        resolved_default = _safe(D._resolve_max_tree_len, None)
+    finally:
+        if previous_cap is not None:
+            os.environ[D.MAX_TREE_LEN_ENV] = previous_cap
+    report.add(
+        "the default trace cap is 64 (EVOGP_DENSE_MAX_TREE_LEN unset)",
+        resolved_default == 64 == getattr(D, "DEFAULT_MAX_TREE_LEN", None),
+        f"resolved={resolved_default!r} DEFAULT_MAX_TREE_LEN="
+        f"{getattr(D, 'DEFAULT_MAX_TREE_LEN', None)!r}",
+    )
+    D._TRACE_CAP_WARNED = False
+    short_prep, short_reason, short_warnings = _cap_attempt(20, 32)
+    report.add(
+        "L = min(cap, row_len): a max_tree_len=32 population still traces L=32",
+        getattr(short_prep, "trace_len", None) == 32 and short_reason is None,
+        f"trace_len={getattr(short_prep, 'trace_len', short_reason)!r} for a "
+        "20-node tree in a 32-wide row",
+    )
+    wide_prep, wide_reason, wide_warnings = _cap_attempt(20, 128)
+    report.add(
+        "a long row no longer caps the trace at 32 (L=64)",
+        getattr(wide_prep, "trace_len", None) == 64 and wide_reason is None,
+        f"trace_len={getattr(wide_prep, 'trace_len', wide_reason)!r} for a 20-node "
+        "tree in a 128-wide row",
+    )
+    at_cap = _cap_attempt(64, 128)[0]
+    report.add(
+        "a 64-node tree fits the default cap (the raise lands)",
+        getattr(at_cap, "trace_len", None) == 64
+        and getattr(at_cap, "max_tree_length", None) == 64,
+        f"trace_len={getattr(at_cap, 'trace_len', None)!r} "
+        f"max_tree_length={getattr(at_cap, 'max_tree_length', None)!r}",
+    )
+    over_prep, over_reason, over_warnings = _cap_attempt(70, 128)
+    report.add(
+        "a 70-node tree exceeds the default cap -> DenseUnsupported",
+        over_prep is None
+        and "70 nodes" in (over_reason or "")
+        and "cap is 64" in (over_reason or ""),
+        f"reason={str(over_reason)[:70]!r}",
+    )
+    report.add(
+        "the over-cap decline stays SILENT on numpy (dense is never the win there)",
+        not over_warnings,
+        f"{len(over_warnings)} warning(s)",
+    )
+    D._TRACE_CAP_WARNED = False
+    attempts = [_cap_attempt(70, 128, backend="iree") for _ in range(3)]
+    warned = [warns for _, _, warns in attempts if warns]
+    report.add(
+        "the over-cap decline on a device backend warns ONCE per process",
+        len(warned) == 1 and all(reason for _, reason, _ in attempts),
+        f"{len(warned)} warning(s) over 3 calls (all 3 still declined)",
+    )
+    message = warned[0][0] if warned else ""
+    report.add(
+        "the warning names the longest tree, the cap, the env var and the compile "
+        "consequence",
+        "70 nodes" in message
+        and "L=64" in message
+        and D.MAX_TREE_LEN_ENV in message
+        and "PER DISTINCT TREE STRUCTURE" in message,
+        f"message={message[:96]!r}...",
+    )
+    D._TRACE_CAP_WARNED = False
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        multi_prep, multi_reason, _ = _cap_attempt(4, 8, backend="iree", output_len=2)
+        malformed_values, malformed_types, malformed_sizes = cap_chain(4, 8)
+        malformed_types[0, 0] = int(NType.VAR)  # VAR with a declared subtree > 1
+        malformed = _safe(
+            D.prepare_dense,
+            malformed_values,
+            malformed_types,
+            malformed_sizes,
+            1,
+            1,
+            backend="iree",
+        )
+        other_warnings = [
+            str(item.message)
+            for item in recorded
+            if issubclass(item.category, RuntimeWarning)
+        ]
+    report.add(
+        "every OTHER decline reason stays silent and keeps the once-flag unset",
+        multi_prep is None
+        and "output_len" in (multi_reason or "")
+        and isinstance(malformed, str)
+        and malformed.startswith("<DenseUnsupported")
+        and not other_warnings
+        and D._TRACE_CAP_WARNED is False,
+        f"multi-output={str(multi_reason)[:34]!r} malformed={str(malformed)[:34]!r} "
+        f"warnings={len(other_warnings)}",
     )
 
 

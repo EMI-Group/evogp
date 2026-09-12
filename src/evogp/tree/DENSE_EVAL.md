@@ -149,6 +149,12 @@ Five call sites try dense first and fall back **only** on `DenseUnsupported`: `F
 The fallback is silent but deliberate: the specialized path re-runs the very same call and owns the
 error contract for malformed trees; every other exception propagates. Result contracts are identical
 either way — fresh, contiguous, `requires_grad=False` float32 on `x`'s device unless `out_device`.
+**One decline warns**: an over-cap tree on a non-numpy backend, where the fallback really is the
+expensive outcome (`pop_size` per-structure compiles), emits a deduped once-per-process
+`RuntimeWarning` naming the longest tree, the cap, `EVOGP_DENSE_MAX_TREE_LEN` and that compile
+consequence (`dense_engine._warn_trace_cap`, pinned by the `policy` stage of
+`device_resident_check.py`). Every other decline reason — multi-output, structural doubt, the `auto`
+rows ceiling — stays silent, and the dedupe flag is only consumed by a real warning.
 
 **The SR hot path is LOSS-FOLDED.** `Forest.SR_fitness` / `Tree.SR_fitness` compile the *loss* variant
 (`_dense_loss_step`, `DensePlan.variant="loss"`, static `use_mse` in `cfg[6]`): the graph returns the
@@ -170,7 +176,7 @@ accepted and still all mapping to the same engine path.
 | `EVOGP_EVAL_MODE` | `auto` | `dense` = always try dense (still falling back on `DenseUnsupported`); `specialized` = never; `auto` = the measured policy. `dynamic` is a first-class ALIAS of `dense` (case/whitespace-insensitive, in `EVAL_MODE_ALIASES`, never gated by the rows rule); unknown → `ValueError` |
 | `EVOGP_DENSE_AUTO_MIN_POP` | `16` | `auto`'s `pop_size` threshold on a non-numpy backend (`< 1` → `ValueError`) |
 | `EVOGP_DENSE_AUTO_MAX_ROWS` | `2048` | `auto`'s data-row ceiling for `per_row=False` calls: dense is rows-linear while the specialized engine is rows-flat, so more rows decline inside `evaluate_dense` (→ normal `DenseUnsupported` fallback; `< 1` → `ValueError`). `per_row=True` and an explicit `dense` are never gated |
-| `EVOGP_DENSE_MAX_TREE_LEN` | `64` | trace cap `L`; a longer tree → `DenseUnsupported` (`<= 0` → `ValueError`) (`L = min(cap, row_len)`, so a `max_tree_len=32` population still traces `L=32`) |
+| `EVOGP_DENSE_MAX_TREE_LEN` | `64` | trace cap `L`; a longer tree → `DenseUnsupported` (`<= 0` → `ValueError`) and — on a non-numpy backend only — a once-per-process `RuntimeWarning` (`L = min(cap, row_len)`, so a `max_tree_len=32` population still traces `L=32`) |
 | `EVOGP_DENSE_BUDGET_MB` | `2048` | chunking budget in MiB (`<= 0` → `ValueError`) |
 | `EVOGP_DENSE_UPDATE_MODE` | `grow` | `grow` / `concat` / `scatter` (unknown → `ValueError`; iree-`scatter` → `DenseUnsupported`) |
 | `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER` | unset | opt-in for `scatter` on iree |
@@ -222,8 +228,8 @@ specialized engine — never an error. Consequences:
   multi-output populations (OUT_NODE tags, the out-node accumulation protocol) always run on the
   specialized engine, which implements that protocol.
 * **Trace cap.** The longest declared tree must be `<= L = min(EVOGP_DENSE_MAX_TREE_LEN, row_len)`;
-  longer trees fall back. `L` bounds trace time and graph size (the candidate chain is emitted `L`
-  times).
+  longer trees fall back (with the one warning above, device backends only). `L` bounds trace time and
+  graph size (the candidate chain is emitted `L` times).
   **The default is 64, raised from 32 by the item-5 measurement round** (§9.4): on iree one compile
   costs ≈13.9 s (`L=32`) / ≈31.6 s (`L=64`) / ≈69.0 s (`L=128`) per shape signature, and for a 33–64-node
   population at P=64 the dense route (ONE build, ≈28.9 s cold, ≈11.6 ms warm) beats the silent fallback
@@ -465,7 +471,8 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
    ratios at the same 33–64-node shape). **Decision: default 64, not 128** — `L=128` would pay a ≈69 s
    compile for every `row_len >= 128` population, and the shipped descriptors are 128/256/512 wide.
    Memory stayed safe across the round (peak RSS ≤ 2.7 GB, no grid cell skipped) and the numpy default
-   route is untouched (dense is never auto-selected on numpy). Full record:
+   route is untouched (dense is never auto-selected on numpy). The over-cap fallback is the one decline
+   that now warns (once per process, device backends only — §3). Full record:
    `device_resident_findings.md` §9.
    **Still open (documented, NOT implemented):** derive `L` from the REALIZED longest tree rounded up to
    a power of two, clamped at the cap — that would stop a short-tree population with a wide row
