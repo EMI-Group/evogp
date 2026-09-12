@@ -6,6 +6,8 @@ It was distilled from the CUDA/HIP kernel sources that used to live in `src/evog
 at repository snapshot `8a487f19171a40823d5a3ae85c3738cc1bc9483a`, and it is the durable
 record of the semantics reproduced by the current extension-free Python implementation
 (`etl_engine.py` for evaluation/fitness, `generation.py` / `splicing.py` for the operators).
+Section 13 is the only *implementation* section: it records the alternative dense whole-population
+route (`dense_engine.py`, design documentation in `DENSE_EVAL.md`) without changing any semantics.
 Legacy-only tables and notes are marked as such where they can no longer guide code.
 Line references of the form `forward.cu:181` point into that snapshot.
 
@@ -517,3 +519,36 @@ returned tuple is `(value, node_type, subtree_size)`.
   `old[0 .. pos)` + `donor[dpos .. dpos+dsize)` + `old[pos + old_size[pos] .. old_size)`;
   (e) for multi-output, verify that each `outs[o]` equals the sum of the values of all out-nodes with
   `outIndex == o`, where each out-node's value is its own function value (not its rightmost child's).
+
+---
+
+## 13. The dense one-graph evaluation path (implementation, not semantics)
+
+**Nothing in sections 1–12 changes.** A population can be evaluated by two interchangeable
+implementations, and they are required to agree:
+
+- the **specialized engine** (`etl_engine.py`, sections 3–5): one ETL graph per *tree structure*,
+  one Python invocation and one device readback per tree;
+- the **dense evaluator** (`dense_engine.py`): ONE ETL graph per *shape signature*, with the
+  population's node tensors passed as runtime inputs (host-side vectorized encoding of
+  opcode / function id / constant / variable index / child positions, a trace-time reverse-position
+  unroll, chunked execution, one readback per call).
+
+The dense graph computes every node value through the *same* private op emitters as the specialized
+engine (`etl_engine._emit_unary` / `_emit_binary` / `_emit_ternary`), so the op table (§3), the
+leftmost-child-first operand order (§4.1), the ±1 comparisons, the loose-op edge rules, the unary /
+binary / ternary arity dispatch and the SR-fitness formula (§5) are identical by construction, and the
+deviations listed in §12 apply to both. Section 4.3 (multi-output) is implemented by the specialized
+engine only: a multi-output population makes the dense path decline and fall back.
+
+Selection is per call, by the `EVOGP_EVAL_MODE` environment variable (an explicit `eval_mode=`
+argument wins): `specialized` never uses dense, `dense` always attempts it, `auto` (the default)
+resolves to *non-numpy backend and `pop_size >= EVOGP_DENSE_AUTO_MIN_POP` (16)*. A population outside
+the dense subset (multi-output, a tree longer than `EVOGP_DENSE_MAX_TREE_LEN` = 32, any structural
+doubt) raises `DenseUnsupported` and is re-evaluated by the specialized engine, which owns the error
+contract of §9 for malformed trees; that fallback is silent, every other exception propagates.
+
+Design rationale, the chunking / peak-memory model, all knobs, the numeric tolerances and the measured
+economics live in **`DENSE_EVAL.md`** (this directory); the wiring is `Forest.forward` /
+`Forest.batch_forward` / `Forest.SR_fitness` + `Tree.forward` / `Tree.SR_fitness`, with the public API
+contracts (shapes, dtypes, `use_MSE`, `per_row`, the five `execute_mode` strings) unchanged.
