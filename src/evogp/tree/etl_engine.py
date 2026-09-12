@@ -60,6 +60,14 @@ Backend & device policy
 * The population/input tensors may live on any torch device (they are read
   back with ``.cpu()``) and the result is returned on the input's device unless
   ``out_device`` says otherwise.
+* Fitness does not round-trip the prediction: :func:`sr_fitness` converts
+  ``inputs`` and ``labels`` to host once, reduces the host rows its own
+  evaluation produced -- with numpy, in place, in float32 (torch's CPU ops on
+  that tensor open an intra-op thread pool that then starves the
+  single-threaded ETL/numpy interpreter; see the function docstring) -- and
+  moves only the ``(pop_size,)`` loss to the input device.  :func:`evaluate`
+  keeps returning its full ``(pop_size, N, output_len)`` tensor on the input
+  device as documented above.
 
 Cache sizing
 ------------
@@ -140,9 +148,11 @@ Documented deviations from the old kernels
 * Trees with no ``VAR`` node in their emitted program (i.e. fully constant
   trees, including dead ternary branches) are never compiled: the result is
   produced host-side.
-* ``sr_fitness`` sums the per-(data point, output) errors with torch's
-  reduction order instead of the kernel's block reduction; same formula, float32
-  rounding differences of order 1e-6 relative.
+* ``sr_fitness`` sums the per-(data point, output) errors on the HOST with
+  numpy's pairwise float32 reduction instead of the kernel's device-side block
+  reduction, and only the ``(pop_size,)`` loss reaches the input device (the
+  prediction is never uploaded); same formula, float32 rounding differences of
+  order 1e-6 relative.
 
 Limitations
 -----------
@@ -1316,6 +1326,55 @@ def _run_tree(
     return np.asarray(result.to(_CPU).numpy(), dtype=np.float32).reshape(n_rows, -1)
 
 
+def _evaluate_rows(
+    pop: Population,
+    xt: np.ndarray,
+    *,
+    per_row: bool,
+    backend: Optional[str] = None,
+    iree_device_index: Optional[int] = None,
+) -> np.ndarray:
+    """Host-rows core of :func:`evaluate` and :func:`sr_fitness`.
+
+    ``pop`` must already be a validated :class:`Population` and ``xt`` the
+    ALREADY converted ``(rows, input_len)`` float32 host array (``rows ==
+    pop_size`` when ``per_row``); nothing is re-validated or re-converted here.
+    The return value is the assembled **host** prediction -- ``(pop_size,
+    output_len)`` for ``per_row=True``, ``(pop_size, N, output_len)`` otherwise
+    -- a FRESH array that the caller may consume in place (``sr_fitness``
+    reduces it without ever moving it to a device).
+
+    On a device backend (``iree``) the host->device copy of the input block is
+    memoized per distinct block: ``per_row=False`` converts ``xt`` ONCE for the
+    whole call, while ``per_row=True`` transfers each tree's own
+    ``(1, input_len)`` row.
+    """
+    n_rows = 1 if per_row else int(xt.shape[0])
+    backend_name, device, options = _resolve_backend(backend, iree_device_index)
+
+    rows = np.empty((pop.pop_size, n_rows, pop.output_len), dtype=np.float32)
+    prepared: Dict[int, Any] = {}
+    for index, tree in enumerate(pop.trees):
+        if tree.const_out is not None:
+            rows[index, :, :] = _bits_to_float_arr(tree.const_out)
+            continue
+        xin = xt[index : index + 1] if per_row else xt
+        rows[index] = _run_tree(
+            tree,
+            xin,
+            0 if not per_row else index,  # tree index -> per-tree x row
+            n_rows,
+            pop.input_len,
+            backend_name,
+            device,
+            options,
+            prepared,
+        )
+    if per_row:
+        rows = np.ascontiguousarray(rows[:, 0, :])
+    return rows
+
+
 def evaluate(
     population: Population,
     x: Any,
@@ -1342,40 +1401,24 @@ def evaluate(
     ``torch.device("cuda:1")``).  ``x`` may be a torch tensor on any device or a
     numpy array; it is cast to float32, copied, and never modified.  The
     population's tensors are not touched either.
+
+    The evaluation itself is :func:`_evaluate_rows`; this wrapper only validates
+    the input, converts it once and places the assembled rows on a device.
     """
     pop = _require_population(population)
     xt = _input_to_numpy(x, pop.input_len, "x")
-    if per_row:
-        if xt.shape[0] != pop.pop_size:
-            raise ValueError(
-                f"per_row=True needs x.shape[0] == {pop.pop_size} (pop_size), "
-                f"got {xt.shape[0]}"
-            )
-        n_rows = 1
-    else:
-        n_rows = int(xt.shape[0])
-    backend_name, device, options = _resolve_backend(backend, iree_device_index)
-
-    rows = np.empty((pop.pop_size, n_rows, pop.output_len), dtype=np.float32)
-    prepared: Dict[int, Any] = {}
-    for index, tree in enumerate(pop.trees):
-        if tree.const_out is not None:
-            rows[index, :, :] = _bits_to_float_arr(tree.const_out)
-            continue
-        xin = xt[index : index + 1] if per_row else xt
-        rows[index] = _run_tree(
-            tree,
-            xin,
-            0 if not per_row else index,  # tree index -> per-tree x row
-            n_rows,
-            pop.input_len,
-            backend_name,
-            device,
-            options,
-            prepared,
+    if per_row and xt.shape[0] != pop.pop_size:
+        raise ValueError(
+            f"per_row=True needs x.shape[0] == {pop.pop_size} (pop_size), "
+            f"got {xt.shape[0]}"
         )
-    if per_row:
-        rows = np.ascontiguousarray(rows[:, 0, :])
+    rows = _evaluate_rows(
+        pop,
+        xt,
+        per_row=per_row,
+        backend=backend,
+        iree_device_index=iree_device_index,
+    )
 
     tensor = torch.from_numpy(rows).contiguous().detach().requires_grad_(False)
     target = out_device if out_device is not None else getattr(x, "device", None)
@@ -1409,6 +1452,28 @@ def sr_fitness(
     higher-is-better convention).  The returned tensor is fresh, contiguous and
     ``requires_grad=False``.  ``inputs``/``labels`` are cast to float32 and
     copied, never mutated.
+
+    ``inputs`` and ``labels`` are converted to host ONCE (no second conversion
+    inside the evaluation), the errors are reduced on the HOST from the rows
+    :func:`_evaluate_rows` just assembled -- the full ``(pop_size, N,
+    output_len)`` prediction never makes a device round-trip, on any backend --
+    and only the ``(pop_size,)`` loss is placed on ``inputs``' device.
+
+    The formula is unchanged; two things about the reduction are deliberate:
+
+    * it runs **host-side, in place on the rows** the evaluation just assembled
+      (allocating no extra ``(pop_size, N, output_len)`` temporaries), and
+    * it uses **numpy, not torch**: torch's CPU ops on a ``(pop_size, N)``-sized
+      tensor open an intra-op thread pool whose spin-waiting then starves the
+      single-threaded ETL/numpy interpreter of the *next* call (measured on the
+      64-tree / N=10000 fixture: 95.3 ms median per ``SR_fitness`` with the torch
+      host reduction vs 20.5 ms with the numpy one, against 22.8 ms for the old
+      device-reduction path -- and the torch path's stalls land in unrelated
+      stages, e.g. ``build_cached`` hits).
+
+    Both are the same class of float32 rounding deviation as the reduction order
+    noted in the module docstring (max relative difference vs the device
+    reduction ~2e-7 on the fixtures, NaN/inf placement identical).
     """
     pop = _require_population(population)
     xin = _input_to_numpy(inputs, pop.input_len, "inputs")
@@ -1420,16 +1485,23 @@ def sr_fitness(
             f"labels must have shape ({xin.shape[0]}, {pop.output_len}), got "
             f"{label.shape}"
         )
-    prediction = evaluate(
+    rows = _evaluate_rows(
         pop,
-        inputs,
+        xin,
         per_row=False,
-        out_device=out_device,
         backend=backend,
         iree_device_index=iree_device_index,
     )
-    target = torch.from_numpy(label).to(prediction.device)
-    diff = target.unsqueeze(0) - prediction  # (pop_size, N, output_len)
-    err = diff * diff if use_MSE else diff.abs()
-    loss = err.sum(dim=(1, 2)) / float(xin.shape[0])
-    return loss.contiguous().detach().requires_grad_(False)
+    # err = label - prediction (then squared / |.|), summed over data points and
+    # outputs in float32.  In place on ``rows``: this call owns that fresh array.
+    np.subtract(label[None, :, :], rows, out=rows)  # (pop_size, N, output_len)
+    if use_MSE:
+        np.multiply(rows, rows, out=rows)
+    else:
+        np.abs(rows, out=rows)
+    loss_np = rows.sum(axis=(1, 2), dtype=np.float32) / np.float32(xin.shape[0])
+    loss = torch.from_numpy(loss_np).contiguous().detach().requires_grad_(False)
+    dest = out_device if out_device is not None else getattr(inputs, "device", None)
+    if dest is not None and torch.device(dest) != loss.device:
+        loss = loss.to(dest)
+    return loss
