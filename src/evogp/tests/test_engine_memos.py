@@ -42,12 +42,23 @@ How the counts are observed:
 Hermeticity: the two memos are process-global, so every memo test defines its own
 baseline with ``etl_engine.clear_cache()`` and only asserts counter *deltas* it
 established itself.  Shapes are deliberately tiny (P=8, L=16, N=12) and the engine
-backend is pinned to ``"numpy"``, so nothing leaves the host;
-``Forest.SR_fitness`` is the only call that needs CUDA (``check_tensor`` relocates
-its inputs) and that one test skips without a GPU.  The direct ``etl_engine`` calls
-are always the specialized route; the file passes with ``EVOGP_EVAL_MODE`` unset
-and with ``EVOGP_EVAL_MODE=dense`` (the ``Forest``-level differential compares
-three calls made in the same mode).
+backend is ``"numpy"`` everywhere, so nothing leaves the host: the direct
+``etl_engine`` calls pass ``backend="numpy"`` explicitly, while the one public
+``Forest.SR_fitness`` call -- the only one that needs CUDA (``check_tensor``
+relocates its inputs) and the only one that skips without a GPU -- resolves BOTH
+its route and its backend from the environment and therefore pins them itself
+(``dense_engine.EVAL_MODE_ENV=specialized`` + ``etl_engine.BACKEND_ENV=numpy``).
+
+That pin is what makes the ``Forest``-level differential non-vacuous: the memo
+under test (``etl_engine._EXECUTABLE_MEMO``) is the SPECIALIZED route's front
+table, so a forced-dense suite run (``EVOGP_EVAL_MODE=dense``) would otherwise turn
+all three calls into dense evaluations against the memo-free twin's unused path --
+three identical dense results, compared and passing for the wrong reason.  The test
+counts ``etl_engine._executable`` calls (both the memoized and the memo-free half)
+and fails if the route it claims to check was not taken, so it reaches the
+specialized path under the default run and under the forced-dense run alike.  The
+direct ``etl_engine`` calls are always the specialized route; the file passes with
+``EVOGP_EVAL_MODE`` unset and with ``EVOGP_EVAL_MODE=dense``.
 """
 
 from __future__ import annotations
@@ -754,20 +765,59 @@ def test_executable_memo_is_bit_identical_through_forest_sr_fitness(
 ) -> None:
     """The public ``Forest.SR_fitness`` route agrees with itself and the twin.
 
-    On the default (numpy/auto) route this is the specialized engine, i.e. the
-    memo; under ``EVOGP_EVAL_MODE=dense`` all three calls take the dense route, so
-    the differential stays a self-consistency check there.
+    Both the route and the engine backend are PINNED here, because the memo under
+    test is the specialized route's front table: ``EVOGP_EVAL_MODE=specialized``
+    (``dense_engine.EVAL_MODE_ENV``) keeps the differential on the memo path even
+    under a forced-dense suite run (``EVOGP_EVAL_MODE=dense``), where the public
+    call would otherwise take the dense route and the memo-free twin would never be
+    exercised -- three identical dense evaluations, passing vacuously.  The
+    ``EVOGP_ETL_BACKEND=numpy`` pin (``etl_engine.BACKEND_ENV``) is the same
+    environment resolution: ``Forest.SR_fitness`` passes no ``backend=`` of its own.
+
+    The route is not trusted, it is OBSERVED: ``etl_engine._executable`` is counted
+    (memoized half and memo-free half), so a call that skips the specialized path
+    fails here instead of comparing something else.
     """
     _pop, _x, labels, forest, _distinct = memo_fixture
     inputs = torch.from_numpy(_x_host()).to("cuda")
     targets = labels.to("cuda")
+    monkeypatch.setenv(D.EVAL_MODE_ENV, "specialized")
+    monkeypatch.setenv(E.BACKEND_ENV, "numpy")
+
+    memo_lookups: List[Any] = []
+    twin_lookups: List[Any] = []
+    memo_executable = E._executable
+
+    def counting_memo(*args: Any, **kwargs: Any) -> Any:
+        memo_lookups.append(args[0])
+        return memo_executable(*args, **kwargs)
+
+    def counting_twin(*args: Any, **kwargs: Any) -> Any:
+        twin_lookups.append(args[0])
+        return _memo_free_executable(*args, **kwargs)
+
+    monkeypatch.setattr(E, "_executable", counting_memo)
 
     warm = forest.SR_fitness(inputs, targets, True, "auto")
+    assert len(memo_lookups) == forest.pop_size, (
+        f"the pinned {D.EVAL_MODE_ENV}=specialized route must perform one per-tree "
+        f"_executable lookup per tree, got {len(memo_lookups)} of {forest.pop_size}: "
+        "0 means the call took the dense route and this differential is vacuous"
+    )
     E.clear_cache()
     cold = forest.SR_fitness(inputs, targets, True, "auto")
-    monkeypatch.setattr(E, "_executable", _memo_free_executable)
+    assert len(memo_lookups) == 2 * forest.pop_size, (
+        "the cold rebuild must look every tree up again "
+        f"({len(memo_lookups)} of {2 * forest.pop_size})"
+    )
+
+    monkeypatch.setattr(E, "_executable", counting_twin)
     E.clear_cache()
     plain = forest.SR_fitness(inputs, targets, True, "auto")
+    assert len(twin_lookups) == forest.pop_size, (
+        "the memo-free differential never ran: "
+        f"{len(twin_lookups)} of {forest.pop_size} per-tree lookups"
+    )
 
     assert _bits_equal(warm, cold), "the cold rebuild changed Forest.SR_fitness"
     assert _bits_equal(warm, plain), (

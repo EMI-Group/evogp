@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
-from typing import Any, Dict, Sequence, Tuple
+from typing import Any, Callable, Dict, Sequence, Tuple
 
 import numpy as np
 import pytest
@@ -319,6 +319,41 @@ def _sr_fitness_dense(
         budget_mb=BUDGET_MB,
         update_mode=UPDATE_MODE,
     )
+
+
+def _api_call_compiles_the_full_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    full_plan: Any,
+    api_call: Callable[[], Any],
+    label: str,
+) -> Any:
+    """Run one public dense API call under ``EVOGP_DENSE_PRUNE=0`` and PROVE it compiled FULL.
+
+    The A/B values cannot show which chain ran -- pruning is bit-exact by design, so
+    a ``=0`` side that silently compiled the PRUNED graph would still compare equal.
+    The evidence is the compile cache, mirroring the pruned-side bracket of
+    ``test_default_env_route_builds_the_pruned_graph``: from a cleared cache the API
+    call must leave exactly ONE cold miss, and the EXPLICIT full-chain plan
+    (``FULL_FUNC_IDS`` cfg) of the same shape must then be a HIT on it.  A rebuild
+    instead means the public call did not resolve ``EVOGP_DENSE_PRUNE`` /
+    ``resolve_prune()`` into ``plan_dense`` -- i.e. both sides of the A/B were
+    pruned and the comparison would pass vacuously.
+    """
+    monkeypatch.setenv(D.PRUNE_ENV, "0")
+    E.clear_cache()
+    result = api_call()
+    after_api = E.cache_stats()
+    assert (after_api["misses"], after_api["hits"]) == (1, 0), (
+        f"{label}: the {D.PRUNE_ENV}=0 API call must compile exactly one graph, got {after_api}"
+    )
+    _build(full_plan)
+    after_plan = E.cache_stats()
+    assert (after_plan["misses"], after_plan["hits"]) == (1, 1), (
+        f"{label}: the {D.PRUNE_ENV}=0 API call did not compile the FULL chain -- the "
+        f"explicit full-chain plan rebuilt instead of hitting it ({after_plan}); the "
+        "public API must forward resolve_prune() into plan_dense"
+    )
+    return result
 
 
 def _as_f32(value: Any) -> np.ndarray:
@@ -598,8 +633,14 @@ def test_prune_value_route_is_bit_exact(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.delenv(D.PRUNE_ENV, raising=False)
     pruned = _evaluate_dense(rows3, x, per_row=False)
-    monkeypatch.setenv(D.PRUNE_ENV, "0")
-    full = _evaluate_dense(rows3, x, per_row=False)
+    # The ``=0`` side is cache-bracketed: the API call must really compile the
+    # FULL-chain cfg, else this A/B compares the pruned graph with itself.
+    full = _api_call_compiles_the_full_chain(
+        monkeypatch,
+        full_plan,
+        lambda: _evaluate_dense(rows3, x, per_row=False),
+        "value route, per_row=False",
+    )
 
     assert tuple(pruned.shape) == (POP_SIZE, N_ROWS, 1), tuple(pruned.shape)
     assert_bit_exact(pruned, full, "value route, per_row=False")
@@ -669,8 +710,14 @@ def test_prune_loss_route_is_bit_exact(monkeypatch: pytest.MonkeyPatch, use_mse:
 
     monkeypatch.delenv(D.PRUNE_ENV, raising=False)
     pruned = _sr_fitness_dense(rows3, x, labels, use_mse)
-    monkeypatch.setenv(D.PRUNE_ENV, "0")
-    full = _sr_fitness_dense(rows3, x, labels, use_mse)
+    # Same full-side evidence as the value route: the loss API has its own
+    # ``plan_dense`` call site, so it gets its own cache bracket.
+    full = _api_call_compiles_the_full_chain(
+        monkeypatch,
+        full_plan,
+        lambda: _sr_fitness_dense(rows3, x, labels, use_mse),
+        f"loss route, {'MSE' if use_mse else 'MAE'}",
+    )
 
     assert tuple(pruned.shape) == (POP_SIZE,), tuple(pruned.shape)
     assert_bits = _as_f32(pruned)

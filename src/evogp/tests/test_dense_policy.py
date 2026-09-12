@@ -54,12 +54,17 @@ from typing import Optional, Tuple
 import numpy as np
 import pytest
 
-from evogp.tree import NType, dense_engine as dense
+from evogp.tree import NType, dense_engine as dense, etl_engine
 from evogp.tree.utils import Func
 
-#: Env var naming the backend the engine would resolve (``etl_engine.BACKEND_ENV``,
-#: redeclared here so this module does not reach into the engine implementation).
-ETL_BACKEND_ENV = "EVOGP_ETL_BACKEND"
+#: Env var naming the backend the engine would resolve, taken from the ENGINE's own
+#: constant (``etl_engine.BACKEND_ENV``) so the autouse clearing fixture below can
+#: never target a name the engine stopped reading.
+ETL_BACKEND_ENV = etl_engine.BACKEND_ENV
+assert ETL_BACKEND_ENV == "EVOGP_ETL_BACKEND", (
+    f"etl_engine.BACKEND_ENV is now {ETL_BACKEND_ENV!r}: update this module's "
+    "docstring/expectations instead of clearing a stale name"
+)
 
 VAR = int(NType.VAR)
 UFUNC = int(NType.UFUNC)

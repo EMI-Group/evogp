@@ -34,10 +34,14 @@ backend (``backend="numpy"`` everywhere; a device backend would compile per shap
 Hermeticity / scope
 -------------------
 * small shapes only: ``pop_size <= 8``, ``N <= 13``, ``L <= 16``, numpy backend;
-* every knobs that would change the plan (``backend`` / ``budget_mb`` /
-  ``max_tree_len``) is passed EXPLICITLY, and an autouse fixture pins
-  ``EVOGP_EVAL_MODE=dense`` + ``EVOGP_ETL_BACKEND=numpy`` so ambient
-  ``EVOGP_DENSE_*`` / ``EVOGP_ETL_*`` knobs cannot change what is measured;
+* every knob that would change the plan (``backend`` / ``budget_mb`` /
+  ``max_tree_len``) is passed EXPLICITLY, and a MODULE-scoped autouse fixture pins
+  the ambient ones for the whole file -- ``EVOGP_EVAL_MODE=dense`` +
+  ``EVOGP_ETL_BACKEND=numpy`` plus the two plan-level knobs
+  ``EVOGP_DENSE_UPDATE_MODE`` / ``EVOGP_DENSE_PRUNE`` (at their library defaults),
+  the module scope being what makes the module-scoped plan fixtures and the call
+  sites agree -- so no ambient ``EVOGP_DENSE_*`` / ``EVOGP_ETL_*`` value can change
+  what is measured;
 * no file outside ``src/evogp/tests/`` is touched, and ``reference_eval.py`` (the
   oracle) is used as-is -- never re-implemented here.
 
@@ -52,9 +56,10 @@ Run it from the repository root::
 from __future__ import annotations
 
 import math
+import os
 import pathlib
 import sys
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import pytest
 import torch
@@ -121,9 +126,19 @@ requires_cuda = pytest.mark.skipif(
 )
 
 
-@pytest.fixture(autouse=True)
-def _pin_route_and_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin the master switch and the engine backend for EVERY test in this file.
+def _pinned_environment() -> Dict[str, str]:
+    """The environment every test of this file runs under (see the fixture below)."""
+    return {
+        dense_engine.EVAL_MODE_ENV: "dense",
+        "EVOGP_ETL_BACKEND": BACKEND,
+        dense_engine.UPDATE_MODE_ENV: dense_engine.DEFAULT_UPDATE_MODE,
+        dense_engine.PRUNE_ENV: "1" if dense_engine.DEFAULT_PRUNE else "0",
+    }
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _pin_route_and_backend() -> Iterator[None]:
+    """Pin every ambient knob that could change what this file measures, for the module.
 
     ``EVOGP_EVAL_MODE=dense``: ``sr_fitness_dense`` consults the mode exactly once
     (``auto_rows_decline``), so an ambient ``EVOGP_DENSE_AUTO_MAX_ROWS`` below ``N``
@@ -134,9 +149,34 @@ def _pin_route_and_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     ``EVOGP_ETL_BACKEND=numpy``: the wired entry points (``Forest.SR_fitness`` in the
     public-route test) resolve the backend from the environment; no test in this file
     may compile an iree graph.
+
+    ``EVOGP_DENSE_UPDATE_MODE`` / ``EVOGP_DENSE_PRUNE``: the buffer write strategy and
+    the candidate-chain pruning are plan-level knobs neither the helpers here nor the
+    public call sites pass explicitly, so an ambient value would silently change the
+    compiled graph (and its cfg cache key) under every assertion in the file. They are
+    pinned to the library defaults (``dense_engine.DEFAULT_UPDATE_MODE`` /
+    ``DEFAULT_PRUNE``), not merely cleared.
+
+    The scope is MODULE, not function, on purpose: the plan-building fixtures below
+    (``unchunked_plan`` / ``both_chunked_plan``) are module-scoped, and pytest
+    instantiates them BEFORE any function-scoped autouse fixture -- so a function-scoped
+    pin would leave the fixture plans planned under the ambient environment while the
+    call sites run under the pinned one, and ``EVOGP_DENSE_UPDATE_MODE`` changes the
+    peak-bytes model (``buf_factor``), i.e. the chunk shape, so that is a disagreement
+    rather than a pin. The four values are saved and restored around the module, so the
+    rest of the suite is unaffected.
     """
-    monkeypatch.setenv(dense_engine.EVAL_MODE_ENV, "dense")
-    monkeypatch.setenv("EVOGP_ETL_BACKEND", BACKEND)
+    pins = _pinned_environment()
+    saved = {name: os.environ.get(name) for name in pins}
+    os.environ.update(pins)
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 # --------------------------------------------------------------------------- #
@@ -387,12 +427,17 @@ class _HostCrossings:
     """Every host<->torch crossing of ONE dense loss call, by site and caller.
 
     A pytest port of ``Traffic`` in ``src/evogp/tree/device_resident_check.py``: the
-    same six patched sites (``dense_engine._as_numpy`` / ``_pad_rows`` / ``_to_host``,
-    ``etl.core.Tensor.numpy``, ``etl.run``, ``torch.from_numpy``), the same
-    caller-frame names, and the same "the caller is always the first field"
-    convention. ``etl.core.Tensor.numpy`` is also called thousands of times inside the
-    numpy interpreter's own arithmetic, which is why the readback view filters by
-    caller frame.
+    same six patched sites, one of them SWAPPED -- ``dense_engine._as_numpy`` /
+    ``_pad_rows`` / ``_to_host``, ``etl.core.Tensor.numpy``, ``etl.run``,
+    ``torch.from_numpy`` here against the battery's ``dense_engine._as_numpy`` /
+    ``_pad_rows``, ``etl.core.Tensor.numpy``, ``etl.run``, ``torch.from_numpy`` and
+    ``etl.from_numpy`` (the upload counter) -- because the numpy backend never
+    uploads anything: ``_to_host`` counts the readback/assembly crossing of that
+    backend instead, which is what the loss route's host traffic consists of. The
+    caller-frame names and the "the caller is always the first field" convention
+    are the battery's. ``etl.core.Tensor.numpy`` is also called thousands of times
+    inside the numpy interpreter's own arithmetic, which is why the readback view
+    filters by caller frame.
 
     The wrappers are installed through ``monkeypatch`` and the originals are put back
     on exit, so one test may take several independent counts. Every instance starts

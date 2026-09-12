@@ -83,9 +83,15 @@ _HERE = pathlib.Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
+#: The two imports below are guarded by ``ImportError`` ONLY, deliberately: a
+#: genuinely missing dependency (``etl`` not installed, a pre-merge worktree without
+#: ``test_equivalence.py``) skips the whole file, while an import REGRESSION inside
+#: the engine or the shared fixtures -- a ``SyntaxError``, an ``AttributeError``, a
+#: half-merged module -- must fail collection here instead of silently reporting 20
+#: green "skipped" tests.
 try:
     import test_equivalence as eq
-except Exception as exc:  # pragma: no cover - only in a pre-merge worktree
+except ImportError as exc:  # pragma: no cover - only in a pre-merge worktree
     eq = None
     _FIXTURE_IMPORT_ERROR: Any = exc
 else:
@@ -98,7 +104,7 @@ try:
     from evogp.tree import etl_engine as E
 
     _ENGINE_IMPORT_ERROR: Any = None
-except Exception as exc:  # pragma: no cover - depends on the environment
+except ImportError as exc:  # pragma: no cover - only when a dependency is missing
     Forest = None
     D = E = None
     _ENGINE_IMPORT_ERROR = exc
@@ -405,17 +411,42 @@ def test_dense_run_returns_the_raw_host_backed_block(dense_case: RunnerCase) -> 
 # 2. dense runner: repeatability and a frozen cache
 # --------------------------------------------------------------------------- #
 def test_dense_run_repeats_are_bit_identical_and_pay_no_cache_traffic(
-    dense_case: RunnerCase,
+    dense_case: RunnerCase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The private invariant of the hook: N calls are N identical passes, nothing else."""
     runner = dense_case.runner
     first = runner.run().numpy()
     before, ids_before = E.cache_stats(), staged_ids(runner)
 
+    # The cache-stats delta below is the black-box half of the invariant; these
+    # counters are the white-box half, so a repeated ``.run()`` that re-prepared a
+    # payload, re-decoded the population or re-resolved an executable anywhere would
+    # fail here even if it happened to leave the cache counters alone.
+    counts = {"pad_rows": 0, "from_numpy": 0, "decode": 0, "executable": 0}
+
+    def counting(name: str, original: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            counts[name] += 1
+            return original(*args, **kwargs)
+
+        return wrapper
+
+    for module, name, attribute in (
+        (D, "pad_rows", "_pad_rows"),
+        (D.etl, "from_numpy", "from_numpy"),
+        (E, "decode", "decode_population"),
+        (E, "executable", "_executable"),
+    ):
+        monkeypatch.setattr(module, attribute, counting(name, getattr(module, attribute)))
+
     for call in range(REPEATS):
         host = runner.run().numpy()
         assert_same_bits(host, first, context=f"dense .run() call {call + 1}")
 
+    assert counts == {"pad_rows": 0, "from_numpy": 0, "decode": 0, "executable": 0}, (
+        "a repeated .run() must re-use the staged payloads and the held executable, "
+        f"got {counts}"
+    )
     assert cache_delta(before, E.cache_stats()) == {}, (
         "a repeated .run() must not touch the compile cache or the executable memo"
     )
@@ -684,7 +715,19 @@ def test_builders_ignore_eval_mode_and_do_not_write_the_environment(
     specialized = E.build_specialized_runner(forest, x, backend="numpy")
     assert dict(os.environ) == environ_before, "the builder must not write the environment"
     assert isinstance(specialized.population, E.Population)
-    assert any(executable is not None for executable in specialized.executables)
+    # The EXACT shape (not just "something compiled"): one slot per tree, ``None``
+    # exactly on the fixture's single constant tree -- the same check the
+    # specialized-contract test makes.
+    assert len(specialized.executables) == POP, (
+        f"{len(specialized.executables)} executable slots for {POP} trees"
+    )
+    assert [
+        index for index, executable in enumerate(specialized.executables) if executable is None
+    ] == [POP - 1], (
+        "the fixture injects exactly ONE constant tree (last row): it is folded at "
+        "decode time and must be the only slot without an executable"
+    )
+    assert specialized.invocations == POP - 1
 
     # The numbers are the route's own, not the mode's: both builders agree.
     eq.assert_close_with_placement(
