@@ -1,0 +1,19 @@
+===============================================================================
+R4 after-round E2E record e2e_fixture200_numpy_auto  (kind=shadow fixture=fixture200 backend=numpy mode=auto pop=200)  started 2026-09-13T07:46:32+08:00
+note: 200-tree R2 fixture (test/benchmark/fixtures/forest200_tree64_random.npz; needs test/benchmark/fixtures/)
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A169   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 1800s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 4, 1
+etl: repo=/mnt/local-ssd/bchuang/etl rev=51a7141885d76a6764a9ad43f6bf1264dd12e6fe file=/tmp/evogp_etl_patched_87c7562/etl/__init__.py pythonpath=src:/tmp/evogp_etl_patched_87c7562
+cmd: timeout -s INT -k 30 1800 env PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=numpy EVOGP_EVAL_MODE=auto /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --fixture test/benchmark/fixtures/forest200_tree64_random.npz --eval-reps 25 --mem-guard-mb 8192 --stage-probe --tag E2E_FIXTURE200_NUMPY_AUTO --notes after-round\ E2E\ type\ 1:\ kind=shadow\ fixture=fixture200\ backend=numpy\ mode=auto\ PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 --json-out test/benchmark/r4/results/after/e2e/e2e_fixture200_numpy_auto.json
+json: test/benchmark/r4/results/after/e2e/e2e_fixture200_numpy_auto.json
+--- run output ---
+[E2E_FIXTURE200_NUMPY_AUTO] stage probe stage_probe/1: installed=True partial=False wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness] counters=CACHE.hits/CACHE.misses
+[E2E_FIXTURE200_NUMPY_AUTO] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=numpy CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A169/src/evogp/__init__.py commit=6e8bf6f0ff7ee2d82e890bca464c3c833f5fae40 etl=0.1.0 json_out=test/benchmark/r4/results/after/e2e/e2e_fixture200_numpy_auto.json
+[E2E_FIXTURE200_NUMPY_AUTO] stages[rep0/eval] 25 calls: cold 155 miss 929.4ms / warm 0 miss 0.0ms | decode 115.8 + build-hit 0.0 (0) + build-miss 929.4 (155) + run 1195.9 (4275) + readback 58.1 (4275) + upload 0.0 + loss 2206.6 + misc 19.7 ms cold/warm totals 2342.0ms (h2d 0 / d2h 0)
+[E2E_FIXTURE200_NUMPY_AUTO] side=new rep0/1: first 1054.2ms, warm-median 52.9ms (25 calls)
+[E2E_FIXTURE200_NUMPY_AUTO] done side=new interrupted=False harness_wall_s=3.0 json_out=test/benchmark/r4/results/after/e2e/e2e_fixture200_numpy_auto.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 1
+R4 after-round E2E record e2e_fixture200_numpy_auto  finished 2026-09-13T07:46:42+08:00

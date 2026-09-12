@@ -1,0 +1,12 @@
+# test/benchmark/r4/results/after/e2e/run_e2e_r4.last_run.txt -- id -> exit-code table of the last r4 run_e2e.sh invocation
+# generated output: disposable, never committed.
+# invocation: 2026-09-13T07:51:43+08:00   cwd=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A169   user=bchuang
+# args: group=all only=e2e_fixture64_iree_dynamic,e2e_fixture64_iree_specialized,e2e_fixture200_iree_dynamic,e2e_fixture200_iree_specialized records=4 timeout=1800s
+# env: CUDA_VISIBLE_DEVICES=6 py=/mnt/local-ssd/bchuang/evox/.venv/bin/python lock=/tmp/gpbench_critical.lock stock_pythonpath=src shadow_pythonpath=src:/tmp/evogp_etl_patched_87c7562
+# exit codes: 0 ok | 3 skipped by guard (counts as ok) | 124/137 timeout | 130 interrupt | 1 crash
+ID                              KIND   FIXTURE     BACKEND  MODE         EXIT   STATUS    JSON
+e2e_fixture64_iree_dynamic      shadow fixture64   iree     dynamic      0      OK        test/benchmark/r4/results/after/e2e/e2e_fixture64_iree_dynamic.json
+e2e_fixture64_iree_specialized  shadow fixture64   iree     specialized  0      OK        test/benchmark/r4/results/after/e2e/e2e_fixture64_iree_specialized.json
+e2e_fixture200_iree_dynamic     shadow fixture200  iree     dynamic      0      OK        test/benchmark/r4/results/after/e2e/e2e_fixture200_iree_dynamic.json
+e2e_fixture200_iree_specialized shadow fixture200  iree     specialized  0      OK        test/benchmark/r4/results/after/e2e/e2e_fixture200_iree_specialized.json
+# ok=4 skipped=0 failed=0
