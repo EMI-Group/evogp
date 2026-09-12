@@ -1,5 +1,5 @@
 ---
-## Arm B (9 configs: numpy + IREE auto/spec on the PATCHED ETL checkout) — <WINDOW: date + time range>
+## Round 3 — Arm B (9 configs: numpy + IREE auto/spec on the PATCHED ETL checkout) — 2026-09-12 22:49 → 2026-09-13 00:08 HKT (W1 + b2 on GPU 6; W2 on GPU 0)
 **Operator:** the Arm B round operators (tooling + agreement pre-flight + four matrix windows + the
 `iree_sr_b2` re-attempt + the W2 companion window).
 **Scope:** `test/benchmark/r2/round3/**` only — the Arm B tooling (`run_all_armB.sh`,
@@ -45,14 +45,26 @@ bash test/benchmark/r2/round3/run_all_armB.sh --dry-run
 bash test/benchmark/r2/round3/run_agreement_armB.sh --list
 bash test/benchmark/r2/round3/run_agreement_armB.sh --dry-run
 python3 test/benchmark/r2/round3/selftest_check_agreement_armB.py
-# heavy windows (to be filled in when run — one line per group, in execution order)
-# bash test/benchmark/r2/round3/run_agreement_armB.sh              # gate (i): six arms
-# bash test/benchmark/r2/round3/run_all_armB.sh --group iree-spec
-# bash test/benchmark/r2/round3/run_all_armB.sh --group iree
-# bash test/benchmark/r2/round3/run_all_armB.sh --group numpy
-# gates (no GPU)
-# python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
-# python3 test/benchmark/r2/round3/check_agreement_armB.py
+# gate 1 / pre-flight: six arms (numpy / iree auto / iree specialized × 64-tree and 200-tree fixture)
+bash test/benchmark/r2/round3/run_agreement_armB.sh              # 23:01:00 → 23:04:05 (window 1b)
+# matrix, one foreground `run_all_armB.sh --only <id>` invocation per config, in run order (GPU 6)
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture64_n64_spec    # 23:09:12 → 23:09:37
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture200_n64_spec   # 23:10:01 → 23:11:31
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_sr_a_spec             # 23:11:40 → 23:15:32
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture64_n64         # 23:19:02 → 23:19:24
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture200_n64        # 23:19:35 → 23:19:51
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_sr_a                  # 23:20:02 → 23:21:29
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_c5r2                    # 23:26:48 → 23:26:53
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_fixture200_n64          # 23:27:12 → 23:27:20
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_sr_a                    # 23:27:28 → 23:27:40
+# `iree_sr_b2` re-attempt (NOT a runner row): one direct bench_gp.py invocation per attempt, GPU 6,
+#   23:32:21 → 23:51:17 — exact command lines in the `iree_sr_b2` re-attempt subsection below
+# W2 companion re-run of all nine ids on the tenant-free GPU 0 (GPU 6 still occupied), 23:56:50 → 00:07:12 —
+#   the same nine `--only` invocations prefixed `CUDA_VISIBLE_DEVICES=0` (exact per-config times in the W2 subsection)
+# gates + the comparison tool (no GPU)
+python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
+python3 test/benchmark/r2/round3/check_agreement_armB.py
+python3 test/benchmark/r2/round3/compare_rounds_armB.py --markdown
 ```
 ### Agreement pre-flight (gate (i): six arms on the patched ETL checkout)
 **EXECUTED 2026-09-12 23:01:00–23:04:05 HKT (windows 1/1b, GPU 6). Verdict: `gate: PASS` — 38 checks, 0
@@ -887,6 +899,4 @@ re-names + the two recovered consoles, minus the mis-named file removed), `c24f9
 literal `${...}` spelling restored) and this follow-up commit, which carries the W2 subsection above,
 `results/armB/status_check_r3_armB_w2_final.txt` (the re-run gate, `CHECKER_EXIT=0`), the five window-6 anomaly
 bullets and the post-run state appended to `windows.md` window 6. Every W2 config commit used `git add -f` for the
-`*.log` files (`.gitignore:32` hides `*.log`, exactly as for Arm A's records).
-llets and the post-run state appended to `windows.md` window 6. Every W2 config commit used `git add -f` for the
 `*.log` files (`.gitignore:32` hides `*.log`, exactly as for Arm A's records).
