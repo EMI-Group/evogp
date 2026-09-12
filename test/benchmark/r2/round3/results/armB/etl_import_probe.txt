@@ -87,3 +87,37 @@ evogp.tree ok /tmp/evogp_etl_patched_51a7141/etl/__init__.py
 # header (the `etl:` line of results/armB/backend_agreement/<stem>.log), so the shadow is
 # provable per arm and not only at window level.  Read-only probes; neither ETL checkout was
 # written by this window.
+
+########## 2026-09-12T23:08:41+08:00 (UTC 2026-09-12 15:08:41) -- matrix group `iree-spec` window (heavy run, GPU 6) ##########
+# cwd: repository root of the `iree-spec` matrix worktree (PYTHONPATH=src resolves it)
+# interpreter: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+# user: bchuang   host load average: 99.44 99.15 102.41
+
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import etl; print(etl.__file__)"
+/tmp/evogp_etl_patched_51a7141/etl/__init__.py
+
+$ PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import etl; print(etl.__file__)"
+/mnt/local-ssd/bchuang/etl/etl/__init__.py
+
+# same probe for the package metadata version -- still identical for both checkouts
+# (the reason this file exists rather than relying on the JSON's etl_version):
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import importlib.metadata as m; print(m.version('etl'))"
+0.1.0
+
+$ PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import importlib.metadata as m; print(m.version('etl'))"
+0.1.0
+
+# import smoke through the public submodule path with the shadow in place (the engine's own
+# `import etl` must resolve inside the patched checkout, not the stock editable install):
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import evogp.tree, etl; print('evogp.tree ok', etl.__file__)"
+evogp.tree ok /tmp/evogp_etl_patched_51a7141/etl/__init__.py
+
+# the patched checkout's content revision is unchanged since the agreement window (both hashes
+# recomputed read-only in this window; this is how "the same patched ETL ran" is checkable):
+#   path                              patched sha256                                                    stock sha256
+#   etl/backends/adapters/iree.py     d23702f5168cef583ba28b972bd1f5857789c8699d0731cb9a06d8db63a23d56  b32cc7a4ddcbc7297f20afa127bfe0066b694e2b9f946b731db49f088e774a5b
+#   etl/build_cache.py                39ce7d6a3bd39af72a0dc41906bdbaf07ab93afe382b3e7256cdb6aaaca77d68  bb072f6f4bc303022953363a5b5a2bd12d026b5307ac3c9fb3ae1920e4318a4c
+#   etl/persist/codec.py              ece86cb101e4476bf22b9378d6ce44a69edd7a0fd07cf9e0ff472ce7b4f36c20  6be110511612d2a64b732db3d0e37b9b78889d4cd3519953a1f6834f576a7cf2
+# Per-config confirmation: run_all_armB.sh writes the resolved etl.__file__ into every
+# results/armB/new/<id>.log header (the `etl:` line), so the shadow is provable per config too.
+# Read-only probes; neither ETL checkout was written by this window.

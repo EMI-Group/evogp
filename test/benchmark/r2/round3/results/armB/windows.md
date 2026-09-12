@@ -180,3 +180,55 @@ time to a config.
   `ok=6 skipped=0 failed=0`, `gate: PASS (38 checks, 0 failures)`. Because this window decides
   *quotability* (fitness-vector equality), the contention inflation quoted above is a wall-clock caveat
   only; the window's correctness verdict is quotable.
+
+---
+## Window 2 — 2026-09-12 15:08 UTC (23:08 HKT) — matrix group `iree-spec` (3 configs, GPU 6)
+- purpose / phase: matrix group `iree-spec` — the three `--backend iree` / `EVOGP_EVAL_MODE=specialized`
+  configs (`armB_iree_fixture64_n64_spec`, `armB_iree_fixture200_n64_spec`, `armB_iree_sr_a_spec`)
+  against the PATCHED ETL checkout, i.e. the first measured Arm B window (Arm B's quotability is
+  already established by gate (i), which passed in window 1b: all six arms bit-identical to Arm A).
+  This window's numbers are the Arm B side of the Arm A-vs-Arm B tables.
+- commands: one foreground invocation per config, in run order —
+  `bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture64_n64_spec`,
+  `bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture200_n64_spec`,
+  `bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_sr_a_spec`
+  (each console tee'd to `results/armB/status_<id>.txt`; the runner owns `ulimit`/`flock`/`timeout` —
+  one `flock -w 7200 /tmp/gpbench_critical.lock` per config with `timeout -s INT -k 30 3600` inside it).
+- cwd / interpreter: repository root of the Arm B matrix worktree,
+  `/mnt/local-ssd/bchuang/evox/.venv/bin/python`
+- PYTHONPATH: `src:/tmp/evogp_etl_patched_51a7141`   (shadow re-verified at window start, see
+  `etl_import_probe.txt` third block; patched-file hashes unchanged since the agreement window)
+- CUDA_VISIBLE_DEVICES: 6   (the runner default, **kept because GPU 6 showed 0 % utilization** in the
+  snapshot below — ≈30 GB of `syfang`'s job resident, i.e. memory pressure but no compute load; the
+  switch-to-a-free-card rule was not triggered, and GPU 7 — hardware ECC fault — is never used)
+- nvidia-smi (ALL GPUs), 2026-09-12T23:08:41+08:00 (UTC 15:08:41):
+  ```text
+  0, NVIDIA RTX A6000, 0, 6283, 49140
+  1, NVIDIA RTX A6000, 97, 19941, 49140
+  2, NVIDIA RTX A6000, 0, 16583, 49140
+  3, NVIDIA RTX A6000, 0, 15377, 49140
+  4, NVIDIA RTX A6000, 0, 15389, 49140
+  5, NVIDIA RTX A6000, 0, 24395, 49140
+  6, NVIDIA RTX A6000, 0, 30447, 49140
+  7, NVIDIA RTX A6000, 0, 1, 46068
+  ```
+- compute apps (pid → user, MiB), same snapshot:
+  - GPU 0 (`GPU-7ca10c94…`): 2394552 → hyqiu 6276
+  - GPU 1 (`GPU-38ba30b9…`): 2394555 → hyqiu 19934
+  - GPU 2 (`GPU-01343fc6…`): 1228200 → whhu (VLLM::EngineCore) 16454
+  - GPU 3 (`GPU-25828e67…`): 1285079 → hyqiu 15320
+  - GPU 4 (`GPU-098b70f2…`): 1284680 → hyqiu 15300
+  - GPU 5 (`GPU-a4c47eb9…`): 1228191 → whhu (VLLM) 24274
+  - GPU 6 (`GPU-b8253071…`): 2246336 → syfang (python) 30406 — the same ≈30 GB foreign tenant as
+    windows 0/1/1b; **0 % utilization** at snapshot time
+  - GPU 7 (`GPU-0f5f6bfd…`): no compute apps (1 MiB resident) — the known hardware-ECC-fault card,
+    never used
+- uptime / loadavg: `23:08:43 up 252 days, 21:24, 46 users, load average: 99.44 99.15 102.41`
+  (`/proc/loadavg` 99.44 99.15 102.41 9/13653)
+- ulimit -n (after the runner's raise): 65536
+- contention notes: the box is as shared as in windows 1/1b (loadavg ≈99, 46 users, foreign tenants on
+  GPUs 0–5) and GPU 6 again carries the ≈30 GB `syfang` tenant whose utilization oscillates — the
+  device was kept because the switch rule (sustained ≥90 % foreign utilization in the snapshot) was not
+  met. Per-config contention evidence is the `gpu (before)/(after)` pair in each committed
+  `results/armB/new/<id>.log`; treat the window's medians as ±10 % and re-read a number only together
+  with this window.
