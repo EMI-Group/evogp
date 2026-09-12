@@ -123,10 +123,11 @@ Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) 
   Issues), and there is no automated execution of the notebooks.
 
 ## Routing Table / See Also
-No code subdirectories: `goldens/` is data only (documented by its own `README.md`), so do not look for
-sub-nodes to delegate to here.
+`goldens/` is data only (documented by its own `README.md`), so do not look for sub-nodes there.
+`benchmark/` is NOT in this checkout; when restored from commit `df89238` it becomes this node's sub-node with its own `CONTEXT.md` — route old-vs-new / ETL performance-benchmark work there.
 Sibling paths (read-only from this node — escalate any needed write to the parent `./`):
-`../src/evogp/` (library; `../src/evogp/tests/` is the canonical pytest suite and the golden-fixture
-loader), `../example/` and `../tutorial/` (maintained runnable examples / curated notebooks),
-`../src/evogp/tree/ENGINE_SPEC.md` (engine semantics of record, incl. the legacy op schemas).
+`../src/evogp/` (library; `../src/evogp/tests/` is the canonical pytest suite, the golden-fixture
+loader, and the ETL-pattern economics probe `../src/evogp/tests/perf_probe.py` — JSON-emitting, pop-200/1000
+extrapolation, never imports evogp), `../example/` and `../tutorial/` (maintained runnable examples /
+curated notebooks), `../src/evogp/tree/ENGINE_SPEC.md` (engine semantics of record, incl. the legacy op schemas).
 Foreign repo `etl` (`/mnt/local-ssd/bchuang/etl`) via `etl_jit_probe.py` (read-only).
