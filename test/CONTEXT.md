@@ -116,6 +116,9 @@ Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) 
 - `etl_jit_probe.py` emits no machine-readable output (stdout report table only; exit 1 when one of its own
   checks fails). The JSON-emitting ETL probes are `../src/evogp/tests/perf_probe.py` and the unmerged
   `bench_gp.py` (see the `test/benchmark/` section above).
+- The legacy-side benchmark build lives at `/tmp/evogp_legacy_bench` (session-scoped — it can vanish; the built
+  `evogp_cuda` extension needs the offline assets in `/tmp/evogp_t1a263` and the CUDA 12.6 nvcc at
+  `/opt/miniforge3/envs/wenet_tiktoken` to rebuild).
 
 ## Test Strategy
 - Manual smoke sequence for a post-rewrite change: `test/fix_bug.py` (public-API numerics, ~3 s) ->
