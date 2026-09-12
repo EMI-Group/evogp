@@ -250,9 +250,9 @@ config_spec() {
                          CONFIG_ARGS=(--task sr --pop 50 --gens 3 --tree-len 32 --reps 1 --backend iree --stage-probe --max-cold-builds 200)
                          CONFIG_NOTE="IREE smoke-scale re-run of the old C7 datapoint" ;;
     iree_sr_b2)          CONFIG_SIDE=new; CONFIG_GROUP=iree
-                         CONFIG_ARGS=(--task sr --pop 1000 --gens 2 --tree-len 128 --reps 2 --backend iree --stage-probe --max-cold-builds 3200)
+                         CONFIG_ARGS=(--task sr --pop 1000 --gens 2 --tree-len 128 --reps 2 --backend iree --stage-probe --max-cold-builds 2200)
                          CONFIG_ENVS=(EVOGP_ETL_CACHE_SIZE=8192)
-                         CONFIG_NOTE="IREE: heaviest config (pop 1000 / tree 128), optional-last in the group" ;;
+                         CONFIG_NOTE="IREE: heaviest config (pop 1000 / tree 128), optional-last in the group; skip if FD telemetry from earlier configs implies >~55k fds for ~1900 builds" ;;
     # A/B controls: identical workload, iree, stage probe OFF
     iree_fixture64_n64_noprobe) CONFIG_SIDE=new; CONFIG_GROUP=iree; CONFIG_FIXTURE="$DEFAULT_FIXTURE"
                          CONFIG_ARGS=(--task eval64 --eval-reps 25 --backend iree)
