@@ -73,6 +73,35 @@ Both guards stop *cleanly*: the JSON is written with ``skipped: true``,
 ``skip_reason`` set and ``complete: true``, the completed steps are kept
 (``partial: true`` for the cold-build guard) and the process exits 3.
 
+R4 addition -- ``--task eval-pure``, the *pure* forward measurement (measurement
+type 2) next to the existing end-to-end eval tasks (measurement type 1)::
+
+    --task eval-pure                 new side only; one "invocation" = one full-population
+                                     forward on the fixed ``x`` with ``per_row=False``,
+                                     readback / host assembly / key derivation excluded
+    --mode {auto,dense,specialized,dynamic}
+                                     the route to measure: an explicit value wins, ``auto``
+                                     asks the engine's own policy (``EVOGP_EVAL_MODE``,
+                                     then ``dense_engine.should_use_dense``), ``dynamic``
+                                     is a dense alias.  Both ``mode_requested`` and
+                                     ``mode_resolved`` are recorded
+    --invocations N                  invocations per timed block (default 50)
+    --warmup W                       untimed warmup invocations after the construction (10)
+    --e2e-companion K                after the pure reps, K synchronized
+                                     ``problem.evaluate(forest)`` calls in the same process
+                                     (the end-to-end / pure delta); 0 = off
+    --pure-runner {auto,frozen,fallback}
+                                     ``frozen`` = the (later) frozen
+                                     ``build_{dense,specialized}_runner`` API, ``fallback`` =
+                                     this harness' own re-implementation, ``auto`` = frozen
+                                     when present else fallback; the JSON records which ran
+
+``eval-pure`` reuses ``--fixture`` (with the ``eval64`` ``--data-rows`` tiling), the
+memory / cold-build guards, the FD + peak-memory telemetry and the JSON conventions; it
+does not use the stage probe (the probe wraps ``etl.run`` and would tax a tight loop) and
+it skips cleanly (exit 3) on the legacy side, which has no separable pure forward.  The
+runner/timing core lives in ``test/benchmark/pure_forward.py``.
+
 Exit codes: ``0`` = complete, ``3`` = skipped / stopped by a guard, ``130`` =
 interrupted (``KeyboardInterrupt``), ``1`` = crash (the traceback is deliberately
 left uncaught so the failure stays diagnosable).
@@ -147,14 +176,18 @@ import torch
 
 TRAIN_TASKS = ("sr", "xor")
 EVAL_TASKS = ("eval64", "evalfresh")
-TASKS = TRAIN_TASKS + EVAL_TASKS
+#: R4: the pure-forward task (measurement type 2 -- the internal graph forward pass with the
+#: readback/host assembly/key derivation excluded).  New side only; see ``pure_forward.py``.
+PURE_TASKS = ("eval-pure",)
+TASKS = TRAIN_TASKS + EVAL_TASKS + PURE_TASKS
 
 #: ``None`` means "not applicable / required from the workload definition".
 TASK_DEFAULTS = {
-    "sr": {"pop": 200, "gens": 100, "tree_len": 64, "eval_reps": None},
-    "xor": {"pop": 50, "gens": 100, "tree_len": 64, "eval_reps": None},
-    "eval64": {"pop": None, "gens": None, "tree_len": None, "eval_reps": 25},
-    "evalfresh": {"pop": 1000, "gens": None, "tree_len": 64, "eval_reps": 10},
+    "sr": {"pop": 200, "gens": 100, "tree_len": 64, "eval_reps": None, "reps": 1},
+    "xor": {"pop": 50, "gens": 100, "tree_len": 64, "eval_reps": None, "reps": 1},
+    "eval64": {"pop": None, "gens": None, "tree_len": None, "eval_reps": 25, "reps": 1},
+    "evalfresh": {"pop": 1000, "gens": None, "tree_len": 64, "eval_reps": 10, "reps": 1},
+    "eval-pure": {"pop": None, "gens": None, "tree_len": None, "eval_reps": None, "reps": 5},
 }
 
 DEFAULT_FIXTURE = os.path.join("test", "goldens", "forest_random.npz")
@@ -207,7 +240,11 @@ def parse_args(argv=None):
         "--json-out", default=None, help="JSON output path (rewritten after every step)"
     )
     parser.add_argument(
-        "--reps", type=int, default=1, help="repeat the whole run N times (same seed)"
+        "--reps",
+        type=int,
+        default=None,
+        help="repeat the timed workload N times (same seed); task default from TASK_DEFAULTS "
+        "(1 everywhere, 5 for --task eval-pure)",
     )
     parser.add_argument(
         "--eval-reps", type=int, default=None, help="repeated evaluate() calls (eval tasks)"
@@ -291,6 +328,47 @@ def parse_args(argv=None):
         default=0,
         help="never stop early (--max-wall-s) before this many completed generations",
     )
+    # ---- R4: --task eval-pure flags (inert for every other task) --------------
+    parser.add_argument(
+        "--mode",
+        choices=("auto", "dense", "specialized", "dynamic"),
+        default="auto",
+        help="eval-pure only: the route to measure.  'dense'/'specialized' are explicit, "
+        "'auto' asks the engine's own policy (EVOGP_EVAL_MODE, then "
+        "dense_engine.should_use_dense(pop, backend)), 'dynamic' is an alias of 'dense'.  "
+        "Both mode_requested and mode_resolved are recorded",
+    )
+    parser.add_argument(
+        "--invocations",
+        type=int,
+        default=50,
+        help="eval-pure only: full-population forwards per timed block (default: 50)",
+    )
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        default=10,
+        help="eval-pure only: untimed warmup invocations right after the construction "
+        "(default: 10)",
+    )
+    parser.add_argument(
+        "--e2e-companion",
+        type=int,
+        default=0,
+        help="eval-pure only: after the pure reps, run K synchronized problem.evaluate(forest) "
+        "calls in the same process (the end-to-end companion; 0 = off).  Set "
+        "EVOGP_EVAL_MODE to the pure --mode so both numbers are on the same route",
+    )
+    parser.add_argument(
+        "--pure-runner",
+        choices=("auto", "frozen", "fallback"),
+        default="auto",
+        help="eval-pure only: which constructor to use -- 'frozen' = the frozen "
+        "build_{dense,specialized}_runner API (hard error when absent), 'fallback' = this "
+        "harness' own re-implementation (forces the fallback even when the frozen API "
+        "exists), 'auto' = frozen when present else fallback.  Recorded as "
+        "pure.runner_source",
+    )
     parser.add_argument("--notes", default="", help="free-form text stored in the JSON")
     args = parser.parse_args(argv)
 
@@ -319,6 +397,15 @@ def parse_args(argv=None):
             if getattr(args, key) is None or getattr(args, key) < 1:
                 parser.error(f"--{key.replace('_', '-')} is required (and > 0) for --task evalfresh")
     if args.task in EVAL_TASKS and (args.eval_reps is None or args.eval_reps < 1):        parser.error(f"--eval-reps must be >= 1 for --task {args.task}")
+    if args.task in PURE_TASKS:
+        if args.invocations < 1:
+            parser.error("--invocations must be >= 1")
+        if args.warmup < 0:
+            parser.error("--warmup must be >= 0")
+        if args.e2e_companion < 0:
+            parser.error("--e2e-companion must be >= 0")
+        # ``--stage-probe`` stays accepted for CLI compatibility: install_stage_probe()
+        # warns and never installs it for this task (it would tax the tight pure loop).
     return args
 
 
@@ -654,9 +741,15 @@ def tile_rows(array, rows):
 
 
 def build_eval_case(mods, args):
-    """(problem, forest, eval_kind, description) for an eval-only task."""
+    """(problem, forest, eval_kind, description) for an eval-only task.
+
+    ``--task eval-pure`` reuses the ``eval64`` fixture path verbatim -- same fixture, same
+    ``--data-rows`` tiling, same ``Forest`` + ``SymbolicRegression`` wiring -- because the
+    pure task needs exactly the same ``(forest, x)`` pair; only what is timed afterwards
+    differs (``build_eval_case`` itself is byte-identical for ``eval64``).
+    """
     data = np.load(args.fixture)
-    if args.task == "eval64":
+    if args.task == "eval64" or args.task in PURE_TASKS:
         rows = int(np.asarray(data["x"]).shape[0])
         audit_rows = args.data_rows is not None and int(args.data_rows) != rows
         if audit_rows:  # ``N == fixture rows`` must stay a byte-identical no-op
@@ -799,6 +892,101 @@ def summary_eval(tag, side, record, reps):
     return (
         f"[{tag}] side={side} rep{record['rep']}/{reps}: first {fmt_ms(record['first_call_ms'])}ms, "
         f"warm-median {fmt_ms(record['median_warm_ms'])}ms ({len(calls)} calls){flag}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# R4 pure-forward reporting helpers (``--task eval-pure``)
+# ---------------------------------------------------------------------------
+
+
+def import_pure_forward():
+    """Import ``pure_forward.py`` from this script's directory.
+
+    The module imports only numpy/torch at import time (``evogp``/``etl`` are imported
+    lazily inside its functions), so this is safe on either side.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:  # the script directory is not always sys.path[0]
+        sys.path.insert(0, here)
+    import pure_forward
+
+    return pure_forward
+
+
+def compile_block():
+    """Skeleton of the ``compile`` block (cold and separate from every pure number)."""
+    return {
+        "decode_plan_ms": None,
+        "build_ms": None,
+        "construct_total_ms": None,
+        "cache_hits": None,
+        "cache_misses": None,
+        "path": None,
+    }
+
+
+def pure_block(args):
+    """Skeleton of the ``pure`` block: static keys + empty per-rep timing lists."""
+    return {
+        "mode_requested": None,
+        "mode_resolved": None,
+        "runner_source": None,
+        "backend": None,
+        "per_row": False,
+        "pop": None,
+        "n_trees": None,
+        "n_const_trees": None,
+        "n_graph_calls_per_run": None,
+        "n_graph_calls_source": None,
+        "invocations": int(args.invocations),
+        "warmup": int(args.warmup),
+        "reps": int(args.reps),
+        "per_invocation_ms": [],
+        "block_ms": [],
+        "median_per_invocation_ms": None,
+        "min_per_invocation_ms": None,
+        "mean_per_invocation_ms": None,
+        "per_graph_call_ms": None,
+        "per_tree_us": None,
+        "per_population_evaluate_ms": None,
+        "conventions": import_pure_forward().CONVENTIONS,
+    }
+
+
+def new_pure_rep_record(rep):
+    """Per-rep record of the ``eval-pure`` task (one timed block of invocations)."""
+    return {
+        "rep": rep,
+        "construct_s": None,
+        "wall_s": None,
+        "partial": False,
+        "projection": None,
+        "complete": False,
+        "mode_resolved": None,
+        "runner_source": None,
+        "block_ms": None,
+        "per_invocation_ms": None,
+    }
+
+
+def pure_projection(per_invocation_ms, reps_done, reps_requested):
+    mean_ms = mean_or_none(per_invocation_ms)
+    return {
+        "per_invocation_ms_mean": mean_ms,
+        "reps_completed": reps_done,
+        "reps_requested": reps_requested,
+        "projected_total_s_for_requested_reps": (
+            None if mean_ms is None else mean_ms * reps_requested / 1000.0
+        ),
+    }
+
+
+def summary_pure(tag, side, record, reps):
+    flag = " (PARTIAL)" if record["partial"] else ""
+    return (
+        f"[{tag}] side={side} rep{record['rep']}/{reps}: per-invocation "
+        f"{fmt_ms(record['per_invocation_ms'])}ms (block {fmt_ms(record['block_ms'])}ms){flag}"
     )
 
 
@@ -974,8 +1162,21 @@ def install_stage_probe(args, side, payload):
     when the probe is off / unavailable.  The old side has no ``etl_engine``
     module to instrument, so ``--stage-probe`` there warns and no-ops (leaving
     ``stages`` at ``null``) instead of failing the run.
+
+    ``--task eval-pure`` never installs it either: the probe wraps ``etl.run`` and
+    books every call into stages, i.e. it would tax exactly the tight loop the pure
+    task measures -- so the flag warns and no-ops there too (``stages`` stays
+    ``null``; the pure numbers come from ``pure``/``compile``/``e2e_companion``).
     """
     if not args.stage_probe:
+        return None
+    if args.task in PURE_TASKS:
+        print(
+            f"[{args.tag}] warning: --stage-probe is not installed for --task eval-pure "
+            f"(the probe wraps etl.run and would tax the timed pure loop); continuing with "
+            f"stages=null -- the pure measurement is reported under 'pure'/'compile'",
+            flush=True,
+        )
         return None
     if side != "new":
         print(
@@ -1188,6 +1389,181 @@ def run_eval(mods, args, payload, flush, guard=None, probe=None):
     return interrupted
 
 
+def run_pure(mods, args, payload, flush, guard=None, probe=None):
+    """``--task eval-pure``: the pure forward measurement on a fixed population (new side).
+
+    One invocation = one full-population forward on the fixed ``x`` with ``per_row=False``,
+    with the readback / host assembly / key derivation excluded (see ``pure_forward.py`` and
+    ``test/benchmark/r4/README.md``).  The runner is constructed ONCE for the whole task
+    (timed separately into ``compile``, never mixed into a pure number) and warmed up once,
+    then ``--reps`` timed blocks of ``--invocations`` invocations each; the reps only repeat
+    the timed block (this path consumes no RNG, so the per-rep reseed of the train/eval
+    runners would be pure noise here).  ``--e2e-companion K`` then runs the real end-to-end
+    ``problem.evaluate(forest)`` K times in the same process, with the compile cache already
+    warm from the construction, so ``E2E - pure`` prices the per-call host glue.
+
+    ``probe`` is always ``None`` for this task (:func:`install_stage_probe` refuses to
+    install it: the probe wraps ``etl.run`` and would tax exactly the loop being measured).
+    """
+    interrupted = False
+    if payload["side"] != "new":
+        reason = (
+            "eval-pure is a new-side measurement only: the legacy CUDA checkout has no "
+            "separable pure forward (one fused kernel call per evaluate, with the readback "
+            "and the host assembly inside it)"
+        )
+        payload["pure"] = None
+        payload["skipped"] = True
+        payload["skip_reason"] = reason
+        payload["complete"] = True
+        flush()
+        print(f"[{args.tag}] SKIPPED (exit 3): {reason}", flush=True)
+        return interrupted
+
+    pure = payload["pure"]
+    pure_forward = import_pure_forward()
+    wall_t0 = time.perf_counter()
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.synchronize()
+    problem, forest, eval_kind, description = build_eval_case(mods, args)
+    x = problem.datapoints
+    payload["problem"] = description
+    payload["eval_kind"] = eval_kind
+    payload["config"]["pop"] = int(forest.pop_size)
+    payload["config"]["tree_len"] = int(forest.max_tree_len)
+    payload["config"]["n_rows"] = int(x.shape[0])
+
+    backend_name = pure_forward.resolve_backend_name(args.backend)
+    resolved = pure_forward.resolve_mode(args.mode, int(forest.pop_size), backend_name)
+    pure["mode_requested"] = resolved["mode_requested"]
+    pure["mode_resolved"] = resolved["mode_resolved"]
+    pure["backend"] = backend_name
+    pure["pop"] = int(forest.pop_size)
+    flush()
+    print(
+        f"[{args.tag}] pure: pop={forest.pop_size} n_rows={int(x.shape[0])} "
+        f"mode_requested={pure['mode_requested']} mode_resolved={pure['mode_resolved']} "
+        f"backend={backend_name} runner={args.pure_runner} invocations={args.invocations} "
+        f"warmup={args.warmup} reps={args.reps} e2e_companion={args.e2e_companion}",
+        flush=True,
+    )
+
+    # ---- construct once: the cold, separately reported compile block ----------
+    runner, compile_record = pure_forward.build_pure_runner(
+        forest,
+        x,
+        mode=pure["mode_resolved"],
+        runner_source=args.pure_runner,
+        backend=args.backend,
+        tag=args.tag,
+    )
+    construct_s = time.perf_counter() - wall_t0
+    pure.update(runner.describe())
+    payload["compile"] = compile_record
+    flush()
+    print(
+        f"[{args.tag}] constructed pure runner: source={runner.source} "
+        f"n_trees={runner.n_trees} n_const_trees={runner.n_const_trees} "
+        f"graph_calls/invocation={runner.n_graph_calls_per_run} "
+        f"({runner.n_graph_calls_source}); compile {fmt_ms(compile_record['construct_total_ms'])}ms "
+        f"(decode_plan {fmt_ms(compile_record['decode_plan_ms'])}ms + build "
+        f"{fmt_ms(compile_record['build_ms'])}ms; {compile_record['cache_misses']} cache misses)",
+        flush=True,
+    )
+
+    # ---- one untimed warmup block, then the cold/FD checkpoints --------------
+    if args.warmup > 0:
+        pure_forward.time_block(runner, args.warmup)  # measurement intentionally discarded
+    mark_cold_checkpoint(payload)  # FD/cold-build checkpoint: after the construction
+    if guard is not None and guard.sample():
+        payload["partial"] = True
+        payload["median_per_invocation_ms"] = pure["median_per_invocation_ms"]
+        return interrupted  # payload["skipped"] is set -> main exits 3
+
+    # ---- R timed blocks ------------------------------------------------------
+    reps_requested = int(args.reps)
+    blocks_done = 0
+    for rep in range(reps_requested):
+        record = new_pure_rep_record(rep)
+        payload["per_rep"].append(record)
+        record["mode_resolved"] = pure["mode_resolved"]
+        record["runner_source"] = pure["runner_source"]
+        if rep == 0:
+            record["construct_s"] = construct_s
+        rep_t0 = wall_t0 if rep == 0 else time.perf_counter()
+        try:
+            record["block_ms"] = pure_forward.time_block(runner, args.invocations)
+        except KeyboardInterrupt:
+            interrupted = True
+            record["partial"] = True
+            payload["partial"] = True
+            record["wall_s"] = time.perf_counter() - rep_t0
+            flush()
+            print(
+                f"[{args.tag}] interrupted inside rep {rep}'s timed block "
+                f"({blocks_done} block(s) completed)",
+                flush=True,
+            )
+            break
+        record["per_invocation_ms"] = record["block_ms"] / int(args.invocations)
+        record["wall_s"] = time.perf_counter() - rep_t0
+        record["complete"] = True
+        pure["block_ms"].append(record["block_ms"])
+        pure["per_invocation_ms"].append(record["per_invocation_ms"])
+        pure.update(
+            pure_forward.summarize(
+                pure["per_invocation_ms"],
+                n_graph_calls_per_run=pure["n_graph_calls_per_run"],
+                n_trees=pure["n_trees"],
+            )
+        )
+        payload["median_per_invocation_ms"] = pure["median_per_invocation_ms"]
+        blocks_done = rep + 1
+        flush()
+        print(summary_pure(args.tag, payload["side"], record, reps_requested), flush=True)
+        if guard is not None and guard.sample():  # stopped by the cold-build guard
+            record["partial"] = True
+            break
+        if args.max_wall_s is not None and time.perf_counter() - wall_t0 >= args.max_wall_s:
+            projection = pure_projection(pure["per_invocation_ms"], blocks_done, reps_requested)
+            record["partial"] = True
+            record["projection"] = projection
+            payload["partial"] = True
+            payload["projection"] = projection
+            print(
+                f"[{args.tag}] side={payload['side']} soft wall cap "
+                f"--max-wall-s={args.max_wall_s}s reached after {blocks_done}/{reps_requested} "
+                f"blocks",
+                flush=True,
+            )
+            break
+
+    # ---- end-to-end companion (same process, warm cache) ---------------------
+    if args.e2e_companion > 0 and not interrupted and not payload["skipped"] and blocks_done:
+        try:
+            payload["e2e_companion"] = pure_forward.time_e2e_companion(
+                problem, forest, args.e2e_companion
+            )
+        except KeyboardInterrupt:
+            interrupted = True
+            payload["partial"] = True
+            payload["e2e_companion"] = None
+            print(f"[{args.tag}] interrupted inside the e2e companion", flush=True)
+        else:
+            companion = payload["e2e_companion"]
+            print(
+                f"[{args.tag}] e2e companion: first "
+                f"{fmt_ms(companion['first_call_ms'])}ms, warm median "
+                f"{fmt_ms(companion['median_warm_ms'])}ms over {companion['eval_reps']} "
+                f"problem.evaluate() calls (pure median "
+                f"{fmt_ms(pure['median_per_invocation_ms'])}ms)",
+                flush=True,
+            )
+        flush()
+    return interrupted
+
+
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
@@ -1255,6 +1631,51 @@ def build_payload(args, side, mods, started_at):
             "per_gen_best_fitness": [],
             "cold_first_gen_ms": None,
             "best_fitness_final": None,
+            "partial": False,
+            "projection": None,
+            "complete": False,
+            "per_rep": [],
+            "notes": args.notes,
+            "started_at": started_at,
+            "finished_at": None,
+        }
+    elif args.task in PURE_TASKS:
+        payload = {
+            "tag": args.tag,
+            "side": side,
+            "task": args.task,
+            "eval_kind": None,
+            "fixture": os.path.abspath(args.fixture),
+            "evogp_file": None,
+            "evogp_commit": None,
+            "etl_version": None,
+            "problem": None,
+            "config": {
+                "pop": args.pop,
+                "tree_len": args.tree_len,
+                "seed": args.seed,
+                "reps": args.reps,
+                "eval_reps": args.eval_reps,
+                "mode": args.mode,
+                "pure_runner": args.pure_runner,
+                "invocations": args.invocations,
+                "warmup": args.warmup,
+                "e2e_companion": args.e2e_companion,
+                **r2_config(args),
+            },
+            "env": {},
+            "gpu": {},
+            #: The pure measurement: static keys + one entry per rep.  ``None`` on the old
+            #: side, which skips cleanly (it has no separable pure forward).
+            "pure": None if side != "new" else pure_block(args),
+            #: The cold construction, always reported separately from the pure numbers.
+            "compile": compile_block(),
+            #: The end-to-end companion (``--e2e-companion``), or ``null``.
+            "e2e_companion": None,
+            #: Running mirror of ``pure.median_per_invocation_ms`` (the
+            #: ``median_warm_ms`` convention of the eval tasks).
+            "median_per_invocation_ms": None,
+            "wall_s": None,
             "partial": False,
             "projection": None,
             "complete": False,
@@ -1370,10 +1791,10 @@ def main(argv=None):
             flush=True,
         )
     guard.sample()  # startup sample -> cold_builds.misses_start
-    if args.data_rows is not None and args.task != "eval64":
+    if args.data_rows is not None and args.task != "eval64" and args.task not in PURE_TASKS:
         print(
-            f"[{args.tag}] warning: --data-rows is only applied by --task eval64; ignored for "
-            f"--task {args.task}",
+            f"[{args.tag}] warning: --data-rows is only applied by --task eval64 / eval-pure; "
+            f"ignored for --task {args.task}",
             flush=True,
         )
     # R2 stage probe: install the monkeypatches before the first timed call
@@ -1397,6 +1818,8 @@ def main(argv=None):
     try:
         if args.task in TRAIN_TASKS:
             interrupted = run_training(mods, args, payload, flush, guard, probe)
+        elif args.task in PURE_TASKS:
+            interrupted = run_pure(mods, args, payload, flush, guard, probe)
         else:
             interrupted = run_eval(mods, args, payload, flush, guard, probe)
     except KeyboardInterrupt:

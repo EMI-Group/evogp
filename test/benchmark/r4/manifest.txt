@@ -1,0 +1,43 @@
+# test/benchmark/r4/manifest.txt -- expected artifacts of the R4 pure-forward round.
+#
+# Format (TAB-separated, one config per line; '#' starts a comment line):
+#
+#     id <TAB> mode(dense|specialized) <TAB> backend(numpy|iree) <TAB> expected_json_path
+#
+#   * id / path    the runner (run_pure.sh) derives the id, the tag (UPPER(id)), the args,
+#                  the per-config env and the results dir from its own config table; this
+#                  file is the VALIDATOR's expectation list.  Keep the two in sync (3-place
+#                  sync: the runner's group arrays, its config_spec() case, and this file).
+#   * mode/backend check_r4.py verifies `pure.mode_resolved` / `pure.backend` against these
+#                  two columns -- i.e. that the record really is the config it claims to be.
+#   * new side only: `--task eval-pure` is a new-side measurement (the legacy CUDA checkout
+#                  has no separable pure forward and skips with exit 3), so every record here
+#                  must carry `side: "new"`.
+#
+# All 8 canonical ids, in the runner's canonical (group) order: group `numpy` first, then
+# group `iree`; within a group `pure64_*` before `pure200_*`, `*_dense_*` before
+# `*_specialized_*`.  Every config is
+#     bench_gp.py --task eval-pure --fixture <64|200-tree fixture> --mode <mode>
+#       --backend <backend> --reps 5 --warmup 10 --invocations <100 dense|50 specialized>
+#       --e2e-companion 11 --mem-guard-mb 8192 [--max-cold-builds 400 for iree]
+# with EVOGP_EVAL_MODE=<mode> in the environment (so the pure route and the --e2e-companion
+# route agree).
+#
+# Smoke records (a 3-record plumbing check of the same task, written before the campaign) are
+# deliberately NOT manifest ids; they live under results/smoke/ with their own
+# manifest_smoke.txt (`--manifest test/benchmark/r4/results/smoke/manifest_smoke.txt`).
+# ---------------------------------------------------------------------------
+# group: numpy -- the default backend, dense + specialized routes
+# ---------------------------------------------------------------------------
+pure64_dense_numpy	dense	numpy	test/benchmark/r4/results/pure64_dense_numpy.json
+pure64_specialized_numpy	specialized	numpy	test/benchmark/r4/results/pure64_specialized_numpy.json
+pure200_dense_numpy	dense	numpy	test/benchmark/r4/results/pure200_dense_numpy.json
+pure200_specialized_numpy	specialized	numpy	test/benchmark/r4/results/pure200_specialized_numpy.json
+# ---------------------------------------------------------------------------
+# group: iree -- the opt-in IREE-cuda backend, dense + specialized routes
+# (cold-build budget 400 per config; ulimit -n 65536 required)
+# ---------------------------------------------------------------------------
+pure64_dense_iree	dense	iree	test/benchmark/r4/results/pure64_dense_iree.json
+pure64_specialized_iree	specialized	iree	test/benchmark/r4/results/pure64_specialized_iree.json
+pure200_dense_iree	dense	iree	test/benchmark/r4/results/pure200_dense_iree.json
+pure200_specialized_iree	specialized	iree	test/benchmark/r4/results/pure200_specialized_iree.json
