@@ -37,7 +37,16 @@ Documented additions to the frozen signatures (backwards compatible, all
 keyword-only and defaulted): ``backend`` and ``iree_device_index`` on
 ``evaluate`` / ``sr_fitness``.  They only override the environment defaults.
 
-Backend & device policy
+Benchmark-support runner (not part of the public route)
+-------------------------------------------------------
+:func:`build_specialized_runner` / :class:`SpecializedRunner` expose the SAME
+engine as a build-once / run-many object for benchmarking harnesses: the build
+phase decodes the population and resolves every per-tree executable, ``.run()``
+executes only the compiled forward pass (one ``etl.run`` per non-constant tree,
+staged per-tree inputs, raw results, no readback and no cache lookup at all).
+It changes nothing about ``evaluate`` / ``sr_fitness``, is called by nothing in
+the library and is documented -- with the dense twin,
+``dense_engine.build_dense_runner`` -- in ``RUNNER_HOOKS.md``.Backend & device policy
 -----------------------
 * Default backend: ``"numpy"`` (ETL's reference interpreter, **cpu**).
   Round-2 measurements make this the only sane default: a numpy executable is
@@ -1721,3 +1730,257 @@ def sr_fitness(
     if dest is not None and torch.device(dest) != loss.device:
         loss = loss.to(dest)
     return loss
+
+
+# ---------------------------------------------------------------------------
+# benchmark-support runner: build once, run many (no readback, no re-key)
+# ---------------------------------------------------------------------------
+#
+# ``build_specialized_runner`` / ``SpecializedRunner`` are the specialized half
+# of the two frozen benchmark-support runner APIs; the dense half is
+# ``dense_engine.build_dense_runner``.  The shared contract (exact signatures,
+# what the build phase costs, what ``.run()`` does per backend and what it
+# returns) is documented in ``RUNNER_HOOKS.md`` (this directory) and pinned by
+# ``runner_check.py``; the short version:
+#
+# * the BUILD phase does everything that is not "the compiled forward pass" --
+#   host decode, per-tree executable resolution (compile or cache hit), input
+#   validation + conversion + staging on its final device;
+# * ``.run()`` executes ONLY the forward pass: it re-uses the staged inputs and
+#   the already-resolved executables, never re-decodes/re-plans/re-keys and
+#   never moves a result back to the host.  N calls are N identical passes;
+# * nothing in the library calls them, they do not change the public route
+#   behaviour (``EVOGP_EVAL_MODE`` is NOT consulted: the caller picks the route
+#   by picking the builder) and they are not part of the training path.
+
+#: The attributes a ``Forest``-like container must expose for the runners.
+#: Duck typing on purpose: ``forest.py`` imports THIS module, so a module-level
+#: import back would create an import cycle.
+_POPULATION_ATTRS = (
+    "batch_node_value",
+    "batch_node_type",
+    "batch_subtree_size",
+    "input_len",
+    "output_len",
+)
+
+
+def _population_inputs(population_or_forest: Any) -> Tuple[Any, Any, Any, int, int]:
+    """Duck-typed ``(values, types, sizes, input_len, output_len)`` of a population.
+
+    Accepts any object carrying the five attributes of ``evogp.tree.Forest``
+    (``batch_node_value`` / ``batch_node_type`` / ``batch_subtree_size`` /
+    ``input_len`` / ``output_len``); the runners never import the container.
+    Tensors may live on any device and may be numpy arrays, exactly as
+    :func:`decode_population` accepts them.
+
+    Raises:
+        TypeError: ``population_or_forest`` is missing one of the attributes
+            (the message names them and the offending type).
+    """
+    missing = [
+        name for name in _POPULATION_ATTRS if not hasattr(population_or_forest, name)
+    ]
+    if missing:
+        raise TypeError(
+            "expected a Forest-like container exposing "
+            f"{list(_POPULATION_ATTRS)}, got "
+            f"{type(population_or_forest).__name__} (missing {missing})"
+        )
+    return (
+        population_or_forest.batch_node_value,
+        population_or_forest.batch_node_type,
+        population_or_forest.batch_subtree_size,
+        int(population_or_forest.input_len),
+        int(population_or_forest.output_len),
+    )
+
+
+class SpecializedRunner:
+    """A decoded population with every per-tree executable already resolved.
+
+    The constructor IS the build phase (both :func:`build_specialized_runner`
+    and a direct ``SpecializedRunner(...)`` build it the same way):
+
+    1. duck-type the population (:func:`_population_inputs`) and validate/convert
+       ``inputs`` once (``(N, input_len)`` float32, ``N == pop_size`` when
+       ``per_row``) -- the same semantics as :func:`evaluate`;
+    2. :func:`decode_population` the population (host decode + validation);
+    3. resolve one executable per NON-constant tree through :func:`_executable`
+       (value-keyed memo in front of ``build_cached``), so a structure already
+       compiled for this shape is a pure lookup;
+    4. stage the input block(s) for their final device: ONE shared ``(N,
+       input_len)`` upload for ``per_row=False``, one uploaded ``(1, input_len)``
+       row per non-constant tree for ``per_row=True`` (exactly what
+       :func:`_evaluate_rows` does within a call, but once instead of per call).
+
+    Read-only attributes (diagnostics for harnesses):
+        population: the decoded :class:`Population`.
+        executables: ``pop_size``-long tuple; ``None`` for constant trees.
+        payloads: ``pop_size``-long tuple of the staged per-tree inputs
+            (host numpy arrays on the numpy backend, device tensors otherwise);
+            ``None`` for constant trees.
+        constant_rows: ``pop_size``-long tuple; for a constant tree a READ-ONLY
+            ``(n_rows, output_len)`` float32 broadcast view of the rows every
+            data point sees, else ``None``.
+        backend_name / device / options: the resolved
+            :func:`_resolve_backend` triple (frozen for every ``.run()``).
+        per_row, n_rows, input_len, output_len, pop_size.
+
+    Callers that need the values on the host read the raw results back
+    themselves (``raw.to(cpu).numpy()`` / ``raw.numpy()``) -- which is the
+    consumer's copy, not a runner step; see :meth:`run`.
+    """
+
+    def __init__(
+        self,
+        population_or_forest: Any,
+        inputs: Any,
+        *,
+        per_row: bool = False,
+        backend: Optional[str] = None,
+        iree_device_index: Optional[int] = None,
+    ) -> None:
+        values, types, sizes, input_len, output_len = _population_inputs(
+            population_or_forest
+        )
+        self.input_len = int(input_len)
+        self.output_len = int(output_len)
+        self.per_row = bool(per_row)
+        self.population = decode_population(
+            values, types, sizes, self.input_len, self.output_len
+        )
+        self.pop_size = self.population.pop_size
+        xin = _input_to_numpy(inputs, self.input_len, "inputs")
+        if self.per_row and xin.shape[0] != self.pop_size:
+            raise ValueError(
+                f"per_row=True needs inputs.shape[0] == {self.pop_size} "
+                f"(pop_size), got {xin.shape[0]}"
+            )
+        self.n_rows = 1 if self.per_row else int(xin.shape[0])
+        self.backend_name, self.device, self.options = _resolve_backend(
+            backend, iree_device_index
+        )
+        to_device = self.backend_name != "numpy"
+        shared = (
+            etl.from_numpy(np.ascontiguousarray(xin)).to(self.device)
+            if to_device and not self.per_row
+            else None
+        )
+        executables: List[Optional[Any]] = []
+        payloads: List[Optional[Any]] = []
+        constant_rows: List[Optional[np.ndarray]] = []
+        for index, tree in enumerate(self.population.trees):
+            if tree.const_out is not None:
+                # Constant tree: folded at decode time, nothing was compiled.
+                executables.append(None)
+                payloads.append(None)
+                constant_rows.append(
+                    np.broadcast_to(
+                        _bits_to_float_arr(tree.const_out),
+                        (self.n_rows, self.output_len),
+                    )
+                )
+                continue
+            executables.append(
+                _executable(
+                    tree.program,
+                    self.n_rows,
+                    self.input_len,
+                    self.backend_name,
+                    self.device,
+                    self.options,
+                )
+            )
+            if self.per_row:
+                row = xin[index : index + 1]
+                payloads.append(
+                    etl.from_numpy(np.ascontiguousarray(row)).to(self.device)
+                    if to_device
+                    else row
+                )
+            else:
+                payloads.append(shared if to_device else xin)
+            constant_rows.append(None)
+        self.executables: Tuple[Optional[Any], ...] = tuple(executables)
+        self.payloads: Tuple[Optional[Any], ...] = tuple(payloads)
+        self.constant_rows: Tuple[Optional[np.ndarray], ...] = tuple(constant_rows)
+
+    @property
+    def invocations(self) -> int:
+        """How many ``etl.run`` calls one :meth:`run` issues (non-constant trees)."""
+        return sum(1 for executable in self.executables if executable is not None)
+
+    def run(self) -> Tuple[Optional[Any], ...]:
+        """Execute ONE forward pass -- the only thing a harness times.
+
+        Returns:
+            A ``pop_size``-long tuple: entry ``i`` is the RAW ``etl.run`` result
+            of tree ``i`` -- an ``etl`` runtime tensor of shape ``(n_rows,
+            output_len)``, host-backed on the numpy backend and device-resident
+            on a device backend -- or ``None`` for a constant tree (never
+            compiled; its rows are staged in :attr:`constant_rows`).
+
+        Nothing else happens: no readback, no torch conversion, no host-side
+        assembly, no executable lookup, no decode.  ``.run()`` is repeatable --
+        the executables and the staged inputs are re-used as-is, and the static
+        program is re-passed by value exactly as the frozen engine does.
+        """
+        results: List[Optional[Any]] = []
+        with _quiet():
+            for executable, payload, tree in zip(
+                self.executables, self.payloads, self.population.trees
+            ):
+                if executable is None:  # constant tree: nothing to run
+                    results.append(None)
+                    continue
+                # ADOPTION POINT (ETL-side, deliberately NOT implemented here):
+                # ``etl.run`` re-validates the statics by value in O(#tokens) per
+                # call and walks the executable's structure every time.  The
+                # upstream ``etl.jit`` / pre-bound-runner work would carry a
+                # bound invocation that skips both; nothing in this repository
+                # emulates it and /mnt/local-ssd/bchuang/etl is not modified --
+                # when it lands, this is the one line to swap.
+                results.append(etl.run(executable, payload, tree.program))
+        return tuple(results)
+
+
+def build_specialized_runner(
+    population_or_forest: Any,
+    inputs: Any,
+    *,
+    per_row: bool = False,
+    backend: Optional[str] = None,
+    iree_device_index: Optional[int] = None,
+) -> SpecializedRunner:
+    """Build a repeatable specialized-engine runner (the frozen benchmark API).
+
+    Args:
+        population_or_forest: any ``Forest``-like container (duck-typed on
+            ``batch_node_value`` / ``batch_node_type`` / ``batch_subtree_size``
+            / ``input_len`` / ``output_len``; no import of the container).
+        inputs: ``x`` with the semantics of :func:`evaluate` -- ``(N,
+            input_len)``, converted to float32 host once; ``N == pop_size`` when
+            ``per_row=True`` (tree ``i`` sees row ``i``), else the data points
+            every tree is evaluated on.
+        per_row: per-tree inputs (default ``False``: every tree sees all rows).
+        backend / iree_device_index: exactly :func:`evaluate`'s overrides of the
+            ``EVOGP_ETL_BACKEND`` / ``EVOGP_ETL_IREE_DEVICE`` environment.
+
+    Returns:
+        A :class:`SpecializedRunner`; ``.run()`` is the compiled forward pass
+        only (see its docstring for the exact return contract).
+
+    Raises:
+        TypeError: the container is not Forest-like.
+        ValueError: bad ``inputs`` shape, a ``per_row`` row-count mismatch, or a
+            malformed tree (from :func:`decode_population`, naming row + node).
+        ValueError: an unsupported backend name (from :func:`_resolve_backend`).
+    """
+    return SpecializedRunner(
+        population_or_forest,
+        inputs,
+        per_row=per_row,
+        backend=backend,
+        iree_device_index=iree_device_index,
+    )

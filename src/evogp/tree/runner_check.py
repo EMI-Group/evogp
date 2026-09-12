@@ -533,7 +533,7 @@ def stage_dense(args: Any, report: Report, results: Dict[str, Any]) -> None:
         compare(
             "dense run() rows == Forest.batch_forward",
             reference_cpu[:, :, 0],
-            forest.batch_forward(inputs).detach().cpu().numpy(),
+            forest.batch_forward(inputs).detach().cpu().numpy()[:, :, 0],
             report,
         )
 
@@ -631,7 +631,6 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         pop, rows, input_len=input_len, seed=13, const_rows=const_rows
     )
     set_mode("specialized", backend=args.backend_env)
-    n_nonconst = pop - const_rows
 
     # -- build phase: decode once, resolve every executable, stage inputs --
     E.clear_cache()
@@ -641,6 +640,11 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         runner = builder(forest, inputs, backend=args.backend)
     build_ms = (time.perf_counter() - start) * 1e3
     after = E.cache_stats()
+    # The fixture injects one constant tree; a random population can contain more
+    # (a lone CONST node, a fully foldable constant subtree), and that is exactly
+    # the case the runner has to handle -- so count them from the decode.
+    n_const = sum(1 for tree in runner.population.trees if tree.const_out is not None)
+    n_nonconst = pop - n_const
     programs = [tree.program for tree in runner.population.trees if tree.program is not None]
     distinct = len(set(programs))
     report.add(
@@ -652,7 +656,7 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         "specialized build: resolves EVERY per-tree executable once",
         len(build.lookups) == n_nonconst,
         f"{len(build.lookups)} _executable lookups for {n_nonconst} non-constant "
-        f"trees ({const_rows} constant, never compiled)",
+        f"trees ({n_const} constant trees folded at decode, never compiled)",
     )
     report.add(
         "specialized build: one compile per DISTINCT program",
@@ -680,7 +684,7 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         raws = runner.run()
     ok = (
         len(raws) == pop
-        and sum(1 for raw in raws if raw is None) == const_rows
+        and sum(1 for raw in raws if raw is None) == n_const
         and len(probe.runs) == n_nonconst
         and len(probe.runner_readbacks()) == 0
         and len(probe.uploads) == 0
@@ -694,7 +698,7 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         "specialized run(): exactly n_nonconst etl.run calls, no host crossings",
         ok,
         f"results={len(raws)} (None slots="
-        f"{sum(1 for raw in raws if raw is None)}, expected {const_rows}); "
+        f"{sum(1 for raw in raws if raw is None)}, expected {n_const}); "
         f"{probe.summary()}",
     )
     first = _assemble_specialized(runner, raws, args.backend)
@@ -754,14 +758,18 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         per_row_runner = builder(per_row_forest, per_row_x, per_row=True, backend=args.backend)
     with Traffic() as probe_per_row:
         per_row_raws = per_row_runner.run()
+    per_row_nonconst = per_row_runner.invocations
     report.add(
         "specialized build(per_row=True): one staged row per tree",
-        len(build_per_row.uploads) == (n_nonconst if args.backend != "numpy" else 0),
-        f"uploads={len(build_per_row.uploads)} for {n_nonconst} non-constant trees",
+        len(build_per_row.uploads) == (
+            per_row_nonconst if args.backend != "numpy" else 0
+        ),
+        f"uploads={len(build_per_row.uploads)} for {per_row_nonconst} "
+        "non-constant trees",
     )
     report.add(
         "specialized run(per_row=True): n_nonconst runs, no host crossings",
-        len(probe_per_row.runs) == n_nonconst
+        len(probe_per_row.runs) == per_row_nonconst
         and len(probe_per_row.runner_readbacks()) == 0
         and len(probe_per_row.uploads) == 0,
         f"{probe_per_row.summary()}",
@@ -939,7 +947,9 @@ def stage_edges(args: Any, report: Report, results: Dict[str, Any]) -> None:
         specialized_runner = specialized_builder(small, small_x, backend=args.backend)
         specialized_is_specialized = (
             isinstance(specialized_runner.population, E.Population)
-            and specialized_runner.executables[0] is not None
+            and any(
+                executable is not None for executable in specialized_runner.executables
+            )
         )
         specialized_note = (
             f"EVOGP_EVAL_MODE=dense, population="
@@ -958,7 +968,7 @@ def stage_edges(args: Any, report: Report, results: Dict[str, Any]) -> None:
     report.add(
         "the builders leave EVOGP_EVAL_MODE / EVOGP_ETL_BACKEND untouched",
         os.environ.get(D.EVAL_MODE_ENV) == "dense"
-        and os.environ.get("EVOGP_ETL_BACKEND") == (args.backend_env or ""),
+        and os.environ.get("EVOGP_ETL_BACKEND") == args.backend_env,
         f"EVOGP_EVAL_MODE={os.environ.get(D.EVAL_MODE_ENV)!r} "
         f"EVOGP_ETL_BACKEND={os.environ.get('EVOGP_ETL_BACKEND')!r}",
     )
