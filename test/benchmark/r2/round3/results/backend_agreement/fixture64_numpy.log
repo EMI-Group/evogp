@@ -1,0 +1,22 @@
+===============================================================================
+R3 agreement arm fixture64_numpy  started 2026-09-12T21:59:46+08:00
+note: 64-tree fixture, numpy reference backend
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A247   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+env: PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 EVOGP_ETL_BACKEND=numpy
+lock: exactly one flock -w 7200 /tmp/gpbench_critical.lock, no timeout wrapper (driver does two evaluate() calls)
+gpu (before): 6, NVIDIA RTX A6000, 0, 22533
+cmd: env PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 EVOGP_ETL_BACKEND=numpy /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/r2/check_backend_agreement.py --fixture test/goldens/forest_random.npz --json-out test/benchmark/r2/round3/results/backend_agreement/fixture64_numpy.json
+json: test/benchmark/r2/round3/results/backend_agreement/fixture64_numpy.json
+--- run output ---
+[agreement] fixture=test/goldens/forest_random.npz sha256=0bfb0bbf48cd65832b2c024480bc572de5121675946d3611a2c7a5b234ff9ca0
+[agreement] backend=numpy iree_opt_level=n/a iree_device=n/a device=NVIDIA RTX A6000
+[agreement] Forest(input_len=2, output_len=1, pop_size=64, max_tree_len=63) rebuilt from test/goldens/forest_random.npz[forest__node_value/_node_type/_subtree_size] + SymbolicRegression(datapoints=x(64, 2), labels=labels(64, 1))
+[agreement] call 1/2: 192.9 ms (cold if 1)
+[agreement] call 2/2: 22.2 ms (cold if 1)
+[agreement] nan_count=3/64 inf_count=0 finite_mean=-18.04850423140604 finite_min=-106.23928833007812 finite_max=-1.375
+[agreement] values_sha256=2e5c0fa1fdbec0743facc1beb7c72e7d9ed4c156c3b5ad5a8971f1d5f67e414d
+[agreement] wrote test/benchmark/r2/round3/results/backend_agreement/fixture64_numpy.json + test/benchmark/r2/round3/results/backend_agreement/fixture64_numpy_values.npy
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 70, 22259
+R3 agreement arm fixture64_numpy  finished 2026-09-12T22:00:16+08:00
