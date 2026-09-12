@@ -58,8 +58,10 @@ What it does
    rtol/atol 1e-4, and non-bit-exact finite values are reported explicitly
    (bit-exactness is the goal, not the requirement).
    Also checks the public shape/dtype/contiguity/requires_grad/writability
-   contracts and that a second call with a different population of the same
-   shape does NOT rebuild (``etl_engine.cache_stats()`` deltas).
+   contracts and the compile-cache behaviour (``etl_engine.cache_stats()``
+   deltas): re-evaluating the same population never rebuilds, and a different
+   population of the same shape rebuilds exactly when its used function-id set
+   differs -- the ``EVOGP_DENSE_PRUNE`` granularity (``DENSE_EVAL.md`` item 9.1).
 2. **Measurements** -- dense vs specialized, as a function of ``N`` and ``P``
    (numpy: decode ms, cold build ms, warm run ms, speedup) plus the ``L_trace``
    scaling curve (trace/lower/compile/load ms, graph op count, warm run ms) and
@@ -867,32 +869,66 @@ def case_dense_unsupported(args, report, results: Dict[str, Any]) -> bool:
 
 
 def case_compile_reuse(args, report, results: Dict[str, Any]) -> bool:
-    """Two calls, different populations, same shape -> exactly one build."""
+    """Compiled-graph reuse, at the candidate-pruning lever's granularity.
+
+    Repeated evaluation of the SAME population always reuses the compiled graph
+    (the executable is a pure function of the population's shape and of the
+    function ids its graph emits candidates for); a DIFFERENT population rebuilds
+    only when that used-id set differs -- exactly one new graph when it does, none
+    when it does not.  ``DENSE_EVAL.md`` item 9.1 / ``EVOGP_DENSE_PRUNE``; with
+    pruning disabled (``=0``) both sides carry the full candidate set, so the
+    different-population call is a hit as well (the check derives the expectation
+    from the two plans instead of assuming one).
+    """
     values_a, types_a, sizes_a = _random_population(41, 16, 40, 2, 0.3, FUNCS_NAMES, 3)
     values_b, types_b, sizes_b = _random_population(42, 16, 40, 2, 0.3, FUNCS_NAMES, 3)
     x = torch.randn(9, 2)
+    plan_kwargs = dict(
+        per_row=False, max_tree_len=args.max_tree_len, update_mode=args.mode
+    )
+    plan_a = D.plan_dense(values_a, types_a, sizes_a, 2, 1, 9, **plan_kwargs)
+    plan_b = D.plan_dense(values_b, types_b, sizes_b, 2, 1, 9, **plan_kwargs)
+    used_a, used_b = plan_a.used_func_ids, plan_b.used_func_ids
+    expected_second = 0 if used_a == used_b else 1
+
+    def call(values, types, sizes) -> None:
+        D.evaluate_dense(
+            values, types, sizes, 2, 1, x, per_row=False, backend=args.backend,
+            iree_device_index=args.gpu, max_tree_len=args.max_tree_len,
+            update_mode=args.mode,
+        )
+
     before = E.cache_stats()
-    D.evaluate_dense(
-        values_a, types_a, sizes_a, 2, 1, x, per_row=False, backend=args.backend,
-        iree_device_index=args.gpu, max_tree_len=args.max_tree_len, update_mode=args.mode,
-    )
+    call(values_a, types_a, sizes_a)
     after_first = E.cache_stats()
-    D.evaluate_dense(
-        values_b, types_b, sizes_b, 2, 1, x, per_row=False, backend=args.backend,
-        iree_device_index=args.gpu, max_tree_len=args.max_tree_len, update_mode=args.mode,
-    )
+    call(values_a, types_a, sizes_a)  # the SAME population/value set again
+    after_same_values = E.cache_stats()
+    call(values_b, types_b, sizes_b)
     after_second = E.cache_stats()
     built_first = after_first["misses"] - before["misses"]
-    built_second = after_second["misses"] - after_first["misses"]
+    rebuilt_on_same_values = after_same_values["misses"] - after_first["misses"]
+    built_second = after_second["misses"] - after_same_values["misses"]
     results["compile_reuse"] = {
         "built_on_first_call": built_first,
+        "rebuilt_on_same_values": rebuilt_on_same_values,
         "built_on_second_call": built_second,
+        "expected_second_call_builds": expected_second,
+        "used_ids_a": list(used_a),
+        "used_ids_b": list(used_b),
+        "used_ids_equal": used_a == used_b,
         "entries_after": after_second["entries"],
     }
-    ok = built_second == 0 and built_first >= 1
+    ok = (
+        built_first >= 1
+        and rebuilt_on_same_values == 0
+        and built_second == expected_second
+    )
     print(
         f"[{'ok ' if ok else 'FAIL'}] compile reuse: builds first={built_first} "
-        f"second={built_second} (dense chunk shapes={D.plan_dense(values_a, types_a, sizes_a, 2, 1, 9, per_row=False, max_tree_len=args.max_tree_len, update_mode=args.mode).p_chunks * D.plan_dense(values_a, types_a, sizes_a, 2, 1, 9, per_row=False, max_tree_len=args.max_tree_len, update_mode=args.mode).n_chunks})"
+        f"same-values={rebuilt_on_same_values} second={built_second} "
+        f"(expected second={expected_second} from used_ids_a={list(used_a)} "
+        f"used_ids_b={list(used_b)}; dense chunk shapes="
+        f"{plan_a.p_chunks * plan_a.n_chunks})"
     )
     report["cases"].append({"case": "compile reuse", "ok": ok, **results["compile_reuse"]})
     return ok
