@@ -43,16 +43,28 @@ One master switch, read **per call** (exactly like ``EVOGP_ETL_BACKEND`` in
 ``etl_engine._resolve_backend``), case-insensitive, default ``auto``:
 
 ``auto`` (default)
-    the measured policy, implemented once in :func:`should_use_dense`: on the
-    ``numpy`` backend the specialized engine wins at every measured
-    ``pop_size`` (dense measured 0.01-0.17x there), so dense is not used; on the
-    ``iree`` backend dense is used when the population is dense-supported *and*
-    ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP`` (default :data:`DEFAULT_AUTO_MIN_POP`
-    = 16).  Rationale for the threshold: the dense path pays ONE compile for the
-    whole population (~tens of seconds at ``L=32``) against ~0.9 s *per tree* for
-    the specialized path, so at very small ``P`` the specialized path is cheaper;
-    the measured crossover was ``P ~= 10-20`` at small ``L`` and moves out
-    linearly with ``L`` through the dense compile cost.
+    the measured policy, implemented once in :func:`should_use_dense` (plus the
+    rows half in :func:`auto_rows_decline`): on the ``numpy`` backend the
+    specialized engine wins at every measured ``pop_size`` (dense measured
+    0.006-0.91x there), so dense is not used; on the ``iree`` backend dense is
+    used when the population is dense-supported *and*
+    ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP`` (default
+    :data:`DEFAULT_AUTO_MIN_POP` = 16) *and*, on ``per_row=False`` calls,
+    ``rows <= EVOGP_DENSE_AUTO_MAX_ROWS`` (default
+    :data:`DEFAULT_AUTO_MAX_ROWS` = 2048).  The wired call sites pass ``pop_size``
+    only, so the rows half of the rule is enforced inside
+    :func:`evaluate_dense`, where the data-row count is known
+    (:func:`sr_fitness_dense` goes through it too); ``per_row=True`` (one row per
+    tree) and an explicit ``EVOGP_EVAL_MODE=dense`` are never gated, and a
+    decline surfaces as the usual :class:`DenseUnsupported` fallback.
+    Rationale: the dense path pays ONE compile for the whole population (13-17 s
+    at ``L=32``) against ~0.5 s *per distinct structure* for the specialized
+    path, so the compile-term crossover is only ~25-35 trees (hence the flat
+    ``pop_size`` gate), while warm dense is 1.3-3.2x faster at small ``N`` where
+    both sides are measured directly and 1.18x *slower* at ``P=16/N=10000`` --
+    its cost grows with the data-row count while the specialized engine's is
+    rows-flat (1.24-1.94 ms/tree from N=64 to N=10000) -- hence the rows ceiling,
+    ~2x below the tightest measured crossover (~3.4-6.8k rows at ``P=16``).
 ``dense``
     always attempt the dense path (still falling back on
     :class:`DenseUnsupported`).
@@ -139,6 +151,11 @@ Environment knobs
                                             (the master switch above)
 ``EVOGP_DENSE_AUTO_MIN_POP``    16          the ``auto`` policy's pop-size
                                             threshold on the iree backend
+``EVOGP_DENSE_AUTO_MAX_ROWS``  2048        rows ceiling of the ``auto``
+                                            policy on ``per_row=False`` calls;
+                                            a decline -> ``DenseUnsupported``
+                                            fallback; ``per_row=True`` and an
+                                            explicit ``dense`` are never gated
 ``EVOGP_DENSE_MAX_TREE_LEN``    32          max trace length ``L``; longer trees
                                             -> :class:`DenseUnsupported`
 ``EVOGP_DENSE_BUDGET_MB``       2048        chunking memory budget (MiB)
