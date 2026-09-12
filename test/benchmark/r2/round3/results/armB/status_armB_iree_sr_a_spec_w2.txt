@@ -1,0 +1,93 @@
+r3/run_all_armB.sh: py=/mnt/local-ssd/bchuang/evox/.venv/bin/python
+r3/run_all_armB.sh: repo=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A260  gpu(CUDA_VISIBLE_DEVICES)=0
+r3/run_all_armB.sh: group=all only=armB_iree_sr_a_spec dry_run=0 configs=1 timeout=3600s lock=/tmp/gpbench_critical.lock
+r3/run_all_armB.sh: etl shadow: PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141
+r3/run_all_armB.sh: gpu snapshot: 0, NVIDIA RTX A6000, 0, 4
+
+[ARMB_IREE_SR_A_SPEC] cold-build guard ACTIVE: stop when the cumulative ETL compile misses exceed --max-cold-builds=1500
+[ARMB_IREE_SR_A_SPEC] stage probe stage_probe/1: installed=True partial=False wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness] counters=CACHE.hits/CACHE.misses
+[ARMB_IREE_SR_A_SPEC] harness=bench_gp.py side=new task=sr pop=200 gens=10 tree_len=64 seed=0 reps=2 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree CUDA_VISIBLE_DEVICES=0 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A260/src/evogp/__init__.py commit=2fc3e659011af4b96c8deb0f2aad9d256c4a4559 etl=0.1.0 json_out=test/benchmark/r2/round3/results/armB/new/armB_iree_sr_a_spec.json
+[ARMB_IREE_SR_A_SPEC] stages[rep0/train] 10 calls: cold 155 miss 116039.9ms / warm 362 miss 195558.8ms | decode 44.4 + build-hit 51.0 (115) + build-miss 311598.6 (517) + run 856.7 (632) + readback 444.9 (632) + upload 0.0 + loss 313027.4 + misc 768.9 ms cold/warm totals 313840.8ms (h2d 10 / d2h 632)
+[ARMB_IREE_SR_A_SPEC] side=new rep0/2: 10 gens in 315.1s, per-gen median 11948.2ms, first-gen 117095.6ms, best_fitness_final=-0.2511
+[ARMB_IREE_SR_A_SPEC] stages[rep1/train] 10 calls: cold 0 miss 0.0ms / warm 0 miss 0.0ms | decode 28.6 + build-hit 149.6 (632) + build-miss 0.0 (0) + run 369.5 (632) + readback 219.3 (632) + upload 0.0 + loss 780.9 + misc 122.8 ms cold/warm totals 932.3ms (h2d 10 / d2h 632)
+[ARMB_IREE_SR_A_SPEC] side=new rep1/2: 10 gens in 1.0s, per-gen median 63.5ms, first-gen 226.1ms, best_fitness_final=-0.2511
+[ARMB_IREE_SR_A_SPEC] done side=new interrupted=False harness_wall_s=317.1 json_out=test/benchmark/r2/round3/results/armB/new/armB_iree_sr_a_spec.json
+nanobind: leaked 3854 instances!
+ - leaked instance 0x7fc67ed4d128 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fc671d62668 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fc671d62a28 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fc67d4564a8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fc671d4e748 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fc671d687c8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fc671d70368 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fc67d4da7e8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fc671d6f988 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fc678106528 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fc671d62258 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fc671d85498 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fc671d63ba8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fc67d648de8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fc67d318958 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fc671d454e8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fc67826a0a8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fc671e02168 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fc671d48688 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fc678212e38 of type "iree._runtime_libs._runtime.MappedMemory"
+ - ... skipped remainder
+nanobind: leaked 3853 keep_alive records!
+nanobind: leaked 5 types!
+ - leaked type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked type "iree._runtime_libs._runtime.HalDevice"
+ - leaked type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked type "iree._runtime_libs._runtime.HalDriver"
+nanobind: leaked 39 functions!
+ - leaked function "create_semaphore"
+ - leaked function ""
+ - leaked function "allocate_buffer"
+ - leaked function ""
+ - leaked function "allocate_buffer_copy"
+ - leaked function "create_dlpack_capsule"
+ - leaked function "end_profiling"
+ - leaked function "from_dlpack_capsule"
+ - leaked function "queue_alloca"
+ - leaked function "queue_dealloca"
+ - leaked function "memory_type"
+ - leaked function "__repr__"
+ - leaked function "map"
+ - leaked function "fill_zero"
+ - leaked function "query_buffer_compatibility"
+ - leaked function ""
+ - leaked function "byte_length"
+ - leaked function ""
+ - leaked function "__iree_vm_type__"
+ - leaked function "__eq__"
+ - leaked function "allocate_host_staging_buffer_copy"
+ - leaked function "__repr__"
+ - leaked function ""
+ - leaked function "queue_execute"
+ - leaked function "dump_device_info"
+ - leaked function "__iree_vm_cast__"
+ - leaked function "create_device"
+ - leaked function "asarray"
+ - leaked function "query_available_devices"
+ - leaked function "query"
+ - leaked function "begin_profiling"
+ - leaked function "flush_profiling"
+ - leaked function "allowed_usage"
+ - leaked function "trim"
+ - leaked function "create_default_device"
+ - leaked function "queue_copy"
+ - leaked function ""
+ - leaked function "create_device_by_uri"
+ - leaked function "create_view"
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.htmlconfig armB_iree_sr_a_spec: OK (exit 0) -> test/benchmark/r2/round3/results/armB/new/armB_iree_sr_a_spec.json ; log test/benchmark/r2/round3/results/armB/new/armB_iree_sr_a_spec.log
+
+=== r3 run_all_armB.sh summary (group=all, CUDA_VISIBLE_DEVICES=0, dry_run=0) ===
+ID                               SIDE  EXIT   STATUS    JSON
+armB_iree_sr_a_spec              new   0      OK        test/benchmark/r2/round3/results/armB/new/armB_iree_sr_a_spec.json
+ok: 1  skipped: 0  failed: 0
+summary table: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A260/test/benchmark/r2/round3/results/armB/last_run.txt
+validate with: python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
+RUNNER_EXIT=0
