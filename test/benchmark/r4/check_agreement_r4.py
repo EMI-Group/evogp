@@ -3,8 +3,8 @@
 
 Reads the six records written by ``test/benchmark/r4/run_agreement_r4.sh`` (which drives the
 READ-ONLY R2 tool ``test/benchmark/r2/check_backend_agreement.py``) from
-``<this dir>/results/backend_agreement/`` and decides, per fixture, whether any IREE timing from
-the R4 round may be quoted.
+``<this dir>/results/backend_agreement/`` (overridable, see Usage) and decides, per fixture,
+whether any IREE timing from the R4 round may be quoted.
 
 The R4 pure-forward matrix runs on the same box window as this pre-flight (unlike R3, whose
 matrix ran days after its pre-flight), so the gate is deliberately strict -- and matches the
@@ -27,12 +27,18 @@ failures (the round may still be mid-flight -- then simply re-run the pre-flight
 
 Usage (from the repository root, or anywhere -- paths are resolved from this file)::
 
-    python3 test/benchmark/r4/check_agreement_r4.py
+    python3 test/benchmark/r4/check_agreement_r4.py                  # the committed default dir
+    python3 test/benchmark/r4/check_agreement_r4.py --agree-dir DIR  # or: R4_AGREE_DIR=DIR ...
+
+The records dir is resolved as ``--agree-dir DIR > R4_AGREE_DIR env > <this dir>/results/backend_agreement``
+(the default).  The after-round points it at ``results/backend_agreement_after/`` so the frozen
+before-records are never overwritten.
 
 Exit code: 0 = the (b) gate passes (or (c) finds every pair within 1e-4) for every fixture;
 1 = any hard failure, missing or malformed input.
 """
 
+import argparse
 import hashlib
 import json
 import os
@@ -49,6 +55,21 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 #: the fixtures are referred to by their repository-root-relative paths (the runner's convention)
 REPO_ROOT = os.path.abspath(os.path.join(HERE, os.pardir, os.pardir, os.pardir))
 AGREE_DIR = os.path.join(HERE, "results", "backend_agreement")
+
+
+def resolve_agree_dir(cli_value=None):
+    """Agreement-records dir: --agree-dir DIR > R4_AGREE_DIR env > the committed default.
+
+    Additive override (the default stays byte-identical for every existing invocation); the
+    after-round points this at ``<this dir>/results/backend_agreement_after/`` so the frozen
+    before-records are never overwritten.  Relative paths resolve against the CWD.
+    """
+    if cli_value:
+        return cli_value
+    env_value = os.environ.get("R4_AGREE_DIR", "")
+    if env_value:
+        return env_value
+    return AGREE_DIR
 
 RTOL = 1e-4
 ATOL = 1e-4
@@ -161,12 +182,26 @@ def short(digest):
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="R4 backend-agreement gate (stdlib + numpy only, no torch/GPU).",
+        epilog="Records dir: --agree-dir DIR > R4_AGREE_DIR env > "
+        "<this dir>/results/backend_agreement (the committed default).",
+    )
+    parser.add_argument(
+        "--agree-dir",
+        default=None,
+        help="agreement-records directory (default: <this dir>/results/backend_agreement; "
+        "the R4_AGREE_DIR env var is consulted when the flag is absent)",
+    )
+    args = parser.parse_args(argv)
+    agree_dir = resolve_agree_dir(args.agree_dir)
+
     checker = Checker()
     verdicts = {}          # fixture -> "PASS" | "PASS-with-note" | "FAIL" | "MISSING"
 
     print("check_agreement_r4.py -- R4 backend-agreement gate (numpy vs iree[auto] vs iree[spec])")
-    print(f"  agreement dir : {AGREE_DIR}")
+    print(f"  agreement dir : {agree_dir}")
     print(f"  fixtures      : {', '.join(f['npz'] for f in FIXTURES)} (relative to the repo root)")
     print(f"  primary gate  : identical values_sha256 across the three roles")
     print(f"  fallback gate : every pair within np.allclose(rtol={RTOL:g}, atol={ATOL:g}, equal_nan=True)")
@@ -190,8 +225,8 @@ def main():
         records = {}
         for role in ROLES:
             stem = f"{name}_{role}"
-            json_path = os.path.join(AGREE_DIR, f"{stem}.json")
-            values_path = os.path.join(AGREE_DIR, f"{stem}_values.npy")
+            json_path = os.path.join(agree_dir, f"{stem}.json")
+            values_path = os.path.join(agree_dir, f"{stem}_values.npy")
             payload, json_err = load_json(json_path)
             records[role] = {
                 "stem": stem, "payload": payload, "values": None,

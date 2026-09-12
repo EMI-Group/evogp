@@ -52,6 +52,9 @@
 #   NEW_PYTHONPATH   PYTHONPATH of the new side (default `src`; prefix another checkout
 #                    (e.g. a patched ETL) to shadow it, exactly as in R3 Arm B)
 #   NEW_RESULT_DIR   results dir (default test/benchmark/r4/results)
+#   PURE_EXTRA_ARGS  extra flags appended verbatim to every config's bench_gp.py command
+#                    (default empty; e.g. `PURE_EXTRA_ARGS=--output-checksum` for the
+#                    after-round records -- post-timing, so timed parameters are unchanged)
 #   ETL_REPO         the ETL checkout whose HEAD is recorded in every log (default
 #                    /mnt/local-ssd/bchuang/etl; read-only, never written)
 #
@@ -325,7 +328,7 @@ if (( LIST )); then
   echo "-- exact args per config (+ per-config env overrides, + pre-flight guard state) --"
   for id in "${SELECTED[@]}"; do
     config_spec "$id"
-    args="${CONFIG_ARGS[*]}"
+    args="${CONFIG_ARGS[*]}${PURE_EXTRA_ARGS:+ $PURE_EXTRA_ARGS}"
     envs=""
     if (( ${#CONFIG_ENVS[@]} > 0 )); then envs="  env: ${CONFIG_ENVS[*]}"; fi
     printf '%-26s %s%s\n' "$id" "$args" "$envs"
@@ -354,7 +357,12 @@ run_one() {
   local -a child=(env "PYTHONPATH=$NEW_PYTHONPATH" "CUDA_VISIBLE_DEVICES=$GPU")
   local e
   for e in "${CONFIG_ENVS[@]}"; do child+=("$e"); done
-  child+=("$PY" "$BENCH" "${CONFIG_ARGS[@]}" "--tag" "$tag" "--json-out" "$json")
+  child+=("$PY" "$BENCH" "${CONFIG_ARGS[@]}")
+  if [[ -n "${PURE_EXTRA_ARGS:-}" ]]; then
+    local -a _extra; read -r -a _extra <<< "$PURE_EXTRA_ARGS"
+    child+=("${_extra[@]}")
+  fi
+  child+=("--tag" "$tag" "--json-out" "$json")
   local -a timed=(timeout -s INT -k 30 "$TIMEOUT_S" "${child[@]}")
   local inner; inner="$(printf '%q ' "${timed[@]}")"; inner="${inner% }"
 

@@ -46,6 +46,8 @@
 #   LOCK / FLOCK_WAIT     shared lock path / flock wait (default /tmp/gpbench_critical.lock, 7200)
 #   NEW_PYTHONPATH        PYTHONPATH for the new side (default: src; prefix a patched
 #                         ETL checkout to shadow it, exactly as in R3 Arm B)
+#   R4_AGREE_DIR          agreement-records dir (default: test/benchmark/r4/results/backend_agreement;
+#                         the after-round uses .../results/backend_agreement_after -- CLI --agree-dir wins)
 #
 # Exit codes:
 #   0  every selected record exited 0 (or was guard-skipped, exit 3)
@@ -67,7 +69,7 @@ ulimit -n 65536 2>/dev/null || echo "run_agreement_r4.sh: WARNING: could not rai
 R4_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(pwd)"
 DRIVER=test/benchmark/r2/check_backend_agreement.py
-AGREE_DIR=test/benchmark/r4/results/backend_agreement
+AGREE_DIR="${R4_AGREE_DIR:-test/benchmark/r4/results/backend_agreement}"
 SUMMARY_FILE="$AGREE_DIR/run_agreement_r4.last_run.txt"
 
 PY="${PY:-/mnt/local-ssd/bchuang/evox/.venv/bin/python}"
@@ -85,11 +87,13 @@ FIXTURE200=test/benchmark/fixtures/forest200_tree64_random.npz
 usage() {
   cat <<'EOF'
 usage: test/benchmark/r4/run_agreement_r4.sh [--only stem1,stem2] [--timeout SECONDS]
-                                            [--list] [--dry-run] [--help]
+                                            [--agree-dir DIR] [--list] [--dry-run] [--help]
 
   (no arguments)  run all six records sequentially, in table order
   --only STEMS    run exactly these record stems (comma-separated); overrides the default set
   --timeout S     per-record wall cap fed to `timeout` INSIDE the lock (default: $TIMEOUT_S)
+  --agree-dir DIR records dir (default: test/benchmark/r4/results/backend_agreement;
+                  also via the R4_AGREE_DIR env var -- the CLI flag wins)
   --list          print the record table (stem, fixture, envs, json) and exit
   --dry-run       print every command without executing anything
   --help          this text
@@ -111,6 +115,10 @@ while (( $# > 0 )); do
     --only=*) ONLY="${1#--only=}"; shift ;;
     --timeout) TIMEOUT_S="${2:?--timeout needs a value}"; shift 2 ;;
     --timeout=*) TIMEOUT_S="${1#--timeout=}"; shift ;;
+    --agree-dir) AGREE_DIR="${2:?--agree-dir needs a value}"
+                 SUMMARY_FILE="$AGREE_DIR/run_agreement_r4.last_run.txt"; shift 2 ;;
+    --agree-dir=*) AGREE_DIR="${1#--agree-dir=}"
+                   SUMMARY_FILE="$AGREE_DIR/run_agreement_r4.last_run.txt"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --list) LIST=1; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -349,7 +357,7 @@ if (( DRY_RUN )); then
 fi
 
 {
-  echo "# test/benchmark/r4/results/backend_agreement/run_agreement_r4.last_run.txt -- record -> exit-code table"
+  echo "# $SUMMARY_FILE -- record -> exit-code table"
   echo "# invocation: $(date -Is)   cwd=$REPO_ROOT   user=$(id -un 2>/dev/null || echo '?')"
   echo "# args: only=${ONLY:-<all>} records=$TOTAL timeout=${TIMEOUT_S}s"
   echo "# env: CUDA_VISIBLE_DEVICES=$GPU py=$PY lock=$LOCK new_pythonpath=$NEW_PYTHONPATH"
