@@ -8,9 +8,9 @@ invariants that make the path device-resident are asserted.
 
 What it instruments
 -------------------
-:class:`Traffic` monkeypatches the four functions through which a dense call can
-cross the host boundary and records, per call, the **caller's function name**,
-the payload name (where the site has one) and the payload shape:
+:class:`Traffic` monkeypatches the functions through which a dense call can cross
+the host boundary and records, per call, the **caller's function name**, the
+payload name (where the site has one) and the payload shape:
 
 =================================== ========================== ==========================
 patched site                        direction                  what it sees
@@ -20,19 +20,22 @@ patched site                        direction                  what it sees
 ``dense_engine._pad_rows``          host only                  every chunk payload it PREPARES (all backends)
 ``etl.core.Tensor.numpy``           ETL -> host                every chunk readback (filtered by caller frame)
 ``torch.from_numpy``                host -> torch tensor       the host-side tensor assembly
+``etl.run``                         graph invocation           every compiled-graph call (one per chunk is the invariant)
 =================================== ========================== ==========================
 
 ``etl.from_numpy`` is the upload site, so the "each distinct payload is moved at
 most once per call" invariant is only exercisable on a device backend; the
 ``_pad_rows`` counter measures the same redundancy on the numpy backend, where
 the payload never leaves the host (a payload is uploaded only after being
-prepared, and the two counters agree on chunk multiplicity).
+prepared, and the two counters agree on chunk multiplicity).  ``etl.core.Tensor.numpy``
+is ALSO called thousands of times inside the numpy interpreter's own tensor
+arithmetic, so the readback counter is filtered by caller frame -- and the
+``seam`` stage carries a positive control (the same filter must see ``run_plan``'s
+readbacks) so a filter that silently stopped matching cannot pass.
 
-The filters are caller-frame NAMES (``_READBACK_FRAMES`` / ``_UPLOAD_FRAMES`` /
-``_DENSE_FRAMES``), so the same counters also work on the pre-refactor code --
-which is what makes this script usable as the "before" evidence instead of
-crashing on a missing symbol.
-
+The counters are caller-frame NAMES for the readback / upload / assembly paths,
+so they also work on the pre-refactor code -- which is what makes this script
+usable as the "before" evidence instead of crashing on a missing symbol.
 Checks
 ------
 ``policy``   ``dynamic`` is accepted as an explicit alias of ``dense`` in
@@ -53,9 +56,15 @@ Checks
              untouched value path), plus the chunked result against the
              single-chunk result.
 ``seam``     the readback-free run helper (``dense_engine._iter_plan_chunks``)
-             exists, yields one raw (un-read) result per chunk, performs ZERO
-             host readbacks, and its chunks assemble into the same host array
-             ``run_plan`` returns.
+             exists, yields one raw (un-read) result per chunk after exactly one
+             compiled-graph invocation, performs ZERO readbacks (with a positive
+             control showing the counter does see ``run_plan``'s readbacks),
+             moves each distinct payload (``7`` columns per ``p``-chunk, one
+             ``x`` per ``n``-chunk) exactly once per call -- measured as
+             ``etl.from_numpy`` uploads on a device backend (``--backend iree``)
+             and as ``_pad_rows`` preparations on numpy -- and its chunks
+             assemble into the same host array ``run_plan`` returns (bit-exact,
+             NaN/±inf masks included).
 ``measure``  (``--measure``) warm per-call medians for the dense SR path at the
              ``P/N`` grid points, the pop=1 ``Tree`` path and the value path
              (``Forest.forward``), each with the per-call traffic summary -- the
@@ -118,8 +127,10 @@ DEFAULT_BUDGET_MB = float(getattr(D, "DEFAULT_BUDGET_MB", 2048))
 #: ``_to_host`` inside the chunk iterator)
 _READBACK_FRAMES = ("run_plan", "run_loss_plan", "_to_host", "_iter_plan_chunks")
 #: callers that make up its UPLOAD path (pre-refactor: ``run_plan`` uploads per
-#: (p0, n0) chunk; post-refactor: the memoizing ``columns`` / ``data`` closures)
+#: (p0, n0) chunk; post-refactor: the memoizing ``payload`` closure)
 _UPLOAD_FRAMES = ("run_plan", "columns", "data", "_upload", "_iter_plan_chunks")
+#: callers that invoke the compiled graph (one call per chunk is the invariant)
+_RUN_FRAMES = ("run_plan", "run_loss_plan", "_iter_plan_chunks")
 #: callers that make up its TORCH-ASSEMBLY path (the host -> torch tensor step)
 _DENSE_FRAMES = (
     "evaluate_dense",
@@ -129,10 +140,6 @@ _DENSE_FRAMES = (
     "_to_host",
     "_iter_plan_chunks",
 )
-#: callers that prepare a DATA payload (x / labels): pre-refactor everything is
-#: prepared inside ``run_plan``, post-refactor inside the chunk iterator
-_PAD_DATA_FRAMES = ("run_plan", "run_loss_plan", "_iter_plan_chunks", "_to_host")
-
 
 def _caller(depth: int = 2) -> str:
     """Name of the function that called the PATCHED SITE (one frame above the wrapper)."""
@@ -159,6 +166,7 @@ class Traffic:
         self.tensor_numpy: List[Tuple[str, Tuple[int, ...]]] = []
         self.torch_from_numpy: List[Tuple[str, Tuple[int, ...]]] = []
         self.pad_rows: List[Tuple[str, Tuple[int, ...]]] = []
+        self.run_calls: List[Tuple[str, str]] = []
 
     # -- patching ----------------------------------------------------------
     def __enter__(self) -> "Traffic":
@@ -168,6 +176,7 @@ class Traffic:
             etl.core.Tensor.numpy,
             torch.from_numpy,
             D._pad_rows,
+            etl.run,
         )
         (
             original_as_numpy,
@@ -175,6 +184,7 @@ class Traffic:
             original_numpy,
             original_torch,
             original_pad_rows,
+            original_run,
         ) = self._originals
 
         def as_numpy(tensor, dtype, name):
@@ -199,11 +209,16 @@ class Traffic:
             self.pad_rows.append((_caller(), tuple(np.shape(array))))
             return original_pad_rows(array, rows)
 
+        def run(executable, *args, **kwargs):
+            self.run_calls.append((_caller(), type(executable).__name__))
+            return original_run(executable, *args, **kwargs)
+
         D._as_numpy = as_numpy
         etl.from_numpy = from_numpy
         etl.core.Tensor.numpy = tensor_numpy
         torch.from_numpy = torch_from_numpy
         D._pad_rows = pad_rows
+        etl.run = run
         return self
 
     def __exit__(self, *exc: Any) -> None:
@@ -213,9 +228,9 @@ class Traffic:
             etl.core.Tensor.numpy,
             torch.from_numpy,
             D._pad_rows,
+            etl.run,
         ) = self._originals
         return None
-
     # -- views -------------------------------------------------------------
     @staticmethod
     def _filtered(records: Sequence[Any], frames: Sequence[str]) -> List[Any]:
@@ -236,20 +251,29 @@ class Traffic:
         """Host -> torch tensor creations issued by the dense path."""
         return self._filtered(self.torch_from_numpy, _DENSE_FRAMES)
 
+    @property
+    def runs(self) -> List[Tuple[str, str]]:
+        """Compiled-graph invocations issued by the dense run machinery."""
+        return [record for record in self.run_calls if record[0] in _RUN_FRAMES]
+
     def preparations(self, last_dim: int) -> List[Tuple[str, Tuple[int, ...]]]:
         """``_pad_rows`` payload PREPARATIONS whose trailing axis is ``last_dim``.
 
         Backend-independent: the numpy backend never uploads, so on numpy the
         per-payload preparation count is the observable proxy for "this payload
         is moved once per call" (a payload re-prepared per ``(p0, n0)`` chunk is
-        also re-uploaded per ``(p0, n0)`` chunk on a device backend).
+        also re-uploaded per ``(p0, n0)`` chunk on a device backend).  The
+        counter deliberately does NOT filter by caller frame: ``_pad_rows`` is
+        private to ``dense_engine``, whose only caller is the dense run
+        machinery, and the preparation step now sits behind the payload memo
+        (``_chunk_rows`` / ``_keep_mask``), so a frame-name filter would silently
+        stop counting the very calls it is meant to count.
         """
         return [
             record
             for record in self.pad_rows
-            if record[0] in _PAD_DATA_FRAMES and record[1] and record[1][-1] == last_dim
+            if record[1] and record[1][-1] == last_dim
         ]
-
     def conversions(self, *names: str) -> List[Tuple[str, str, int]]:
         """``_as_numpy`` (torch -> host) calls whose payload name is in ``names``."""
         wanted = set(names)
@@ -289,6 +313,7 @@ class Traffic:
                 list(shape) for _, shape in self.torch_creations
             ],
             "torch_from_host_max_elements": max(creations, default=0),
+            "etl_runs": len(self.runs),
         }
 
 
@@ -330,6 +355,44 @@ def _env_mode(value: str) -> Any:
             os.environ.pop(D.EVAL_MODE_ENV, None)
         else:
             os.environ[D.EVAL_MODE_ENV] = previous
+
+
+class _backend:
+    """Set ``EVOGP_ETL_BACKEND`` (+ the IREE device index) for the block.
+
+    The seam stage needs the backend the ENGINE resolves (``_resolve_backend``
+    reads the env), not just the mode switch, so it flips the env the same way
+    ``--measure`` does.  ``None`` / ``"numpy"`` = the default backend (unset).
+    """
+
+    def __init__(self, name: Optional[str], gpu: Optional[int] = None) -> None:
+        self.name = None if name in (None, "numpy") else str(name)
+        self.gpu = gpu
+
+    def __enter__(self) -> "_backend":
+        self.previous = (
+            os.environ.get("EVOGP_ETL_BACKEND"),
+            os.environ.get("EVOGP_ETL_IREE_DEVICE"),
+        )
+        if self.name is None:
+            os.environ.pop("EVOGP_ETL_BACKEND", None)
+        else:
+            os.environ["EVOGP_ETL_BACKEND"] = self.name
+            if self.gpu is not None:
+                os.environ["EVOGP_ETL_IREE_DEVICE"] = str(int(self.gpu))
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        backend, device = self.previous
+        for key, value in (
+            ("EVOGP_ETL_BACKEND", backend),
+            ("EVOGP_ETL_IREE_DEVICE", device),
+        ):
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        return None
 
 
 class _budget:
@@ -576,6 +639,12 @@ def _hotpath_case(
         f"[{label}] one readback per chunk",
         len(readbacks) == plan.p_chunks * plan.n_chunks,
         f"{len(readbacks)} readbacks for {plan.p_chunks}x{plan.n_chunks} chunks",
+    )
+    report.add(
+        f"[{label}] one compiled-graph invocation per chunk",
+        len(traffic.runs) == plan.p_chunks * plan.n_chunks,
+        f"{len(traffic.runs)} etl.run calls for "
+        f"{plan.p_chunks}x{plan.n_chunks} chunks",
     )
     creations = [int(np.prod(shape)) for _, shape in traffic.torch_creations]
     report.add(
@@ -845,6 +914,50 @@ def stage_parity(args: Any, report: Report) -> None:
 # ---------------------------------------------------------------------------
 
 
+#: how many chunk payloads of each kind the seam must move per call.  The
+#: payload key (``p0`` for the columns, ``n0`` for ``x``) makes the multiplicity
+#: exact, not an upper bound: 7 node columns per ``p``-chunk, one ``x`` per
+#: ``n``-chunk (the seam fixture is the value variant, ``per_row=False``).
+def _payload_expectation(plan: Any) -> Dict[str, int]:
+    return {
+        "columns": 7 * plan.p_chunks,
+        "x": 1 if plan.per_row else plan.n_chunks,
+    }
+
+
+def _nan_safe_equal(a: Any, b: Any) -> Tuple[bool, str]:
+    """Bit-exact NaN-aware equality of two float32 host arrays (+ detail string).
+
+    A numeric fixture may legitimately contain NaN/±inf nodes (``DIV`` by zero,
+    ``LOG`` of a negative...), so a plain ``np.array_equal`` / ``max|diff|`` is
+    NaN-poisoned: the masks are compared exactly and the difference is taken
+    over the finite positions only.
+    """
+    x = np.asarray(a, dtype=np.float32)
+    y = np.asarray(b, dtype=np.float32)
+    if x.shape != y.shape:
+        return False, f"shape {x.shape} != {y.shape}"
+    nan_ok = bool(np.array_equal(np.isnan(x), np.isnan(y)))
+    inf_ok = bool(
+        np.array_equal(np.isposinf(x), np.isposinf(y))
+        and np.array_equal(np.isneginf(x), np.isneginf(y))
+    )
+    finite = np.isfinite(x) & np.isfinite(y)
+    max_abs = (
+        float(
+            np.abs(x[finite].astype(np.float64) - y[finite].astype(np.float64)).max()
+        )
+        if finite.any()
+        else 0.0
+    )
+    non_bit = int((finite & (x.view(np.int32) != y.view(np.int32))).sum())
+    return (
+        bool(nan_ok and inf_ok and max_abs == 0.0 and non_bit == 0),
+        f"nan_ok={nan_ok} inf_ok={inf_ok} non_bit_exact_finite={non_bit} "
+        f"max|diff|={max_abs:.3g}",
+    )
+
+
 def stage_seam(args: Any, report: Report) -> None:
     print("== stage seam: readback-free chunk iteration ==")
     iterate = getattr(D, "_iter_plan_chunks", None)
@@ -859,54 +972,100 @@ def stage_seam(args: Any, report: Report) -> None:
         return
     pop, rows, input_len = 8, 37, 3
     forest, inputs, _ = fixture(pop, rows, input_len=input_len, seed=21)
-    plan = plan_for(forest, rows, budget_mb=1.0, variant="value")
-    x_host = np.ascontiguousarray(inputs.detach().cpu().numpy(), dtype=np.float32)
-    executable = D.build_dense(plan)
-    backend_name, device, _ = E._resolve_backend(None, None)
-    with Traffic() as traffic:
-        chunks = list(
-            iterate(plan, executable, x_host, backend_name=backend_name, device=device)
+    # ``--backend iree`` (with ``--gpu``) resolves through the same env the
+    # engine reads, so the seam is exercised with real device payloads too; the
+    # default run stays on numpy, where the payload-preparation counts stand in
+    # for the upload counts (nothing is uploaded at all there).
+    with _backend(args.backend, args.gpu):
+        plan = plan_for(forest, rows, budget_mb=1.0, variant="value")
+        x_host = np.ascontiguousarray(inputs.detach().cpu().numpy(), dtype=np.float32)
+        executable = D.build_dense(plan)
+        backend_name, device, _ = E._resolve_backend(None, None)
+        with Traffic() as traffic:
+            chunks = list(
+                iterate(
+                    plan, executable, x_host, backend_name=backend_name, device=device
+                )
+            )
+        report.add(
+            "the seam performs ZERO host readbacks",
+            len(traffic.readbacks) == 0,
+            f"{len(traffic.readbacks)} ETL->host reads issued by "
+            f"{_READBACK_FRAMES} while iterating "
+            f"({len(traffic.tensor_numpy)} .numpy() calls in total, the rest are "
+            "the numpy interpreter's internal tensor handling)",
         )
-    report.add(
-        "the seam performs ZERO host readbacks",
-        len(traffic.tensor_numpy) == 0,
-        f"{len(traffic.tensor_numpy)} ETL->host reads while iterating",
-    )
-    expected = {
-        (plan.trace_len, plan.p_chunk): plan.p_chunks,
-        (plan.n_chunk, input_len): plan.n_chunks,
-    }
-    counts = traffic.upload_counts()
-    report.add(
-        "the seam uploads each distinct payload once per call",
-        counts == expected,
-        f"uploaded { {str(k): v for k, v in counts.items()} }, expected "
-        f"{ {str(k): v for k, v in expected.items()} }",
-    )
-    report.add(
-        "one raw (un-read) result per chunk",
-        len(chunks) == plan.p_chunks * plan.n_chunks,
-        f"{len(chunks)} results for {plan.p_chunks}x{plan.n_chunks} chunks",
-    )
-    report.add(
-        "the raw results are ETL tensors (device-resident on a device backend)",
-        all(isinstance(chunk[1], etl.core.Tensor) for chunk in chunks),
-        f"types={sorted({type(chunk[1]).__name__ for chunk in chunks})}",
-    )
-    assembled = np.empty((plan.pop_size, plan.n_rows), dtype=np.float32)
-    for (p0, p_chunk, n0, n_chunk), raw in chunks:
-        host = np.asarray(raw.numpy(), dtype=np.float32).reshape(
-            plan.p_chunk, plan.n_chunk
+        report.add(
+            "one compiled-graph invocation per chunk",
+            len(traffic.runs) == plan.p_chunks * plan.n_chunks,
+            f"{len(traffic.runs)} etl.run calls for "
+            f"{plan.p_chunks}x{plan.n_chunks} chunks",
         )
-        assembled[p0 : p0 + p_chunk, n0 : n0 + n_chunk] = host[:p_chunk, :n_chunk]
-    reference = D.run_plan(
-        plan, executable, x_host, backend_name=backend_name, device=device
-    )
-    report.add(
-        "seam-assembled rows equal run_plan's rows",
-        bool(np.array_equal(assembled, reference)),
-        f"max|diff|={float(np.abs(assembled - reference).max()):.3g}",
-    )
+        # Positive control: the counters above only mean something if the same
+        # filter DOES see the readbacks of a consumer that reads its results
+        # back.  run_plan is that consumer.
+        with Traffic() as control:
+            D.run_plan(plan, executable, x_host, backend_name=backend_name, device=device)
+        report.add(
+            "the readback/run counters are live (run_plan is seen)",
+            len(control.readbacks) == plan.p_chunks * plan.n_chunks
+            and len(control.runs) == plan.p_chunks * plan.n_chunks,
+            f"run_plan: {len(control.readbacks)} readbacks, "
+            f"{len(control.runs)} etl.run calls for "
+            f"{plan.p_chunks}x{plan.n_chunks} chunks",
+        )
+
+        expectation = _payload_expectation(plan)
+        column_preps = traffic.preparations(plan.trace_len)
+        x_preps = traffic.preparations(input_len)
+        report.add(
+            "the seam PREPARES each distinct payload once per call",
+            len(column_preps) == expectation["columns"]
+            and len(x_preps) == expectation["x"],
+            f"preparations: columns={len(column_preps)} "
+            f"(expected {expectation['columns']}), x={len(x_preps)} "
+            f"(expected {expectation['x']})",
+        )
+        counts = traffic.upload_counts()
+        expected = {
+            (plan.trace_len, plan.p_chunk): expectation["columns"],
+            (plan.n_chunk, input_len): expectation["x"],
+        }
+        if backend_name == "numpy":
+            report.add(
+                "the seam uploads each distinct payload once per call",
+                counts == {},
+                "numpy backend: _pad_rows preparation counts above; "
+                "etl.from_numpy is only used on device backends",
+            )
+        else:
+            report.add(
+                "the seam uploads each distinct payload once per call",
+                counts == expected,
+                f"uploaded { {str(k): v for k, v in counts.items()} }, expected "
+                f"{ {str(k): v for k, v in expected.items()} }",
+            )
+        report.add(
+            "one raw (un-read) result per chunk",
+            len(chunks) == plan.p_chunks * plan.n_chunks,
+            f"{len(chunks)} results for {plan.p_chunks}x{plan.n_chunks} chunks",
+        )
+        report.add(
+            "the raw results are ETL tensors (device-resident on a device backend)",
+            all(isinstance(chunk[1], etl.core.Tensor) for chunk in chunks),
+            f"types={sorted({type(chunk[1]).__name__ for chunk in chunks})}",
+        )
+        assembled = np.empty((plan.pop_size, plan.n_rows), dtype=np.float32)
+        for (p0, p_chunk, n0, n_chunk), raw in chunks:
+            host = np.asarray(raw.numpy(), dtype=np.float32).reshape(
+                plan.p_chunk, plan.n_chunk
+            )
+            assembled[p0 : p0 + p_chunk, n0 : n0 + n_chunk] = host[:p_chunk, :n_chunk]
+        reference = D.run_plan(
+            plan, executable, x_host, backend_name=backend_name, device=device
+        )
+        equal, detail = _nan_safe_equal(assembled, reference)
+        report.add("seam-assembled rows equal run_plan's rows", equal, detail)
     set_mode("auto", backend="numpy")
 
 
