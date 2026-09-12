@@ -123,6 +123,13 @@ Cheapest checks, in order: (1) `PYTHONPATH=src <venv>/bin/python -m py_compile e
 Ground truth for "is an example still valid" is the library itself: read the signatures in `../src/evogp/tree/forest.py`, `../src/evogp/tree/combined_forest.py`, `../src/evogp/problem/*.py` (including `custom_loss.py`) and `../src/evogp/pipeline/standard.py` rather than trusting these scripts.
 Runtimes in this file were measured with the venv `/mnt/local-ssd/bchuang/evox/.venv` (python 3.11, torch 2.6.0+cu124, etl 0.1.0, jax 0.10.2/brax 0.14.2/mujoco_playground present, **no scikit-learn, no pandas, no ucimlrepo, no pygraphviz, no genesis**), from the repo root with `PYTHONPATH=src` and `ETL_DISABLE_LOCATIONS=1`.
 
+## Notes for benchmark-style use
+These scripts are demos, not microbenchmarks of `problem.evaluate()`:
+- `StandardPipeline` runs with `is_show_details=True` (its default), so every generation prints a fitness block and does a GPU→CPU sync in `step()` (`fitnesses.cpu()`, then argmax/max on CPU); `run()` also prints `Generation limit reached!` at the end. The printed/measured per-generation time wraps the whole generation (`problem.evaluate` + `algorithm.step`), not the raw evaluate call.
+- `uci_sr.py` / `custom_sr.py` wrap `pipeline.run()` in `time.time()` (their `During time` covers the full GP loop incl. printing); `basic.py` / `combined_sr.py` / `regressor.py` render sympy only after the run, and `basic.py` additionally prints the Pareto front — none of them isolates evaluation.
+- `transformer.py` is the only example that calls `problem.evaluate(forest)` directly (manual `algorithm.step` loop), but it needs `scikit-learn`.
+- Datasets inside the demos are tiny (8 XOR rows in `basic.py` / `combined_sr.py`, 100 synthetic points in `regressor.py`, 60 rows in `uci_sr.py` via id 409), so per-structure ETL compile cost dominates any data-size effect; the first generation is all cold cache misses and later generations partly hit the in-process `EVOGP_ETL_CACHE_SIZE` (default 4096) cache.
+
 ## See Also
 `../README.md` — narrative walkthrough of the same API (Installation, Quick Start, Supported Benchmarks, "Experiments in Paper").
 `../src/evogp/` — the library itself; routing table entry `../src/evogp/tree/` for the engine/`ENGINE_SPEC.md`, `../src/evogp/problem/` for each `Problem` (incl. `custom_loss.py`) and `../src/evogp/pipeline/` for `StandardPipeline`.
