@@ -1,17 +1,205 @@
-# REPORT.md — R2 GPU round: legacy CUDA vs ETL "true jit" (iree-cuda + numpy), warm/steady-state
+# REPORT.md — old-vs-new GPU rounds: R2 baseline + Round 3 current verdict (legacy CUDA vs ETL "true jit" iree-cuda/numpy, warm/steady-state)
 
-**Executive summary.** On one shared box (8× RTX A6000, GPU 6) and through the same public `evogp`
-API, the same fixtures/seed and one process per config, the legacy custom-CUDA engine is **110×–363×
-faster than the ETL engine's `iree` (IREE-cuda, O1) backend** and **33×–148× faster than the ETL
-engine's default `numpy` backend** on the fixed-forest evaluation workloads, measured on warm
-(steady-state) medians (per-call median, compile/first-call excluded). On a fully warm `sr`
-generation the gap narrows to **41× (iree) / 14× (numpy)**. The two new backends are numerically
-interchangeable — iree-O1 fitness is bit-identical to numpy on both fixtures
-(`r2/backend_agreement.md`) — so the ~2.5–3.4× that separates them is pure execution overhead:
-**IREE-cuda is ~3.3× slower, warm, than the CPU reference interpreter** at these problem sizes. The
-gap is structural, not arithmetic: the new engine issues **K per-tree specialized invocations plus K
-device readbacks per `evaluate`** (K = 53/171 here) where the legacy engine issues one batched
-launch.
+**Executive summary (Round 3 — current verdict; the R2 sections below are baseline history).** On one
+shared box (8× RTX A6000) and through the same public `evogp` API, the same fixtures/seed and one
+process per config, the legacy custom-CUDA engine's lead on the fixed-forest evaluation workloads has
+compressed from R2's **110×–363× (iree)** / **33×–148× (numpy)** to **≈16–23×** on the default
+fixture-eval route, **≈36–142×** against the `numpy` backend and **≈94–372×** on R2's per-structure
+route, measured on warm (steady-state) medians (per-call median, compile/first-call excluded). Both
+Round 3 arms agree on that shape: **Arm A** (merged `evogp` + stock ETL) reads 0.6323 ms vs **10.64 ms**
+iree-dense / 23.29 ms numpy on the 64-tree fixture and 0.6357 vs **10.50 / 117.61 ms** on the 200-tree
+one; **Arm B** (the same code under the patched-ETL checkout shadow, whose W2 records are the ETL-side
+records of record) reads **14.84 / 10.03 ms** iree-dense, 59.47 / 236.50 ms forced-specialized and
+22.81 / 90.15 ms numpy against the same frozen legacy anchors. On the fully warm `sr_a` generation the
+remaining gap is **≈30–38×** in Arm B (30.4× numpy / 38.1× forced-specialized; Arm A's `iree`-dense row
+is 24.3×). The compression is wave 2's **dense one-graph route** (now the `iree` route under the default
+`EVOGP_EVAL_MODE=auto`): within one window it is **6.38× / 21.77×** cheaper per warm eval call than the
+same code pinned to R2's per-structure route, which still reads R2's numbers (R2 → Arm A forced
+specialized: 69.61 → 67.87, 229.49 → 228.52, `sr_a` rep1 65.31 → 64.66 = −2.5 % / −0.4 % / −1.0 %).
+Wave 1 and the patched-ETL shadow measured **≈neutral on warm cost** — the patched checkout's observable
+is **file-descriptor economy** (iree flat at 91 fds where Arm A ends at 2 395 / 5 819 / 9 723 / 17 243
+at identical build counts) **plus R2's `iree_sr_b2` SIGSEGV not reproducing** (both routes now exit 0).
+Details, gates and caveats: the **Round 3** section directly below and `r2/round3/README.md`. The R2
+sections below retain their original numbers as the R2-baseline history.
+
+## Round 3 — current verdict (2026-09-12)
+
+**What Round 3 is.** The R2 headline configs re-measured with the **R2 method unchanged** (same harness
+`bench_gp.py`, same flags, fixtures, wiring and implicit `--seed 0`, same `ulimit`/`flock`/`timeout` order,
+one process per config, warm median as the headline with compile reported separately) after two waves of
+engine work: **wave 1**, host-side cuts in `src/evogp/tree/etl_engine.py` (host cost of decode / build /
+`sr_fitness`), and **wave 2**, the dense one-graph evaluator `src/evogp/tree/dense_engine.py`, which under
+the default `EVOGP_EVAL_MODE=auto` policy is now the route the `iree` backend takes (pop ≥ 16,
+`per_row=False` rows ≤ 2048, ≤ 32-node trace length; longer trees and unsupported shapes fall back to the
+specialized engine). `numpy` still runs the specialized per-structure engine — `auto` never selects dense
+there. The round was executed as **two arms**:
+
+* **Arm A — merged `evogp` + stock ETL**: the R3 records in `r2/round3/results/{new,legacy}/` plus the
+  six-arm agreement pre-flight in `r2/round3/results/backend_agreement/`; write-up `r2/round3/SUMMARY.md`.
+* **Arm B — the same nine new-side configs under a patched-ETL checkout shadow**
+  (`NEW_PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141`, etl commit `51a7141`): records
+  `r2/round3/results/armB/new/`; write-up `r2/round3/SUMMARY_armB.md`.
+
+Both arms ran in **two windows** (W1 = the default GPU 6 while a foreign tenant held ~22 GB of it; W2 = the
+GPU-0 companion re-run), so the table below states which window each number comes from and within-window
+ratios are the robust ones. Protocol, config table, commands, exit codes and gates: `r2/round3/README.md`.
+
+### Headline warm table — R2 → Arm A / Arm B
+
+Warm medians in ms (evals: `median_warm_ms`; `sr_a`: `median(per_gen_ms[1:])` per rep; compile and
+first-call excluded). R2 column: this file's §1, recomputed from `new/results/r2/` + `legacy/results/r2/`;
+A column: `r2/round3/results/`; B column: `r2/round3/results/armB/new/` (the W2 records of record).
+
+| workload (warm median) | route | R2 ms | Arm A (R3) ms | Arm B (W2) ms | legacy ÷ ETL: R2 → A / B |
+|---|---|---|---|---|---|
+| **legacy anchor** (CUDA, one batched launch; frozen) | — | **0.6323 / 0.6357 / 1.58** | — | — | — |
+| fixture64 × n64, per call | iree **auto** (dense) | 69.61 | **10.64** | 14.84 | 110.0× → **16.8× / 23.5×** |
+| fixture64 × n64, per call | iree spec (forced) | 69.61 | 67.87 | 59.47 | 110.0× → 107.3× / 94.1× |
+| fixture64 × n64, per call | numpy (default) | 21.06 | 23.29 | 22.81 | 33.3× → 36.8× / 36.1× |
+| fixture200 × n64, per call | iree **auto** (dense) | 229.49 | **10.50** | 10.03 | 363.2× → **16.5× / 15.8×** |
+| fixture200 × n64, per call | iree spec (forced) | 229.49 | 228.52 | 236.50 | 363.2× → 359.5× / 372.0× |
+| fixture200 × n64, per call | numpy (default) | 93.67 | 117.61 | 90.15 | 148.2× → 185.0× / 141.8× |
+| `sr_a`, rep1 (fully warm), per generation | iree **auto** (dense) | 65.31 | **38.39** | 126.79 \* | 41.1× → 24.3× / 80.2× \* |
+| `sr_a`, rep1 (fully warm), per generation | iree spec (forced) | 65.31 | 64.66 | 60.19 | 41.1× → 40.9× / 38.1× |
+| `sr_a`, rep1 (fully warm), per generation | numpy (default) | 22.07 | 30.78 | 47.98 | 13.9× → 19.5× / 30.4× |
+
+Footnote. Rows 2–10 are the three workloads × {iree `auto` (dense), iree `spec` (forced specialized),
+numpy}; the `spec` rows read their R2 column off the base id because in R2 the `auto` route *was* the
+specialized engine (the same code path). The **legacy anchor row** lists the three workloads in table
+order — fixture64 0.6323, fixture200 0.6357, `sr_a` rep1 1.58 ms — and has no Arm A/B cell by design: the
+legacy CUDA engine is frozen and its Arm A companion window re-confirmed R2 exactly (0.6323 vs 0.6327 /
+0.6357 vs 0.6319 / 1.58 vs 1.59; W1's 3.05×–3.11× inflation of the two launch-bound legacy evals was the
+window, not the engine). **Window mapping**: Arm A's `iree` rows were measured in W1 (GPU 6) and its
+legacy/numpy light group in W2 (GPU 0); **Arm B's committed W2 records (GPU 0) are the ETL-side numbers of
+record**, and its W1 twins stay retrievable in git at `b728466` (`SUMMARY_armB.md` §2/§6). \* = the Arm B
+`sr_a` rep1 `auto` cell is a **median-position artifact on a bimodal per-generation series** (Arm B W2
+rep1 `per_gen_ms[1:]` = `[329.5, 167.0, 129.7, 126.8, 41.4, 40.7, 41.8, 52.6, 129.1]`): the rep's stage
+total moves only 953.1 → 1 106.6 ms while the median jumps 38.39 → 126.79 ms, and the fitness trajectory
+is bitwise identical. The **numpy rows ride the shared-box noise band** in both arms (Arm B A→B
+−2.1 %…+117.4 %, and the two numpy windows are the only *device-paired* A/B pair on the CPU-bound route),
+so no engine-side shift is attributed to numpy. The `sr_a` **rep0** (churning) generation moved much
+further on the dense route — R2 10 733.32 ms → Arm A **138.26 ms** / Arm B **82.56 ms** (−98.7 % / −99.2 %).
+
+### What moved and why
+
+* **Wave 2 is the decisive win, and it is an `iree` win.** Within Arm A's single window the `auto` (dense)
+  route is **6.38× / 21.77×** cheaper per warm eval call than the same code pinned to the specialized route
+  (10.64 vs 67.87 ms; 10.50 vs 228.52 ms), **106.62×** on the churning `sr_a` generation (138.26 vs
+  14 741 ms) and 1.68× on its fully warm rep (38.39 vs 64.66 ms). Against R2 the warm `iree` evals drop
+  **−84.7 % / −95.4 %**, the first calls fall 82 065 → **13 640 ms** / 105 646 → **13 207 ms**, and the
+  per-process cold-build counter collapses 48 / 155 / 517 → **1 / 1 / 170** misses (the probe sees 0 `etl`
+  build misses on the two eval configs — the one dense graph replaces all per-structure builds).
+* **Wave 1 is ≈neutral on the route it touched.** The forced-specialized arms (R2-era route, wave-1 code,
+  same window) land on R2's numbers — 67.87 vs 69.61 (−2.5 %), 228.52 vs 229.49 (−0.4 %), 64.66 vs 65.31
+  (−1.0 %) — with identical build counts and identical fitness. That is why the forced-specialized ratio
+  barely moves (≈94–372× across the two arms): R2's gap is still fully there for the per-structure route.
+* **The `numpy` route is structurally unchanged.** Exactly R2's build/miss traffic (48 / 155 / 155 cold and
+  0 / 0 / 362 warm misses in rep0), a bit-identical `sr_a` trajectory, fixture values within 2.03e-07
+  relative of the R2 anchor, and `auto` never selects dense there — its R3 cells (23.29 / 117.61 / 30.78 ms
+  in Arm A; 22.81 / 90.15 / 47.98 ms in Arm B) ride the shared-host band, which is why 36.1–185.0× is
+  quoted as a range and not as an engine result.
+* **The cross-backend ordering flipped on the fixture evals.** With the dense route `iree` now beats the
+  CPU interpreter on both fixed-forest evals (10.64 vs 23.29 ms = **2.19×**; 10.50 vs 117.61 ms = **11.2×**)
+  where R2 read 3.31× / 2.45× in numpy's favour, and it is within 1.18–1.25× of numpy on `sr_a` (rep0 /
+  rep1) instead of 127.6× / 2.96×.
+* **Arm B (patched ETL) is ≈neutral warm, with one exception.** The patched checkout reproduces all six
+  Arm A fitness vectors bitwise and every config's cold-build traffic exactly (`48 / 155 / 517 / 1 / 1 /
+  170` JSON misses, identical hit/miss splits), while its warm deltas run both ways inside the window band
+  (`SUMMARY_armB.md` §2: iree `auto` −4.4 %…+39.4 %, forced-specialized −12.4 %…+3.5 %, numpy
+  −23.4 %…+117.4 %; the `sr` rep1 `auto` +230 % is the bimodal-median artifact footnoted above). The one
+  difference that clears the band is **fd/descriptor economy**: at identical build counts the Arm B `iree`
+  arms end flat at **91 fds** where their Arm A twins end at **2 395 / 5 819 / 9 723 / 17 243** — and stay
+  flat even at 1 181 builds, where R2's own rate (32.3 fds per compiled structure) had projected
+  ≈73 000 fds, above the 65 536 soft limit.
+
+### Stage deltas
+
+The R2 stage decomposition (§3 below) is still the reference, and the two waves moved different parts of
+it: wave 1 shows up inside the specialized stages, wave 2 is invisible to the R2 probe.
+
+* **Wave 1 — host cuts inside the specialized stages** (over-rep stage totals, warm, 25 calls / 11 for the
+  10 000-row arm; `src/evogp/tree/warm_path_findings.md` §4, which measured at the tree-docs HEAD
+  `f227e4c` against its pre-change base `850db27`, both sides pinned to `EVOGP_EVAL_MODE=specialized`):
+  **decode ≈ 43 → 28 ms** (fixture64 numpy: 42.3 / 42.8 / 45.1 → 27.6 / 27.7 / 29.0 ms), **≈ 188 → 112 ms**
+  (fixture200 numpy), **≈ 19 → 12 ms** at 10 000 rows, **≈ 47 → 30 ms** (fixture64 iree) and
+  **≈ 190 → 120 ms** (fixture200 iree); the `sr_fitness` **prediction upload is 0.0 ms on both backends**
+  (fixture64 numpy 8.2 / 9.8 / 8.6 → 0.0, fixture200 numpy 21.3 / 22.9 / 21.3 → 0.0, 10 000-row numpy
+  9.8–16.3 → 0.0, iree 18.3 → 0.0 and 47.4 → 0.0) because the prediction never leaves the host; `build_hit`
+  and `run` are unchanged (the ETL call path was untouched). The same wave cut the cold numpy first call
+  moderately (233.2 → 190.3 ms fixture64, 1029.8 → 983.1 ms fixture200) — which is why wave 1 reads as
+  ≈neutral in warm medians even though its stage split improved.
+* **Wave 2 — the dense route, and what the R2 probe cannot see.** `stage_probe.py` monkeypatches the
+  *specialized* engine's call sites, so the dense-route records degenerate: the two `auto` eval configs
+  report `build_calls=0`, `trees_invoked=0`, only `run_calls=25` non-zero, with the whole 25-call span in
+  the uninstrumented `misc` bucket (14 400.7 / 13 779.4 ms), while their JSON-level guard still counts the
+  one dense compile. The on-the-wire behaviour is therefore read off the record itself (`SUMMARY.md` §3,
+  `iree_sr_a` rep0): gen 0 = **dense compile ≈ 16 551.8 ms** (1 `run` call, 0 trees invoked), gens 1–2 =
+  **specialized fallback** because the mutated trees exceed the 32-node dense trace cap (127/200 and
+  102/200 trees invoked, 33 184.2 / 34 461.8 ms), gens 3–9 = **dense** again (138.26 … 37.28 ms), rep1
+  fully warm (229 build hits, **0 misses**, median 38.39 ms). Build economy at that scale: **170** cumulative
+  cold misses versus **517** per-structure builds for the same config in R2.
+* **Arm B — the fully warm stages sit inside the window band** (`SUMMARY_armB.md` §4): `iree_sr_a` rep1
+  `build_hit` 50.31 → 44.30 → 50.31 ms for 229 hits (Arm A → B W1 → B W2), its pinned-specialized twin
+  137.79 → 155.06 → 149.63 ms for 632 hits, numpy `sr_a` rep1 142.20 → 146.76 → 158.40 ms; `run` and
+  `readback` move both ways by comparable amounts. So the patched cache-hit path shows *no regression, same
+  numbers, same cache behaviour* at these workloads — it does not show a warm speed-up (see *What landed vs
+  what remains open* below).
+
+### Gates and workload identity
+
+Arm A: `python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest.txt
+--require-stages` → **12 records, 45 checks, 0 failures**; `check_agreement_r3.py` → **PASS (32 checks,
+0 failures)** — numpy ↔ specialized bit-identical, auto-dense within `rtol=atol=1e-4` (max |diff|
+7.63e-06 / 3.91e-03, max rel ≤ 2.03e-07), identical NaN/±inf masks (3/64 and 12/200), and the auto-dense
+values **bit-identical to the R2 anchors**. Arm B: `check_r3.py --manifest
+test/benchmark/r2/round3/manifest_armB.txt --require-stages` → **9 records, 34 checks, 0 failures**;
+`check_agreement_armB.py` → **PASS (38 checks, 0 failures)** with **all six Arm A → Arm B `values_sha256`
+pairs bit-identical**. The workload is provably unchanged: every `sr_a` `per_gen_best_fitness` trajectory
+is identical generation-for-generation across R2, Arm A, B W1 and B W2 in both reps (final
+−0.2510969936847687), and the cold-build traffic is identical per config and rep — so the timing deltas
+above are engine and window, not workload.
+
+### What landed vs what remains open
+
+In the patched checkout (commit `51a7141`, **in flight upstream** — it is **not yet on etl `main`**, which
+is at `a863545`) the landed items are **A-1** (single-pass cache-key derivation), **A-3** (one-slot
+fingerprint memo) and the **`iree` per-thread HAL-device cache** (the fd leak); upstream microbenchmarks
+report the `build_cached` hit path collapsing from **400–1 945 µs to ≈17–25 µs per lookup**. That figure is
+**upstream-reported only**: Arm B's in-situ records could not resolve a warm-path win from A-1/A-3 (the
+fully warm `build_hit` stage sits at ≈0.22–0.26 ms per hit on both sides, and every A→B warm delta is
+inside the window band), so the claim this round supports is *no regression, same numbers, same cache
+behaviour; no warm speed-up claimed at these workloads*. Still open: **A-2** (canonicalize fast path /
+encode-time envelope ordering, ≈ −80…190 µs), **B-1/B-2** (the run-path statics re-validation in `etl.run`:
+≈1.4 µs per static leaf → +250 µs at 60 tokens; precompute the kind strings + an `is` fast path;
+per-executable memo), **batched readback / multi-program execution** (structurally blocked: the runtime
+`etl.Tensor` has no `concat`/`stack`/`__getitem__`, and `__dlpack__` raises for cuda payloads) and
+**`Executable.close()` / a `CompileCache` eviction hook**.
+
+### Where the remaining gap lives
+
+On the default fixture-eval path the legacy engine is still **16.8× / 16.5×** ahead (Arm A; 23.5× / 15.8×
+in Arm B) against the frozen anchor of **0.632 ms** (fixture64), and **≈94–372×** ahead of the
+forced-specialized route — so the compression above is a *route* story, not a general one. What is left
+sits in three places: (a) the **K per-tree dispatch + readback** shape that the specialized route (numpy
+default, forced-spec `iree`) still pays — §2/§4(i)–(iii) of the R2 analysis below remain accurate for it;
+(b) the **`etl.run` statics re-validation and the `build_cached` hit-path re-encode**, both still upstream
+(A-2, B-1/B-2) at ≈ µs per leaf × tokens per tree; and (c) the **dense-route glue the R2 probe cannot see**
+(the whole warm cost of the two dense eval configs lands in its `misc` bucket), i.e. the dense path has no
+per-stage profile yet. Closing more of the gap needs the upstream batched-readback / multi-program item —
+the one that is structurally blocked — rather than more evogp-side tuning.
+
+### `iree_sr_b2` re-attempt (non-headline, not a manifest id)
+
+R2's only failed config (pop 1000 / tree 128, exit 139 SIGSEGV before generation 0 — §7 below) was
+re-attempted on the patched checkout in **both routes**, and **the crash did not reproduce**: the dense
+attempt (`armB_iree_sr_b2`, `auto` ⇒ dense) completed 2 reps × 2 generations in 213 s with 431/1500
+cold-build misses, the pinned-specialized one (`armB_iree_sr_b2_spec`) in 595 s with 1181/1500 — both
+**exit 0**, both flat at **39 → 91 → 91 fds**, both ending at `best_fitness_final = −0.22635293006896973`
+with generation 0 bit-identical to the R2-era numpy mirror. Two caveats keep this out of the headline: the
+b2 ids are **deliberately not manifest ids** (the frozen gates stay at 12 / 9 records), and the R2 crash
+was never reproducible from its own record — this is a *"did not reproduce through the same position in
+the run"* datapoint with the fd/descriptor patch as the prime suspect, **not proof of the original cause**
+(`SUMMARY_armB.md` §7.1).
 
 ## Scope & method
 
@@ -362,6 +550,10 @@ numbers and ±a factor for the compile numbers (§5).
   `complete: true`; no 124/137/130 exit code; every `cold_builds.exceeded = false`; `check_r2.py`
   reports **0 missing and 0 malformed** manifest records (§10). The single SKIP note in the scan exists
   in the smoke files (`smoke/h1_guard.json`, `cold-builds-exceeded:4>1`) and is not an R2 config.
+* **Round 3 re-attempted this config on the patched ETL checkout and did not reproduce the SIGSEGV** —
+  both routes exited 0 (dense 431/1500 misses in 213 s, pinned-specialized 1181/1500 in 595 s, fds flat at
+  91); the R2 skeleton above stays unchanged as the round's bounded-failure record. See the "Round 3"
+  section at the head of this file and `r2/round3/SUMMARY_armB.md` §7.1.
 
 ## 8. Ranked optimization levers (for the engine-redesign workstream)
 
@@ -374,13 +566,21 @@ Impact-ranked; each lever states its evidence and expected direction.
    in one launch. Direction: collapsing K per-tree invocations into ~1 batched call removes the
    per-tree `build_hit` + `readback` share — 10.29 ms of numpy's 21.06 ms (49%) and 31.31 ms of iree's
    69.61 ms (45%) at 64 trees — i.e. ≈1.8–2× warm headroom before the arithmetic itself is touched, and
-   it shrinks the host lookup path that is per-tree today.
+   it shrinks the host lookup path that is per-tree today. **Status after Round 3: partially delivered for
+   the `iree` evaluations by the wave-2 dense route** — one dense graph per `evaluate` instead of K per-tree
+   invocations (warm 69.61 → 10.64 ms and 229.49 → 10.50 ms, `build_calls`/`trees_invoked` down to 0 in the
+   probe), while the specialized route that numpy still uses — and that the forced-`_spec` arms pin — keeps
+   the gap at ≈94–372×.
 2. **Remove the serialized per-tree D2H readbacks (single batched readback).** Evidence: `readback` is
    26.2% of the warm `sr_a` rep1 generation (17.12 of 65.31 ms), 29.0% of `iree_fixture64_n64`
    (20.22 of 69.61 ms), 28.5% of `iree_fixture200_n64` (65.31 of 229.49 ms) and only 3.0% on numpy
    (0.63 of 21.06 ms, `d2h_calls = 0`) — `d2h_calls` = K per call. Direction: one copy of the assembled
    output vector instead of K per-tree copies removes ~a quarter of iree's warm call and most of the
-   iree-vs-numpy gap.
+   iree-vs-numpy gap. **Status after Round 3: still open upstream** — the dense route dropped iree's
+   per-tree readback on the fixture evals as a side effect of lever 1, but the specialized route still
+   issues K = 53/171 D2H copies and the batched-readback / multi-program item is the structurally blocked
+   one (the runtime `etl.Tensor` has no `concat`/`stack`/`__getitem__`, and `__dlpack__` raises for cuda
+   payloads — `warm_path_findings.md` §8).
 3. **Reduce per-call Python/ETL glue (cache-key re-derivation + static re-validation).** Evidence: the
    `build_hit` stage alone is 9.66 ms of numpy's 21.06 ms (45.9%) and 46.36 ms of iree's 229.49 ms
    (20.2%); decode adds 1.66 ms (64 trees) / 7.28 ms (200 trees) on both backends; the engine's own
@@ -388,7 +588,16 @@ Impact-ranked; each lever states its evidence and expected direction.
    every call and `etl.run` re-validates statics in O(#tokens) per call
    (`src/evogp/tree/CONTEXT.md` §Engine). Direction: hoist the cache key/sha out of the hot path, avoid
    re-encoding on hits, and fold decode into the population update — the lever that helps **both**
-   backends and does not depend on GPU availability.
+   backends and does not depend on GPU availability. **Status after Round 3: partially** — wave 1 landed
+   the host-side cuts this round can see (decode ≈43 → 28 ms at 64 trees, ≈188 → 112 ms at 200 trees, and
+   the `sr_fitness` prediction upload down to 0.0 ms), and in the patched ETL checkout **A-1** (single-pass
+   key derivation) and **A-3** (one-slot fingerprint memo) are landed, in flight upstream (their upstream
+   microbenchmarks report the `build_cached` hit path at ≈17–25 µs per lookup against 400–1 945 µs before).
+   Still open: **A-2** (canonicalize fast path / encode-time envelope ordering, ≈ −80…190 µs) and the
+   run-path items **B-1/B-2** (`etl.run` statics re-validation ≈1.4 µs per static leaf → +250 µs at 60
+   tokens; kind-string precompute + `is` fast path; per-executable memo). Arm B's in-situ records could not
+   price the A-1/A-3 win (build_hit ≈0.22–0.26 ms per hit on both sides, every A→B warm delta inside the
+   window band) — *no regression, same numbers* is what this round supports, no warm speed-up claim.
 4. **For these problem sizes, stop defaulting to GPU iree.** Evidence: iree is 2.45–3.43× slower than
    numpy-CPU warm on every fixture config (§1), 2.96× on the fully warm `sr_a` generation, 2.72× on
    `iree_fresh16`, and far slower cold — 16.6–82.1 s vs 0.15 s for 48 builds (110–542×) and
@@ -396,22 +605,45 @@ Impact-ranked; each lever states its evidence and expected direction.
    conclusion (`src/evogp/tests/perf_probe.py`, recommendation block). Direction: keep iree opt-in for
    large-row cases only, and re-evaluate after levers 1–2 remove dispatch/sync overhead; nothing in
    this round shows a data size at which iree wins warm (10000 rows is still 3.43× behind at 64 trees).
+   **Status after Round 3: superseded for the fixture evals** — on the dense route `iree` now beats the
+   CPU interpreter on both (10.64 vs 23.29 ms = 2.19×; 10.50 vs 117.61 ms = 11.2×) and is within 1.18–1.25×
+   of numpy on `sr_a` (rep0 / rep1), so IREE is no longer the slower choice warm at these sizes; it stays
+   opt-in and explicitly non-primary, and the numpy backend stays the default reference.
 5. **Compile side: keep memoisation, make it cross-process/persistent or async, and bound builds by
    FDs.** Evidence: §5 — per-build cost is 0.34–2.16 s with a 6.3× same-box spread, cold compile is
    99.06% of `iree_sr_a` rep0's generation loop, the cache is per-process (each config pays its 48/155
    builds again), and the leak is 32–35 fds per compiled structure against a 65 536 limit. Direction:
    a persistent/two-tier cache or background compilation would convert the cold path into the warm
    path; batching (lever 1) may also reduce the distinct-graph count, and the build guard must remain
-   FD-aware, not only miss-count-aware.
+   FD-aware, not only miss-count-aware. **Status after Round 3: the fd half is fixed in the patched ETL
+   checkout, persistence is still open** — the per-thread HAL-device cache leaves iree flat at 39 → 91 → 91
+   fds at 170, 517 and 1 181 builds where Arm A/R2 leaked ~32–33 fds per compiled structure (2 395 / 5 819 /
+   9 723 / 17 243 exits), and the dense route needs **1** dense compile where the per-structure route needed
+   48 / 155 / 517 builds (first calls 82 065 → 13 640 ms, 105 646 → 13 207 ms). The cache is still
+   per-process and nothing persists across processes; `Executable.close()` / a `CompileCache` eviction hook
+   remain missing.
 6. **Fix or bound the pop-1000 scale before claiming GPU readiness.** Evidence: `iree_sr_b2` crashes
    (exit 139, §7) and its numpy mirror needs ~9.4 k misses ≈ 306 k fds, i.e. cannot run in one
    65 536-fd process at the frozen settings. Direction: a scale story for pop 1000 / tree 128 is a
    precondition for any IREE-based claim; today the only bounded outcome there is a guard trip.
+   **Status after Round 3: the crash half is superseded on the patched checkout** — `iree_sr_b2` completes
+   on both routes, exit 0, with 431/1500 (dense) and 1181/1500 (pinned specialized) cold-build misses and
+   fds flat at 91 — but that scale is still bounded by the cold-build guard / fd budget rather than by a
+   measurement, and the original cause was never established (see the "Round 3" section).
 7. **Treat every cold number as ±a factor.** The 6.3× per-build spread (§5) means a single
    `first_call_ms` is not a hardware constant; report cold numbers only alongside their build count and
-   `ms/build`, and prefer back-to-back A/B windows when comparing a redesign.
+   `ms/build`, and prefer back-to-back A/B windows when comparing a redesign. **Status after Round 3: still
+   true** — the R3/Arm B first-call columns spread by the same factor for identical build counts (dense
+   evals 13 640 / 13 207 ms in Arm A versus 16 492 / 18 011 ms in Arm B W2; the 200-tree forced-specialized
+   arm 137 475 → 82 065 → 63 533 ms across Arm A → B W1 → B W2).
 
 ## 9. What supersedes what
+
+Read the rounds as a chain: **`SUMMARY.md` (round 1) → the R2 sections of this file (§1–§10, the R2
+baseline) → the "Round 3" section at the head of this file (current verdict)**, with the detailed arm
+write-ups in `r2/round3/SUMMARY.md` (Arm A) and `r2/round3/SUMMARY_armB.md` (Arm B) and the R3 protocol in
+`r2/round3/README.md`. The Round 3 numbers do not replace the R2 ones they are diffed against — the R2
+records stay frozen history, and every R3/Arm B record carries its own engine identity and window.
 
 `SUMMARY.md` remains the round-1 record for the **numpy side** (34×–7 670×, C0–C7 matrix). This
 REPORT.md supersedes it as the current GPU verdict: R2 adds the IREE-cuda backend on the same
@@ -423,11 +655,12 @@ confirmed rather than replaced; no file in `SUMMARY.md` is edited.
 
 ## 10. Artifacts & reproduction
 
-Committed artifacts of the round (all paths relative to the repository root):
+Committed artifacts (all paths relative to the repository root; the R2 rows first, then the Round 3
+artifacts of the current round):
 
 | artifact | what it holds |
 |---|---|
-| `REPORT.md` (this file) | the R2 verdict and the analysis above |
+| `REPORT.md` (this file) | the Round 3 verdict (head of file) plus the R2 baseline analysis (§1–§10) and the ranked levers |
 | `r2/RUNLOG.md` | operator log: exact commands per chunk, per-config status tables, box/GPU state, consistency checks, deviations |
 | `r2/backend_agreement.md` | the pre-flight gate: iree-O1 vs numpy bit-identity on both fixtures, anchors, the 4 exact commands |
 | `r2/README.md` | runner/validator/usage/exit-code contract of the round |
@@ -441,8 +674,15 @@ Committed artifacts of the round (all paths relative to the repository root):
 | `fixtures/forest200_tree64_random.npz` + `fixtures/README.md` | the 200-tree fixture and its provenance (sha256, generator, schema) |
 | `bench_gp.py`, `stage_probe.py`, `make_r2_fixtures.py` | side-agnostic harness, runtime stage probe, fixture generator |
 | round-1 anchors used in §6 | `legacy/results/{C5,C5b,C1_r1}.json`, `new/results/{C5,C1,C7}.json` |
+| **`r2/round3/` (Round 3 toolkit)** | `run_all.sh` + `manifest.txt` (the 12-config Arm A matrix), `run_agreement_r3.sh`, `check_r3.py`, `check_agreement_r3.py`, `compare_rounds.py` and the three offline `selftest_*.py` checkers; protocol and gates: `r2/round3/README.md` |
+| **`r2/round3/results/new/*.json` + `results/legacy/*.json`** (+ logs) | the 12 Arm A records (R2-ids, one process per config) the Round 3 headline table reads |
+| **`r2/round3/results/backend_agreement/*`** | Arm A's six-arm pre-flight (`<stem>.json` + `_values.npy` + `.log`) and `run_agreement_r3.last_run.txt` — the gate that makes R3's IREE numbers quotable |
+| **`r2/round3/results/armB/new/*.json`** (+ logs) | Arm B's nine records of record (W2, patched-ETL shadow, `armB_`-prefixed ids) plus the three `armB_iree_sr_b2*` re-attempt records (deliberately not manifest ids) |
+| **`r2/round3/results/armB/`** | Arm B's own agreement pre-flight (`backend_agreement/`), the dated shadow proof `etl_import_probe.txt`, gate stdout `gate_outputs.md`, per-window contention evidence `windows.md`, the operator section `armB_runlog_section.md` and the `status_*.txt` console captures |
+| **`r2/round3/SUMMARY.md` / `r2/round3/SUMMARY_armB.md`** | the arm write-ups (verdicts, R2-vs-R3 and A-vs-B tables, gate results, window/caveat rules) this REPORT's Round 3 section is built from |
+| **`r2/round3/{manifest_armB.txt,run_all_armB.sh,run_agreement_armB.sh,check_agreement_armB.py,compare_rounds_armB.py}`** | the Arm B manifest, runners, gate and table generator |
 
-Reproduce (repository root, project venv `/mnt/local-ssd/bchuang/evox/.venv/bin/python`, GPU 6, one
+Reproduce R2 (repository root, project venv `/mnt/local-ssd/bchuang/evox/.venv/bin/python`, GPU 6, one
 `flock` per heavy phase — the runner adds it; full command list and per-chunk order in
 `r2/RUNLOG.md`):
 
@@ -501,3 +741,36 @@ The two scan failures are the same pre-existing round-1 driver artifacts (`C5.js
 every RUNLOG entry reports; zero failures are attributable to the R2 configs, and 35/35 manifest ids
 have a JSON on disk. Note `r2/last_run.txt` is generated by `run_all.sh` for the last invocation only
 and is deliberately not committed (`r2/README.md`).
+
+Reproduce Round 3 (same box, venv, `ulimit -n 65536` + single-`flock`/`timeout`-inside-the-lock
+discipline and warm-median policy as R2; the full protocol, config table, exit codes and wall-time
+expectations are in `r2/round3/README.md`):
+
+```bash
+# 1. Arm A — 12 configs (light -> iree -> iree-spec), then both gates and the table generator
+bash test/benchmark/r2/round3/run_agreement_r3.sh        # gate (i): six arms on the GPU, run BEFORE quoting IREE
+bash test/benchmark/r2/round3/run_all.sh --group light   # legacy + numpy anchors (~minutes)
+bash test/benchmark/r2/round3/run_all.sh --group iree    # 3 configs, auto route => dense
+bash test/benchmark/r2/round3/run_all.sh --group iree-spec   # 3 configs, EVOGP_EVAL_MODE=specialized
+python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest.txt --require-stages
+python3 test/benchmark/r2/round3/check_agreement_r3.py   # PASS (32 checks, 0 failures)
+python3 test/benchmark/r2/round3/compare_rounds.py --markdown   # the R2-vs-R3 tables
+
+# 2. Arm B — the same nine new-side configs under the patched-ETL checkout shadow (results -> results/armB/)
+bash test/benchmark/r2/round3/run_agreement_armB.sh      # gate (i) for Arm B (pins the A->B bit-identity)
+bash test/benchmark/r2/round3/run_all_armB.sh --group iree-spec   # then --group iree, --group numpy
+python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
+python3 test/benchmark/r2/round3/check_agreement_armB.py  # PASS (38 checks, 0 failures)
+python3 test/benchmark/r2/round3/compare_rounds_armB.py --markdown
+```
+
+Arm B requires the ETL shadow on `NEW_PYTHONPATH` (the runner defaults it to
+`src:/tmp/evogp_etl_patched_51a7141`, i.e. `src` plus the patched checkout ahead of the stock editable
+install) and the patched checkout is materialized read-only outside the repository — the patch lives in
+etl commit `51a7141` and can be re-created with
+`git -C /mnt/local-ssd/bchuang/etl archive 51a7141 | tar -x -C <dir>` (`/tmp` is session-scoped, so that
+directory is never part of the repository); per-file sha256 evidence of what was actually imported is in
+`r2/round3/results/armB/etl_import_probe.txt`. The two b2 ids (`armB_iree_sr_b2`, `armB_iree_sr_b2_spec`)
+stay outside the frozen manifests and are **not runner rows**: they were re-attempted with one direct
+`bench_gp.py` invocation each (both command lines verbatim in
+`r2/round3/results/armB/armB_runlog_section.md` §"`iree_sr_b2` re-attempt").
