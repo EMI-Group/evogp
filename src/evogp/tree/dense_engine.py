@@ -276,13 +276,15 @@ Run: repo root, ``PYTHONPATH=src ETL_DISABLE_LOCATIONS=1``, venv
    The dense path is a *shape-signature-specialized, one-compile-per-population*
    strategy whose realistic home is iree (or a future batched-kernel backend);
    its worst enemy is the per-position candidate chain.  So ``auto`` never uses
-   it on numpy and uses it on iree from ``pop_size >= 16`` (the measured
-   ``P ~= 10-20`` crossover at small ``L``, rounded up and made
-   env-overridable through ``EVOGP_DENSE_AUTO_MIN_POP``, with the
-   "is this population dense-supported at all" question left to
-   :class:`DenseUnsupported` + fallback).  The cheapest large win identified but
-   not implemented: pass the population's *used function id set* (or its
-   descriptor's ``using_funcs``) as a static cfg entry and emit only those
+   it on numpy and uses it on iree only when the population is dense-supported,
+   ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP`` (16) and, on ``per_row=False`` calls,
+   ``rows <= EVOGP_DENSE_AUTO_MAX_ROWS`` (2048, enforced inside
+   :func:`evaluate_dense`; ``per_row=True`` and an explicit ``dense`` are never
+   gated; a decline is the usual :class:`DenseUnsupported` fallback).  Firm-up
+   crossovers: ~25-35 trees for the compile term, ~3.4-6.8k rows warm at
+   ``P=16`` (dense 1.18x slower at ``P=16/N=10000``).  The cheapest large win
+   identified but not implemented: pass the population's *used function id set*
+   (or its descriptor's ``using_funcs``) as a static cfg entry and emit only those
    candidates — roughly a 3× op-count cut, paid for by recompiles only when the
    used-id set changes (it saturates quickly in a GP run).  That would move the
    iree crossover down and is the first follow-up if a validation round needs it.
