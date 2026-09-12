@@ -83,6 +83,16 @@ Instance attributes / results a caller reads:
 - This method is the *only* overridable hook in the class (it already takes everything it needs as arguments), which makes it the natural place to bolt on custom logging.
 - `show_details` receives `generation_cnt` **before** increment, so the first generation printed is `0`.
 
+### Device→host readback inventory (fitness path, per generation)
+
+- The only bulk readback is `cpu_fitness = fitnesses.cpu()` (`standard.py:46`) — a blocking D2H copy that also stream-synchronizes; it is what makes `step()`'s return value, `pipeline.fitness` and `best_fitness` host-side.
+- Lines 47-50 are host-only today because they run on that CPU copy: `int(torch.argmax(...))`, `torch.max(...)`, the `if best_fitness > self.best_fitness` test (0-dim CPU bool → `__bool__`, no device sync) and `forest[best_idx]` with a Python int (a `Tree` VIEW of the population tensors, no copy, no sync).
+- On a device-resident fitness tensor each of those turns into a sync: `int()` and `if` on 0-dim CUDA tensors, and a 0-dim CUDA index passed to `Forest.__getitem__` (PyTorch's `applySelect` calls `.item()` internally — the `Tree` is still a view, but the select blocks; a 0-dim CPU tensor or Python int index does not).
+- `show_details` (`standard.py:88-106`) is host-only today but pathological on device: `max()`/`min()` are Python builtins iterating element-by-element (one `bool()` sync per element) and `{...:.4f}` goes through `Tensor.__format__` → `.item()` (`torch/_tensor.py:1096-1097`), so ~4 more syncs.
+- The algorithm layer adds zero readback: `GeneticProgramming.step` only shape-asserts and sorts/argmaxes on device; a device fitness tensor is already its native input (there is no host value driving selection, except dead `for_update_pareto_front` and `ParetoFront.__str__`).
+- Timing side effect: `cost_time` (`standard.py:101`) and the `time_limit` check (`standard.py:77`) currently bracket the synchronized path, so removing the readback turns them into enqueue-time measurements (async).
+- Host-fitness consumers outside the package: `test/golden_capture.py:378` does `gen_fitness.numpy()` (breaks on a CUDA return), `example/uci_sr.py:117` / `example/custom_sr.py:129` do `-torch.max(pipeline.fitness)` (device-safe), and `float(...)`/`f"{...:.4f}"` on `best_fitness` appears in `src/evogp/sr_test.py:101`, `src/evogp/tests/test_convergence_smoke.py:167` and `test/benchmark/legacy/run_matrix.py:381,387` (works on device, one sync each).
+
 ## Constraints
 
 - **Dependency direction is one-way.** `pipeline/` must never be imported by `algorithm/`, `problem/`, or `tree/`; adding such an import creates a cycle. Verified: no reference to `pipeline` exists in those subtrees.
