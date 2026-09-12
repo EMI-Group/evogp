@@ -203,7 +203,9 @@ def discover(paths, checker):
     for path in paths:
         if os.path.isdir(path):
             for root, dirs, files in os.walk(path):
-                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                # ``backend_agreement/`` holds pre-flight backend-agreement records; not R2 config results.
+                dirs[:] = [d for d in dirs
+                           if not d.startswith(".") and d != "backend_agreement"]
                 for name in sorted(files):
                     if name.startswith(".") or not name.endswith(".json"):
                         continue
