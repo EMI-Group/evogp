@@ -1,0 +1,19 @@
+r3/run_all_armB.sh: py=/mnt/local-ssd/bchuang/evox/.venv/bin/python
+r3/run_all_armB.sh: repo=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A258  gpu(CUDA_VISIBLE_DEVICES)=6
+r3/run_all_armB.sh: group=all only=armB_np_fixture200_n64 dry_run=0 configs=1 timeout=3600s lock=/tmp/gpbench_critical.lock
+r3/run_all_armB.sh: etl shadow: PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141
+r3/run_all_armB.sh: gpu snapshot: 6, NVIDIA RTX A6000, 9, 30439
+
+[ARMB_NP_FIXTURE200_N64] stage probe stage_probe/1: installed=True partial=False wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness] counters=CACHE.hits/CACHE.misses
+[ARMB_NP_FIXTURE200_N64] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A258/src/evogp/__init__.py commit=f3a4caeec4fef11f16179e45e209398a7da195b4 etl=0.1.0 json_out=test/benchmark/r2/round3/results/armB/new/armB_np_fixture200_n64.json
+[ARMB_NP_FIXTURE200_N64] stages[rep0/eval] 25 calls: cold 155 miss 901.4ms / warm 0 miss 0.0ms | decode 158.1 + build-hit 1225.3 (4120) + build-miss 901.4 (155) + run 1666.5 (4275) + readback 73.5 (4275) + upload 0.0 + loss 3917.0 + misc 34.6 ms cold/warm totals 4109.6ms (h2d 0 / d2h 0)
+[ARMB_NP_FIXTURE200_N64] side=new rep0/1: first 995.5ms, warm-median 135.9ms (25 calls)
+[ARMB_NP_FIXTURE200_N64] done side=new interrupted=False harness_wall_s=4.7 json_out=test/benchmark/r2/round3/results/armB/new/armB_np_fixture200_n64.json
+config armB_np_fixture200_n64: OK (exit 0) -> test/benchmark/r2/round3/results/armB/new/armB_np_fixture200_n64.json ; log test/benchmark/r2/round3/results/armB/new/armB_np_fixture200_n64.log
+
+=== r3 run_all_armB.sh summary (group=all, CUDA_VISIBLE_DEVICES=6, dry_run=0) ===
+ID                               SIDE  EXIT   STATUS    JSON
+armB_np_fixture200_n64           new   0      OK        test/benchmark/r2/round3/results/armB/new/armB_np_fixture200_n64.json
+ok: 1  skipped: 0  failed: 0
+summary table: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A258/test/benchmark/r2/round3/results/armB/last_run.txt
+validate with: python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
