@@ -1,0 +1,22 @@
+{
+  "backend": "iree",
+  "count": 64,
+  "cuda_device_name": "NVIDIA RTX A6000",
+  "finished_at": "2026-09-13T07:35:11+08:00",
+  "finite_max": -1.375,
+  "finite_mean": -18.048504372112088,
+  "finite_min": -106.23928833007812,
+  "fixture": "test/goldens/forest_random.npz",
+  "fixture_sha256": "0bfb0bbf48cd65832b2c024480bc572de5121675946d3611a2c7a5b234ff9ca0",
+  "inf_count": 0,
+  "iree_device": "0",
+  "iree_opt_level": "O1",
+  "nan_count": 3,
+  "per_call_ms": [
+    11447.636242955923,
+    9.877115488052368
+  ],
+  "started_at": "2026-09-13T07:34:59+08:00",
+  "torch_version": "2.6.0+cu124",
+  "values_sha256": "fbe52b281581c3c825254dfb4a58dcfabdaee6fa8ab5a559b3f6a007837c2f6f"
+}

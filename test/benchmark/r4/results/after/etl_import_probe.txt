@@ -1,0 +1,147 @@
+# test/benchmark/r4/results/after/etl_import_probe.txt
+# =============================================================================
+# R4 after-round shadow proof: which `etl` package each PYTHONPATH resolves to.
+#
+# Why this file exists: the harness records `etl_version` in every JSON, but the
+# stock editable install and the /tmp shadow export BOTH report metadata version
+# "0.1.0" (see the version lines below), so the JSON cannot distinguish them.
+# This probe (plus the `env: PYTHONPATH=...` line that run_agreement_r4.sh writes
+# into every results/backend_agreement_after/<stem>.log) IS the evidence that the
+# R4 after-round campaign ran against the shadow export, not the stock checkout.
+#
+# Probes are FRESH PROCESSES, run from the repository root with the project venv:
+#   PYTHONPATH=src                          <venv>/bin/python -c "import etl; print(etl.__file__)"
+#   PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 <venv>/bin/python -c "import etl; print(etl.__file__)"
+# Expected: the control prints /mnt/local-ssd/bchuang/etl/etl/__init__.py,
+#           the shadow prints /tmp/evogp_etl_patched_87c7562/etl/__init__.py
+#           (i.e. PYTHONPATH beats the PEP-660 editable finder).
+#
+# Evidence collected in this window: probes A-E/G import only `etl` and its metadata;
+# probe F additionally imports `evogp.tree`, i.e. torch (verified separately: torch is
+# imported, torch.cuda.is_initialized() stays False -- no CUDA context is created and no
+# GPU is touched).  Nothing here writes to either ETL checkout (read-only probes; the
+# only writes are the `__pycache__` directories Python creates on import).
+# =============================================================================
+
+########## 2026-09-13T07:33:18+08:00 (UTC 2026-09-12 23:33:18) -- R4 after-round shadow materialization + import probe (tooling window; no heavy run) ##########
+# cwd: repository root of the R4 after-round worktree (PYTHONPATH=src resolves it)
+# interpreter: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+#   Python 3.11.2 (main, Apr 28 2025, 14:11:48) [GCC 12.2.0]
+# user: bchuang   host load average: 5.67 6.41 15.66
+# GPU state before the run (nvidia-smi, physical indices): 0=97% 13217MiB, 1=90% 19999MiB,
+#   2=99% 20984MiB, 3=0% 17323MiB, 4=0% 20709MiB, 5=0% 24393MiB, 6=0% 1MiB, 7=0% 1MiB (ECC-faulted, never used)
+
+# --- shadow revision selection (read-only) -----------------------------------
+# The objective named the branch `evogit-agent-T1-A160`; that branch no longer exists in
+# the foreign checkout, and NO ref contains 87c7562, so the objective's fallback rule
+# ("use the branch tip only if it is a strict descendant of 87c7562") resolves to the
+# pinned sha itself: 87c7562 is the newest available revision of that workstream.
+$ git -C /mnt/local-ssd/bchuang/etl cat-file -t 87c7562
+commit
+
+$ git -C /mnt/local-ssd/bchuang/etl log --oneline -1 evogit-agent-T1-A160
+fatal: ambiguous argument 'evogit-agent-T1-A160': unknown revision or path not in the working tree.
+Use '--' to separate paths from revisions, like this:
+'git <command> [<revision>...] [<file>...]'
+
+$ git -C /mnt/local-ssd/bchuang/etl branch --list '*A160*'
+(no branch matches -> empty)
+
+$ git -C /mnt/local-ssd/bchuang/etl for-each-ref --contains 87c7562 --format="%(refname)"
+(no ref contains it -> empty; local refs present: genesis/agent_{10a211e7,7ea0d16f,e4968e25},
+ main, perf-fixes-3way, scratch/xla-wip-t1a1, xla-device-resident-staging, refs/notes/evogit --
+ plus refs/remotes/origin/{HEAD,main,master}, none of which contains 87c7562 either)
+
+$ git -C /mnt/local-ssd/bchuang/etl merge-base --is-ancestor 87c7562 main; echo "exit=$?"
+exit=1            # main (51a7141) is NOT a descendant of 87c7562
+
+$ git -C /mnt/local-ssd/bchuang/etl rev-parse 87c7562
+87c7562713b75b235e4945c6311de054652fc919
+
+$ git -C /mnt/local-ssd/bchuang/etl log -1 --format="%H %cI %s" 87c7562
+87c7562713b75b235e4945c6311de054652fc919 2026-09-13T07:07:47+08:00 R2 scratch: bench invoke before-copy + results
+
+$ git -C /mnt/local-ssd/bchuang/etl log --oneline -3 87c7562
+87c7562 R2 scratch: bench invoke before-copy + results
+79c1b92 R2 B-2b: top-level static-subtree slots — identity tier (immutable tuples only) + marshal fingerprint tier (exact builtins, non-NaN, plain tuple/list/dict), safety-flagged during the walk, sentinel placeholders keep leaf alignment; ~250us -> ~7-15us static overhead per call @60-170tok
+8520590 Agent: auto-commit fallback
+
+# --- materialization (read-only export; the target dir was absent beforehand) ---
+# /tmp/evogp_etl_patched_87c7562 did NOT exist before this window (checked with ls);
+# the older R3 Arm-B shadow /tmp/evogp_etl_patched_51a7141 was NOT reused or touched.
+$ mkdir -p /tmp/evogp_etl_patched_87c7562 && git -C /mnt/local-ssd/bchuang/etl archive 87c7562 | tar -x -C /tmp/evogp_etl_patched_87c7562
+(exit 0)
+
+$ ls -la /tmp/evogp_etl_patched_87c7562
+bench_logs  conftest.py  CONTEXT.md  etl  .gitignore  probe_new_emitters.py  pyproject.toml  .python-version  README.md  tests  uv.lock
+
+# archive inventory (excluding __pycache__, 446 files in the tree):
+#   192 etl/   176 tests/   70 bench_logs/   1 uv.lock   1 README.md   1 .python-version
+#     1 pyproject.toml   1 probe_new_emitters.py   1 .gitignore   1 CONTEXT.md   1 conftest.py
+# etl/ subtree: 192 files, 174 of them .py (173 .py on the stock side), 48M on disk
+# (the probe imports below add 119 __pycache__/*.pyc files inside the export; they are
+#  byte-code caches only and change no source file -- counts above exclude them)
+# stat: created 2026-09-13 07:33:18 +0800 (this window)
+
+# --- probe A: control -- stock editable `etl` ---------------------------------
+$ PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import etl; print(etl.__file__)"
+/mnt/local-ssd/bchuang/etl/etl/__init__.py
+(rc=0)
+
+# --- probe B: shadow -- `etl` must resolve inside the export -------------------
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import etl; print(etl.__file__)"
+/tmp/evogp_etl_patched_87c7562/etl/__init__.py
+(rc=0)   # PYTHONPATH beats the PEP-660 editable finder
+
+# --- probe C: same shadow PYTHONPATH -- evogp must resolve inside THIS worktree
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import evogp; print(evogp.__file__)"
+/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A168/src/evogp/__init__.py
+(rc=0)
+
+# --- probes D/E: package metadata version -- identical for both checkouts ------
+# (this is exactly why the path probe above, not the version string, is the evidence)
+$ PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import importlib.metadata as m; print(m.version('etl'))"
+0.1.0
+(rc=0)
+
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import importlib.metadata as m; print(m.version('etl'))"
+0.1.0
+(rc=0)
+
+# --- probe F: public-submodule import smoke through the shadow ----------------
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import evogp.tree, etl; print('evogp.tree ok', etl.__file__)"
+evogp.tree ok /tmp/evogp_etl_patched_87c7562/etl/__init__.py
+(rc=0)
+
+# --- probe G: module-level discriminator independent of the metadata version ---
+# The after-round shadow adds `etl/jit.py` (absent on the stock checkout), so its presence
+# is a second, version-string-free identity check for every window of this campaign.
+$ PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -c 'import importlib.util as u; print(u.find_spec("etl.jit"))'
+None
+(rc=0)
+
+$ PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 /mnt/local-ssd/bchuang/evox/.venv/bin/python -c 'import importlib.util as u; print(u.find_spec("etl.jit").origin)'
+/tmp/evogp_etl_patched_87c7562/etl/jit.py
+(rc=0)
+
+# --- content revision pins (read-only) ---------------------------------------
+# The shadow export is NOT a git repository, so file hashes are the revision handle.
+# Diff shape vs the stock checkout (which is now main @ 51a7141, i.e. it already carries
+# the R3 Arm-B iree/codec patches -- those two files are IDENTICAL now and are listed
+# below only to show that the pins moved): `diff -rq -x __pycache__`, relative to etl/.
+#   path                              stock sha256                                                       shadow sha256                                                      state
+#   etl/__init__.py                   9566a30a762def15983eb12eafe9e3ec06e46e6a34dad0bc9acdea63c575fea7  ba2453545f2771720f7847be41a19bc4d7778614c4c22f5581a1f9a8faabf43c  DIFFER (3 changed lines)
+#   etl/build_cache.py                39ce7d6a3bd39af72a0dc41906bdbaf07ab93afe382b3e7256cdb6aaaca77d68  ed6c707d1ab69e799584af5f3b517665ca31150a44bb72440b5a0974b31ea100  DIFFER (115 changed lines)
+#   etl/persist/cache.py              8be26097204ec74661c37ea3fe096390e18650382d1347d35e82493d993db07d  00f9e9225aec7a981bff02bde0dd2a374b697d041577968d6c2b439ae3c2dd0c  DIFFER (38 changed lines)
+#   etl/pipeline.py                   437798392ac7652847139523f155f0808b753bc26de7af7f61a6a0e37414448f  bf5e879d0fadbda764405154991c8ecae583a3fd236bad019de783f9d9e95118  DIFFER (474 changed lines)
+#   etl/trace/_tree.py                0e1a0f4dd5b45967397c01d83b0286a83e3b7cd0b11ce7b3f74064007fcc49c8  38870c63c582fc9b701a8fd42f13c9710f5a4c44e9ffbf5469603d69d2393e3f  DIFFER (19 changed lines)
+#   etl/jit.py                        ABSENT (new file)                                                  ece92690e7d8dd97aa8bc5c262a51620e6855e7c98bb9a75604a2b003fbf2caf  NEW in shadow
+#   etl/backends/adapters/iree.py     d23702f5168cef583ba28b972bd1f5857789c8699d0731cb9a06d8db63a23d56  d23702f5168cef583ba28b972bd1f5857789c8699d0731cb9a06d8db63a23d56  SAME
+#   etl/persist/codec.py              ece86cb101e4476bf22b9378d6ce44a69edd7a0fd07cf9e0ff472ce7b4f36c20  ece86cb101e4476bf22b9378d6ce44a69edd7a0fd07cf9e0ff472ce7b4f36c20  SAME
+#   etl/CONTEXT.md                    94664cc562ec04d633d331dceba037042bdb583e4a8e0cc1df00f2c6602a44d9  a042ba37213019b4992294f3ec3c3c1edc22a18ed48b751b25787b6f5e57c59f  DIFFER (docs only)
+#   etl/backends/adapters/CONTEXT.md  902cf7e6b439d39991cf3584a734ce3523d4d7b48dc75be53087e66e0ee1322b  4eff704035883ce509c72833540ed0673b0e885b2fc16d362b7bf37691e72990  DIFFER (docs only)
+# Inventory: stock etl/ = 191 files (173 .py) excluding __pycache__; shadow etl/ = 192 files
+# (174 .py). The only file-level asymmetry is the new shadow file etl/jit.py: no file exists
+# on the stock side that is missing from the export.
+# Read-only probes; neither ETL checkout was written by this window (the only writes are
+# the __pycache__ directories that CPython creates on import, in both trees).
