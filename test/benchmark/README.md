@@ -57,3 +57,14 @@ serialize every heavy phase (builds, timed runs) with exactly one, never nested:
 `flock -w 7200 /tmp/gpbench_critical.lock bash -c '<cmd>'` (the wait is outside all timed regions).
 Treat medians as ±10%; pick the least-busy GPU at run time and skip GPU 7 (hardware ECC fault). Full
 environment, seeds, launcher and per-config commands: `SUMMARY.md` §6, `new/NOTES.md`, `legacy/NOTES.md`.
+
+## R2 — GPU round (legacy CUDA vs ETL on IREE-cuda)
+
+Round 2 (`r2/`) repeats the old-vs-new comparison with this harness and adds what round 1 lacked:
+data-row scaling, a 200-tree fixture, the ETL `stages` probe (cold builds vs warm cache misses), an
+IREE cold-build budget, and probe-off A/B controls. Run it from the repo root:
+`test/benchmark/r2/run_all.sh` (`--group light|iree|all`, `--only <id>`, `--dry-run`); validate with
+`python3 test/benchmark/r2/check_r2.py --manifest test/benchmark/r2/manifest.txt --require-stages`.
+Configs, rules, exit codes, wall-time expectations and results paths: `r2/README.md`. The round's
+written report lands in `REPORT.md` once `new/results/r2/` + `legacy/results/r2/` are filled; round-1
+methodology (`SPEC.md`) is unchanged.

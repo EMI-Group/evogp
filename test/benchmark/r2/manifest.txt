@@ -1,0 +1,65 @@
+# test/benchmark/r2/manifest.txt -- expected artifacts of the R2 GPU round.
+#
+# Format (TAB-separated, one config per line; '#' starts a comment line):
+#
+#     id <TAB> side(leg|new) <TAB> expected_json_path <TAB> stages?
+#
+#   * side          `leg` = the legacy CUDA checkout under PYTHONPATH (the JSON's own
+#                   `side` field says "old"); `new` = this repository's ETL engine.
+#                   check_r2.py maps leg -> old and verifies the JSON's `side` field.
+#   * expected path relative to the repository root; the runner writes exactly this file
+#                   (one JSON + one <id>.log per config).
+#   * `stages`      the config runs bench_gp.py with `--stage-probe`, so with
+#                   `--require-stages` its JSON must carry a `stages` block.
+#                   The A/B controls (…_noprobe) and every legacy-side config have no
+#                   stage probe by design, hence no marker.
+#
+# The runner (run_all.sh) derives side/results dir/tag from its own config table; this file
+# is the validator's expectation list -- keep the two in sync (ids must match exactly).
+#
+# ---------------------------------------------------------------------------
+# group: light -- legacy CUDA side (same box as the numpy mirrors below)
+# ---------------------------------------------------------------------------
+leg_c5r2	leg	test/benchmark/legacy/results/r2/leg_c5r2.json
+leg_fixture64_n1024	leg	test/benchmark/legacy/results/r2/leg_fixture64_n1024.json
+leg_fixture64_n10000	leg	test/benchmark/legacy/results/r2/leg_fixture64_n10000.json
+leg_fixture200_n64	leg	test/benchmark/legacy/results/r2/leg_fixture200_n64.json
+leg_fixture200_n1024	leg	test/benchmark/legacy/results/r2/leg_fixture200_n1024.json
+leg_fixture200_n10000	leg	test/benchmark/legacy/results/r2/leg_fixture200_n10000.json
+leg_fresh16	leg	test/benchmark/legacy/results/r2/leg_fresh16.json
+leg_sr_a	leg	test/benchmark/legacy/results/r2/leg_sr_a.json
+leg_sr_b	leg	test/benchmark/legacy/results/r2/leg_sr_b.json
+leg_c1r2	leg	test/benchmark/legacy/results/r2/leg_c1r2.json
+leg_c5b_r2	leg	test/benchmark/legacy/results/r2/leg_c5b_r2.json
+# ---------------------------------------------------------------------------
+# group: light -- new side, default "numpy" backend, stage probe ON
+# ---------------------------------------------------------------------------
+np_c5r2	new	test/benchmark/new/results/r2/np_c5r2.json	stages
+np_fixture64_n1024	new	test/benchmark/new/results/r2/np_fixture64_n1024.json	stages
+np_fixture64_n10000	new	test/benchmark/new/results/r2/np_fixture64_n10000.json	stages
+np_fixture200_n64	new	test/benchmark/new/results/r2/np_fixture200_n64.json	stages
+np_fixture200_n1024	new	test/benchmark/new/results/r2/np_fixture200_n1024.json	stages
+np_fixture200_n10000	new	test/benchmark/new/results/r2/np_fixture200_n10000.json	stages
+np_fresh16	new	test/benchmark/new/results/r2/np_fresh16.json	stages
+np_sr_a	new	test/benchmark/new/results/r2/np_sr_a.json	stages
+np_sr_b	new	test/benchmark/new/results/r2/np_sr_b.json	stages
+np_c1r2	new	test/benchmark/new/results/r2/np_c1r2.json	stages
+# group: light -- A/B controls, probe OFF (must NOT have a stages block)
+np_c5r2_noprobe	new	test/benchmark/new/results/r2/np_c5r2_noprobe.json
+np_sr_a_noprobe	new	test/benchmark/new/results/r2/np_sr_a_noprobe.json
+# ---------------------------------------------------------------------------
+# group: iree -- new side, --backend iree (stage probe ON unless noted)
+# ---------------------------------------------------------------------------
+iree_fixture64_n64	new	test/benchmark/new/results/r2/iree_fixture64_n64.json	stages
+iree_fixture64_n1024	new	test/benchmark/new/results/r2/iree_fixture64_n1024.json	stages
+iree_fixture64_n10000	new	test/benchmark/new/results/r2/iree_fixture64_n10000.json	stages
+iree_fixture200_n64	new	test/benchmark/new/results/r2/iree_fixture200_n64.json	stages
+iree_fixture200_n1024	new	test/benchmark/new/results/r2/iree_fixture200_n1024.json	stages
+iree_fixture200_n10000	new	test/benchmark/new/results/r2/iree_fixture200_n10000.json	stages
+iree_fresh16	new	test/benchmark/new/results/r2/iree_fresh16.json	stages
+iree_sr_a	new	test/benchmark/new/results/r2/iree_sr_a.json	stages
+iree_c7r	new	test/benchmark/new/results/r2/iree_c7r.json	stages
+iree_sr_b2	new	test/benchmark/new/results/r2/iree_sr_b2.json	stages
+# group: iree -- A/B controls, probe OFF (must NOT have a stages block)
+iree_fixture64_n64_noprobe	new	test/benchmark/new/results/r2/iree_fixture64_n64_noprobe.json
+iree_fresh16_noprobe	new	test/benchmark/new/results/r2/iree_fresh16_noprobe.json
