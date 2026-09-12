@@ -299,8 +299,10 @@ from .etl_engine import (  # private but deliberately reused: parity by construc
 
 __all__ = [
     "ALLOW_UNSAFE_SCATTER_ENV",
+    "AUTO_MAX_ROWS_ENV",
     "AUTO_MIN_POP_ENV",
     "BUDGET_MB_ENV",
+    "DEFAULT_AUTO_MAX_ROWS",
     "DEFAULT_AUTO_MIN_POP",
     "DEFAULT_BUDGET_MB",
     "DEFAULT_EVAL_MODE",
@@ -320,12 +322,14 @@ __all__ = [
     "OP_VAR",
     "UPDATE_MODES",
     "UPDATE_MODE_ENV",
+    "auto_rows_decline",
     "build_dense",
     "dense_peak_bytes",
     "describe_plan",
     "evaluate_dense",
     "plan_dense",
     "prepare_dense",
+    "resolve_auto_max_rows",
     "resolve_auto_min_pop",
     "resolve_backend_name",
     "resolve_eval_mode",
@@ -345,6 +349,11 @@ EVAL_MODE_ENV = "EVOGP_EVAL_MODE"
 #: Population-size threshold of the ``auto`` policy on a non-numpy backend
 #: (``EVOGP_DENSE_AUTO_MIN_POP``) -- see :func:`should_use_dense`.
 AUTO_MIN_POP_ENV = "EVOGP_DENSE_AUTO_MIN_POP"
+#: Data-row ceiling of the ``auto`` policy on a non-numpy backend
+#: (``EVOGP_DENSE_AUTO_MAX_ROWS``) for ``per_row=False`` calls: dense cost grows
+#: with ``rows`` while the specialized cost is rows-flat, so above the crossover
+#: dense loses at any population -- see :func:`auto_rows_decline`.
+AUTO_MAX_ROWS_ENV = "EVOGP_DENSE_AUTO_MAX_ROWS"
 #: Max trace length ``L`` (``EVOGP_DENSE_MAX_TREE_LEN``): populations whose
 #: longest tree exceeds it fall back to the specialized engine.  This is the
 #: knob that bounds trace time and graph size (the candidate chain is emitted
@@ -363,6 +372,13 @@ DEFAULT_EVAL_MODE = "auto"
 #: Crossover measured on iree (specialized's ~0.9 s *per tree* against one dense
 #: compile): ~``P = 10-20`` at small ``L``.  Rounded up; env-overridable.
 DEFAULT_AUTO_MIN_POP = 16
+#: Rows crossover measured on iree (RTX A6000, ``L=32``) for the smallest
+#: population the ``auto`` policy admits: dense is 1.49x / 1.30x faster than the
+#: specialized engine at P=16 with 64 / 1024 rows and 1.18x *slower* at 10000
+#: rows (same-process A/B), i.e. the crossover is ~3.4-4.9k rows there (7.5k at
+#: P=32, ~11k at P=64).  The default is the measured SAFE boundary, ~2x below the
+#: tightest crossover; env-overridable.
+DEFAULT_AUTO_MAX_ROWS = 2048
 
 DEFAULT_MAX_TREE_LEN = 32
 DEFAULT_BUDGET_MB = 2048
@@ -479,6 +495,49 @@ def resolve_auto_min_pop(value: Optional[int] = None) -> int:
     return minimum
 
 
+def resolve_auto_max_rows(value: Optional[int] = None) -> int:
+    """Resolve the ``auto`` policy's row-count ceiling (``EVOGP_DENSE_AUTO_MAX_ROWS``)."""
+    maximum = (
+        _env_int(AUTO_MAX_ROWS_ENV, DEFAULT_AUTO_MAX_ROWS)
+        if value is None
+        else int(value)
+    )
+    if maximum < 1:
+        raise ValueError(
+            f"{AUTO_MAX_ROWS_ENV}={maximum} must be >= 1 (it is a data-row ceiling)"
+        )
+    return maximum
+
+
+def auto_rows_decline(
+    rows: Optional[int],
+    *,
+    eval_mode: Optional[str] = None,
+    auto_max_rows: Optional[int] = None,
+) -> Optional[str]:
+    """Why the ``auto`` policy declines dense at ``rows`` data rows (else ``None``).
+
+    The single source of the rows rule: dense cost grows with the data-row count
+    while the specialized engine's warm cost is rows-flat, so ``auto`` keeps dense
+    only up to :data:`DEFAULT_AUTO_MAX_ROWS`.  ``rows=None`` (unknown, e.g. a
+    ``per_row=True`` call) never declines.  An explicit ``EVOGP_EVAL_MODE=dense``
+    always wins -- the user's opt-in is not second-guessed, the same way an
+    explicit ``specialized`` is never overridden.
+    """
+    if rows is None or resolve_eval_mode(eval_mode) != "auto":
+        return None
+    maximum = resolve_auto_max_rows(auto_max_rows)
+    if int(rows) <= maximum:
+        return None
+    return (
+        f"auto policy: {int(rows)} data rows exceed {AUTO_MAX_ROWS_ENV}={maximum}; "
+        "the dense graph is rows-linear while the specialized engine is rows-flat "
+        "(dense measured 1.18x slower at P=16/N=10000 on iree, see "
+        "dense_bench_results.json / dense_bench_findings.md). "
+        "Set EVOGP_EVAL_MODE=dense to force it."
+    )
+
+
 def should_use_dense(
     pop_size: int,
     *,
@@ -486,6 +545,8 @@ def should_use_dense(
     iree_device_index: Optional[int] = None,
     eval_mode: Optional[str] = None,
     auto_min_pop: Optional[int] = None,
+    rows: Optional[int] = None,
+    auto_max_rows: Optional[int] = None,
 ) -> bool:
     """The ONE policy decision: try the dense evaluator for this population?
 
@@ -499,18 +560,25 @@ def should_use_dense(
       handled densely at all is answered by :func:`evaluate_dense` /
       :func:`sr_fitness_dense` raising :class:`DenseUnsupported`, after which the
       call site falls back.
-    * ``auto`` (default) -- the policy below, one expression: dense only on a
-      non-numpy backend and only from :data:`DEFAULT_AUTO_MIN_POP` (16)
-      individuals up, because on numpy dense measured 0.01-0.17x *slower* than
-      the specialized path at every size, while on iree it pays one compile for
-      the whole population against the specialized path's ~0.9 s of compile
-      *per tree* (measured crossover ~``P = 10-20`` at small ``L``).
+    * ``auto`` (default) -- the policy below: dense only on a non-numpy backend,
+      only from :data:`DEFAULT_AUTO_MIN_POP` (16) individuals up (on numpy dense
+      measured 0.01-0.17x *slower* than the specialized path at every size, while
+      on iree it pays one compile for the whole population against the
+      specialized path's ~0.9 s of compile *per tree*; measured crossover ~
+      ``P = 10-20`` at small ``L``), and -- when the caller knows the data-row
+      count and passes ``rows`` -- only up to :data:`DEFAULT_AUTO_MAX_ROWS`
+      (:func:`auto_rows_decline`).  The wired call sites call this with
+      ``pop_size`` only, so the rows half of the rule is enforced by
+      :func:`evaluate_dense` (which :func:`sr_fitness_dense` goes through), which
+      raises :class:`DenseUnsupported` in exactly the same cases.
     """
     mode = resolve_eval_mode(eval_mode)
     if mode == "specialized":
         return False
     if mode == "dense":
         return True
+    if auto_rows_decline(rows, eval_mode=mode, auto_max_rows=auto_max_rows):
+        return False
     return resolve_backend_name(backend, iree_device_index) != "numpy" and int(
         pop_size
     ) >= resolve_auto_min_pop(auto_min_pop)
@@ -1309,6 +1377,14 @@ def evaluate_dense(
         raise ValueError(
             f"x must be 2-D (rows, {int(input_len)}), got shape {query.shape}"
         )
+    # The wired call sites hand us only ``pop_size``, so the ``auto`` rows rule
+    # (``EVOGP_DENSE_AUTO_MAX_ROWS``) is enforced here, where the row count is
+    # known: a decline is reported the way every other "do not use dense" answer
+    # is, i.e. as DenseUnsupported, and the caller falls back to the specialized
+    # engine.  ``per_row=True`` sees one row per tree and is never gated.
+    decline = auto_rows_decline(None if per_row else int(query.shape[0]))
+    if decline:
+        raise DenseUnsupported(decline)
     plan = plan_dense(
         batch_node_value,
         batch_node_type,
