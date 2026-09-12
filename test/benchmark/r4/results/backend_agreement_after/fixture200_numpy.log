@@ -1,0 +1,22 @@
+===============================================================================
+R4 agreement record fixture200_numpy  started 2026-09-13T07:41:09+08:00
+note: 200-tree fixture, numpy reference backend (needs the r2 fixture)
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A168   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+env: PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1 EVOGP_ETL_BACKEND=numpy
+lock: exactly one flock -w 7200 /tmp/gpbench_critical.lock, timeout -s INT -k 30 1800s INSIDE it
+gpu (before): 6, NVIDIA RTX A6000, 0, 1
+cmd: timeout -s INT -k 30 1800 env PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1 EVOGP_ETL_BACKEND=numpy /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/r2/check_backend_agreement.py --fixture test/benchmark/fixtures/forest200_tree64_random.npz --json-out test/benchmark/r4/results/backend_agreement_after/fixture200_numpy.json
+json: test/benchmark/r4/results/backend_agreement_after/fixture200_numpy.json
+--- run output ---
+[agreement] fixture=test/benchmark/fixtures/forest200_tree64_random.npz sha256=6789ef61ecf8898b9b2a00774ee655e20b0b5be7c72eb861afc8d6b8799741b9
+[agreement] backend=numpy iree_opt_level=O1 iree_device=0 device=NVIDIA RTX A6000
+[agreement] Forest(input_len=2, output_len=1, pop_size=200, max_tree_len=64) rebuilt from test/benchmark/fixtures/forest200_tree64_random.npz[forest__node_value/_node_type/_subtree_size] + SymbolicRegression(datapoints=x(64, 2), labels=labels(64, 1))
+[agreement] call 1/2: 1168.8 ms (cold if 1)
+[agreement] call 2/2: 64.4 ms (cold if 1)
+[agreement] nan_count=12/200 inf_count=0 finite_mean=-6969.418382467107 finite_min=-650003.4375 finite_max=-2.72265625
+[agreement] values_sha256=16d5bbe98481ff954733b71cdd24471235f6d840c0a50d1a8f56d16cf8a11d81
+[agreement] wrote test/benchmark/r4/results/backend_agreement_after/fixture200_numpy.json + test/benchmark/r4/results/backend_agreement_after/fixture200_numpy_values.npy
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 1
+R4 agreement record fixture200_numpy  finished 2026-09-13T07:41:14+08:00

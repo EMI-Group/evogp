@@ -1,0 +1,92 @@
+===============================================================================
+R4 agreement record fixture200_iree  started 2026-09-13T07:41:14+08:00
+note: 200-tree fixture, IREE-cuda O1, default auto policy (dense route)
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A168   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+env: PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1 EVOGP_ETL_BACKEND=iree
+lock: exactly one flock -w 7200 /tmp/gpbench_critical.lock, timeout -s INT -k 30 1800s INSIDE it
+gpu (before): 6, NVIDIA RTX A6000, 0, 1
+cmd: timeout -s INT -k 30 1800 env PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562 CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1 EVOGP_ETL_BACKEND=iree /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/r2/check_backend_agreement.py --fixture test/benchmark/fixtures/forest200_tree64_random.npz --json-out test/benchmark/r4/results/backend_agreement_after/fixture200_iree.json
+json: test/benchmark/r4/results/backend_agreement_after/fixture200_iree.json
+--- run output ---
+[agreement] fixture=test/benchmark/fixtures/forest200_tree64_random.npz sha256=6789ef61ecf8898b9b2a00774ee655e20b0b5be7c72eb861afc8d6b8799741b9
+[agreement] backend=iree iree_opt_level=O1 iree_device=0 device=NVIDIA RTX A6000
+[agreement] Forest(input_len=2, output_len=1, pop_size=200, max_tree_len=64) rebuilt from test/benchmark/fixtures/forest200_tree64_random.npz[forest__node_value/_node_type/_subtree_size] + SymbolicRegression(datapoints=x(64, 2), labels=labels(64, 1))
+[agreement] call 1/2: 11657.3 ms (cold if 1)
+[agreement] call 2/2: 7.8 ms (cold if 1)
+[agreement] nan_count=12/200 inf_count=0 finite_mean=-6969.4185770242775 finite_min=-650003.4375 finite_max=-2.72265625
+[agreement] values_sha256=74a46ed4bf755c415259a7c0294b2a3b612209c154aab52cb730885d7de1fcf1
+[agreement] wrote test/benchmark/r4/results/backend_agreement_after/fixture200_iree.json + test/benchmark/r4/results/backend_agreement_after/fixture200_iree_values.npy
+nanobind: leaked 68 instances!
+ - leaked instance 0x7fcbf4266f08 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fcbfe66b068 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fcbf4267208 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fcbf4267aa8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fcbf4267d68 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fcbf4267ba8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fcbf42676a8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fcbfea897b8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fcbff7f9b28 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fcbfec869d8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fcbf4266da8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fcbfe91cf98 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fcbf42673c8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fcbf4267dc8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fcbf42679c8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fcbf42675a8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fcbfe7836f8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fcbf4267c88 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fcbf42676c8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fcbf42674c8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - ... skipped remainder
+nanobind: leaked 67 keep_alive records!
+nanobind: leaked 5 types!
+ - leaked type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked type "iree._runtime_libs._runtime.HalDevice"
+ - leaked type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked type "iree._runtime_libs._runtime.HalDriver"
+nanobind: leaked 39 functions!
+ - leaked function "query_buffer_compatibility"
+ - leaked function "allocate_buffer"
+ - leaked function "queue_execute"
+ - leaked function ""
+ - leaked function "queue_alloca"
+ - leaked function "queue_copy"
+ - leaked function "allocate_buffer_copy"
+ - leaked function "queue_dealloca"
+ - leaked function "create_semaphore"
+ - leaked function "query_available_devices"
+ - leaked function "fill_zero"
+ - leaked function "create_dlpack_capsule"
+ - leaked function ""
+ - leaked function "create_view"
+ - leaked function ""
+ - leaked function "asarray"
+ - leaked function "query"
+ - leaked function "__repr__"
+ - leaked function "create_default_device"
+ - leaked function "create_device"
+ - leaked function "memory_type"
+ - leaked function "byte_length"
+ - leaked function ""
+ - leaked function "__eq__"
+ - leaked function "__repr__"
+ - leaked function "dump_device_info"
+ - leaked function "trim"
+ - leaked function "flush_profiling"
+ - leaked function ""
+ - leaked function "begin_profiling"
+ - leaked function "map"
+ - leaked function "__iree_vm_type__"
+ - leaked function "end_profiling"
+ - leaked function "__iree_vm_cast__"
+ - leaked function "from_dlpack_capsule"
+ - leaked function "allowed_usage"
+ - leaked function "create_device_by_uri"
+ - leaked function ""
+ - leaked function "allocate_host_staging_buffer_copy"
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 1
+R4 agreement record fixture200_iree  finished 2026-09-13T07:41:28+08:00
