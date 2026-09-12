@@ -62,6 +62,11 @@ harness estimates its cost from the cases already measured in this process
 extrapolations (``source=fit(...)``) computed with the same fit, and the fit
 itself is printed and stored in the JSON.  ``--repeats`` is chosen per case from
 the estimate (3 / 2 / 1) so a slow corner is still timed at least once.
+Dense host memory is guarded the same way (``--max-host-mb``) using the
+*per-chunk* element count, because chunked execution is sequential: a corner that
+the full plan cannot run can be measured for real by forcing chunking with a
+small ``--budget-mb`` (the case record then holds the chunked plan and the
+previous plan under ``plans_previous``).
 
 Commands (repo root as CWD; the venv has torch, ``python`` on PATH does not)
 ---------------------------------------------------------------------------
@@ -99,7 +104,14 @@ Notes / honest limitations
   (``--smi-index`` also samples the whole device) and from
   ``torch.cuda.max_memory_allocated``.  torch's allocator cannot see iree's
   allocations, so the two are reported side by side and never added up; the
-  sampler os a lower bound (~50 ms period).
+  sampler is a lower bound (~50 ms period).
+* Host memory: the numpy backend runs on the host and the dense graph keeps
+  thousands of live ``(pop, rows)`` float32 arrays, so the dense path is also a
+  host-memory bomb (~21.4 kB per pop x row element at ``L=32``, i.e. the
+  documented ``dense_peak_bytes`` model is ~50x optimistic there -- e.g.
+  ``P=64 x N=10000`` dies with the model predicting 273 MB).  Each measured
+  case records the host RSS delta (``/proc/self/statm``) and the harness skips
+  cases above ``--max-host-mb`` (default 6000) instead of being killed.
 * Medians only; the box is shared with a parallel validation executor, so
   wall-clock numbers carry host contention (each case stores its repeat spread).
 * Synthetic SR-style data: ``input_len=4``, uniform inputs in ``[-1, 1]``, a
@@ -214,6 +226,16 @@ def _git_head() -> Optional[str]:
         return None
 
 
+def _rss_mb() -> float:
+    """Current host RSS of this process (MiB) -- the numpy backend is host-side."""
+    try:
+        with open("/proc/self/statm") as handle:
+            pages = int(handle.read().split()[1])
+        return pages * float(os.sysconf("SC_PAGE_SIZE")) / (1024.0 * 1024.0)
+    except Exception:
+        return float("nan")
+
+
 # ---------------------------------------------------------------------------
 # nvidia-smi sampler (device memory the torch allocator cannot see)
 # ---------------------------------------------------------------------------
@@ -233,7 +255,7 @@ class SmiSampler(threading.Thread):
         self.peak_proc = 0
         self.peak_gpu = 0
         self.samples = 0
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
 
     def _sample(self) -> None:
         try:
@@ -275,12 +297,12 @@ class SmiSampler(threading.Thread):
         self.samples += 1
 
     def run(self) -> None:  # pragma: no cover - thread body
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             self._sample()
-            self._stop.wait(self.interval)
+            self._stop_event.wait(self.interval)
 
     def stop(self) -> Dict[str, Any]:
-        self._stop.set()
+        self._stop_event.set()
         self.join(timeout=10)
         return {
             "peak_proc_mb": round(self.peak_proc / 1024.0, 2),
@@ -427,6 +449,9 @@ class Bench:
         self._dense_points: Dict[int, List[Tuple[int, float]]] = {}
         self._dense_compiles: List[float] = []
         self._spec_samples: Dict[int, Dict[str, Any]] = {}
+        # host-memory model of the dense numpy path: bytes per (pop x row) element,
+        # calibrated from the measured host RSS deltas (default from the L=32 probe)
+        self._host_measurements: List[float] = []
 
     # -- JSON (merged across the per-stage processes) -----------------------
     def _load_results(self) -> Dict[str, Any]:
@@ -527,6 +552,12 @@ class Bench:
         intercept, slope, note = self._dense_fit(pop_size)
         return intercept + slope * rows, note
 
+    def _host_bytes_per_pn(self) -> float:
+        """Host RSS bytes per (pop x row) element (min of the measured cases)."""
+        if self._host_measurements:
+            return min(self._host_measurements)
+        return float(self.args.default_host_bytes_per_pop_row)
+
     def _compile_estimate_s(self, kind: str) -> float:
         if kind == "dense" and self._dense_compiles:
             return 1.5 * max(self._dense_compiles)
@@ -554,6 +585,35 @@ class Bench:
         est_total_s = self._compile_estimate_s("dense") + (
             repeats + self.args.warmup + 2
         ) * est_run_s
+        host_bytes_per_pn = self._host_bytes_per_pn()
+        chunk_elements = max(1, record["plan"]["p_chunk"]) * max(
+            1, record["plan"]["n_chunk"]
+        )
+        host_mb = host_bytes_per_pn * chunk_elements / (1024.0 * 1024.0)
+        if host_mb > self.args.max_host_mb:
+            estimate_ms, note = self._dense_estimate_ms(pop_size, rows)
+            record["dense"] = {
+                "status": "skipped_host_memory",
+                "warm_ms": round(estimate_ms, 3),
+                "warm_repeats": 0,
+                "source": note,
+                "host_estimate_mb": round(host_mb, 1),
+                "host_model_bytes_per_chunk_element": round(host_bytes_per_pn, 1),
+                "note": (
+                    f"predicted per-chunk host RSS {host_mb:.0f} MB > "
+                    f"--max-host-mb {self.args.max_host_mb:.0f} MB (the numpy "
+                    f"interpreter keeps ~{host_bytes_per_pn:.0f} bytes per pop x row "
+                    f"element, chunk {record['plan']['p_chunk']}x"
+                    f"{record['plan']['n_chunk']} x {record['plan']['p_chunks']}*"
+                    f"{record['plan']['n_chunks']}); warm_ms from {note}"
+                ),
+            }
+            print(
+                f"  dense   SKIP (host RSS model {host_mb:.0f} MB) -> extrapolated "
+                f"{estimate_ms:.1f} ms ({note})",
+                flush=True,
+            )
+            return None
         if est_total_s > self.args.max_config_seconds:
             estimate_ms, note = self._dense_estimate_ms(pop_size, rows)
             record["dense"] = {
@@ -578,7 +638,9 @@ class Bench:
         E.clear_cache()
         gc.collect()
         stats_before = E.cache_stats()
+        rss_before = _rss_mb()
         cold_s, cold_out = _time_one(lambda: _sr_fitness(forest, inputs, labels))
+        rss_cold = _rss_mb()
         stats_after = E.cache_stats()
         misses = stats_after["misses"] - stats_before["misses"]
 
@@ -587,6 +649,8 @@ class Bench:
             "torch_peak_alloc_mb": None,
             "model_peak_mb": record["plan"]["peak_mb"],
             "model_out_mb": record["plan"]["out_mb"],
+            "host_rss_before_mb": round(rss_before, 1),
+            "host_rss_after_cold_mb": round(rss_cold, 1),
         }
         if self.args.smi:
             torch.cuda.reset_peak_memory_stats()
@@ -605,8 +669,26 @@ class Bench:
             lambda: _sr_fitness(forest, inputs, labels), repeats, self.args.warmup
         )
         warm_s = _median(times)
+        rss_after = _rss_mb()
+        delta_bytes = max(0.0, rss_after - rss_before) * 1024.0 * 1024.0
+        if pop_size * rows >= 65536 and delta_bytes > 0:
+            # only run-dominated cases calibrate the host model: small cases are
+            # dominated by the (rows-independent) compile allocation
+            self._host_measurements.append(delta_bytes / (pop_size * rows))
+        memory["host_rss_after_warm_mb"] = round(rss_after, 1)
+        memory["host_rss_delta_mb"] = round(delta_bytes / (1024.0 * 1024.0), 1)
+        memory["host_bytes_per_pop_row"] = round(
+            delta_bytes / max(1, pop_size * rows), 1
+        )
+        memory["host_note"] = (
+            "current host RSS (/proc/self/statm) before the cold call / after the cold "
+            "call / after the timed calls; the delta includes the compile and the run "
+            "and is the calibration of the harness' own host-memory guard"
+        )
         self._dense_points.setdefault(pop_size, []).append((rows, warm_s))
         self._dense_compiles.append(max(0.0, cold_s - warm_s))
+        if (record.get("dense") or {}).get("status") == "measured":
+            record.setdefault("dense_previous", []).append(record["dense"])
         record["dense"] = {
             "status": "measured",
             "compile_ms": round(1000.0 * max(0.0, cold_s - warm_s), 3),
@@ -626,7 +708,9 @@ class Bench:
         print(
             f"  dense   cold {1000.0 * cold_s:8.1f} ms "
             f"(compile {1000.0 * max(0.0, cold_s - warm_s):8.1f}) "
-            f"warm {1000.0 * warm_s:9.2f} ms  builds={misses}",
+            f"warm {1000.0 * warm_s:9.2f} ms  builds={misses} "
+            f"host_rss +{memory['host_rss_delta_mb']:.0f} MB "
+            f"({memory['host_bytes_per_pop_row']:.0f} B/pop-row)",
             flush=True,
         )
         return out
@@ -906,6 +990,7 @@ class Bench:
         inputs, labels = self.data(rows)
         record["tree_lengths"] = _tree_length_stats(forest)
         record["programs"] = _program_stats(forest)
+        previous_plan = record.get("plan")
         try:
             record["plan"] = _dense_plan(
                 forest,
@@ -916,6 +1001,8 @@ class Bench:
                 self.backend,
             )
             dense_ok = True
+            if previous_plan and previous_plan.get("budget_mb") != self.args.budget_mb:
+                record.setdefault("plans_previous", []).append(previous_plan)
         except D.DenseUnsupported as exc:
             record["plan"] = {"dense_supported": False, "reason": str(exc)}
             dense_ok = False
@@ -1047,6 +1134,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=150.0,
         help="skip (and extrapolate) a case whose estimated cost exceeds this",
     )
+    parser.add_argument(
+        "--max-host-mb",
+        type=float,
+        default=6000.0,
+        help="skip a dense case whose predicted host RSS exceeds this (numpy backend)",
+    )
+    parser.add_argument(
+        "--default-host-bytes-per-pop-row",
+        type=float,
+        default=21400.0,
+        help=(
+            "host-RSS model: bytes per (pop x row) element before calibration; "
+            "the dense numpy graph keeps ~5.4k live (pop, row) float32 arrays per "
+            "traced position chain, measured 21.4 kB/element at L=32"
+        ),
+    )
     parser.add_argument("--spec-sample", type=int, default=12, help="trees sampled per case")
     parser.add_argument(
         "--spec-sample-pop",
@@ -1089,9 +1192,9 @@ def _compile_defaults(backend: str) -> Dict[str, float]:
 def print_table(results: Dict[str, Any]) -> None:
     print()
     header = (
-        f"{'backend':>8} {'pop':>6} {'rows':>6} | {'dense':>10} {'src':>22} "
-        f"{'dcomp':>9} | {'spec':>10} {'src':>9} {'scomp':>10} | "
-        f"{'ratio':>7} {'chunks':>7} {'peakMB':>7} {'ok':>6}"
+        f"{'backend':>8} {'pop':>6} {'rows':>6} | {'dense':>10} {'src':>14} "
+        f"{'dcomp':>9} {'rssMB':>7} | {'spec':>10} {'src':>9} {'scomp':>10} | "
+        f"{'ratio':>7} {'chunks':>7} {'ok':>4}"
     )
     print(header)
     print("-" * len(header))
@@ -1102,16 +1205,20 @@ def print_table(results: Dict[str, Any]) -> None:
         chunks = "-"
         if "p_chunk" in case.get("plan", {}):
             chunks = f"{case['plan']['p_chunks']}x{case['plan']['n_chunks']}"
+        source = dense.get("source", "-")
+        if dense.get("status") != "measured":
+            source = str(dense.get("status", "-"))
+        rss = (dense.get("memory") or {}).get("host_rss_delta_mb")
+        if rss is None:
+            rss = dense.get("host_estimate_mb")
         print(
             f"{case.get('backend', '?'):>8} {case.get('pop', '?'):>6} {case.get('rows', '?'):>6} | "
-            f"{_fmt(dense.get('warm_ms'))} "
-            f"{str(dense.get('source', dense.get('status', '-')))[:22]:>22} "
-            f"{_fmt(dense.get('compile_ms'))} | {_fmt(spec.get('warm_ms'))} "
+            f"{_fmt(dense.get('warm_ms'))} {str(source)[:14]:>14} "
+            f"{_fmt(dense.get('compile_ms'))} {_fmt(rss, 7)} | {_fmt(spec.get('warm_ms'))} "
             f"{str(spec.get('source', spec.get('status', '-')))[:9]:>9} "
             f"{_fmt(spec.get('compile_ms'))} | "
             f"{_fmt(case.get('ratio_warm_spec_over_dense'), 7)} {chunks:>7} "
-            f"{_fmt(case.get('plan', {}).get('peak_mb'), 7)} "
-            f"{('yes' if case.get('verify', {}).get('verified') else 'NO'):>6}"
+            f"{('yes' if case.get('verify', {}).get('verified') else 'NO'):>4}"
         )
     print()
 
