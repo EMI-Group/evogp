@@ -299,6 +299,95 @@ dense-route gap instead of the JSON-level `misses_max` — the records themselve
 (`1 / 1 / 170`). The generated `results/armB/last_run.txt` holds only the **last** invocation's table
 (config 3: `armB_iree_sr_a new 0 OK …`, `# ok=1 skipped=0 failed=0`); it is `.gitignore`d and not
 committed, which is why each invocation's table is archived in its `status_<id>.txt` instead.
+#### Group `numpy` — EXECUTED 2026-09-12 23:26:48–23:27:40 HKT (window 4, GPU 6): 3/3 exit 0
+This is the default-`numpy` group — the R3 reference route with **no** `EVOGP_ETL_BACKEND` /
+`EVOGP_EVAL_MODE` / `EVOGP_ETL_CACHE_SIZE` overrides at all (each JSON's `env` block carries only
+`ETL_DISABLE_LOCATIONS=1` and `CUDA_VISIBLE_DEVICES=6`), i.e. exactly the Arm A `np_*` wiring. On
+`numpy` the engine keeps the **specialized** route, so unlike the dense `iree` eval arms in the two
+subsections above all three records here carry *meaningful* `stages` blocks — the R2 probe wraps
+precisely the call sites this route uses. With these three records **all nine Arm B ids are on disk**,
+so the "`numpy` group is still unrun" notes in the `iree-spec`/`iree` subsections are superseded by
+this one (their own validator outputs stay quoted there as the mid-flight snapshots they were).
+**Commands (exact) — one foreground `run_all_armB.sh --only <id>` invocation per config, in run
+order, each console captured to `results/armB/status_<id>.txt`; the runner owns
+`ulimit`/`flock`/`timeout`:**
+```bash
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_c5r2             # 23:26:48 → 23:26:53
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_fixture200_n64  # 23:27:12 → 23:27:20
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_np_sr_a            # 23:27:28 → 23:27:40
+python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
+```
+No `flock` wait was observable (each config's `started` timestamp is within a second of its
+invocation, and every invocation ran in the foreground of one long-budget call — neither the
+detached-`nohup` reaping of the agreement window nor a mid-config kill occurred). Runner-level group
+wall: **52 s** (23:26:48 → 23:27:40), of which 5 s + 8 s + 12 s is inside the three configs; nothing
+approached the 3600 s cap.
+**Per-config status table** (per-config exit code = the log's `exit code: 0 (OK)` footer *and* the
+runner's own id→exit table in the same `status_<id>.txt`; metric rules as at the top of this file —
+eval: `first_call_ms` and `median_warm_ms` over 25 calls; sr: rep0's `cold_first_gen_ms` as the first
+figure and the per-rep median of `per_gen_ms[1:]`):
+| id | exit | complete / partial | first_ms | warm_ms (rep0 / rep1) | cold builds (json `misses_max` / stage) | fds start→cold→end | wall (started→finished) | harness_wall_s | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| armB_np_c5r2 | 0 | `complete` / `partial=false` | 191.31 | 20.78 (25 calls) | null (`enforced=false`, no budget) / stage 48 cold + 0 warm misses | 39 → 59 → 59 | 5 s (23:26:48 → 23:26:53) | 1.8 | GPU 6 foreign util 29 % before → 0 % after (≈30 GB `syfang` resident); stage block meaningful |
+| armB_np_fixture200_n64 | 0 | `complete` / `partial=false` | 995.50 | 135.94 (25 calls) | null (`enforced=false`) / stage 155 cold + 0 warm misses | 39 → 59 → 59 | 8 s (23:27:12 → 23:27:20) | 4.7 | GPU 6 foreign util 25 % before → 4 % after; stage block meaningful |
+| armB_np_sr_a | 0 | `complete` / `partial=false` | 2 255.92 (rep0 cold gen) | 154.45 / 33.83 (rep0 / rep1, median of `per_gen_ms[1:]`) | null (`enforced=false`) / stage rep0 = 155 cold + 362 warm misses, rep1 = 0 | 39 → 59 → 59 | 12 s (23:27:28 → 23:27:40) | 7.4 | GPU 6 foreign util 38 % before → 0 % after; `best_fitness_final=-0.2510969936847687`; per-rep repair: rep0 cold 2 255.92 → rep1 cold 229.16 ms |
+`stages` quality (all three are **specialized**-route runs, so the probe is meaningful by
+construction): every record has `stages.partial=false`, `stages.note=""`, `installed=true`, the full
+`wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness]` list, 25 eval
+records (eval ids) / 10 + 10 train records (the `sr` id) and populated per-stage counters
+(`decode / build-hit / build-miss / run / readback / upload / loss / misc`, `h2d`/`d2h`) — no
+degenerate dense-route block, and the build counts are *identical* to the Arm A twins (48 / 155 /
+155 + 362), which is the same-workload cross-check the `sr` fitness trajectory gives. Stage split
+(console `stages[...]` lines, cold/warm totals):
+| id (rep) | cold misses (ms) | warm misses (ms) | decode + build-hit (calls) + build-miss (calls) + run (calls) + readback (calls) + loss + misc | h2d / d2h |
+|---|---|---|---|---|
+| c5r2 (rep0/eval) | 48 (156.3) | 0 (0.0) | 27.7 + 223.1 (1 277) + 156.3 (48) + 234.5 (1 325) + 16.3 (1 325) + 641.8 + 19.9 | 0 / 0 |
+| fixture200_n64 (rep0/eval) | 155 (901.4) | 0 (0.0) | 158.1 + 1 225.3 (4 120) + 901.4 (155) + 1 666.5 (4 275) + 73.5 (4 275) + 3 917.0 + 34.6 | 0 / 0 |
+| sr_a (rep0/train) | 155 (1 292.1) | 362 (2 308.7) | 40.6 + 26.7 (115) + 3 600.9 (517) + 266.6 (632) + 22.9 (632) + 3 951.0 + 956.2 | 0 / 0 |
+| sr_a (rep1/train) | 0 (0.0) | 0 (0.0) | 32.0 + 146.8 (632) + 0.0 (0) + 182.4 (632) + 10.8 (632) + 361.9 + 201.3 | 0 / 0 |
+(`trees_invoked/trees_total` follows the same pattern as Arm A: 1 325/1 600 and 4 275/5 000 on the eval
+arms — i.e. every non-duplicate structure is built — and 632/2 000 per `sr` rep; `warm_misses=0` on
+rep1 with all 632 build calls hitting the cache.)
+**Arm A twin comparison (context only — the round's verdict tables are built by the write-up phase).**
+The two numpy groups are **not device-paired**: Arm A's `np_*` records were the companion light-group
+window on **GPU 0** (`env.CUDA_VISIBLE_DEVICES=0`, per that phase's note) while Arm B's numpy group ran
+on the runner-default **GPU 6**; both are CPU-interpreter runs on a shared box, so read the deltas as
+window-paired:
+| id | Arm B first_ms | Arm A first_ms | Δ | Arm B warm_ms | Arm A warm_ms | Δ |
+|---|---|---|---|---|---|---|
+| np_c5r2 | 191.31 | 207.47 | −7.8 % | 20.78 | 23.29 | −10.8 % |
+| np_fixture200_n64 | 995.50 | 1 371.43 | −27.4 % | 135.94 | 117.61 | +15.6 % |
+| np_sr_a (rep0 cold gen / rep1 warm med.) | 2 255.92 (cold gen) | 1 641.86 (cold gen) | +37.4 % | 154.45 / 33.83 | 117.33 / 30.78 | +31.6 % / +9.9 % |
+`src/evogp` is byte-identical between the Arm A record commit (`49c5197`) and the Arm B one
+(`git diff --stat 49c5197 HEAD -- src/` is empty, as for the two IREE groups), so every delta above
+belongs to the ETL checkout shadow and/or the window. The `sr` id's 10-generation trajectory is
+**identical to Arm A bitwise in best fitness** (`per_gen_best_fitness` equal element-for-element,
+`best_fitness_final=-0.2510969936847687` on both sides), and the patched checkout never changes the
+build traffic (`48 / 155 / 155+362` misses on both sides). The `sr` rep0/rep1 gap (+31.6 % / +9.9 %) is
+window noise on a CPU-bound route (host loadavg ≈81–93 at window start, rep0's `per_gen_ms` is itself
+bimodal at ≈79–724 ms), not added work.
+**Validator (gate (ii), all 9 of 9 ids on disk — the round's Arm B record gate, FINAL):**
+```text
+9 record(s): 9 complete, 0 partial, 0 skipped, 0 missing, 0 malformed (0 not in the manifest)
+34 check(s), 0 failure(s)
+armB_np_c5r2                   new   eval64  complete     191.31      20.78  48 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_np_fixture200_n64         new   eval64  complete     995.50     135.94  155 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_np_sr_a                   new   sr      complete    2255.92     154.45  155 (reps[0].totals.cold_builds)  362 (reps[0].totals.warm_misses)
+CHECKER_EXIT=0
+```
+Full stdout kept as `results/armB/status_check_r3_armB_final.txt` (checker exit **0** — the first Arm B
+validator run with nothing to report, same semantics as Arm A's `12 complete / 45 checks / 0
+failures`: every manifest id present, at its manifest path, with the expected `side`, and a non-empty
+`stages` block for each of the nine `--stage-probe` rows). The file is the raw stdout plus this phase's
+append of the capture command's `CHECKER_EXIT=0` marker line (the earlier `status_check_r3_*` files hold
+stdout only); the marker is what makes the exit code checkable from the file itself. On this group the checker's `cold_builds`
+column is the *only* cold-build number the records have, because the numpy configs carry no
+`--max-cold-builds` budget (JSON `cold_builds: {enforced: false, misses_max: null}` — same as Arm A's
+`np_*` records), which is exactly why its stage-sourced `48 / 155 / 155` is meaningful here while the
+dense `iree` eval arms showed `0` in the same column against a JSON-level `1`. The generated
+`results/armB/last_run.txt` holds only the **last** invocation's table (config 3:
+`armB_np_sr_a new 0 OK …`, `# ok=1 skipped=0 failed=0`); it is `.gitignore`d and not committed, which is
+why each invocation's table is archived in its `status_<id>.txt` instead.
 
 ### `iree_sr_b2` re-attempt (pop 1000 / gens 2 / tree 128 — not an Arm B matrix id)
 <PLACEHOLDER — to be filled if the phase runs it. This is the one R2 config that FAILED
@@ -421,6 +510,42 @@ FD trajectory; a crash is again a bounded-failure datapoint, never a training re
   rep-1s, rep totals 81 299.8 ms → 826.4 ms (Arm B) against 84 780.5 ms → 953.1 ms (Arm A), and an
   element-for-element identical `per_gen_best_fitness` — so any write-up must not quote that median as a
   regression.
+* **Window 4 / GPU 6 — the `numpy` group ran clean in one pass: 3/3 exit 0, no GUARD-SKIP, no timeout, no
+  interrupt, no re-run, no kill.** One foreground `run_all_armB.sh --only` invocation per config
+  (5 s / 8 s / 12 s wall, group total 52 s), well inside the runner's 3600 s cap and the platform's call
+  budget, so neither the reaped-detached-batch failure mode nor a mid-config kill recurred; both
+  fixtures were present (no exit-3 guard path) and every log ends with `exit code: 0 (OK)`,
+  `gpu (after)` and `finished`.
+* **Window 4 / GPU 6 — device kept under the documented rule, and the `numpy` route makes the choice
+  cheap either way.** Two GPU-6 utilization series were taken at window start (12 samples / 3 s:
+  `0 0 0 0 0 0 0 0 85 42 98 97 %`; 15 samples / 3 s: `0 0 0 0 0 0 0 9 0 0 0 0 0 0 0 %`), i.e. the
+  ≈30 GB `syfang` tenant **bursts** and never holds the sustained ≥90 % that triggers a switch; GPUs 0
+  and 1 had meanwhile become tenant-free (hyqiu's window-3 job exited), so GPU 6 was explicitly chosen
+  for comparability with windows 1b/2/3 rather than by default inertia. GPU 7 (hardware ECC fault) was
+  never touched. Per-config contention is the `gpu (before)/(after)` pair in each committed log:
+  `29 → 0 %` (c5r2), `25 → 4 %` (fixture200), `38 → 0 %` (sr). Host loadavg at window start:
+  80.59 / 82.54 / 92.51, 46 users — the quietest window of the round.
+* **Window 4 — the three `stages` blocks are meaningful, exactly like the `iree-spec` group and unlike
+  the dense `iree` eval arms** (verbatim counters in the `numpy` subsection above). Every record
+  reports `partial=false`, `note=""`, `installed=true` and real per-stage counters for the specialized
+  route (25 eval records; 10 + 10 train records), and the build traffic is *identical* to the Arm A
+  twins (48 / 155 / 155 + 362 misses, 1 325 / 4 275 / 632 build calls), which is the second
+  work-load-identity cross-check next to the bitwise `sr` fitness trajectory. The R3 caveat about a
+  dense-route run carrying a degenerate stage block therefore does not apply to this group — on
+  `numpy` the engine keeps the specialized route even though the backend is the CPU reference
+  interpreter.
+* **Window 4 — no FD or teardown incident**: each config grew 39 → 59 fds across its cold phase and
+  ended at 59 (the Arm A `np_*` twins read the same 39 → 59 → 59), and the logs contain **zero**
+  `nanobind: leaked …` lines — the numpy route creates no IREE runtime objects, so the teardown noise
+  of the `_spec`/`iree` windows is simply absent here. `ulimit -n 65536` was raised by the runner
+  first (the group needs no raise; it is the runner's uniform order).
+* **Window 4 — the Arm A↔Arm B `numpy` deltas are window-paired, not device-paired.** Arm A's `np_*`
+  records are the companion light-group re-measurement window taken on **GPU 0**
+  (`env.CUDA_VISIBLE_DEVICES=0` in `results/new/np_*.json`) while Arm B's numpy group used the
+  runner-default GPU 6, and the numpy route is CPU-bound host-side work — so the +15.6 % warm delta on
+  `np_fixture200_n64` and the +31.6 % rep0 median on `np_sr_a` (whose `per_gen_ms` is bimodal at
+  ≈79–724 ms) are shared-box noise, not added work: the same window shows `np_c5r2` at −10.8 % warm,
+  the build counts are equal, and the `sr` fitness trajectory is bitwise identical.
 **Analysis of record:** Arm B's write-up goes here once the round runs; the baseline it is read against
 is `round3/SUMMARY.md` (Arm A) and, one level up, `../REPORT.md` (R2) — Arm B's headline question is
 whether the patched ETL checkout changes any R3 number or fitness vector, so the tables to produce are
@@ -446,4 +571,10 @@ bullets. The `iree` matrix phase (window 3) committed `ca413f3` (`etl_import_pro
 (`armB_iree_sr_a.{json,log}` + `status_*.txt`; the `*.log` files again needed `git add -f` because
 `.gitignore:32` hides `*.log`, exactly as for Arm A's records) and the follow-up commit of that phase,
 which carries `results/armB/status_check_r3_iree.txt`, the `iree`-group subsection above and the six
-window-3 anomaly bullets.
+window-3 anomaly bullets. The `numpy` matrix phase (window 4) committed `a4cf2ad`
+(`etl_import_probe.txt` fifth block + `windows.md` window 4), `f3a4cae` (`armB_np_c5r2.{json,log}` +
+`status_*.txt`), `8104481` (`armB_np_fixture200_n64.{json,log}` + `status_*.txt`), `f347d47`
+(`armB_np_sr_a.{json,log}` + `status_*.txt`; the `*.log` files again needed `git add -f` because
+`.gitignore:32` hides `*.log`, exactly as for Arm A's records) and the follow-up commit of that phase,
+which carries `results/armB/status_check_r3_armB_final.txt` (the first all-9-ids validator run, exit 0),
+the `numpy`-group subsection above and the five window-4 anomaly bullets.
