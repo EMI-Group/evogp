@@ -258,3 +258,161 @@ PY
 * `run_matrix.py` (harness; `--list`), `check_results.py` (JSON validator), `results/` (8 records),
   `results/c4_rerun/` (C4 re-run records), `results/logs/` (all raw logs, incl. the pre-existing build
   and smoke evidence).
+
+---
+
+## R2 — same-box legacy sanity re-runs (GPU round)
+
+Round-2 sanity pass on the OLD side, taken immediately before the R2 GPU benchmark round: does the frozen
+legacy build still load, and does it still behave like the round-1 records on *this* box? Run by hand on
+**2026-09-12 (HKT)**; every record and log is committed under `results/r2/`. No config, seed,
+hyperparameter or script was changed, and the round-1 `results/*.json` were **not** overwritten.
+`bench_gp.py` in this round is the restored revision at commit `7a67e87`
+(sha256 `dd8647091f847a60df3451a873528df3855b10c46ecf216c52b837710d4e527d`); `run_matrix.py`,
+`check_results.py` and `setup_legacy.sh` are untouched.
+
+### R2.1 Environment and commands
+
+| item | value |
+|---|---|
+| legacy checkout | `/tmp/evogp_legacy_bench` (commit `b613503`, not a git checkout) — **reused as left by round 1, not rebuilt** |
+| extension | `src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so`, 1 112 488 B, sha256 `d7af153c4d12843dc218e3616985173db9e294c3fc3a04f9dbab457b30d715a4` — identical to `BUILD_NOTES.md` §9 |
+| import smoke | **OK** — `import torch; import evogp.evogp_cuda; import evogp.tree` → `legacy ok /tmp/evogp_legacy_bench/src/evogp/evogp_cuda….so` (details below) |
+| interpreter | venv `/mnt/local-ssd/bchuang/evox/.venv/bin/python` — py3.11.2, torch 2.6.0+cu124 |
+| `PYTHONPATH` | `/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils` (legacy `src` first) |
+| GPU | `CUDA_VISIBLE_DEVICES=6` (RTX A6000; idle for this whole window — 0 % util / 1 MiB before and after). GPUs 0/1 were busy with other tenants (50–99 % util, ~20 GB resident); see `results/r2/gpu_snapshot_{before,after}.txt` |
+| shell | `ulimit -n 65536` first; every invocation wrapped in exactly one `flock -w 7200 /tmp/gpbench_critical.lock bash -c '…'`, foreground, never nested |
+| lock contention | none: a `flock -w 0` probe right after the round returned `LOCK_FREE`, and each invocation's wall exceeded its own `harness_wall_s` only by the interpreter/torch import (~1.5 s) |
+| window | 14:04:21 → 14:07:28 HKT (five invocations in total, import probes included) |
+
+Exact commands (cwd = EvoGP repo root, `$REPO`; `$PY` = the venv python above, `$LEG` = the two-element
+`PYTHONPATH`):
+
+```bash
+# (0) import smoke — see the gotcha below for the required import order
+ulimit -n 65536
+flock -w 7200 /tmp/gpbench_critical.lock bash -c \
+ 'CUDA_VISIBLE_DEVICES=6 PYTHONPATH=$LEG $PY -c "import torch, evogp.evogp_cuda, evogp.tree; print(\"legacy ok\")"'
+
+# (1)–(4) harness runs: one flock acquisition each, stdout tee'd to results/r2/<name>.log
+flock -w 7200 /tmp/gpbench_critical.lock bash -c \
+ 'CUDA_VISIBLE_DEVICES=6 PYTHONPATH=$LEG $PY -u $REPO/test/benchmark/bench_gp.py <flags>' \
+ 2>&1 | tee $REPO/test/benchmark/legacy/results/r2/<name>.log
+#   name=leg_smoke      <flags> = --task eval64     --eval-reps 3                              --tag LEG-smoke  --json-out …/r2/leg_smoke.json
+#   name=leg_c5r2       <flags> = --task eval64     --eval-reps 25                             --tag LEG-C5r2   --json-out …/r2/leg_c5r2.json
+#   name=leg_c1r2       <flags> = --task sr --pop 200 --gens 100 --tree-len 64 --reps 2        --tag LEG-C1r2   --json-out …/r2/leg_c1r2.json
+#   name=leg_c5b_r2     <flags> = --task evalfresh --pop 1000 --tree-len 64 --eval-reps 10     --tag LEG-C5br2  --json-out …/r2/leg_c5b_r2.json
+
+# (5) fitness anchor for the eval configs (the harness eval schema has no fitness fields — see R2.4);
+#     `--out` is the same results/r2/ dir, files land as C5.json / C5b.json (tag == file stem, R2.5)
+cd /tmp/evogp_legacy_bench && flock -w 7200 /tmp/gpbench_critical.lock bash -c \
+ "PYTHONPATH=$LEG $PY -u $REPO/test/benchmark/legacy/run_matrix.py --configs C5,C5b \
+  --out $REPO/test/benchmark/legacy/results/r2 --gpu 6 --commit b613503" \
+ 2>&1 | tee $REPO/test/benchmark/legacy/results/r2/leg_c5_c5b_fitcheck.log
+```
+
+**Import-order gotcha (new finding, worth remembering).** A bare
+`python -c "import evogp.evogp_cuda, evogp"` dies with
+`ImportError: libc10.so: cannot open shared object file` — the legacy extension links against torch but
+neither it nor its directory is on the loader path; **torch must be imported first** so `libc10.so` is
+already in the process. Every real entry point (`bench_gp.py`, `run_matrix.py`, `sr_test.py`) imports
+torch first and is unaffected; only a hand-written import smoke must respect the order.
+
+### R2.2 C5 — W3 fixture forest, 25 evals (RNG-independent)
+
+| metric | prior round 1 `results/C5.json` | R2 `results/r2/leg_c5r2.json` (harness) | Δ | R2 `results/r2/C5.json` (frozen driver) | Δ |
+|---|---|---|---|---|---|
+| `first_call_ms` (cold) | 21.766 | 22.313 | +2.5 % | 20.586 | −5.4 % |
+| `median_warm_ms` | **0.6042** | **0.6028** | **−0.24 %** | **0.6099** | **+0.93 %** |
+| warm min / max | 0.595 / 0.810 | 0.599 / 0.823 | — | 0.605 / 1.035 | — |
+| `nan_count` (of 64) | 3 | not in the harness eval schema (R2.4) | — | **3** | **exact** |
+| `fitness_mean` | **−18.048504493275626** | not in the harness eval schema (R2.4) | — | **−18.048504493275626** | **exact (bit-identical)** |
+| `wall_s` | 0.168 (driver) | 0.057 (harness) | not comparable (R2.4) | 0.204 (driver) | not comparable |
+
+### R2.3 C1 — W1 SR, pop 200 / 100 gens / tree_len 64, seed 0, 2 reps
+
+| metric | prior `C1_r1.json` → R2 rep0 | Δ | prior `C1_r2.json` → R2 rep1 | Δ |
+|---|---|---|---|---|
+| `wall_s` | 1.516 → 1.6445 | +8.5 % | 0.172 → 0.2752 | +60.4 % |
+| warm median /gen | **1.633** → **1.7118** | **+4.9 %** | **1.617** → **1.6460** | **+1.8 %** |
+| gen 0 (cold, per process) | 532.104 → 581.111 | +9.2 % | 1.607 → 1.630 | +1.4 % |
+| warm min / max | 1.499 / 2.640 → 1.594 / 2.199 | — | 1.480 / 2.828 → 1.582 / 1.976 | — |
+| `best_fitness_final` | −0.086839 → −0.08683900535106659 | **exact** | −0.08683900535106659 | **exact** |
+
+* The **entire 100-generation `per_gen_best_fitness` trajectory is bit-identical to round 1** for both reps
+  (`−0.251097, −0.251097, −0.244098, … −0.087061, −0.086839`), and rep0 == rep1 inside the run: the seeded
+  legacy RNG stream reproduces exactly across rounds *and* processes. Generation is not the thing a shared
+  box can perturb — only the timings are.
+* The two `wall_s` deltas are **driver bookkeeping, not engine slowdown**: round-1 walls came from
+  `run_matrix.py`, R2's from `bench_gp.py --json-out`, which re-writes the growing JSON payload after every
+  generation inside `wall_s` but outside `per_gen_ms` (residual
+  `wall_s − construct_s − Σ per_gen_ms` = 0.079 s rep0 / 0.104 s rep1 ≈ 1 ms/gen). The engine-side metrics
+  (warm median, gen 0) moved ≤ +4.9 % / +9.2 %.
+
+### R2.4 Cross-round comparability of numbers
+
+* **Warm medians are comparable and unchanged (≤ +4.9 % worst case, most within ±2 %)**, i.e. inside the
+  ±10 % noise budget `../CONTEXT.md` puts on this shared box → the legacy side is still behaving like the
+  frozen round-1 records.
+* **Cold numbers are not comparable.** `first_call_ms` scattered 17.9–22.3 ms across this session's five
+  processes (C5/C5b prior: 21.8 / 20.9) and gen 0 moved 532 → 581 ms — a ±10–25 % swing inherent to
+  per-process CUDA module load / `cudaMalloc`. Judge a round by warm medians; a ±15 % cold swing is not
+  evidence of box-state change.
+* **`wall_s` is driver- and category-dependent.** (a) For train tasks the two drivers bookkeep differently
+  (R2.3); (b) for eval tasks the harness starts its wall clock *after* `torch.cuda.synchronize()` has
+  already created the CUDA context, while `run_matrix.py` includes that one-time cost (~0.15 s) → the same
+  25-call C5 workload reports 0.057 s (harness) vs 0.204 s (frozen driver) vs 0.168 s (round 1). Only the
+  per-call metrics are comparable, as `../CONTEXT.md` already warns for C5.
+* **The harness eval schema carries no fitness fields.** `bench_gp.py` (restored revision) records only
+  `per_call_ms` / `first_call_ms` / `median_warm_ms` for `eval64`/`evalfresh`; `nan_count` and
+  `fitness_mean` come from the frozen `run_matrix.py` driver. That is why this round produced *both*
+  `results/r2/leg_c5r2.json` (harness timing) **and** `results/r2/C5.json` / `C5b.json` (frozen-schema
+  record that `check_results.py --golden` can validate). For the R2 cross-engine consolidation, the
+  eval-config fitness anchor must therefore come from the driver records, not the harness ones.
+* In the R2 `results/r2/C5b.json` driver record `first_call_ms` is **0.667 ms and NOT a cold number** (C5
+  ran first in the same process, so the CUDA context was already warm). Use the harness record's genuinely
+  cold `leg_c5b_r2.json`: `first_call_ms` 17.855 ms, `median_warm_ms` 0.6304 ms (prior 0.6022 → +4.7 %; the
+  driver record's 10-call median for the same workload is 0.6143 → +2.0 %). Its `nan_count` 66/1000 and
+  `fitness_mean` −59.737519580878846 match round 1 **exactly** (the C5b structure is seeded, and the seeded
+  legacy stream reproduces).
+
+### R2.5 Validation of this round
+
+Both validators were run over the R2 records; raw output is committed.
+
+* `new/check_smoke.py … --side old` (SPEC schema/consistency check, works for the old side) on the four
+  harness records → **4 files, 75 checks, 0 failures** — `results/r2/leg_check_smoke.log`.
+* `check_results.py results/r2/C5.json results/r2/C5b.json --gpu 6 --commit b613503 --golden
+  test/goldens/sr_fitness.npz` → **PASS** (both records, all SPEC consistency checks held) with the frozen
+  golden cross-check **PASS**: `nan_count` 3 vs golden 3, `fitness_mean` −18.048504493275626 vs
+  −nanmean(finite) −18.048504493275626 (rtol=atol=1e-4, n=64) — `results/r2/leg_check_results.log`.
+  * Note for anyone renaming these files: `check_results.py` requires the file stem to equal the JSON `tag`
+    (`C5`/`C5b`), so the driver records must keep their config-id names inside `results/r2/`.
+
+### R2.6 Verdict, anomalies, and risks for same-session cross-engine comparison
+
+* **Verdict: the legacy side is still healthy and box-comparable.** Extension hash unchanged, no rebuild
+  attempted (or needed), all runs completed, warm medians within ±4.9 % of round 1, fitness anchor exact.
+* No crash, no timeout, no ECC/GPU error, no lock starvation, no partial/interrupted record
+  (`partial == false`, `complete == true` everywhere); the shared lock was free again right after the round.
+* Anomalies: none beyond the expected noise. The only numbers that *look* like anomalies are `wall_s`
+  (+8.5 % / +60.4 %) and C5b's driver-side `first_call_ms` (0.667 ms) — both explained by driver
+  semantics in R2.3/R2.4, not by the engine.
+* Risks to watch when the NEW-side numbers land: (a) GPUs 0/1 are loaded by other tenants, so a window
+  change can move host-dispatch-bound numbers by 2–3× (cf. §2.1) — check the *window*, not just the
+  medians; (b) cold-start metrics must not be compared across rounds or engines (spread ±25 %);
+  (c) the harness is being edited in parallel — my runs used the revision hashed above, and if the NEW
+  side runs a different revision then `harness`, `etl_version` and the JSON schema in the two side's
+  records should be checked for comparability before consolidating; (d) keep using the frozen
+  `run_matrix.py` driver for the eval-config fitness anchor.
+
+**R2 file inventory (`results/r2/`)**
+
+| file | what it is |
+|---|---|
+| `leg_smoke.json` / `.log` | 3-eval `eval64` harness smoke (`LEG-smoke`) — kept as requested; proves fixture load + engine path + JSON write |
+| `leg_c5r2.json` / `.log`, `leg_c1r2.json` / `.log`, `leg_c5b_r2.json` / `.log` | the three harness re-runs (`LEG-C5r2`, `LEG-C1r2`, `LEG-C5br2`), new SPEC schema |
+| `C5.json`, `C5b.json` | frozen-driver (`run_matrix.py`) sanity records for the eval configs — the only R2 records carrying `nan_count`/`fitness_mean`; validated with `--golden` |
+| `leg_c5_c5b_fitcheck.log` | stdout of that driver invocation |
+| `leg_check_smoke.log`, `leg_check_results.log` | validator output for the R2 records |
+| `gpu_snapshot_before.txt`, `gpu_snapshot_after.txt` | `nvidia-smi` + timestamp before/after the round (GPU 6 chosen, that host's GPU 7 remains ECC-faulted) |

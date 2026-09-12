@@ -1,0 +1,8 @@
+checking test/benchmark/legacy/results/r2/C5.json
+  C5: evals=25 wall=0.204s first_call_ms=20.586 warm median/min/max=0.610/0.605/1.035 ms nan_count=3 fitness_mean=-18.048504493275626
+  C5: GOLDEN nan_count PASS — 3 vs golden 3
+  C5: GOLDEN fitness_mean PASS — -18.048504493275626 vs golden -nanmean(finite)=-18.048504493275626 (rtol=atol=1e-4, n=64)
+checking test/benchmark/legacy/results/r2/C5b.json
+  C5b: evals=10 wall=0.016s first_call_ms=0.667 warm median/min/max=0.614/0.608/0.632 ms nan_count=66 fitness_mean=-59.737519580878846
+
+PASS — 2 record(s) checked, all SPEC consistency checks held

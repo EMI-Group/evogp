@@ -1,0 +1,4 @@
+[LEG-C1r2] harness=bench_gp.py side=old task=sr pop=200 gens=100 tree_len=64 seed=0 reps=2 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/tmp/evogp_legacy_bench/src/evogp/__init__.py commit=7a67e87dac31fdd049b04bb18c6ad0cec8ab47b7 etl=0.1.0 json_out=test/benchmark/legacy/results/r2/leg_c1r2.json
+[LEG-C1r2] side=old rep0/2: 100 gens in 1.6s, per-gen median 1.7ms, first-gen 581.1ms, best_fitness_final=-0.0868
+[LEG-C1r2] side=old rep1/2: 100 gens in 0.3s, per-gen median 1.6ms, first-gen 1.6ms, best_fitness_final=-0.0868
+[LEG-C1r2] done side=old interrupted=False harness_wall_s=3.9 json_out=test/benchmark/legacy/results/r2/leg_c1r2.json

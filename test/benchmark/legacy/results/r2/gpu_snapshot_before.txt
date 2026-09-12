@@ -1,0 +1,10 @@
+index, utilization.gpu [%], memory.used [MiB], memory.total [MiB], temperature.gpu, power.draw [W]
+0, 61 %, 19713 MiB, 49140 MiB, 76, 254.25 W
+1, 98 %, 20059 MiB, 49140 MiB, 72, 286.82 W
+2, 0 %, 16587 MiB, 49140 MiB, 34, 29.53 W
+3, 0 %, 15393 MiB, 49140 MiB, 38, 32.76 W
+4, 0 %, 15393 MiB, 49140 MiB, 38, 31.28 W
+5, 0 %, 24399 MiB, 49140 MiB, 32, 35.01 W
+6, 0 %, 1 MiB, 49140 MiB, 34, 32.64 W
+7, 0 %, 1 MiB, 46068 MiB, 33, 29.93 W
+Saturday, September 12, 2026 PM02:04:21 HKT
