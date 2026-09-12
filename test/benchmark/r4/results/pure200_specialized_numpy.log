@@ -1,0 +1,24 @@
+===============================================================================
+R4 config pure200_specialized_numpy  (group=numpy mode=specialized backend=numpy)  started 2026-09-13T03:52:06+08:00
+note: numpy specialized route, 200 trees (needs the r2 fixture)
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A141   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 1800s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 61, 30479
+etl: repo=/mnt/local-ssd/bchuang/etl rev=51a7141885d76a6764a9ad43f6bf1264dd12e6fe file=/mnt/local-ssd/bchuang/etl/etl/__init__.py
+cmd: timeout -s INT -k 30 1800 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 EVOGP_EVAL_MODE=specialized /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval-pure --fixture test/benchmark/fixtures/forest200_tree64_random.npz --mode specialized --backend numpy --reps 5 --warmup 10 --invocations 50 --e2e-companion 11 --mem-guard-mb 8192 --tag PURE200_SPECIALIZED_NUMPY --json-out test/benchmark/r4/results/pure200_specialized_numpy.json
+json: test/benchmark/r4/results/pure200_specialized_numpy.json
+--- run output ---
+[PURE200_SPECIALIZED_NUMPY] harness=bench_gp.py side=new task=eval-pure pop=None gens=None tree_len=None seed=0 reps=5 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=numpy CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A141/src/evogp/__init__.py commit=e2727140b70d1fc814c03b2c75b86613185fb2e9 etl=0.1.0 json_out=test/benchmark/r4/results/pure200_specialized_numpy.json
+[PURE200_SPECIALIZED_NUMPY] pure: pop=200 n_rows=64 mode_requested=specialized mode_resolved=specialized backend=numpy runner=auto invocations=50 warmup=10 reps=5 e2e_companion=11
+[PURE200_SPECIALIZED_NUMPY] constructed pure runner: source=local-fallback:specialized n_trees=200 n_const_trees=29 graph_calls/invocation=171 (measured); compile 990.9ms (decode_plan 5.3ms + build 985.6ms; 155 cache misses)
+[PURE200_SPECIALIZED_NUMPY] side=new rep0/5: per-invocation 50.2ms (block 2510.9ms)
+[PURE200_SPECIALIZED_NUMPY] side=new rep1/5: per-invocation 51.2ms (block 2560.2ms)
+[PURE200_SPECIALIZED_NUMPY] side=new rep2/5: per-invocation 47.2ms (block 2360.7ms)
+[PURE200_SPECIALIZED_NUMPY] side=new rep3/5: per-invocation 49.0ms (block 2452.5ms)
+[PURE200_SPECIALIZED_NUMPY] side=new rep4/5: per-invocation 49.3ms (block 2466.6ms)
+[PURE200_SPECIALIZED_NUMPY] e2e companion: first 125.0ms, warm median 97.1ms over 11 problem.evaluate() calls (pure median 49.3ms)
+[PURE200_SPECIALIZED_NUMPY] done side=new interrupted=False harness_wall_s=15.8 json_out=test/benchmark/r4/results/pure200_specialized_numpy.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 17, 30479
+R4 config pure200_specialized_numpy  finished 2026-09-13T03:52:25+08:00

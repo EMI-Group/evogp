@@ -222,3 +222,35 @@ HEAD is recorded, default `/mnt/local-ssd/bchuang/etl`).
 
 `last_run.txt` is generated output and gitignored; the smoke records are committed as plumbing
 evidence.
+
+## IREE agreement pre-flight (run before quoting any IREE number)
+
+Same convention as R2/R3, on this round's two fixtures: numpy vs IREE-cuda O1 under the default `auto`
+policy (→ the dense route) vs IREE-cuda O1 with `EVOGP_EVAL_MODE=specialized`, six records (two fixtures ×
+three roles), one process each, output into `results/backend_agreement/`.
+
+```bash
+# run the six records (GPU; drives the read-only R2 driver test/benchmark/r2/check_backend_agreement.py)
+bash test/benchmark/r4/run_agreement_r4.sh                 # --only STEMS | --timeout S | --list | --dry-run
+# then the gate (numpy only, no GPU; exit 0 = PASS / PASS-with-note, exit 1 = hard FAIL)
+/mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/r4/check_agreement_r4.py
+```
+
+`run_agreement_r4.sh` sets the common env (`PYTHONPATH=src`, `CUDA_VISIBLE_DEVICES=6`,
+`ETL_DISABLE_LOCATIONS=1`, `EVOGP_ETL_IREE_DEVICE=0`, `EVOGP_ETL_IREE_OPT_LEVEL=O1`) plus
+`EVOGP_ETL_BACKEND` (and `EVOGP_EVAL_MODE=specialized` on the `*_iree_spec` records) per record, raises
+`ulimit -n 65536` first, and wraps each record in exactly one `flock -w 7200 /tmp/gpbench_critical.lock`
+with `timeout -s INT -k 30 ${TIMEOUT_S:-1800}` **inside** it; stdout+stderr go to
+`results/backend_agreement/<stem>.log`, the id → exit table to
+`results/backend_agreement/run_agreement_r4.last_run.txt` (disposable). `fixture200_iree_spec` compiles ~170
+structures and is the slow record (~1 min here) — give it a generous cap.
+
+`check_agreement_r4.py` re-checks each record's identity (fixture sha256 vs the npz, `<stem>_values.npy` vs
+the JSON's `values_sha256`, population size, NaN/±inf counts) and then, per fixture, requires the three roles
+to report the **same** `values_sha256`; when a hash differs it falls back to
+`np.allclose(rtol=1e-4, atol=1e-4, equal_nan=True)` on every role pair with `max|diff|` / max rel diff
+reported — within tolerance is **PASS-with-note** (quotable, deviation recorded), beyond it is a **hard FAIL**
+and no IREE number from the round may be quoted.
+
+Evidence of the executed pre-flight (2026-09-13, GPU 6), its verdict and its R3/R2 hash continuity:
+`RUNLOG.md` § "STEP 1"; the records, logs and raw fitness vectors are in `results/backend_agreement/`.

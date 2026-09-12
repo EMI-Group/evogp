@@ -1,0 +1,24 @@
+===============================================================================
+R4 config pure64_dense_numpy  (group=numpy mode=dense backend=numpy)  started 2026-09-13T03:49:01+08:00
+note: numpy dense route: ONE graph for 64 trees, 100 invocations/block
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A141   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 1800s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+gpu (before): 6, NVIDIA RTX A6000, 0, 30479
+etl: repo=/mnt/local-ssd/bchuang/etl rev=51a7141885d76a6764a9ad43f6bf1264dd12e6fe file=/mnt/local-ssd/bchuang/etl/etl/__init__.py
+cmd: timeout -s INT -k 30 1800 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 EVOGP_EVAL_MODE=dense /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval-pure --fixture test/goldens/forest_random.npz --mode dense --backend numpy --reps 5 --warmup 10 --invocations 100 --e2e-companion 11 --mem-guard-mb 8192 --tag PURE64_DENSE_NUMPY --json-out test/benchmark/r4/results/pure64_dense_numpy.json
+json: test/benchmark/r4/results/pure64_dense_numpy.json
+--- run output ---
+[PURE64_DENSE_NUMPY] harness=bench_gp.py side=new task=eval-pure pop=None gens=None tree_len=None seed=0 reps=5 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=numpy CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A141/src/evogp/__init__.py commit=e2727140b70d1fc814c03b2c75b86613185fb2e9 etl=0.1.0 json_out=test/benchmark/r4/results/pure64_dense_numpy.json
+[PURE64_DENSE_NUMPY] pure: pop=64 n_rows=64 mode_requested=dense mode_resolved=dense backend=numpy runner=auto invocations=100 warmup=10 reps=5 e2e_companion=11
+[PURE64_DENSE_NUMPY] constructed pure runner: source=local-fallback:dense n_trees=64 n_const_trees=0 graph_calls/invocation=1 (measured); compile 2381.5ms (decode_plan 1.8ms + build 2379.1ms; 1 cache misses)
+[PURE64_DENSE_NUMPY] side=new rep0/5: per-invocation 148.8ms (block 14883.9ms)
+[PURE64_DENSE_NUMPY] side=new rep1/5: per-invocation 128.9ms (block 12893.6ms)
+[PURE64_DENSE_NUMPY] side=new rep2/5: per-invocation 129.7ms (block 12970.7ms)
+[PURE64_DENSE_NUMPY] side=new rep3/5: per-invocation 124.6ms (block 12457.4ms)
+[PURE64_DENSE_NUMPY] side=new rep4/5: per-invocation 120.3ms (block 12026.4ms)
+[PURE64_DENSE_NUMPY] e2e companion: first 146.3ms, warm median 102.1ms over 11 problem.evaluate() calls (pure median 128.9ms)
+[PURE64_DENSE_NUMPY] done side=new interrupted=False harness_wall_s=72.4 json_out=test/benchmark/r4/results/pure64_dense_numpy.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 30479
+R4 config pure64_dense_numpy  finished 2026-09-13T03:50:17+08:00
