@@ -1,0 +1,1099 @@
+"""Device-resident hot-path check + measurement for the dense evaluator.
+
+Runnable script, deliberately NOT a pytest module (no ``test_`` prefix, no pytest
+import).  It is the evidence battery for the **device-resident** work on
+:mod:`evogp.tree.dense_engine`: the SR loss is folded into the compiled dense
+graph, every host<->device crossing the hot path makes is *counted*, and the
+invariants that make the path device-resident are asserted.
+
+What it instruments
+-------------------
+:class:`Traffic` monkeypatches the four functions through which a dense call can
+cross the host boundary and records, per call, the **caller's function name**,
+the payload name (where the site has one) and the payload shape:
+
+=================================== ========================== ==========================
+patched site                        direction                  what it sees
+=================================== ========================== ==========================
+``dense_engine._as_numpy``          torch -> host              ``inputs`` / ``x`` / ``labels`` / the three population tensors
+``etl.from_numpy``                  host -> ETL tensor         every upload the library asks for (device backends)
+``dense_engine._pad_rows``          host only                  every chunk payload it PREPARES (all backends)
+``etl.core.Tensor.numpy``           ETL -> host                every chunk readback (filtered by caller frame)
+``torch.from_numpy``                host -> torch tensor       the host-side tensor assembly
+=================================== ========================== ==========================
+
+``etl.from_numpy`` is the upload site, so the "each distinct payload is moved at
+most once per call" invariant is only exercisable on a device backend; the
+``_pad_rows`` counter measures the same redundancy on the numpy backend, where
+the payload never leaves the host (a payload is uploaded only after being
+prepared, and the two counters agree on chunk multiplicity).
+
+The filters are caller-frame NAMES (``_READBACK_FRAMES`` / ``_UPLOAD_FRAMES`` /
+``_DENSE_FRAMES``), so the same counters also work on the pre-refactor code --
+which is what makes this script usable as the "before" evidence instead of
+crashing on a missing symbol.
+
+Checks
+------
+``policy``   ``dynamic`` is accepted as an explicit alias of ``dense`` in
+             ``EVOGP_EVAL_MODE`` / ``eval_mode=`` (and an unknown value still
+             raises ``ValueError``); the alias is never gated by the ``auto`` rows
+             rule.
+``hotpath``  one FORCED-CHUNKED dense ``Forest.SR_fitness`` call (small
+             ``EVOGP_DENSE_BUDGET_MB``, so ``p_chunks, n_chunks > 1``) must:
+             convert ``inputs`` exactly once and ``labels`` exactly once, read
+             back only ``(P,)-``scale chunk losses (never a full prediction),
+             create no torch tensor from a host array larger than ``pop_size``,
+             and upload each distinct payload at most once per call (``x`` and
+             ``labels`` once per ``n``-chunk, the seven node columns once per
+             ``p``-chunk).
+``parity``   forced-dense vs forced-specialized through the public API (MSE/MAE,
+             NaN/+-inf labels and inputs, a padded last chunk whose row count is
+             not a multiple of the chunk size, the pop=1 ``Tree`` path, and the
+             untouched value path), plus the chunked result against the
+             single-chunk result.
+``seam``     the readback-free run helper (``dense_engine._iter_plan_chunks``)
+             exists, yields one raw (un-read) result per chunk, performs ZERO
+             host readbacks, and its chunks assemble into the same host array
+             ``run_plan`` returns.
+``measure``  (``--measure``) warm per-call medians for the dense SR path at the
+             ``P/N`` grid points, the pop=1 ``Tree`` path and the value path
+             (``Forest.forward``), each with the per-call traffic summary -- the
+             before/after numbers of ``device_resident_findings.md``.
+
+Usage (repo root, project venv)::
+
+    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
+      <venv>/bin/python src/evogp/tree/device_resident_check.py
+    ... device_resident_check.py --measure --json /tmp/device_resident.json
+    ... device_resident_check.py --backend iree --gpu 0 --cases 16x64
+
+Exit code 0 = every check passed, 1 = at least one failed, 2 = hard error.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import statistics
+import sys
+import time
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
+import torch
+
+_SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
+
+import etl  # noqa: E402
+
+from evogp.tree import Forest  # noqa: E402
+from evogp.tree import dense_engine as D  # noqa: E402
+from evogp.tree import etl_engine as E  # noqa: E402
+from evogp.tree.utils import FUNCS_NAMES  # noqa: E402
+
+# Small helpers shared with the integration battery (same directory): the report
+# object, the float32 comparison policy and the contract checks.  Reusing them
+# keeps every dense battery's pass/fail semantics identical.
+from evogp.tree.dense_integration_check import (  # noqa: E402
+    Report,
+    check_contract,
+    check_writable,
+    compare,
+    random_population,
+    set_mode,
+)
+
+_RTOL = 1e-4
+_ATOL = 1e-4
+
+#: the library's default chunking budget (MiB): the "unchunked by default" regime
+DEFAULT_BUDGET_MB = float(getattr(D, "DEFAULT_BUDGET_MB", 2048))
+
+#: callers that make up the dense run machinery's READBACK path (pre-refactor:
+#: ``run_plan`` reads every chunk back itself; post-refactor: the single helper
+#: ``_to_host`` inside the chunk iterator)
+_READBACK_FRAMES = ("run_plan", "run_loss_plan", "_to_host", "_iter_plan_chunks")
+#: callers that make up its UPLOAD path (pre-refactor: ``run_plan`` uploads per
+#: (p0, n0) chunk; post-refactor: the memoizing ``columns`` / ``data`` closures)
+_UPLOAD_FRAMES = ("run_plan", "columns", "data", "_upload", "_iter_plan_chunks")
+#: callers that make up its TORCH-ASSEMBLY path (the host -> torch tensor step)
+_DENSE_FRAMES = (
+    "evaluate_dense",
+    "sr_fitness_dense",
+    "run_plan",
+    "run_loss_plan",
+    "_to_host",
+    "_iter_plan_chunks",
+)
+#: callers that prepare a DATA payload (x / labels): pre-refactor everything is
+#: prepared inside ``run_plan``, post-refactor inside the chunk iterator
+_PAD_DATA_FRAMES = ("run_plan", "run_loss_plan", "_iter_plan_chunks", "_to_host")
+
+
+def _caller(depth: int = 2) -> str:
+    """Name of the function that called the PATCHED SITE (one frame above the wrapper)."""
+    return sys._getframe(depth).f_code.co_name
+
+
+# ---------------------------------------------------------------------------
+# traffic counters
+# ---------------------------------------------------------------------------
+
+
+class Traffic:
+    """Every host<->device crossing of one dense call, by site and caller.
+
+    A context manager: it patches the conversion/readback helpers for the
+    duration of the ``with`` block and restores them on exit (exception
+    included), so nested measurements are safe.  Each record's first element is
+    ALWAYS the caller's function name.
+    """
+
+    def __init__(self) -> None:
+        self.as_numpy: List[Tuple[str, str, int]] = []
+        self.from_numpy: List[Tuple[str, Tuple[int, ...]]] = []
+        self.tensor_numpy: List[Tuple[str, Tuple[int, ...]]] = []
+        self.torch_from_numpy: List[Tuple[str, Tuple[int, ...]]] = []
+        self.pad_rows: List[Tuple[str, Tuple[int, ...]]] = []
+
+    # -- patching ----------------------------------------------------------
+    def __enter__(self) -> "Traffic":
+        self._originals = (
+            D._as_numpy,
+            etl.from_numpy,
+            etl.core.Tensor.numpy,
+            torch.from_numpy,
+            D._pad_rows,
+        )
+        (
+            original_as_numpy,
+            original_from_numpy,
+            original_numpy,
+            original_torch,
+            original_pad_rows,
+        ) = self._originals
+
+        def as_numpy(tensor, dtype, name):
+            array = original_as_numpy(tensor, dtype, name)
+            self.as_numpy.append((_caller(), str(name), int(array.size)))
+            return array
+
+        def from_numpy(array):
+            self.from_numpy.append((_caller(), tuple(np.shape(array))))
+            return original_from_numpy(array)
+
+        def tensor_numpy(self_: Any, *args: Any, **kwargs: Any):
+            result = original_numpy(self_, *args, **kwargs)
+            self.tensor_numpy.append((_caller(), tuple(self_.shape)))
+            return result
+
+        def torch_from_numpy(array, *args: Any, **kwargs: Any):
+            self.torch_from_numpy.append((_caller(), tuple(np.shape(array))))
+            return original_torch(array, *args, **kwargs)
+
+        def pad_rows(array, rows):
+            self.pad_rows.append((_caller(), tuple(np.shape(array))))
+            return original_pad_rows(array, rows)
+
+        D._as_numpy = as_numpy
+        etl.from_numpy = from_numpy
+        etl.core.Tensor.numpy = tensor_numpy
+        torch.from_numpy = torch_from_numpy
+        D._pad_rows = pad_rows
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        (
+            D._as_numpy,
+            etl.from_numpy,
+            etl.core.Tensor.numpy,
+            torch.from_numpy,
+            D._pad_rows,
+        ) = self._originals
+        return None
+
+    # -- views -------------------------------------------------------------
+    @staticmethod
+    def _filtered(records: Sequence[Any], frames: Sequence[str]) -> List[Any]:
+        return [record for record in records if record[0] in frames]
+
+    @property
+    def readbacks(self) -> List[Tuple[str, Tuple[int, ...]]]:
+        """Chunk readbacks issued by the dense run machinery."""
+        return self._filtered(self.tensor_numpy, _READBACK_FRAMES)
+
+    @property
+    def uploads(self) -> List[Tuple[str, Tuple[int, ...]]]:
+        """Host -> device uploads issued by the dense run machinery."""
+        return self._filtered(self.from_numpy, _UPLOAD_FRAMES)
+
+    @property
+    def torch_creations(self) -> List[Tuple[str, Tuple[int, ...]]]:
+        """Host -> torch tensor creations issued by the dense path."""
+        return self._filtered(self.torch_from_numpy, _DENSE_FRAMES)
+
+    def preparations(self, last_dim: int) -> List[Tuple[str, Tuple[int, ...]]]:
+        """``_pad_rows`` payload PREPARATIONS whose trailing axis is ``last_dim``.
+
+        Backend-independent: the numpy backend never uploads, so on numpy the
+        per-payload preparation count is the observable proxy for "this payload
+        is moved once per call" (a payload re-prepared per ``(p0, n0)`` chunk is
+        also re-uploaded per ``(p0, n0)`` chunk on a device backend).
+        """
+        return [
+            record
+            for record in self.pad_rows
+            if record[0] in _PAD_DATA_FRAMES and record[1] and record[1][-1] == last_dim
+        ]
+
+    def conversions(self, *names: str) -> List[Tuple[str, str, int]]:
+        """``_as_numpy`` (torch -> host) calls whose payload name is in ``names``."""
+        wanted = set(names)
+        return [record for record in self.as_numpy if record[1] in wanted]
+
+    def upload_counts(self) -> Dict[Tuple[int, ...], int]:
+        """Upload multiplicity by shape (the "uploaded once per call" evidence)."""
+        counts: Dict[Tuple[int, ...], int] = {}
+        for _, shape in self.uploads:
+            counts[shape] = counts.get(shape, 0) + 1
+        return counts
+
+    def summary(self, pop_size: int) -> Dict[str, Any]:
+        """Compact, JSON-friendly per-call traffic summary."""
+        readback_elements = [int(np.prod(shape)) for _, shape in self.readbacks]
+        creations = [int(np.prod(shape)) for _, shape in self.torch_creations]
+        return {
+            "pop_size": int(pop_size),
+            "host_reads": {
+                name: len(self.conversions(name)) for name in ("inputs", "x", "labels")
+            },
+            "as_numpy_calls": len(self.as_numpy),
+            "readbacks": len(self.readbacks),
+            "readback_shapes": [list(shape) for _, shape in self.readbacks],
+            "readback_max_elements": max(readback_elements, default=0),
+            "readback_total_elements": sum(readback_elements),
+            "uploads": len(self.uploads),
+            "upload_shapes": {
+                str(shape): count
+                for shape, count in sorted(self.upload_counts().items())
+            },
+            "upload_total_elements": sum(
+                int(np.prod(shape)) for _, shape in self.uploads
+            ),
+            "torch_from_host": len(self.torch_creations),
+            "torch_from_host_shapes": [
+                list(shape) for _, shape in self.torch_creations
+            ],
+            "torch_from_host_max_elements": max(creations, default=0),
+        }
+
+
+def _raises(exc_type: type, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> bool:
+    """True iff ``fn(*args)`` raised exactly ``exc_type``."""
+    try:
+        fn(*args, **kwargs)
+    except exc_type:
+        return True
+    except Exception:
+        return False
+    return False
+
+
+def _safe(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """``fn(*args)``'s result, or an ``<ExcType: msg>`` marker instead of raising.
+
+    The battery must run on the PRE-refactor code too (that is what makes it the
+    "before" evidence), where ``dynamic`` is not a known mode yet.
+    """
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:  # surfaced by the caller as a mismatch
+        return f"<{type(exc).__name__}: {exc}>"
+
+
+def _safe_mode(value: str) -> Any:
+    return _safe(D.resolve_eval_mode, value)
+
+
+def _env_mode(value: str) -> Any:
+    """``resolve_eval_mode()`` with ``EVOGP_EVAL_MODE`` set to ``value``."""
+    previous = os.environ.get(D.EVAL_MODE_ENV)
+    os.environ[D.EVAL_MODE_ENV] = value
+    try:
+        return _safe(D.resolve_eval_mode)
+    finally:
+        if previous is None:
+            os.environ.pop(D.EVAL_MODE_ENV, None)
+        else:
+            os.environ[D.EVAL_MODE_ENV] = previous
+
+
+class _budget:
+    """Force a chunked plan for the duration of the block (reads the env per call)."""
+
+    def __init__(self, budget_mb: Optional[float]) -> None:
+        self.budget_mb = budget_mb
+
+    def __enter__(self) -> "_budget":
+        self.previous = os.environ.get(D.BUDGET_MB_ENV)
+        if self.budget_mb is None:
+            os.environ.pop(D.BUDGET_MB_ENV, None)
+        else:
+            os.environ[D.BUDGET_MB_ENV] = repr(float(self.budget_mb))
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        if self.previous is None:
+            os.environ.pop(D.BUDGET_MB_ENV, None)
+        else:
+            os.environ[D.BUDGET_MB_ENV] = self.previous
+        return None
+
+
+# ---------------------------------------------------------------------------
+# fixtures
+# ---------------------------------------------------------------------------
+
+
+def fixture(
+    pop: int, rows: int, *, input_len: int = 3, seed: int = 0
+) -> Tuple[Forest, torch.Tensor, torch.Tensor]:
+    """A random forest plus SR inputs/labels on the CUDA device."""
+    forest = random_population(seed, pop, 16, input_len, 0.35, FUNCS_NAMES, 3)
+    torch.manual_seed(10_000 + seed)
+    inputs = torch.randn(rows, input_len, device="cuda")
+    labels = torch.randn(rows, 1, device="cuda")
+    return forest, inputs, labels
+
+
+def plan_for(
+    forest: Forest,
+    rows: int,
+    *,
+    budget_mb: Optional[float],
+    variant: str = "value",
+) -> Any:
+    """``plan_dense`` for this fixture (the ``variant`` argument is post-refactor)."""
+    args = (
+        forest.batch_node_value,
+        forest.batch_node_type,
+        forest.batch_subtree_size,
+        forest.input_len,
+        forest.output_len,
+        rows,
+    )
+    kwargs: Dict[str, Any] = {
+        "per_row": False,
+        "budget_mb": budget_mb,
+        "backend": os.environ.get("EVOGP_ETL_BACKEND"),
+    }
+    try:
+        return D.plan_dense(*args, variant=variant, **kwargs)
+    except TypeError:  # pre-refactor plan_dense: no variant parameter
+        return D.plan_dense(*args, **kwargs)
+
+
+def _plan_line(plan: Any) -> str:
+    return (
+        f"p_chunks={plan.p_chunks} n_chunks={plan.n_chunks} "
+        f"p_chunk={plan.p_chunk} n_chunk={plan.n_chunk} "
+        f"L={plan.trace_len} pop={plan.pop_size} rows={plan.n_rows}"
+    )
+
+
+#: budgets the tuned search walks (MiB).  ``_chunk_shape`` only ever produces
+#: ``p_chunks > 1 and n_chunks > 1`` when the per-chunk element budget falls
+#: below ``pop_size`` (then ``n_chunk == 1``); a merely row-chunked plan
+#: (``p_chunks == 1``) is the regime where a full-prediction readback is
+#: distinguishable from a ``(P,)``-scale one, so both are looked for.
+_CANDIDATE_BUDGETS = (
+    0.0004,
+    0.0006,
+    0.0008,
+    0.0012,
+    0.002,
+    0.004,
+    0.008,
+    0.016,
+    0.05,
+    0.2,
+    1.0,
+)
+
+
+def _tuned_budget(
+    forest: Forest,
+    rows: int,
+    variant: str,
+    predicate: Callable[[Any], bool],
+) -> Tuple[Optional[float], Any]:
+    """First candidate budget whose plan satisfies ``predicate`` (else ``(None, None)``)."""
+    for budget in _CANDIDATE_BUDGETS:
+        plan = plan_for(forest, rows, budget_mb=budget, variant=variant)
+        if predicate(plan):
+            return budget, plan
+    return None, None
+
+
+# ---------------------------------------------------------------------------
+# stage: policy (the `dynamic` alias)
+# ---------------------------------------------------------------------------
+
+
+def stage_policy(args: Any, report: Report) -> None:
+    print("== stage policy: `dynamic` as an explicit alias of `dense` ==")
+    aliases = getattr(D, "EVAL_MODE_ALIASES", {})
+    mode = _safe_mode("dynamic")
+    report.add(
+        "resolve_eval_mode('dynamic') -> 'dense'",
+        mode == "dense",
+        f"got {mode!r}",
+    )
+    spaced = _safe_mode("  DyNaMic ")
+    report.add(
+        "the alias is case/whitespace insensitive",
+        spaced == "dense",
+        f"got {spaced!r}",
+    )
+    env_mode = _env_mode("dynamic")
+    report.add(
+        f"{D.EVAL_MODE_ENV}=dynamic resolves to dense",
+        env_mode == "dense",
+        f"got {env_mode!r}",
+    )
+    alias_attempt = _safe(
+        D.should_use_dense, 4, eval_mode="dynamic", backend="numpy"
+    )
+    literal_attempt = _safe(
+        D.should_use_dense, 4, eval_mode="dense", backend="numpy"
+    )
+    report.add(
+        "should_use_dense(eval_mode='dynamic') attempts dense on numpy",
+        alias_attempt is True and literal_attempt is True,
+        f"dynamic -> {alias_attempt!r}, dense -> {literal_attempt!r} "
+        "(an explicit alias is the user's opt-in, exactly like 'dense')",
+    )
+    decline = _safe(D.auto_rows_decline, 10**6, eval_mode="dynamic")
+    report.add(
+        "auto_rows_decline() never gates an explicit dynamic",
+        decline is None,
+        f"got {decline!r}",
+    )
+    report.add(
+        "an unknown mode still raises ValueError",
+        _raises(ValueError, D.resolve_eval_mode, "dynamic2")
+        and _raises(ValueError, D.resolve_eval_mode, "dens")
+        and _raises(ValueError, D.resolve_eval_mode, "")
+        is False,  # an empty value IS the default ('auto'), not an error
+        "'dynamic2' / 'dens' must raise; '' must keep meaning the default",
+    )
+    report.add(
+        "EVAL_MODES stays canonical; the alias lives in its own table",
+        tuple(D.EVAL_MODES) == ("dense", "specialized", "auto")
+        and aliases.get("dynamic") == "dense",
+        f"EVAL_MODES={tuple(D.EVAL_MODES)} EVAL_MODE_ALIASES={aliases}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# stage: hot path (counted host crossings on a FORCED-CHUNKED call)
+# ---------------------------------------------------------------------------
+
+
+def _counted_call(
+    forest: Forest,
+    inputs: torch.Tensor,
+    labels: torch.Tensor,
+    budget: float,
+) -> Tuple[Any, "Traffic"]:
+    """One forced-chunked dense SR call, with every host crossing counted."""
+    set_mode("dense", backend="numpy")
+    with _budget(budget):
+        with Traffic() as traffic:
+            loss = forest.SR_fitness(inputs, labels, True, "auto")
+    return loss, traffic
+
+
+def _hotpath_case(
+    label: str,
+    report: Report,
+    results: Dict[str, Any],
+    *,
+    budget: float,
+    plan: Any,
+    loss: Any,
+    traffic: "Traffic",
+    pop: int,
+    rows: int,
+    input_len: int,
+) -> None:
+    """The per-config host-crossing invariants (see the module docstring)."""
+    print(f"-- {label}: plan {_plan_line(plan)}")
+    print(f"   traffic: {json.dumps(traffic.summary(pop), sort_keys=True)}")
+    results.setdefault("hotpath", {})[label] = {
+        "budget_mb": budget,
+        "plan": _plan_line(plan),
+        **traffic.summary(pop),
+    }
+    moves = traffic.conversions("inputs", "x")
+    report.add(
+        f"[{label}] inputs converted to host exactly ONCE",
+        len(moves) == 1,
+        f"torch->host conversions named inputs/x: {len(moves)} "
+        f"(all conversions: {[(n, s) for _, n, s in traffic.as_numpy]})",
+    )
+    report.add(
+        f"[{label}] labels converted to host exactly ONCE",
+        len(traffic.conversions("labels")) == 1,
+        f"{len(traffic.conversions('labels'))} conversions",
+    )
+    report.add(
+        f"[{label}] the three population tensors converted to host once each",
+        all(
+            len(traffic.conversions(name)) == 1
+            for name in (
+                "batch_node_value",
+                "batch_node_type",
+                "batch_subtree_size",
+            )
+        ),
+        f"{len(traffic.as_numpy)} torch->host conversions in total",
+    )
+
+    readbacks = traffic.readbacks
+    elements = [int(np.prod(shape)) for _, shape in readbacks]
+    report.add(
+        f"[{label}] every readback is (P,)-scale (no full prediction)",
+        bool(elements) and max(elements) <= pop,
+        f"readback shapes={[list(shape) for _, shape in readbacks]} pop_size={pop} "
+        f"(a full prediction would be ({plan.p_chunk}, {plan.n_chunk}))",
+    )
+    report.add(
+        f"[{label}] one readback per chunk",
+        len(readbacks) == plan.p_chunks * plan.n_chunks,
+        f"{len(readbacks)} readbacks for {plan.p_chunks}x{plan.n_chunks} chunks",
+    )
+    creations = [int(np.prod(shape)) for _, shape in traffic.torch_creations]
+    report.add(
+        f"[{label}] no host->torch tensor larger than pop_size is created",
+        max(creations, default=0) <= pop,
+        f"torch.from_numpy shapes="
+        f"{[list(shape) for _, shape in traffic.torch_creations]}",
+    )
+    report.add(
+        f"[{label}] no labels round trip through a torch tensor",
+        all(int(np.prod(shape)) != rows for _, shape in traffic.torch_creations),
+        f"host->torch shapes={[list(shape) for _, shape in traffic.torch_creations]} "
+        "(a labels-shaped creation means D2H -> torch -> H2D)",
+    )
+
+    # Payload PREPARATION multiplicity: backend-independent (numpy never uploads,
+    # so this is the observable proxy for the device-backend upload count).
+    x_preps = traffic.preparations(input_len)
+    label_preps = traffic.preparations(1)
+    report.add(
+        f"[{label}] x prepared ONCE per n-chunk (not once per (p0, n0) chunk)",
+        len(x_preps) == plan.n_chunks,
+        f"{len(x_preps)} preparations of a (*, {input_len}) payload for "
+        f"n_chunks={plan.n_chunks} x p_chunks={plan.p_chunks}",
+    )
+    report.add(
+        f"[{label}] labels prepared ONCE per n-chunk",
+        len(label_preps) == plan.n_chunks,
+        f"{len(label_preps)} preparations of a (*, 1) payload for "
+        f"n_chunks={plan.n_chunks}",
+    )
+
+    counts = traffic.upload_counts()
+    if counts:  # device backend: assert the upload multiplicity directly
+        x_shape = (plan.n_chunk, input_len)
+        label_shape = (plan.n_chunk, 1)
+        column_shape = (plan.trace_len, plan.p_chunk)
+        report.add(
+            f"[{label}] x uploaded ONCE per n-chunk",
+            counts.get(x_shape, 0) == plan.n_chunks,
+            f"shape {x_shape}: {counts.get(x_shape, 0)} uploads, expected "
+            f"{plan.n_chunks}",
+        )
+        report.add(
+            f"[{label}] labels uploaded ONCE per n-chunk",
+            counts.get(label_shape, 0) == plan.n_chunks,
+            f"shape {label_shape}: {counts.get(label_shape, 0)} uploads, expected "
+            f"{plan.n_chunks}",
+        )
+        report.add(
+            f"[{label}] the node columns uploaded ONCE per p-chunk each",
+            counts.get(column_shape, 0) == plan.p_chunks * 7,
+            f"shape {column_shape}: {counts.get(column_shape, 0)} uploads, expected "
+            f"{plan.p_chunks * 7} (7 columns x p_chunks)",
+        )
+    else:
+        report.add(
+            f"[{label}] (numpy backend: no uploads to count; preparation counts above)",
+            True,
+            "etl.from_numpy is only used on device backends",
+        )
+
+    check_contract(f"dense SR loss contract ({label})", loss, report)
+    report.add(
+        f"[{label}] chunked loss shape is (pop_size,)",
+        tuple(loss.shape) == (pop,),
+        f"{tuple(loss.shape)}",
+    )
+
+
+def stage_hotpath(args: Any, report: Report, results: Dict[str, Any]) -> None:
+    print("== stage hotpath: counted host crossings, forced chunked plan ==")
+    pop, rows, input_len = 8, 37, 3
+    forest, inputs, labels = fixture(pop, rows, input_len=input_len, seed=3)
+
+    # (a) chunked in BOTH dimensions: the only regime in which the pre-refactor
+    #     per-(p0, n0) re-preparation / re-upload of x and the node columns shows
+    #     up as a multiplicity > 1.
+    budget, plan = _tuned_budget(
+        forest, rows, "loss", lambda p: p.p_chunks > 1 and p.n_chunks > 1
+    )
+    report.add(
+        "a P- AND N-chunked plan exists for the hot-path fixture",
+        plan is not None,
+        f"tried budgets {_CANDIDATE_BUDGETS}",
+    )
+    if plan is not None:
+        loss, traffic = _counted_call(forest, inputs, labels, budget)
+        _hotpath_case(
+            "both-chunked",
+            report,
+            results,
+            budget=budget,
+            plan=plan,
+            loss=loss,
+            traffic=traffic,
+            pop=pop,
+            rows=rows,
+            input_len=input_len,
+        )
+
+    # (b) row-chunked only (p_chunks == 1): here the x payload preparation
+    #     multiplicity bites without any P chunking.
+    budget, plan = _tuned_budget(
+        forest, rows, "loss", lambda p: p.p_chunks == 1 and p.n_chunks > 1
+    )
+    report.add(
+        "a row-chunked plan exists for the hot-path fixture",
+        plan is not None,
+        f"tried budgets {_CANDIDATE_BUDGETS}",
+    )
+    if plan is not None:
+        loss, traffic = _counted_call(forest, inputs, labels, budget)
+        _hotpath_case(
+            "row-chunked",
+            report,
+            results,
+            budget=budget,
+            plan=plan,
+            loss=loss,
+            traffic=traffic,
+            pop=pop,
+            rows=rows,
+            input_len=input_len,
+        )
+        set_mode("dense", backend="numpy")
+        with _budget(budget):
+            check_writable(
+                "dense SR loss is fresh and writable (chunked)",
+                loss,
+                lambda: forest.SR_fitness(inputs, labels, True, "auto"),
+                report,
+            )
+
+    # (c) the DEFAULT budget (2048 MiB): one unchunked graph -- the realistic
+    #     regime, where a full-prediction readback is (P, N) instead of (P,).
+    plan = plan_for(forest, rows, budget_mb=None, variant="loss")
+    loss, traffic = _counted_call(forest, inputs, labels, DEFAULT_BUDGET_MB)
+    _hotpath_case(
+        "unchunked (default budget)",
+        report,
+        results,
+        budget=DEFAULT_BUDGET_MB,
+        plan=plan,
+        loss=loss,
+        traffic=traffic,
+        pop=pop,
+        rows=rows,
+        input_len=input_len,
+    )
+    set_mode("auto", backend="numpy")
+
+
+# ---------------------------------------------------------------------------
+# stage: parity (public API, forced dense vs forced specialized)
+# ---------------------------------------------------------------------------
+
+
+def _parity_pair(
+    forest: Forest,
+    inputs: torch.Tensor,
+    labels: torch.Tensor,
+    label: str,
+    report: Report,
+    *,
+    use_mse: bool = True,
+) -> None:
+    set_mode("specialized", backend="numpy")
+    reference = forest.SR_fitness(inputs, labels, use_mse, "auto")
+    set_mode("dense", backend="numpy")
+    got = forest.SR_fitness(inputs, labels, use_mse, "auto")
+    compare(
+        f"{label}: dense vs specialized (use_MSE={use_mse})", reference, got, report
+    )
+
+
+def stage_parity(args: Any, report: Report) -> None:
+    print("== stage parity: in-graph SR loss vs the specialized engine ==")
+    # (a) a plain random population, MSE + MAE, single chunk
+    forest, inputs, labels = fixture(16, 64, seed=11)
+    _parity_pair(forest, inputs, labels, "random P=16 N=64 single chunk", report)
+    _parity_pair(
+        forest, inputs, labels, "random P=16 N=64 single chunk", report, use_mse=False
+    )
+
+    # (b) a padded last chunk: N is NOT a multiple of the forced chunk size
+    forest, inputs, labels = fixture(8, 37, seed=12)
+    for use_mse in (True, False):
+        name = "MSE" if use_mse else "MAE"
+        _parity_pair(forest, inputs, labels, "padded last chunk P=8 N=37", report,
+                     use_mse=use_mse)
+        set_mode("dense", backend="numpy")
+        with _budget(2048.0):
+            single = forest.SR_fitness(inputs, labels, use_mse, "auto")
+        with _budget(1.0):
+            chunked = forest.SR_fitness(inputs, labels, use_mse, "auto")
+        report.add(
+            f"chunked result == single-chunk result ({name})",
+            bool(
+                torch.allclose(
+                    single.cpu().float(),
+                    chunked.cpu().float(),
+                    rtol=1e-6,
+                    atol=1e-6,
+                    equal_nan=True,
+                )
+            ),
+            f"max|diff|={(single - chunked).abs().max().item():.3g}",
+        )
+
+    # (c) NaN / +-inf labels and inputs (masks must match exactly)
+    forest, inputs, labels = fixture(6, 24, seed=13)
+    hostile = inputs.detach().clone()
+    hostile[0, 0] = float("nan")
+    hostile[1, 1] = float("inf")
+    hostile[2, 2] = float("-inf")
+    hostile[3, :] = 0.0
+    hostile_labels = labels.detach().clone()
+    hostile_labels[0, 0] = float("nan")
+    hostile_labels[1, 0] = float("inf")
+    hostile_labels[2, 0] = float("-inf")
+    for use_mse in (True, False):
+        _parity_pair(
+            forest, hostile, hostile_labels, "NaN/+-inf labels and inputs", report,
+            use_mse=use_mse,
+        )
+
+    # (d) the pop=1 Tree path (a single tree is a population of one)
+    tree = forest[0]
+    set_mode("specialized", backend="numpy")
+    ref_tree = tree.SR_fitness(hostile, hostile_labels, True, "auto")
+    set_mode("dense", backend="numpy")
+    got_tree = tree.SR_fitness(hostile, hostile_labels, True, "auto")
+    compare("pop=1 Tree.SR_fitness dense vs specialized", ref_tree, got_tree, report)
+    report.add(
+        "pop=1 loss shape is (1,)",
+        tuple(got_tree.shape) == (1,),
+        f"{tuple(got_tree.shape)}",
+    )
+
+    # (e) the value path is untouched: forward / batch_forward parity
+    forest, inputs, labels = fixture(16, 64, seed=14)
+    x_rows = torch.randn(forest.pop_size, forest.input_len, device="cuda")
+    x_batch = torch.randn(24, forest.input_len, device="cuda")
+    set_mode("specialized", backend="numpy")
+    ref_fwd, ref_batch = forest.forward(x_rows), forest.batch_forward(x_batch)
+    set_mode("dense", backend="numpy")
+    got_fwd, got_batch = forest.forward(x_rows), forest.batch_forward(x_batch)
+    compare("value path: Forest.forward dense vs specialized", ref_fwd, got_fwd, report)
+    compare(
+        "value path: Forest.batch_forward dense vs specialized",
+        ref_batch,
+        got_batch,
+        report,
+    )
+    report.add(
+        "value path shapes unchanged",
+        tuple(got_fwd.shape) == (forest.pop_size, 1)
+        and tuple(got_batch.shape) == (forest.pop_size, 24, 1),
+        f"forward={tuple(got_fwd.shape)} batch={tuple(got_batch.shape)}",
+    )
+    set_mode("auto", backend="numpy")
+
+
+# ---------------------------------------------------------------------------
+# stage: the readback-free seam
+# ---------------------------------------------------------------------------
+
+
+def stage_seam(args: Any, report: Report) -> None:
+    print("== stage seam: readback-free chunk iteration ==")
+    iterate = getattr(D, "_iter_plan_chunks", None)
+    if iterate is None:
+        report.add(
+            "the readback-free run helper exists",
+            False,
+            "dense_engine._iter_plan_chunks is missing: the run machinery reads "
+            "every chunk back to host inside run_plan itself, so no device-resident "
+            "consumer can exist",
+        )
+        return
+    pop, rows, input_len = 8, 37, 3
+    forest, inputs, _ = fixture(pop, rows, input_len=input_len, seed=21)
+    plan = plan_for(forest, rows, budget_mb=1.0, variant="value")
+    x_host = np.ascontiguousarray(inputs.detach().cpu().numpy(), dtype=np.float32)
+    executable = D.build_dense(plan)
+    backend_name, device, _ = E._resolve_backend(None, None)
+    with Traffic() as traffic:
+        chunks = list(
+            iterate(plan, executable, x_host, backend_name=backend_name, device=device)
+        )
+    report.add(
+        "the seam performs ZERO host readbacks",
+        len(traffic.tensor_numpy) == 0,
+        f"{len(traffic.tensor_numpy)} ETL->host reads while iterating",
+    )
+    expected = {
+        (plan.trace_len, plan.p_chunk): plan.p_chunks,
+        (plan.n_chunk, input_len): plan.n_chunks,
+    }
+    counts = traffic.upload_counts()
+    report.add(
+        "the seam uploads each distinct payload once per call",
+        counts == expected,
+        f"uploaded { {str(k): v for k, v in counts.items()} }, expected "
+        f"{ {str(k): v for k, v in expected.items()} }",
+    )
+    report.add(
+        "one raw (un-read) result per chunk",
+        len(chunks) == plan.p_chunks * plan.n_chunks,
+        f"{len(chunks)} results for {plan.p_chunks}x{plan.n_chunks} chunks",
+    )
+    report.add(
+        "the raw results are ETL tensors (device-resident on a device backend)",
+        all(isinstance(chunk[1], etl.core.Tensor) for chunk in chunks),
+        f"types={sorted({type(chunk[1]).__name__ for chunk in chunks})}",
+    )
+    assembled = np.empty((plan.pop_size, plan.n_rows), dtype=np.float32)
+    for (p0, p_chunk, n0, n_chunk), raw in chunks:
+        host = np.asarray(raw.numpy(), dtype=np.float32).reshape(
+            plan.p_chunk, plan.n_chunk
+        )
+        assembled[p0 : p0 + p_chunk, n0 : n0 + n_chunk] = host[:p_chunk, :n_chunk]
+    reference = D.run_plan(
+        plan, executable, x_host, backend_name=backend_name, device=device
+    )
+    report.add(
+        "seam-assembled rows equal run_plan's rows",
+        bool(np.array_equal(assembled, reference)),
+        f"max|diff|={float(np.abs(assembled - reference).max()):.3g}",
+    )
+    set_mode("auto", backend="numpy")
+
+
+# ---------------------------------------------------------------------------
+# stage: measurement (warm per-call cost + per-call traffic)
+# ---------------------------------------------------------------------------
+
+
+def _median_call_ms(fn: Callable[[], Any], repeats: int, warmup: int = 1) -> float:
+    for _ in range(warmup):
+        fn()
+    samples: List[float] = []
+    for _ in range(repeats):
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        start = time.perf_counter()
+        fn()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        samples.append((time.perf_counter() - start) * 1e3)
+    return float(statistics.median(samples))
+
+
+def stage_measure(args: Any, results: Dict[str, Any]) -> None:
+    print(
+        "== stage measure: warm per-call cost (dense forced; medians of "
+        f"{args.repeats}) =="
+    )
+    repeats = int(args.repeats)
+    cases = _parse_cases(args.cases)
+    set_mode("dense", backend=args.backend)
+    if args.backend == "iree" and args.gpu is not None:
+        os.environ["EVOGP_ETL_IREE_DEVICE"] = str(args.gpu)
+
+    print(
+        f"{'case':>24} {'median_ms':>10} {'readback':>9} {'uploads':>8} "
+        f"{'inputs_d2h':>11} {'labels_d2h':>11} {'max_rb_el':>10}"
+    )
+
+    def case(label: str, pop: int, rows: int, call: Callable[[], Any]) -> None:
+        call()  # one untimed call: build/compile + warm the cache
+        median_ms = _median_call_ms(call, repeats)
+        with Traffic() as traffic:
+            call()
+        summary = traffic.summary(pop)
+        row = {"case": label, "pop": pop, "rows": rows, "median_ms": median_ms, **summary}
+        results.setdefault("measure", []).append(row)
+        print(
+            f"{label:>24} {median_ms:>10.3f} {summary['readbacks']:>9} "
+            f"{summary['uploads']:>8} {summary['host_reads']['inputs']:>11} "
+            f"{summary['host_reads']['labels']:>11} "
+            f"{summary['readback_max_elements']:>10}"
+        )
+
+    for pop, rows in cases:
+        forest, inputs, labels = fixture(pop, rows, seed=31)
+        case(
+            f"SR_fitness P={pop} N={rows}",
+            pop,
+            rows,
+            lambda forest=forest, inputs=inputs, labels=labels: forest.SR_fitness(
+                inputs, labels, True, "auto"
+            ),
+        )
+
+    forest, inputs, labels = fixture(16, int(args.tree_rows), seed=32)
+    tree = forest[0]
+    case(
+        f"Tree.SR_fitness N={args.tree_rows}",
+        1,
+        int(args.tree_rows),
+        lambda tree=tree, inputs=inputs, labels=labels: tree.SR_fitness(
+            inputs, labels, True, "auto"
+        ),
+    )
+
+    pop, rows = cases[0]
+    forest, _, _ = fixture(pop, rows, seed=33)
+    x_rows = torch.randn(pop, forest.input_len, device="cuda")
+    case(
+        f"Forest.forward P={pop}",
+        pop,
+        1,
+        lambda forest=forest, x_rows=x_rows: forest.forward(x_rows),
+    )
+    set_mode("auto", backend="numpy")
+
+
+def _parse_cases(spec: str) -> List[Tuple[int, int]]:
+    cases: List[Tuple[int, int]] = []
+    for item in str(spec).split(","):
+        item = item.strip()
+        if not item:
+            continue
+        pop, _, rows = item.partition("x")
+        cases.append((int(pop), int(rows)))
+    if not cases:
+        raise ValueError("--cases must be a comma-separated list like 16x64,64x1024")
+    return cases
+
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+
+_STAGES = ("policy", "hotpath", "parity", "seam", "measure")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--stage",
+        default="policy,hotpath,parity,seam",
+        help=f"comma-separated subset of {list(_STAGES)} (default: all but measure)",
+    )
+    parser.add_argument(
+        "--measure", action="store_true", help="shorthand for --stage measure"
+    )
+    parser.add_argument("--backend", default="numpy", choices=["numpy", "iree"])
+    parser.add_argument(
+        "--cases",
+        default="16x64,16x1024,64x64,64x1024",
+        help="measurement grid as POPxROWS (default 16x64,16x1024,64x64,64x1024)",
+    )
+    parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument(
+        "--tree-rows", type=int, default=64, help="rows of the pop=1 Tree case"
+    )
+    parser.add_argument("--gpu", type=int, default=0, help="visible IREE device index")
+    parser.add_argument("--json", default=None, help="write the results JSON here")
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    stages = [s.strip().lower() for s in args.stage.split(",") if s.strip()]
+    if args.measure:
+        stages = ["measure"]
+    unknown = [s for s in stages if s not in _STAGES]
+    if unknown:
+        print(f"unknown stage(s) {unknown}: pick from {list(_STAGES)}")
+        return 2
+    if os.environ.get("ETL_DISABLE_LOCATIONS", "").strip() not in ("1", "true"):
+        print("[warn] ETL_DISABLE_LOCATIONS=1 is not set: tracing will be ~4x slower")
+    results: Dict[str, Any] = {
+        "env": {
+            "CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES"),
+            "EVOGP_ETL_BACKEND": os.environ.get("EVOGP_ETL_BACKEND"),
+            "ETL_DISABLE_LOCATIONS": os.environ.get("ETL_DISABLE_LOCATIONS"),
+        }
+    }
+    print(
+        f"== device-resident check: stages={stages} backend={args.backend} "
+        f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')} =="
+    )
+    report = Report()
+    try:
+        for stage in stages:
+            if stage == "policy":
+                stage_policy(args, report)
+            elif stage == "hotpath":
+                stage_hotpath(args, report, results)
+            elif stage == "parity":
+                stage_parity(args, report)
+            elif stage == "seam":
+                stage_seam(args, report)
+            elif stage == "measure":
+                stage_measure(args, results)
+    except Exception as exc:  # a hard error, not a check mismatch
+        import traceback
+
+        traceback.print_exc()
+        print(f"\n== HARD ERROR: {exc!r} ==")
+        return 2
+    results["checks"] = report.entries
+    passed = sum(1 for entry in report.entries if entry["ok"])
+    print(
+        f"\n== {'OK' if report.ok else 'FAILED'}: {passed}/{len(report.entries)} "
+        "checks passed =="
+    )
+    if args.json:
+        with open(args.json, "w") as handle:
+            json.dump(results, handle, indent=2, sort_keys=True)
+        print(f"[json] {args.json}")
+    return 0 if report.ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
