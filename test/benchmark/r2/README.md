@@ -10,11 +10,23 @@ what round 1 lacked: **data-row scaling** (`--data-rows`), a larger **200-tree /
 cache misses), a **cold-build budget** for the opt-in IREE backend (`--max-cold-builds`), and **A/B
 controls** that repeat a workload with the stage probe switched off.
 
+## Round state
+
+The round is complete as records (executed 2026-09-12): **35/35 manifest ids have a JSON on disk — 34
+complete plus the `iree_sr_b2` crash skeleton** (`complete: false`, no per-gen data). `check_r2.py
+--manifest` reports 126 checks / 0 failures; the directory scan reports only the 2 pre-existing
+prior-round artifacts (`legacy/results/r2/C5.json`, `C5b.json`). Analysis of the numbers: `../REPORT.md`;
+the executed-round operator log: `RUNLOG.md`; the numeric gate that makes the IREE timings quotable:
+`backend_agreement.md`.
+
 | file | what it is |
 |---|---|
 | `run_all.sh` | the matrix runner: one `bench_gp.py` process per config, serialized on the shared lock; writes JSON + log per config and an id → exit-code table to `last_run.txt`. |
 | `manifest.txt` | the validator's expectation list: `id <TAB> side(leg\|new) <TAB> json path <TAB> stages?` for all 35 configs. |
 | `check_r2.py` | stdlib-only validator (no torch, no GPU): required keys per task kind, missing-id detection, side/`stages` expectations, one report table. |
+| `RUNLOG.md` | operator log of the executed round: per-group environment, exact commands, per-config status tables, stage/FD telemetry, validator output, deviations. |
+| `backend_agreement.md` | the IREE-cuda `O1` vs `numpy` numeric pre-flight reported as a gate (bit-identical fitness on both fixtures) — read it before quoting any IREE number. |
+| `check_backend_agreement.py` | the driver of that pre-flight (GPU, public `evogp` API only); writes one JSON + one `_values.npy` per backend into `../new/results/r2/backend_agreement/`. |
 | `last_run.txt` | **generated** by `run_all.sh` (last invocation's id → exit-code table); not in the manifest, safe to delete/ignore. |
 
 ## Usage
@@ -37,8 +49,21 @@ test/benchmark/r2/run_all.sh --only np_c5r2 --timeout 7200   # raise this batch'
 python3 test/benchmark/r2/check_r2.py --manifest test/benchmark/r2/manifest.txt --require-stages
 python3 test/benchmark/r2/check_r2.py                # same files, no missing-id/stage expectations
 python3 test/benchmark/r2/check_r2.py --verbose      # + dump the raw `stages` keys of probed runs
+
+# IREE-vs-numpy numeric gate (GPU; one run per backend, BEFORE quoting any IREE timing):
+PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 EVOGP_ETL_BACKEND=numpy \
+  $PY test/benchmark/r2/check_backend_agreement.py --fixture test/goldens/forest_random.npz \
+  --json-out test/benchmark/new/results/r2/backend_agreement/fixture64_numpy.json
+#   ... repeat with EVOGP_ETL_BACKEND=iree + EVOGP_ETL_IREE_OPT_LEVEL=O1 and fixture64_iree.json,
+#   then compare the two `values_sha256` fields: identical == pass (hashes/anchors: backend_agreement.md)
 ```
 
+* `check_r2.py --manifest` checks exactly the manifest's 35 files; the scan mode (positional dirs/files)
+  checks every `*.json` under them and **skips a subdirectory named `backend_agreement/`**, which holds
+  the pre-flight records rather than R2 config results. A scan over `new/results/r2` +
+  `legacy/results/r2` therefore always reports the same 2 pre-existing failures: `C5.json` + `C5b.json`
+  in `legacy/results/r2/` were written by round 1's `legacy/run_matrix.py` driver and are not R2
+  manifest ids (they keep their round-1 key schema).
 * `--only` overrides `--group`; unknown ids are a usage error (exit 2). Selection order is always the
   table order, so `iree_fixture64_n64` (the per-build-rate calibration) runs first in its group and
   `iree_sr_b2` (the heaviest) last.
@@ -90,7 +115,14 @@ INTERRUPT`, anything else `FAIL`. `check_r2.py` exits 1 on malformed JSONs or mi
 | group | configs | what | rough wall time |
 |---|---|---|---|
 | `light` | 11 legacy + 12 new | legacy CUDA side, the same workloads on the new `numpy` backend (`--stage-probe`), plus probe-off controls (`np_c5r2_noprobe`, `np_sr_a_noprobe`) | **minutes total** — the legacy side is sub-second per run (round 1: C5 0.17 s, C5b 0.19 s, C1 1.5 s/rep) plus ~2 s process startup each; the numpy mirrors are the round-1 new-side numbers (C5 ≈ 2 s, C1 ≈ 25 s, C2b-scale ≈ 25 s, C5b ≈ 12 s) |
-| `iree` | 12 new | `--backend iree` (opt-in, explicitly non-primary): 64- and 200-tree fixtures × 64 / 1 024 / 10 000 data rows, `evalfresh`, short SR runs, the old `C7` scale, and probe-off controls | **tens of minutes** — IREE is *compile*-bound, not data-bound: cost tracks the number of distinct tree structures (cold builds) per config, ~0.5 s each on round-1 evidence (C7: 50 builds ≈ 22 s first generation), capped by `--max-cold-builds` (200/400/3200). `iree_sr_b2` is the heaviest and may need `--timeout 7200` |
+| `iree` | 12 new | `--backend iree` (opt-in, explicitly non-primary): 64- and 200-tree fixtures × 64 / 1 024 / 10 000 data rows, `evalfresh`, short SR runs, the old `C7` scale, and probe-off controls | **tens of minutes** — IREE is *compile*-bound, not data-bound: cost tracks the number of distinct tree structures (cold builds, 0.34–2.16 s each on this box) per config, capped by `--max-cold-builds` (**200** `iree_c7r`, **400** the three `iree_fixture200_*`, **1500** `iree_sr_a` + `iree_sr_b2`) |
+
+`iree_sr_b2` (pop 1000 / gens 2 / tree 128) is the heaviest config and the round's one crash: it died
+with **exit 139 (SIGSEGV)** after ~800–900 cold builds and before generation 0 completed, so no timer
+mattered (run wall ≈ 6.5 min against the 3600 s default `--timeout`). Its skeleton
+`new/results/r2/iree_sr_b2.json` (`complete: false`, empty `per_gen_ms`) is the recorded
+bounded-failure datapoint and **the config stays in `manifest.txt`** (the validator reports it as
+PARTIAL); a future attempt at that shape should re-run `--only iree_sr_b2`, not delete the id.
 
 Data-row scaling is what the `fixture*_n1024` / `fixture*_n10000` configs measure: same forest,
 1 024 or 10 000 rows instead of the fixture's native rows. `leg_c5b_r2` / `np_fresh16` /
@@ -106,6 +138,7 @@ exist (path is relative to the repo root; the six `*_fixture200_*` legacy+new co
 ```
 test/benchmark/new/results/r2/<id>.json       test/benchmark/legacy/results/r2/<id>.json
 test/benchmark/new/results/r2/<id>.log        test/benchmark/legacy/results/r2/<id>.log
+test/benchmark/new/results/r2/backend_agreement/<fixture>_<backend>.json   # pre-flight (not manifest ids)
 test/benchmark/r2/last_run.txt                # id -> exit code of the last invocation
 ```
 
@@ -124,9 +157,12 @@ another backend, another batching/memoization strategy):
 
 1. check out / install the engine under test so that `PYTHONPATH=src` resolves it (that is the "new"
    side) — or point `PY`/`NEW_PYTHONPATH`/`LEG_PYTHONPATH` at other checkouts;
-2. run `test/benchmark/r2/run_all.sh` (optionally `--group light` first) — no edit required;
-3. `python3 test/benchmark/r2/check_r2.py --manifest test/benchmark/r2/manifest.txt --require-stages`;
-4. if a config must change, edit the config table in `run_all.sh` **and** its line in `manifest.txt`
+2. run the backend-agreement pre-flight on both backends (`check_backend_agreement.py`, see above) —
+   no IREE number from the re-run is quotable until the two `values_sha256` agree;
+3. run `test/benchmark/r2/run_all.sh` (optionally `--group light` first) — no edit required; a config
+   that crashes or guard-stops leaves its JSON/log on disk and can be repeated with `--only <id>`;
+4. `python3 test/benchmark/r2/check_r2.py --manifest test/benchmark/r2/manifest.txt --require-stages`;
+5. if a config must change, edit the config table in `run_all.sh` **and** its line in `manifest.txt`
    together (ids must match); the frozen round-1 methodology in `../SPEC.md` stays untouched, and
    round-2 numbers always state which engine revision they were taken on (each JSON records
    `evogp_commit`, `evogp_file`, `etl_version`, `env`, `gpu`).

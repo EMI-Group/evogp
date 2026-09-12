@@ -453,6 +453,8 @@ plus the calibration datapoints collected for the R2 report. The round-2 runner/
 (`run_all.sh`, `check_r2.py`, `manifest.txt`, usage, exit codes) are documented in `../r2/README.md`;
 the probe's own module is `../stage_probe.py`. Artifacts of this section:
 `results/r2/smoke/h2_*.{json,log}` (probe smoke + probe-off control); H1's artifacts are `h1_*` there.
+**R2 results:** `../../REPORT.md` (analysis), `../r2/RUNLOG.md` (operator log), raw records
+`results/r2/*.json` + `*.log` (pre-flight: `results/r2/backend_agreement/`) — not repeated here.
 
 ### R2 flags — every one opt-in; with none passed the code path and JSON are the pre-R2 ones
 

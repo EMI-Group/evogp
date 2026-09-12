@@ -605,7 +605,9 @@ attributable to `iree_sr_a`, to the validator fix, or to the 10 eval configs.
   `--max-cold-builds 3200` for `iree_sr_a` and `1500` for `iree_sr_b2`
   (`run_all.sh` lines 246 / 253, unchanged since commit `d5b0085`); the task brief for this chunk said
   "cold-build cap 1500" for both. Nothing was changed: `iree_sr_a` peaked at 517 misses (16 % of its cap), and
-  a 3200-miss cap would in any case be unreachable at 32.3 fds/build (3200 × 32.3 ≈ 103 k ≫ 65 536).
+  a 3200-miss cap would in any case be unreachable at 32.3 fds/build (3200 × 32.3 ≈ 103 k ≫ 65 536). Post-run,
+  commit `a0763d3` aligned `iree_sr_a`'s cap to 1500 in `run_all.sh` for future runs (the earlier same-file
+  batch edit had raced and only landed on `iree_sr_b2`); the run recorded above used the 3200 cap as stated.
 * **"~500–700 cold builds" expectation → measured 517 total build misses** in `iree_sr_a` rep0 = 155 cold
   builds (gen 0, `cold_builds`) + 362 cache misses later in the same rep — exactly the `np_sr_a` mirror's
   155 / 362 split, which is what makes the trajectories bit-identical. The objective's
