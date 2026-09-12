@@ -2,7 +2,7 @@
   "cases": {
     "iree_P1000_N10000": {
       "backend": "iree",
-      "budget_mb": 512.0,
+      "budget_mb": 2048.0,
       "dense": {
         "cache_hits_after_cold": 0,
         "cache_misses": 1,
@@ -55,24 +55,45 @@
       "max_layer_cnt": 5,
       "max_tree_len": 32,
       "plan": {
-        "budget_mb": 512.0,
+        "budget_mb": 2048.0,
         "dense_supported": true,
         "input_len": 4,
         "max_tree_length": 31,
-        "n_chunk": 1198,
-        "n_chunks": 9,
+        "n_chunk": 4793,
+        "n_chunks": 3,
         "n_rows": 10000,
         "out_mb": 38.147,
         "p_chunk": 1000,
         "p_chunks": 1,
-        "peak_bytes": 537216000,
-        "peak_mb": 512.329,
+        "peak_bytes": 2147776000,
+        "peak_mb": 2048.279,
         "per_row": false,
         "pop_size": 1000,
         "row_len": 32,
         "trace_len": 32,
         "update_mode": "grow"
       },
+      "plans_previous": [
+        {
+          "budget_mb": 512.0,
+          "dense_supported": true,
+          "input_len": 4,
+          "max_tree_length": 31,
+          "n_chunk": 1198,
+          "n_chunks": 9,
+          "n_rows": 10000,
+          "out_mb": 38.147,
+          "p_chunk": 1000,
+          "p_chunks": 1,
+          "peak_bytes": 537216000,
+          "peak_mb": 512.329,
+          "per_row": false,
+          "pop_size": 1000,
+          "row_len": 32,
+          "trace_len": 32,
+          "update_mode": "grow"
+        }
+      ],
       "pop": 1000,
       "programs": {
         "constant_trees": 104,
@@ -80,8 +101,84 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 3.034,
       "rows": 10000,
       "seed": 0,
+      "specialized": {
+        "compile_ms": 271561.264,
+        "decode_ms": 38.49,
+        "distinct_programs": 793,
+        "model_compile_ms": 271561.264,
+        "model_warm_ms": 4049.49,
+        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population",
+        "sample": {
+          "cache_misses_per_tree": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "decode_ms": 7.762,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "per_tree_compile_ms_all": [
+            397.88,
+            399.139,
+            282.125,
+            325.924,
+            341.964,
+            342.933,
+            1.585,
+            352.706,
+            329.637,
+            317.8,
+            365.64,
+            347.996
+          ],
+          "per_tree_compile_ms_median": 342.448,
+          "per_tree_warm_ms_all": [
+            12.607,
+            3.854,
+            3.735,
+            3.861,
+            3.267,
+            4.996,
+            0.965,
+            5.025,
+            10.162,
+            6.957,
+            4.162,
+            3.812
+          ],
+          "per_tree_warm_ms_median": 4.011,
+          "sample_indices": [
+            0,
+            6,
+            11,
+            17,
+            23,
+            29,
+            34,
+            40,
+            46,
+            52,
+            57,
+            63
+          ],
+          "sample_pop": 64,
+          "sample_size": 12
+        },
+        "source": "per-tree sample x pop_size",
+        "status": "extrapolated",
+        "warm_ms": 4049.49
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 15.66,
@@ -91,17 +188,6 @@
       },
       "update_mode": "grow",
       "verify": {
-        "dense": {
-          "finite_tol_ok": true,
-          "inf_mask_ok": true,
-          "max_abs": 0.0,
-          "max_rel": 0.0,
-          "n": 32,
-          "n_inf": 0,
-          "n_nan": 0,
-          "nan_mask_ok": true,
-          "ok": true
-        },
         "full_population": false,
         "reference": "numpy-specialized (public API, same tensors)",
         "reference_finite_fraction": 1.0,
@@ -539,7 +625,7 @@
     },
     "iree_P200_N10000": {
       "backend": "iree",
-      "budget_mb": 512.0,
+      "budget_mb": 2048.0,
       "dense": {
         "cache_hits_after_cold": 0,
         "cache_misses": 1,
@@ -592,24 +678,45 @@
       "max_layer_cnt": 5,
       "max_tree_len": 32,
       "plan": {
-        "budget_mb": 512.0,
+        "budget_mb": 2048.0,
         "dense_supported": true,
         "input_len": 4,
         "max_tree_length": 31,
-        "n_chunk": 5991,
-        "n_chunks": 2,
+        "n_chunk": 10000,
+        "n_chunks": 1,
         "n_rows": 10000,
         "out_mb": 7.629,
         "p_chunk": 200,
         "p_chunks": 1,
-        "peak_bytes": 536896000,
-        "peak_mb": 512.024,
+        "peak_bytes": 896102400,
+        "peak_mb": 854.59,
         "per_row": false,
         "pop_size": 200,
         "row_len": 32,
         "trace_len": 32,
         "update_mode": "grow"
       },
+      "plans_previous": [
+        {
+          "budget_mb": 512.0,
+          "dense_supported": true,
+          "input_len": 4,
+          "max_tree_length": 31,
+          "n_chunk": 5991,
+          "n_chunks": 2,
+          "n_rows": 10000,
+          "out_mb": 7.629,
+          "p_chunk": 200,
+          "p_chunks": 1,
+          "peak_bytes": 536896000,
+          "peak_mb": 512.024,
+          "per_row": false,
+          "pop_size": 200,
+          "row_len": 32,
+          "trace_len": 32,
+          "update_mode": "grow"
+        }
+      ],
       "pop": 200,
       "programs": {
         "constant_trees": 15,
@@ -617,8 +724,84 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 2.675,
       "rows": 10000,
       "seed": 0,
+      "specialized": {
+        "compile_ms": 58216.16,
+        "decode_ms": 7.762,
+        "distinct_programs": 170,
+        "model_compile_ms": 58216.16,
+        "model_warm_ms": 809.962,
+        "note": "warm_ms = decode_ms + pop_size * median(per-tree warm run); compile_ms = #distinct programs * median(per-tree compile ms); per-tree numbers measured once per N on the reference population",
+        "sample": {
+          "cache_misses_per_tree": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "decode_ms": 7.762,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "per_tree_compile_ms_all": [
+            397.88,
+            399.139,
+            282.125,
+            325.924,
+            341.964,
+            342.933,
+            1.585,
+            352.706,
+            329.637,
+            317.8,
+            365.64,
+            347.996
+          ],
+          "per_tree_compile_ms_median": 342.448,
+          "per_tree_warm_ms_all": [
+            12.607,
+            3.854,
+            3.735,
+            3.861,
+            3.267,
+            4.996,
+            0.965,
+            5.025,
+            10.162,
+            6.957,
+            4.162,
+            3.812
+          ],
+          "per_tree_warm_ms_median": 4.011,
+          "sample_indices": [
+            0,
+            6,
+            11,
+            17,
+            23,
+            29,
+            34,
+            40,
+            46,
+            52,
+            57,
+            63
+          ],
+          "sample_pop": 64,
+          "sample_size": 12
+        },
+        "source": "per-tree sample x pop_size",
+        "status": "extrapolated",
+        "warm_ms": 809.962
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 16.31,
@@ -628,17 +811,6 @@
       },
       "update_mode": "grow",
       "verify": {
-        "dense": {
-          "finite_tol_ok": true,
-          "inf_mask_ok": true,
-          "max_abs": 0.0,
-          "max_rel": 0.0,
-          "n": 32,
-          "n_inf": 0,
-          "n_nan": 0,
-          "nan_mask_ok": true,
-          "ok": true
-        },
         "full_population": false,
         "reference": "numpy-specialized (public API, same tensors)",
         "reference_finite_fraction": 1.0,
@@ -3418,20 +3590,21 @@
       "src/evogp/tree/dense_bench.py --backend iree --pops 64 --rows 64 --stage real --json src/evogp/tree/dense_bench_results.json",
       "src/evogp/tree/dense_bench.py --backend iree --pops 64 --rows 10000 --stage dense --smi-index 4 --budget-mb 512 --device-model-multiplier 8 --json src/evogp/tree/dense_bench_results.json",
       "src/evogp/tree/dense_bench.py --backend iree --pops 1000 --rows 10000 --stage dense --smi-index 4 --budget-mb 512 --device-model-multiplier 8 --json src/evogp/tree/dense_bench_results.json",
-      "src/evogp/tree/dense_bench.py --backend iree --pops 200 --rows 10000 --stage dense --smi-index 4 --budget-mb 512 --device-model-multiplier 8 --json src/evogp/tree/dense_bench_results.json"
+      "src/evogp/tree/dense_bench.py --backend iree --pops 200 --rows 10000 --stage dense --smi-index 4 --budget-mb 512 --device-model-multiplier 8 --json src/evogp/tree/dense_bench_results.json",
+      "src/evogp/tree/dense_bench.py --backend iree --pops 200,1000 --rows 10000 --stage specialized --spec-sample-pop 64 --smi-index 4 --json src/evogp/tree/dense_bench_results.json"
     ],
     "env": {
       "CUDA_VISIBLE_DEVICES": "4",
       "ETL_DISABLE_LOCATIONS": "1",
-      "EVOGP_DENSE_BUDGET_MB": "512.0",
+      "EVOGP_DENSE_BUDGET_MB": "2048.0",
       "EVOGP_DENSE_MAX_TREE_LEN": "32",
       "EVOGP_DENSE_UPDATE_MODE": "grow",
       "EVOGP_ETL_BACKEND": "iree",
       "EVOGP_ETL_IREE_OPT_LEVEL": null,
       "EVOGP_EVAL_MODE": "specialized"
     },
-    "generated": "2026-09-12 15:54:45",
-    "git_head": "5b49d27efb006f106dabd8e57ce7254ba16dc9a6"
+    "generated": "2026-09-12 15:55:05",
+    "git_head": "65c66172b2a7f0402faece29cc88927bc53fb9c3"
   },
   "version": 1
 }
