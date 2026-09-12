@@ -387,6 +387,24 @@ ALLOW_UNSAFE_SCATTER_ENV = "EVOGP_DENSE_ALLOW_UNSAFE_SCATTER"
 
 EVAL_MODES = ("dense", "specialized", "auto")
 DEFAULT_EVAL_MODE = "auto"
+#: Accepted ALIASES of the canonical :data:`EVAL_MODES`, resolved by
+#: :func:`resolve_eval_mode` after case folding/trimming and before validation
+#: (so ``EVOGP_EVAL_MODE=dynamic`` and ``eval_mode="dynamic"`` behave exactly
+#: like ``dense``, the ``auto`` rows rule included).  ``dynamic`` names what the
+#: dense route actually *is*: one compiled "dynamic all-ops" graph that keeps the
+#: tree structure as runtime DATA (every candidate op is emitted once and the
+#: data-driven ``select`` chain picks the node's operation at run time), against
+#: the specialized engine's one-structure-per-graph strategy.  It is a
+#: first-class spelling, not a separate mode, so :data:`EVAL_MODES` stays
+#: canonical and :func:`should_use_dense` keeps branching on ``"dense"``.
+EVAL_MODE_ALIASES = {"dynamic": "dense"}
+
+#: ``DensePlan.variant`` values: the value graph (:func:`_dense_step`, the
+#: default) and the SR-loss graph (:func:`_dense_loss_step`, which folds the
+#: fitness reduction in so only ``(pop_size,)``-scale losses leave the engine).
+VALUE_VARIANT = "value"
+LOSS_VARIANT = "loss"
+PLAN_VARIANTS = (VALUE_VARIANT, LOSS_VARIANT)
 
 #: Crossover measured on iree (specialized's ~0.9 s *per tree* against one dense
 #: compile): ~``P = 10-20`` at small ``L``.  Rounded up; env-overridable.
@@ -469,20 +487,25 @@ def resolve_eval_mode(value: Optional[str] = None) -> str:
     Read per call -- like every knob here and like ``etl_engine._resolve_backend``
     reads ``EVOGP_ETL_BACKEND`` -- so a process can change strategy between calls
     (e.g. force ``specialized`` to produce a reference result).  Case-insensitive;
-    an empty value means the default ``"auto"``; anything else raises
-    ``ValueError`` naming the variable.
+    an empty value means the default ``"auto"``; the accepted aliases
+    (:data:`EVAL_MODE_ALIASES`, currently ``dynamic`` -> ``dense``) are folded in
+    before validation; anything else raises ``ValueError`` naming the variable.
     """
     raw = value if value is not None else os.environ.get(EVAL_MODE_ENV, "")
     mode = str(raw).strip().lower()
     if not mode:
         mode = DEFAULT_EVAL_MODE
+    mode = EVAL_MODE_ALIASES.get(mode, mode)
     if mode not in EVAL_MODES:
+        aliases = ", ".join(
+            f"{alias!r} = {target!r}" for alias, target in EVAL_MODE_ALIASES.items()
+        )
         raise ValueError(
             f"unsupported eval mode {mode!r}: evogp.tree.dense_engine supports "
-            f"{list(EVAL_MODES)} (set {EVAL_MODE_ENV!r} or pass eval_mode=); "
-            "'dense' = always try the dense evaluator and fall back on "
-            "DenseUnsupported, 'specialized' = never use it, 'auto' = the "
-            "measured policy"
+            f"{list(EVAL_MODES)} (plus the aliases {aliases}) (set "
+            f"{EVAL_MODE_ENV!r} or pass eval_mode=); 'dense' (alias 'dynamic') = "
+            "always try the dense evaluator and fall back on DenseUnsupported, "
+            "'specialized' = never use it, 'auto' = the measured policy"
         )
     return mode
 
