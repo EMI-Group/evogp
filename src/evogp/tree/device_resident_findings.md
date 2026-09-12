@@ -190,3 +190,65 @@ each distinct payload prepared AND uploaded exactly once per call (the seam the
 battery's `seam` stage pins).  `device_resident=True` refuses the numpy backend
 and any chunked plan: a chunked device-side assembly needs either an ETL
 zero-copy export or a second compiled graph, both still upstream/structural.
+
+## 9. Task-5 follow-up: the trace cap is now 64 (+ the one warning)
+
+**Decision applied (item 5 of `DENSE_EVAL.md` §9).** `dense_engine.DEFAULT_MAX_TREE_LEN`
+= **64** (was 32); `EVOGP_DENSE_MAX_TREE_LEN` still overrides it per process, and
+`L = min(cap, row_len)` is unchanged. Evidence (measurement round over HEAD
+`283e6ce`, iree, per shape signature): compile ≈13.9 s at `L=32` / ≈31.6 s at
+`L=64` / ≈69.0 s at `L=128`; for a 33–64-node population at P=64 the dense route
+is ONE build (≈28.9 s cold, ≈11.6 ms warm) against the silent specialized
+fallback's 64 builds (≈48.8 s cold, ≈110.3 ms warm; break-even ≈45–60 distinct
+structures), while at P=16 it trades 4.1× cold for 4.9× warm. `L=128` was
+**rejected**: it would tax every `row_len >= 128` population (shipped examples are
+128/256/512 wide) with a ≈69 s compile. numpy is unaffected under the default
+`auto` (dense is never auto-selected there) and memory stayed safe in the round
+(peak RSS ≤ 2.7 GB, no cell skipped). Consequence to remember: a `row_len >= 64`
+population now traces `L=64` even when its REALIZED trees are short — pin
+`EVOGP_DENSE_MAX_TREE_LEN=32` for such a shape; the realized-longest-tree variant
+(power-of-two, clamped) is documented future work, not implemented
+(`DENSE_EVAL.md` §9.4).
+
+**The one warning.** An over-cap tree used to fall back silently on every backend.
+That is the one decline whose fallback is *expensive* on a device backend, so
+`prepare_dense` now emits a deduped, once-per-process `RuntimeWarning` naming the
+longest tree, the cap, `EVOGP_DENSE_MAX_TREE_LEN` and the per-structure-compile
+consequence (`dense_engine._warn_trace_cap` / `_TRACE_CAP_WARNED`; gated to
+non-numpy backends). Every other decline (multi-output, structural doubt, the
+`auto` rows ceiling) keeps the silent-fallback contract, and the dedupe flag is
+only consumed by a real warning (all pinned by the checks below).
+
+### Verified after the change (repo root, `PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6`)
+
+| command | result |
+| --- | --- |
+| `pytest src/evogp/tests -q` (default) | `308 passed, 4 skipped` in 103.65 s (baseline unchanged; no new warnings) |
+| `device_resident_check.py --stage policy,hotpath,parity,seam` | `79/79` (was 70/70: +9 trace-cap/warning checks) |
+| `dense_integration_check.py --stage numpy,fallback` | `119/119` |
+| `runner_check.py` | `48/48` |
+| `dense_spike_check.py --backend numpy --skip-measure` | `37/37` |
+
+The 9 new `policy` checks: the unresolved default is 64; `L = min(cap, row_len)`
+still gives a `max_tree_len=32` population `L=32`; a 128-wide row with a short tree
+now traces `L=64`; a 64-node tree fits the default cap; a 70-node tree declines
+with `DenseUnsupported`; that decline is SILENT on numpy; on a device backend it
+warns exactly ONCE over three calls and the message names the longest tree, the
+cap, the env var and the compile consequence; and multi-output / malformed
+declines stay silent without consuming the flag.
+
+### Not re-derived here
+
+* The dense-forced suite instrumentation (`510 attempts / 492 dense / 18
+  fallbacks`) was re-attempted with a counting plugin
+  (`attempts = evaluate_dense + sr_fitness_dense` calls, declines by reason) and the
+  run was killed by the sandbox's memory limit at ~23 % (the numpy dense graphs are
+  host-memory heavy; the earlier 246 s dense-forced run predates this factor), so
+  the recorded figure stands as the baseline. Expected delta after the raise: the
+  **3 over-cap** fallbacks (of 18) become dense-supported wherever those trees are
+  ≤ 64 nodes, i.e. the fallback count should drop to ~15 (multi-output only) —
+  to be re-measured on a box without the memory cap.
+* The staged P=64 iree A/B (1 compile ≈28.9 s cold / ≈11.6 ms warm vs 64 builds)
+  was NOT re-run in this round; the numbers above are the measurement round's.
+  Re-run protocol: `dense_crossover_probe.py` with a 33–64-node population
+  (`AB_POP=64`, one process per side, `CUDA_VISIBLE_DEVICES=6`, visible `--gpu 0`).
