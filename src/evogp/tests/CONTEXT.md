@@ -27,7 +27,7 @@ From the repository root (`ETL_DISABLE_LOCATIONS=1` speeds tracing up ~4× and i
 - Golden cross-checks only: append `-k golden` (6 tests) → **6 passed in ~6.3 s**.
 - Single file: replace the path (`-x` stops at the first failure).
 - Write-free run (worktree stays clean): add `-p no:cacheprovider` and `PYTHONDONTWRITEBYTECODE=1`.
-- Perf probe: `PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python src/evogp/tests/perf_probe.py --quick` (~36 s) or `--full` (~2m20s), per the module docstring's A6000 measurements.
+- Perf probe: `/mnt/local-ssd/bchuang/evox/.venv/bin/python src/evogp/tests/perf_probe.py --quick` (~36 s) or `--full` (~2m20s), per the module docstring's A6000 measurements (no `PYTHONPATH=src` needed — it imports only `etl`/numpy, never `evogp`).
 ## Constraints
 - No test may depend on a compiled extension (there is none any more) and the reference path must not require a GPU.
 - `reference_eval.py` stays independent: no imports from `evogp.tree.etl_engine` (it is the oracle the engine is checked against).
