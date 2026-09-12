@@ -456,6 +456,11 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
 ---
 
 ## 10. Pointers
+- `RUNNER_HOOKS.md` (this directory) — the build-once / run-many benchmark runners
+  (`build_dense_runner` / `build_specialized_runner`), i.e. the dense route's compiled forward pass with
+  no readback, no re-plan, no key derivation: `.run()` semantics per backend, the build-vs-run split and
+  the `runner_check.py` evidence battery.
+
 
 * `dense_engine.py` — the implementation; its module docstring is the condensed version of this file.
 * `ENGINE_SPEC.md` §13 (semantics unchanged) and `CONTEXT.md` (routing + operational notes).
