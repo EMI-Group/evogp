@@ -40,7 +40,7 @@ Minimal / getting-started demos (cheapest to run, best starting point):
 - `regressor.py` → `SymbolicRegression(func=..., num_inputs=2, num_data=100, lower_bounds=-5, upper_bounds=5)` on the synthetic function `x0⁴/(x0⁴+1) + x1⁴/(x1⁴+1)`; input lengths here are the ones the `func` contract allows (`lower_bounds`/`upper_bounds` must be `int`/`float`, see Known Issues).
 - `classifier.py` → `Classification(dataset="iris", multi_output=True)` on scikit-learn `iris`, Pareto front enabled, writes a tree image.
 Paper experiment reproductions (module-level knobs `seed`, `pop_size`, `problem_id` are meant to be edited before the imports):
-- `uci_sr.py` → same algorithm configuration as `custom_sr.py`, but data is pulled live from UCI via `ucimlrepo.fetch_ucirepo(id=problem_id)` (paper id 409).
+- `uci_sr.py` → same algorithm configuration as `custom_sr.py`, but data is pulled live from UCI via `ucimlrepo.fetch_ucirepo(id=problem_id)` (paper id 409 = *Daily Demand Forecasting Orders*: 60 instances × 12 numeric feature columns, single target `Total orders`; **no train/test split** — the same 60 rows are the evolution data and the data the reported MSE is computed on, so the descriptor gets `input_len=12`, `output_len=1`).
 - `custom_sr.py` → symbolic regression on externally supplied CSVs `data/{problem_id}_features.csv` / `data/{problem_id}_targets.csv` (paper id 409).
 - `uci_classifier.py` → `Classification(datapoints=..., labels=...)` on a UCI table (paper id 109) with pandas-based categorical→int preprocessing.
 - `brax_task.py` → RL/policy optimization: `BraxProblem("swimmer", max_episode_length=1000)`, pop 1000, no metrics printed.
