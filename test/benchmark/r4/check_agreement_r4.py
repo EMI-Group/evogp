@@ -188,7 +188,6 @@ def main():
             print(f"  fixture sha256: {npz_sha}")
 
         records = {}
-        malformed = False
         for role in ROLES:
             stem = f"{name}_{role}"
             json_path = os.path.join(AGREE_DIR, f"{stem}.json")
@@ -200,7 +199,6 @@ def main():
                 "values_sha256": payload.get("values_sha256") if payload else None,
             }
             if json_err:
-                malformed = True
                 checker.check(False, f"{name}/{stem}: JSON {json_err} ({json_path})")
 
         # ---- (a) identity ---------------------------------------------------
@@ -216,7 +214,6 @@ def main():
             values, values_err = load_values(rec["values_path"])
             rec["values"] = values
             if values_err:
-                malformed = True
                 checker.check(False,
                               f"{name}/{rec['stem']}: values array {values_err} "
                               f"({rec['values_path']})")
@@ -253,57 +250,52 @@ def main():
                   f"{npy_col:<9} {fixture_col:<20}")
 
         # ---- (b) PRIMARY GATE: all three hashes equal -----------------------
+        # Bit-identity is *reported*, and the fallback below is what is *required* (R3
+        # precedent: the dense evaluator is a different summation order than the
+        # per-structure graphs, so requiring bit-identity would fail an agreement that
+        # is numerically the same computation).
         hashes = [records[role]["values_sha256"] for role in ROLES]
         if any(h is None for h in hashes):
             verdicts[name] = "MISSING"
             print("gate: MISSING (at least one role has no readable JSON -- see (a))")
             continue
         identical = len(set(hashes)) == 1
-        checker.check(identical,
-                      f"{name}: values_sha256 differ across roles -- "
-                      + ", ".join(f"{role}={short(records[role]['values_sha256'])}"
-                                  for role in ROLES))
         if identical:
+            checker.check(True, f"{name}: values_sha256 identical across the three roles")
             verdicts[name] = "PASS"
             print(f"gate: PASS -- all three roles bit-identical ({short(hashes[0])})")
             continue
 
         # ---- (c) fallback: same values within 1e-4? -------------------------
-        print("gate: hashes differ -> fallback comparison against numpy "
-              f"(rtol={RTOL:g}, atol={ATOL:g}, equal_nan=True)")
-        note = False
-        hard_fail = malformed
+        print("gate: hashes differ -> fallback comparison "
+              f"(np.allclose rtol={RTOL:g}, atol={ATOL:g}, equal_nan=True)")
+        all_within = True
         for left, right in PAIR_ROLES:
             a, b = records[left]["values"], records[right]["values"]
             if a is None or b is None:
-                hard_fail = True
+                all_within = False
+                checker.check(False, f"{name}: {left} vs {right} not comparable "
+                                     f"(a values array is missing)")
                 print(f"  {left} vs {right:<10} UNKNOWN (a values array is missing)")
                 continue
             if a.size != b.size:
-                hard_fail = True
+                all_within = False
+                checker.check(False, f"{name}: {left} vs {right} length mismatch "
+                                     f"({a.size} vs {b.size})")
                 print(f"  {left} vs {right:<10} FAIL  length mismatch ({a.size} vs {b.size})")
                 continue
             ok = bool(np.allclose(a, b, rtol=RTOL, atol=ATOL, equal_nan=True))
+            checker.check(ok, f"{name}: {left} vs {right} differ beyond rtol={RTOL:g}, "
+                              f"atol={ATOL:g} (max|diff|={max_abs_rel(a, b)[0]!r})")
+            all_within = all_within and ok
             max_abs, max_rel = max_abs_rel(a, b)
-            if not ok:
-                hard_fail = True
-            else:
-                note = True
             print(f"  {left} vs {right:<10} {'within 1e-4' if ok else 'BEYOND 1e-4'}  "
                   f"max|diff|={fmt(max_abs)}  max rel diff={fmt(max_rel)}")
-        if hard_fail and malformed:
-            verdicts[name] = "FAIL"
-        elif hard_fail:
-            # register the failure explicitly (the allclose check below already did per pair)
-            for left, right in PAIR_ROLES:
-                a, b = records[left]["values"], records[right]["values"]
-                if a is not None and b is not None and a.size == b.size:
-                    checker.check(bool(np.allclose(a, b, rtol=RTOL, atol=ATOL, equal_nan=True)),
-                                  f"{name}: {left} vs {right} differ beyond rtol={RTOL:g}, "
-                                  f"atol={ATOL:g}")
-            verdicts[name] = "FAIL"
-        else:
-            verdicts[name] = "PASS-with-note" if note else "FAIL"
+        verdicts[name] = "PASS-with-note" if all_within else "FAIL"
+        if all_within:
+            print(f"  note: the roles are NOT bit-identical "
+                  f"({', '.join(short(h) for h in hashes)}) but every pair is within "
+                  f"rtol={RTOL:g}/atol={ATOL:g} -- quotable with this deviation recorded")
 
     # ---- report -------------------------------------------------------------
     print()

@@ -1,0 +1,13 @@
+# test/benchmark/r4/results/backend_agreement/run_agreement_r4.last_run.txt -- record -> exit-code table
+# invocation: 2026-09-13T03:48:27+08:00   cwd=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A141   user=bchuang
+# args: only=<all> records=6 timeout=1800s
+# env: CUDA_VISIBLE_DEVICES=6 py=/mnt/local-ssd/bchuang/evox/.venv/bin/python lock=/tmp/gpbench_critical.lock new_pythonpath=src
+# exit codes: 0 ok | 3 skipped by guard (counts as ok) | 124/137 timeout | 130 interrupt | 1 crash
+RECORD                 EXIT   STATUS    JSON
+fixture64_numpy        0      OK        test/benchmark/r4/results/backend_agreement/fixture64_numpy.json
+fixture64_iree         0      OK        test/benchmark/r4/results/backend_agreement/fixture64_iree.json
+fixture64_iree_spec    0      OK        test/benchmark/r4/results/backend_agreement/fixture64_iree_spec.json
+fixture200_numpy       0      OK        test/benchmark/r4/results/backend_agreement/fixture200_numpy.json
+fixture200_iree        0      OK        test/benchmark/r4/results/backend_agreement/fixture200_iree.json
+fixture200_iree_spec   0      OK        test/benchmark/r4/results/backend_agreement/fixture200_iree_spec.json
+# ok=6 skipped=0 failed=0
