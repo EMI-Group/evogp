@@ -55,6 +55,19 @@ the code path and the JSON keys are exactly the pre-R2 ones plus additive keys::
                                      legacy engine has no ``etl_engine`` module, so
                                      both are exempt)
     --allow-cold-builds              disable that guard
+    --stage-probe                    decompose every ``problem.evaluate`` call
+                                     (eval tasks) / training generation into the
+                                     engine's stages -- ``decode_ms``,
+                                     ``build_hit_ms``/``build_misses``,
+                                     ``run_ms``/``run_calls``, ``readback_ms``,
+                                     ``upload_ms``, ``loss_ms``, ``misc_ms`` plus
+                                     the H2D/D2H counters -- and add the per-rep
+                                     cold/warm build totals to the JSON under a
+                                     new top-level ``stages`` key (``null`` when
+                                     the flag is off).  NEW side only: the old
+                                     side warns and no-ops.  Implemented by
+                                     runtime monkeypatching (``src/`` untouched),
+                                     see ``test/benchmark/stage_probe.py``
 
 Both guards stop *cleanly*: the JSON is written with ``skipped: true``,
 ``skip_reason`` set and ``complete: true``, the completed steps are kept
@@ -257,6 +270,15 @@ def parse_args(argv=None):
         action="store_true",
         help="disable the --max-cold-builds guard (a new-side iree run is otherwise "
         "capped at --max-cold-builds)",
+    )
+    parser.add_argument(
+        "--stage-probe",
+        action="store_true",
+        help="decompose every problem.evaluate call / training generation into engine "
+        "stages (decode / build hit+miss / run / readback / upload / loss / misc) and "
+        "record them under the new top-level 'stages' key (null when off).  NEW side "
+        "only: the old side warns and no-ops.  Runtime monkeypatching only "
+        "(test/benchmark/stage_probe.py)",
     )
     parser.add_argument(
         "--max-wall-s",
@@ -890,16 +912,60 @@ def mark_cold_checkpoint(payload):
 
 
 # ---------------------------------------------------------------------------
+# R2 stage probe (``test/benchmark/stage_probe.py``; new side only)
+# ---------------------------------------------------------------------------
+
+
+def install_stage_probe(args, side, payload):
+    """Install the R2 stage probe, wire ``payload["stages"]``; never raises.
+
+    Returns the ``stage_probe`` module (to be handed to the runners) or ``None``
+    when the probe is off / unavailable.  The old side has no ``etl_engine``
+    module to instrument, so ``--stage-probe`` there warns and no-ops (leaving
+    ``stages`` at ``null``) instead of failing the run.
+    """
+    if not args.stage_probe:
+        return None
+    if side != "new":
+        print(
+            f"[{args.tag}] warning: --stage-probe is new-side only (side={side}: there is no "
+            f"etl_engine to instrument); continuing with stages=null",
+            flush=True,
+        )
+        return None
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:  # the script directory is not always sys.path[0]
+        sys.path.insert(0, here)
+    try:
+        import stage_probe
+
+        import evogp.tree.etl_engine as engine
+    except Exception as exc:
+        print(
+            f"[{args.tag}] warning: --stage-probe could not be installed "
+            f"({type(exc).__name__}: {exc}); continuing with stages=null",
+            flush=True,
+        )
+        return None
+    status = stage_probe.install(engine)
+    payload["stages"] = stage_probe.container(side=side)
+    print(f"[{args.tag}] {stage_probe.status_line()}", flush=True)
+    return stage_probe
+
+
+# ---------------------------------------------------------------------------
 # runners
 # ---------------------------------------------------------------------------
 
 
-def run_training(mods, args, payload, flush, guard=None):
+def run_training(mods, args, payload, flush, guard=None, probe=None):
     """Manual ``pipeline.step()`` loop -- the same code path as ``pipeline.run()``."""
     interrupted = False
     for rep in range(args.reps):
         record = new_rep_record(rep, "train")
         payload["per_rep"].append(record)
+        if probe is not None:  # R2 stage probe: one block per rep, reset here
+            probe.begin_rep(rep, "train")
         if rep == 0:  # top-level arrays share rep 0's list objects
             payload["per_gen_ms"] = record["per_gen_ms"]
             payload["per_gen_best_fitness"] = record["per_gen_best_fitness"]
@@ -924,6 +990,8 @@ def run_training(mods, args, payload, flush, guard=None):
 
         try:
             for gen in range(args.gens):
+                if probe is not None:
+                    probe.begin()  # R2 stage probe: one record per generation
                 torch.cuda.synchronize()
                 t0 = time.perf_counter()
                 pipeline.step()
@@ -933,6 +1001,8 @@ def run_training(mods, args, payload, flush, guard=None):
                 record["cold_first_gen_ms"] = record["per_gen_ms"][0]
                 record["best_fitness_final"] = record["per_gen_best_fitness"][-1]
                 mirror_rep0(payload, record, TRAIN_MIRROR)
+                if probe is not None:
+                    probe.snapshot(i=gen, outer_ms=record["per_gen_ms"][-1])
                 flush()  # a hard kill still leaves every finished generation
                 if gen == 0:
                     mark_cold_checkpoint(payload)  # FD/cold-build checkpoint: first gen
@@ -963,6 +1033,10 @@ def run_training(mods, args, payload, flush, guard=None):
         record["generation_loop_s"] = sum(record["per_gen_ms"]) / 1000.0
         record["complete"] = True
         mirror_rep0(payload, record, TRAIN_MIRROR)
+        if probe is not None:  # R2 stage probe: per-rep totals + one summary line
+            line = probe.finish_rep()
+            if line:
+                print(f"[{args.tag}] {line}", flush=True)
         flush()
         print(summary_training(args.tag, payload["side"], record, args.reps), flush=True)
         if interrupted:
@@ -972,7 +1046,7 @@ def run_training(mods, args, payload, flush, guard=None):
     return interrupted
 
 
-def run_eval(mods, args, payload, flush, guard=None):
+def run_eval(mods, args, payload, flush, guard=None, probe=None):
     """Repeated ``problem.evaluate(forest)`` on a fixed population."""
     interrupted = False
     run_t0 = time.perf_counter()
@@ -982,6 +1056,8 @@ def run_eval(mods, args, payload, flush, guard=None):
         payload["per_rep"].append(record)
         if rep == 0:
             payload["per_call_ms"] = record["per_call_ms"]
+        if probe is not None:  # R2 stage probe: one block per rep, reset here
+            probe.begin_rep(rep, "eval")
 
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
@@ -999,11 +1075,15 @@ def run_eval(mods, args, payload, flush, guard=None):
 
         try:
             for call in range(args.eval_reps):
+                if probe is not None:
+                    probe.begin()  # R2 stage probe: one record per evaluate call
                 torch.cuda.synchronize()
                 t0 = time.perf_counter()
                 problem.evaluate(forest)
                 torch.cuda.synchronize()
                 record["per_call_ms"].append((time.perf_counter() - t0) * 1000.0)
+                if probe is not None:
+                    probe.snapshot(i=call, outer_ms=record["per_call_ms"][-1])
                 mirror_rep0(payload, record, EVAL_MIRROR)
                 flush()
                 if call == 0:
@@ -1022,6 +1102,10 @@ def run_eval(mods, args, payload, flush, guard=None):
         record["median_warm_ms"] = statistics.median(warm) if len(warm) >= 2 else None
         record["complete"] = True
         mirror_rep0(payload, record, EVAL_MIRROR)
+        if probe is not None:  # R2 stage probe: per-rep totals + one summary line
+            line = probe.finish_rep()
+            if line:
+                print(f"[{args.tag}] {line}", flush=True)
         flush()
         print(summary_eval(args.tag, payload["side"], record, args.reps), flush=True)
 
@@ -1068,6 +1152,7 @@ def r2_config(args):
         "mem_guard_mb": args.mem_guard_mb,
         "max_cold_builds": args.max_cold_builds,
         "allow_cold_builds": args.allow_cold_builds,
+        "stage_probe": args.stage_probe,
     }
 
 
@@ -1078,6 +1163,9 @@ def r2_payload_defaults(args):
         "skip_reason": None,
         "fds": {"start": None, "after_cold": None, "end": None},
         "nofile_rlimit": None,
+        #: ``stages`` is filled by the ``--stage-probe`` hooks (one block per rep);
+        #: it stays ``null`` whenever the probe is off or unavailable.
+        "stages": None,
         "cold_builds": {
             "enforced": False,  # re-derived in build_payload once the side is known
             "limit": args.max_cold_builds,
@@ -1237,6 +1325,8 @@ def main(argv=None):
             f"--task {args.task}",
             flush=True,
         )
+    # R2 stage probe: install the monkeypatches before the first timed call
+    probe = install_stage_probe(args, side, payload)
 
     flush()  # metadata on disk before the first heavy step
     print(
@@ -1255,9 +1345,9 @@ def main(argv=None):
     interrupted = False
     try:
         if args.task in TRAIN_TASKS:
-            interrupted = run_training(mods, args, payload, flush, guard)
+            interrupted = run_training(mods, args, payload, flush, guard, probe)
         else:
-            interrupted = run_eval(mods, args, payload, flush, guard)
+            interrupted = run_eval(mods, args, payload, flush, guard, probe)
     except KeyboardInterrupt:
         interrupted = True
         payload["partial"] = True
