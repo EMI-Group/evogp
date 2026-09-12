@@ -16,10 +16,9 @@ The ids deliberately match their R2 counterparts, so every record diffs against 
 Protocol of record: `./README.md`. R2 baseline: `../REPORT.md`. **Companion arm:** the same nine new-side
 configs were also re-measured under a **patched-ETL checkout shadow** → `SUMMARY_armB.md` (its §2/§3/§4
 carry the Arm A-vs-Arm B warm, compile/fd and stage tables, and §7.1 the `iree_sr_b2` re-attempt). Every
-number below is recomputed from
-the committed R3 records (`./results/{new,legacy}/<id>.json`) with `./compare_rounds.py`, or quoted from
-the two gates' own output — nothing is invented. The round was measured in **two windows** (§4): read
-the tables with that in mind.
+number below is recomputed from the committed R3 records (`./results/{new,legacy}/<id>.json`) with
+`./compare_rounds.py`, or quoted from the two gates' own output — nothing is invented. The round was
+measured in **two windows** (§4): read the tables with that in mind.
 
 ## 1. Verdict
 
