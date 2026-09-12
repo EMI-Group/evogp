@@ -1,4 +1,4 @@
-# `test/benchmark/r2/` — round-2 records + the round-3 scaffold, driven from one shared runner
+# `test/benchmark/r2/` — round-2 records + the executed round-3 run, driven from one shared runner
 
 ## Intent
 This node holds the executed round-2 measurement round (legacy CUDA engine vs the ETL "true jit" engine on numpy and IREE-cuda) as frozen, already-validated data plus the tooling that produced it.
