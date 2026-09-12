@@ -1,0 +1,21 @@
+# test/benchmark/r4/results/smoke/manifest_smoke.txt -- plumbing-check manifest for the R4 smoke.
+#
+# Same 4-field format as ../../manifest.txt (id <TAB> mode <TAB> backend <TAB> json path), and the
+# same validator: check_r4.py --manifest test/benchmark/r4/results/smoke/manifest_smoke.txt
+#                                                                          --require-companion
+#
+# These are NOT campaign ids and must never be merged into ../../manifest.txt: they are the
+# reduced-budget records that proved the eval-pure plumbing (task dispatch, both routes, both
+# backends, compile/cache separation, fd telemetry, the same-process --e2e-companion, the
+# unchanged eval64 control) before the 8-config campaign was handed to the next agent.  Smoke
+# budget: --reps 2 --invocations 20 --warmup 5 --e2e-companion 4 (canonical configs:
+# --reps 5 --invocations 100|50 --warmup 10 --e2e-companion 11), fixture forest_random.npz
+# (64 trees) only, one process per record, GPU 6, one flock, exit 0 each.
+#
+# No iree specialized record here: the iree compile path, the fd curve and the invoke form are
+# identical for both routes, so the dense iree record covers that plumbing (and the eval64 iree
+# control re-measures the end-to-end path).  The campaign runs the canonical 8.
+# ---------------------------------------------------------------------------
+pure64_dense_numpy	dense	numpy	test/benchmark/r4/results/smoke/pure64_dense_numpy.json
+pure64_specialized_numpy	specialized	numpy	test/benchmark/r4/results/smoke/pure64_specialized_numpy.json
+pure64_dense_iree	dense	iree	test/benchmark/r4/results/smoke/pure64_dense_iree.json

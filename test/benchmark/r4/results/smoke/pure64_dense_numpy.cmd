@@ -1,0 +1,1 @@
+env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 EVOGP_EVAL_MODE=dense /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval-pure --fixture test/goldens/forest_random.npz --mode dense --backend numpy --reps 2 --invocations 20 --warmup 5 --e2e-companion 4 --tag SMOKE64_DENSE_NUMPY --json-out test/benchmark/r4/results/smoke/pure64_dense_numpy.json
