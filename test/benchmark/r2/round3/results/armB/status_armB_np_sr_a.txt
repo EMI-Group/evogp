@@ -1,0 +1,21 @@
+r3/run_all_armB.sh: py=/mnt/local-ssd/bchuang/evox/.venv/bin/python
+r3/run_all_armB.sh: repo=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A258  gpu(CUDA_VISIBLE_DEVICES)=6
+r3/run_all_armB.sh: group=all only=armB_np_sr_a dry_run=0 configs=1 timeout=3600s lock=/tmp/gpbench_critical.lock
+r3/run_all_armB.sh: etl shadow: PYTHONPATH=src:/tmp/evogp_etl_patched_51a7141
+r3/run_all_armB.sh: gpu snapshot: 6, NVIDIA RTX A6000, 0, 30439
+
+[ARMB_NP_SR_A] stage probe stage_probe/1: installed=True partial=False wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness] counters=CACHE.hits/CACHE.misses
+[ARMB_NP_SR_A] harness=bench_gp.py side=new task=sr pop=200 gens=10 tree_len=64 seed=0 reps=2 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A258/src/evogp/__init__.py commit=8104481479823f83b8aadf3ffde7d3a2e784e870 etl=0.1.0 json_out=test/benchmark/r2/round3/results/armB/new/armB_np_sr_a.json
+[ARMB_NP_SR_A] stages[rep0/train] 10 calls: cold 155 miss 1292.1ms / warm 362 miss 2308.7ms | decode 40.6 + build-hit 26.7 (115) + build-miss 3600.9 (517) + run 266.6 (632) + readback 22.9 (632) + upload 0.0 + loss 3951.0 + misc 956.2 ms cold/warm totals 4947.8ms (h2d 0 / d2h 0)
+[ARMB_NP_SR_A] side=new rep0/2: 10 gens in 6.0s, per-gen median 173.3ms, first-gen 2255.9ms, best_fitness_final=-0.2511
+[ARMB_NP_SR_A] stages[rep1/train] 10 calls: cold 0 miss 0.0ms / warm 0 miss 0.0ms | decode 32.0 + build-hit 146.8 (632) + build-miss 0.0 (0) + run 182.4 (632) + readback 10.8 (632) + upload 0.0 + loss 361.9 + misc 201.3 ms cold/warm totals 595.2ms (h2d 0 / d2h 0)
+[ARMB_NP_SR_A] side=new rep1/2: 10 gens in 0.6s, per-gen median 34.4ms, first-gen 229.2ms, best_fitness_final=-0.2511
+[ARMB_NP_SR_A] done side=new interrupted=False harness_wall_s=7.4 json_out=test/benchmark/r2/round3/results/armB/new/armB_np_sr_a.json
+config armB_np_sr_a: OK (exit 0) -> test/benchmark/r2/round3/results/armB/new/armB_np_sr_a.json ; log test/benchmark/r2/round3/results/armB/new/armB_np_sr_a.log
+
+=== r3 run_all_armB.sh summary (group=all, CUDA_VISIBLE_DEVICES=6, dry_run=0) ===
+ID                               SIDE  EXIT   STATUS    JSON
+armB_np_sr_a                     new   0      OK        test/benchmark/r2/round3/results/armB/new/armB_np_sr_a.json
+ok: 1  skipped: 0  failed: 0
+summary table: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A258/test/benchmark/r2/round3/results/armB/last_run.txt
+validate with: python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
