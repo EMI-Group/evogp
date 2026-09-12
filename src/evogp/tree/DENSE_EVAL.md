@@ -149,9 +149,11 @@ Five call sites try dense first and fall back **only** on `DenseUnsupported`: `F
 The fallback is silent but deliberate: the specialized path re-runs the very same call and owns the
 error contract for malformed trees; every other exception propagates. Result contracts are identical
 either way — fresh, contiguous, `requires_grad=False` float32 on `x`'s device unless `out_device`; the
-SR loss is a fresh writable `(pop_size,)` positive loss built with the same torch reduction ops as
-`etl_engine.sr_fitness` (`diff = label - prediction`, `diff²` or `|diff|`, summed over rows and
-outputs, divided by the row count). Public API compatibility is complete: signatures unchanged,
+SR loss is a fresh writable `(pop_size,)` positive loss built with a torch reduction
+(`diff = label - prediction`, `diff²` or `|diff|`, summed over rows and outputs, divided by the row
+count), i.e. the same formula as `etl_engine.sr_fitness`, which reduces on the HOST with numpy instead —
+the two loss values differ only by float32 reduction order (≤ ~1 ulp).
+Public API compatibility is complete: signatures unchanged,
 `use_MSE` / `per_row` / `out_device` honoured, and the five legacy `execute_mode` strings still
 accepted and still all mapping to the same engine path.
 
