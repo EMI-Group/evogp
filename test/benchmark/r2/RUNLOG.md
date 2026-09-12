@@ -384,3 +384,262 @@ reported). **Zero failures are attributable to the 10 configs of this group**: a
   ~520 builds ⇒ ≈17 k fds) but implies `iree_sr_b2`'s 2200-build budget projects to ≈73 k fds, i.e. **above the
   65 536 `ulimit -n`** — the training-pair operator should expect `EMFILE` before the `--max-cold-builds 2200`
   guard trips, and may want a lower budget. Reported here rather than changed: the runner's budget is frozen.
+
+---
+
+## IREE group (training pair: iree_sr_a, iree_sr_b2) — 2026-09-12 15:16–15:27 HKT
+
+**Operator:** worker `worker_T3_A165` (IREE training-pair operator). **Scope:** the last 2 manifest ids —
+`new/results/r2/iree_sr_a.{json,log}`, `new/results/r2/iree_sr_b2.{json,log}`, this section, and one bounded
+validator fix in `check_r2.py` (`discover()`, see *Validator* below). No `src/**`, no `bench_gp.py`, no
+`run_all.sh`, no `CONTEXT.md`/`README.md`, no other config's results touched.
+
+### Environment
+
+| item | value |
+|---|---|
+| repo root (cwd for every command) | this worker's worktree root |
+| interpreter | `/mnt/local-ssd/bchuang/evox/.venv/bin/python` (py3.11, torch 2.6.0+cu124) |
+| GPU | `CUDA_VISIBLE_DEVICES=6` — the runner default, **kept**: GPU 6 was the least-busy non-7 device (0 % util, 1 MiB). Before chunk 1 (15:16:17): `6, …, 0 %, 1 MiB` while GPU 0/1 sat at 99 %/82 % with ~20 GiB each and GPUs 2/3/5 held 15.6–24.4 GiB for tenants; GPU 7 (2263 uncorrected ECC errors) never touched. Runner's own snapshots: `iree_sr_a` before `6, …, 0, 1` → after `6, …, 5, 4`; `iree_sr_b2` before `6, …, 0, 4` → after `6, …, 0, 1`. After the chunk (15:27:49): `6, …, 0 %, 4 MiB`. Inside the configs `nvidia_smi_used_mb` on GPU 6 was 4 → 401 MiB (`iree_sr_a`), `free_mb_start` 48 409 MiB, peak torch allocation 2 630 144 B = 2.51 MiB (`iree_sr_b2`'s `gpu` block never got past the start snapshot — see the crash below) |
+| lock | `/tmp/gpbench_critical.lock` — exactly one `flock -w 7200` per config (added by the runner, never nested); a non-blocking probe before each chunk showed the lock free, and neither log carries a lock wait |
+| engine under test | `new` = `PYTHONPATH=src` (this worktree, no `src/**` file touched: the JSONs carry `evogp_commit=cbe4237f41…` for `iree_sr_a` and `e809c1fa46…` for `iree_sr_b2` — the worker's HEAD at launch, all the same engine tree), `etl 0.1.0`, backend `iree`, `EVOGP_ETL_IREE_OPT_LEVEL=O1`, `EVOGP_ETL_IREE_DEVICE=0`, `ETL_DISABLE_LOCATIONS=1`, `EVOGP_ETL_CACHE_SIZE=8192` (both configs' own override; all recorded in each JSON's `env`) |
+| FD/OS limits | `nofile_rlimit = [65536, 65536]` in both JSONs (the runner's `ulimit -n 65536` applied); `ulimit -c = 0` (no core dumps), `vm.max_map_count = 65530`, cgroup `memory.max` = 12 GiB — see the `iree_sr_b2` crash analysis |
+| fixtures | not needed for the `sr` task (`iree_sr_a` / `iree_sr_b2` generate their own populations) → no GUARD-SKIP possible |
+
+### Commands (exact; one bash call per config)
+
+```bash
+python3 test/benchmark/r2/check_r2.py test/benchmark/new/results/r2 test/benchmark/legacy/results/r2   # scan mode, before/after the discover() fix
+bash test/benchmark/r2/run_all.sh --only iree_sr_a --timeout 3000 --dry-run   # printed command, nothing executed
+bash test/benchmark/r2/run_all.sh --only iree_sr_a  --timeout 3000   # 15:16:17
+bash test/benchmark/r2/run_all.sh --only iree_sr_b2 --timeout 3600   # 15:20:36
+# runner-generated per-config commands (verbatim in each log's header):
+#   iree_sr_a : timeout -s INT -k 30 3000 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 EVOGP_ETL_CACHE_SIZE=8192 \
+#               …/python test/benchmark/bench_gp.py --task sr --pop 200 --gens 10 --tree-len 64 --reps 2 \
+#               --backend iree --stage-probe --max-cold-builds 3200 --tag IREE_SR_A --json-out …/iree_sr_a.json
+#   iree_sr_b2: timeout -s INT -k 30 3600 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 EVOGP_ETL_CACHE_SIZE=8192 \
+#               …/python test/benchmark/bench_gp.py --task sr --pop 1000 --gens 2 --tree-len 128 --reps 2 \
+#               --backend iree --stage-probe --max-cold-builds 1500 --tag IREE_SR_B2 --json-out …/iree_sr_b2.json
+```
+
+`--dry-run` was used first for `iree_sr_a` (printed the paths, the exact `flock … bash -c '…'` line and the
+per-config `timeout`, nothing executed); `run_all.sh --only` selection order is irrelevant here (one config per
+call). Each config is its own process, so the 8 192-entry `etl.CompileCache` starts empty (genuine cold first
+generation) and cannot leak into the next config. **Budget discrepancy vs the hand-off brief:** the frozen
+runner uses `--max-cold-builds 3200` for `iree_sr_a` and `1500` for `iree_sr_b2` (`run_all.sh` lines 246 / 253,
+unchanged since `d5b0085`); the brief said "cap 1500" for both. Nothing was edited — `iree_sr_a` peaked at 517
+misses, and a 3 200-miss cap is in any case unreachable at 32.3 fds/build (≈103 k fds ≫ 65 536).
+
+### `iree_sr_a` — exit 0, `complete=true`, `partial=false` (1/2 configs measured)
+
+| rep | `cold_first_gen_ms` | `per_gen_ms` (10 gens) | warm per-gen median = median(`per_gen_ms[1:]`) | rep total ms |
+|---|---|---|---|---|
+| rep0 | 82 098.93 | [82 098.93, 40 632.07, 42 112.79, 12 705.31, 10 733.32, 10 485.29, 12 071.67, 8 147.41, 8 076.74, 8 104.63] | **10 733.32** | 235 985.28 |
+| rep1 | 324.95 | [324.95, 197.56, 167.27, 74.44, 65.31, 59.50, 72.10, 55.47, 54.45, 52.85] | **65.31** | 1 168.36 |
+
+Top level: `cold_first_gen_ms` = 82 098.93 (rep0's gen 0), `best_fitness_final` = −0.2510969936847687,
+`harness_wall_s` = 237.9, `generation_loop_s` = 235.17 (rep0) + 1.12 (rep1) = 236.3 s, `construct_s` = 0.78.
+`iree_sr_a`'s rep-1 warm median (65.31 ms) is the backend's real per-generation cost (see the split below);
+rep0's is compile-dominated.
+
+Per-rep stage totals (`stages.reps[*].totals`):
+
+| rep | `cold_builds` | `cold_build_ms` | `total_build_misses` | `warm_misses` | `warm_build_miss_ms` | `total_ms` | `build_calls` / hits / misses | `run_ms` | `readback_ms` | `upload_ms` | `trees_invoked` / `trees_total` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| rep0 | 155 | 81 142.13 | 517 | **362** | 151 824.06 | 235 168.14 | 632 / 115 / 517 | 947.43 | 445.54 | 51.67 | trees_invoked 632 / 2 000 |
+| rep1 | 0 | 0.0 | 0 | **0** | 0.0 | 1 123.90 | 632 / 632 / 0 | 490.28 | 308.53 | 30.24 | trees_invoked 632 / 2 000 |
+
+Both consistency checks required of this config **held exactly**: rep1 `totals.warm_misses == 0` (the 8 192-entry
+cache holds every one of the 517 distinct structures, and rep1 repeats the seed), and the 155 / 362 split is
+byte-for-byte the `np_sr_a` mirror's.
+
+Warm per-gen decomposition, rep1 (median over `stages.reps[1].records[i>0]`, ms per call; `build_miss = 0.000`,
+34 `build_calls` = 34 hits per call):
+
+| decode | build_hit | build_miss | run | readback | upload | loss | misc | total | dominant |
+|---|---|---|---|---|---|---|---|---|---|
+| 2.43 | 6.09 | 0.00 | 27.02 | 17.12 | 2.39 | 0.23 | 10.14 | **65.31** | run 41 % + readback 26 % |
+
+Same medians for rep0's warm generations (call 0 excluded): decode 3.58, build_hit 1.30, **build_miss 10 631.82**,
+run 52.98, readback 26.88, upload 3.54, loss 0.44, misc 16.10, total 10 733.32 — i.e. a "warm" generation in a
+churning SR population is a **compile** generation (99 % `build_miss`), which is why the numpy/IREE comparison
+must be made on rep1, where nothing new is compiled.
+
+### FD telemetry (per config) and the stop threshold
+
+| config | `fds.start` | `fds.after_cold` | `fds.end` | `cold_builds` | **implied fds / build** | note |
+|---|---|---|---|---|---|---|
+| `iree_sr_a` | 39 | 5 051 | 17 243 | 155 | **32.34** | below the 38 fds/build stop threshold → cleared to run `iree_sr_b2`; the extra 12 192 fds past `after_cold` are the remaining 362 misses (~33 fds each, the same rate) plus the warm path (~0.4 fds/build call) |
+| `iree_sr_b2` | 39 | `null` | `null` | — (no generation completed) | **n/a** | `after_cold`/`end` are written only at completion; the crash left no FD telemetry |
+
+32.34 fds/build is identical to the eval group's rate for the same 155-build fixture set, i.e. the cost is per
+compiled structure, not per data row or per tree size class measured so far. Peak for this pair: 17 243 fds of
+65 536 (26 %).
+
+### Fitness-trajectory bit-identity vs the numpy mirror
+
+* `iree_sr_a` rep0 **and** rep1: `per_gen_best_fitness = [-0.2510969936847687] × 10`; all 20 values are
+  **bit-identical** (exact `==`, no tolerance) to `np_sr_a` rep0/rep1, and equal to the round-1 `C7` anchor —
+  so IREE-O1 and numpy still agree exactly at this scale, on both a compile-heavy and a fully warm rep. The two
+  backends also produce identical structure counts (155 cold + 362 misses, 632 build calls / 632 trees invoked
+  of 2 000 tree-slots — the latter is a property of the SR harness workload, not of the backend).
+* `iree_sr_b2`: **not verifiable** — the run died before generation 0, so the expected first two values
+  `[-0.2510969936847687, -0.22635294497013092]` (present in both `np_sr_b` reps) are unverified on IREE.
+
+### Compile-vs-warm economics (`iree_sr_a` vs its `np_sr_a` mirror)
+
+| quantity | `iree_sr_a` (IREE O1) | `np_sr_a` (numpy) | ratio |
+|---|---|---|---|
+| cold first generation | 82 098.9 ms | 1 356.3 ms | **60.5×** |
+| build misses (identical 517 structures) | 232 966.2 ms (155 cold 81 142.1 + 362 warm misses 151 824.1) | 1 998.7 ms | **116.6×** |
+| per cold build | 523.5 ms | 5.4 ms | 97× |
+| rep0 warm per-gen median | 10 733.3 ms (99.1 % = `build_miss`) | 84.09 ms | 128× |
+| rep1 warm per-gen median (fully warm) | 65.31 ms | 22.07 ms | **2.96×** |
+| rep0 / rep1 wall | 235.99 s / 1.17 s | 3.49 s / 0.39 s | 67.6× / 3.0× |
+| rep0 generation loop | 235 168.1 ms, of which 232 966.2 ms = 99.06 % build misses | 2 750.6 ms | — |
+
+So the training-pair cost is **entirely per-structure IREE compilation** (~83 s before generation 0 can even be
+scored; 99 % of the rep), and once the cache is warm the backend is within ~3× of the numpy interpreter on the
+same 10-generation SR run. Nothing here changes the round-1 direction: the IREE path is the *compilation* cost,
+not the evaluation cost.
+
+### `iree_sr_b2` — exit 139 (SIGSEGV) before generation 0, **not** a bounded outcome
+
+Command (runner-generated, verbatim in the log header):
+
+```bash
+timeout -s INT -k 30 3600 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 EVOGP_ETL_CACHE_SIZE=8192 \
+  /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task sr --pop 1000 --gens 2 \
+  --tree-len 128 --reps 2 --backend iree --stage-probe --max-cold-builds 1500 --tag IREE_SR_B2 \
+  --json-out test/benchmark/new/results/r2/iree_sr_b2.json
+# runner: config iree_sr_b2: FAIL (exit 139)
+```
+
+Facts:
+
+* **Exit 139 = 128 + 11 = SIGSEGV**, i.e. neither of the two outcomes this config was expected to produce
+  (124 / 137 killed by `timeout`, or 3 for a guard trip) and not the `exit 1` EMFILE signature either. The
+  log's whole run-output block is 3 startup lines plus the runner's `exit code: 139 (FAIL)` — **no Python
+  traceback, no error text, no stderr at all**: a silent native crash.
+* Process life: launched 15:20:39, runner recorded `finished 15:27:09` → ≈ **390 s**; the guard object is still
+  `{limit: 1500, misses_last: 0, misses_max: 0, exceeded: false}` and the stage probe's `records` are empty, so
+  **no generation finished** and no build count is recorded.
+* What the JSON preserves (skeleton only; `complete=false`, `partial=false`): `config` (pop 1000 / gens 2 /
+  tree_len 128 / reps 2 / seed 0 / backend iree / O1 / cache 8192 / **max_cold_builds 1500**),
+  `fds = {start: 39, after_cold: null, end: null}`, `stages.reps[0].totals = null`, `per_gen_ms = []`,
+  `per_gen_best_fitness = []`, `nofile_rlimit = [65536, 65536]`, `construct_s = 0.734`, `gpu` = the start
+  snapshot only. `fds.after_cold`/`fds.end` are written only on completion, so the crash left **no FD
+  telemetry** — an intentional consequence of the atomic-write design, not a runner defect.
+* **No autopsy is possible from this box**: `ulimit -c` is `0` in the environment the runner inherits
+  (`core_pattern` is `core`, but no `core` file appeared in the cwd), and `dmesg` is not readable by this user
+  (`Operation not permitted`).
+* **Discrimination (why this is *not* reported as EMFILE):** round 1's C7 attempt-1 hit exactly that failure
+  mode when the launcher's soft limit was 1024 and it surfaced as a clean
+  `OSError: [Errno 24] Too many open files` at `etl/backends/adapters/iree.py:987 _compile_mlir →
+  iree/compiler/tools/binaries.py:199 → subprocess.run → os.pipe()` (`../new/NOTES.md` §9.2), i.e. the IREE
+  compile path **raises** on FD exhaustion. Here the limit was a confirmed `[65536, 65536]` and the failure was
+  a silent SIGSEGV with no message — consistent with a native fault in the IREE compiler/runtime or the
+  nanobind bindings rather than a clean EMFILE. This record cannot say which: there is no per-build progress
+  logging, no core file, and `ms/build` at tree_len 128 is unmeasured (at the measured 450–524 ms/build, 390 s
+  of runtime bounds the work at ≲ 900 builds — well below the 1 500-miss guard, so the guard never had a chance
+  to trip).
+* **Scale context for whoever picks this up** (not a defect of this run): the numpy analog `np_sr_b` needs
+  4 760 (rep0) + 4 687 (rep1) = **9 447 build misses** at pop 1000 / tree 128; at the measured 32.34 fds per
+  compiled structure that is ≈ **306 k fds ≫ 65 536**, so this workload cannot complete in one process at the
+  frozen settings whatever the budget, and the only bounded outcome the runner could have produced is a guard
+  trip at 1 500 misses (≈ 48.5 k fds). Related box limits observed: `vm.max_map_count = 65530` (the IREE path
+  backs each compiled structure with a `MappedMemory`, per the nanobind leak lists) and the agent cgroup's
+  `memory.max` = 12 GiB (an OOM there would show as 137, which this run did not).
+* **Not retried, not patched** (protocol): no re-run of the config, no edit to the harness/runner/library, no
+  change to the frozen `--max-cold-builds 1500` or to `CONFIG_ARGS`. The crash record is committed as-is
+  (`iree_sr_b2.json` + `.log`) so the matrix id resolves to what actually happened.
+
+### Validator (`check_r2.py`) — one bounded fix, then both modes
+
+The directory scan picked up the 4 pre-flight records in
+`test/benchmark/new/results/r2/backend_agreement/*.json` (backend-agreement pre-flight, not R2 config results)
+as 4 schema failures. `discover()`'s `os.walk` filter now also skips a subdirectory named
+`backend_agreement` (commit `cbe4237`, 2 lines + comment); `--manifest` mode is untouched. Effect on the scan:
+`6 failure(s)` → `2 failure(s)` (the 2 pre-existing prior-round artifacts below).
+
+```bash
+# verification of the fix (before -> after): the 4 `fixture*_{iree,numpy}` failures disappear
+python3 test/benchmark/r2/check_r2.py test/benchmark/new/results/r2 test/benchmark/legacy/results/r2   # exit 1 (2 failures, both pre-existing)
+
+# the two commands recorded for this section, verbatim:
+python3 test/benchmark/r2/check_r2.py --manifest test/benchmark/r2/manifest.txt          # exit 0
+#   -> 35 record(s): 34 complete, 1 partial, 0 skipped, 0 missing, 0 malformed; 126 check(s), 0 failure(s)
+#      note: iree_sr_b2: PARTIAL (complete=False, partial=False)
+#            iree_sr_b2: stage-counter extraction incomplete (cold=?, misses=?); stages keys: probe, side, partial, note, ...
+python3 test/benchmark/r2/check_r2.py test/benchmark/new/results/r2 test/benchmark/legacy/results/r2   # exit 1
+#   -> 50 record(s): 46 complete, 3 partial, 1 skipped, 0 missing, 0 malformed; 123 check(s), 2 failure(s)
+#      FAIL C5  (missing required eval keys ['task','config','complete'], legacy/results/r2/C5.json)
+#      FAIL C5b (same, legacy/results/r2/C5b.json)
+#      notes: iree_sr_b2 PARTIAL; iree_sr_b2 stage-counter extraction incomplete; h1_guard SKIP
+#             (cold-builds-exceeded:4>1); C5/C5b PARTIAL (complete=None); leg_smoke tag 'LEG-smoke' (prior-round artifact)
+```
+
+Both results are the expected ones: **35/35 manifest ids now have a JSON on disk** (0 missing, 0 malformed,
+0 failures) so the R2 matrix is complete as *records* — with the honest caveat that `iree_sr_b2` is a
+crash-skeleton (`partial` in the report because `complete=false`), not a measurement — and the scan's only
+failures are the **2 pre-existing prior-round driver artifacts** (`C5.json` / `C5b.json`, written by round 1's
+`legacy/run_matrix.py`), the same 2 the light-group and eval-group entries reported. No failure is
+attributable to `iree_sr_a`, to the validator fix, or to the 10 eval configs.
+
+### Wall clock
+
+| phase | wall |
+|---|---|
+| validator fix + verification + commit (`cbe4237`) | ≈ 1 min (15:15:5x → 15:16:1x) |
+| chunk 1 (`iree_sr_a`, exit 0) | **4 min 1 s** (15:16:17 → 15:20:18; harness-reported `harness_wall_s` 237.9 s) |
+| chunk 2 (`iree_sr_b2`, exit 139) | **6 min 34 s** (15:20:36 → 15:27:10; process life ≈ 390 s, i.e. the crash is not a lock wait and not a timeout) |
+| **total for this operator's pair** | **≈ 13 min** (15:15 → 15:28, incl. validation + commits) |
+| harness-reported generation-loop sum (`iree_sr_a`) | 236.3 s (rep0 235.17 s + rep1 1.12 s), of which 232.97 s = build misses (98.6 %) |
+
+### Deviations / anomalies
+
+* **`iree_sr_b2` exit 139 (the group's headline deviation)** — silent native SIGSEGV before generation 0, no
+  usable per-gen data, not reproducible from the record (no core, no dmesg, no per-build logging); not retried
+  and not patched. The 2 manifest ids are therefore 1 measured + 1 crash-skeleton.
+* **Budget discrepancy vs the hand-off brief (documentation only).** The frozen runner uses
+  `--max-cold-builds 3200` for `iree_sr_a` and `1500` for `iree_sr_b2`
+  (`run_all.sh` lines 246 / 253, unchanged since commit `d5b0085`); the task brief for this chunk said
+  "cold-build cap 1500" for both. Nothing was changed: `iree_sr_a` peaked at 517 misses (16 % of its cap), and
+  a 3200-miss cap would in any case be unreachable at 32.3 fds/build (3200 × 32.3 ≈ 103 k ≫ 65 536).
+* **"~500–700 cold builds" expectation → measured 517 total build misses** in `iree_sr_a` rep0 = 155 cold
+  builds (gen 0, `cold_builds`) + 362 cache misses later in the same rep — exactly the `np_sr_a` mirror's
+  155 / 362 split, which is what makes the trajectories bit-identical. The objective's
+  `rep1 totals.warm_misses == 0` check **held exactly** (rep1 = 0 cold builds / 0 misses / 632 hits).
+* **`per_gen_best_fitness` bit-identity: held.** All 10 generations of *both* reps are exactly
+  `-0.2510969936847687`, identical (exact `==`, no tolerance) to `np_sr_a` rep0 and rep1 and to the round-1
+  C7 anchor. `iree_sr_b2` has none (crashed before gen 0), so its expected
+  `[-0.2510969936847687, -0.22635294497013092]` (present in both `np_sr_b` reps) remains unverified on IREE.
+* **FD telemetry: 32.34 fds per compiled structure** in `iree_sr_a` (`(5051 − 39) / 155`,
+  matching the eval group's 32.34 for the same 155-build fixture set), i.e. **below the 38 fds/build stop
+  threshold** → cleared to proceed to `iree_sr_b2`. Peak `fds.end` = 17 243 of 65 536 (26 %), and the extra
+  12 192 fds beyond `after_cold` are the remaining 362 misses (~33 fds each) plus the warm path — the FD rate
+  is the build, not the warm call.
+* **A "warm" generation in a churning SR population is a compile generation**: `iree_sr_a` rep0's warm
+  per-gen median is 10 733 ms, of which 10 632 ms is `build_miss` (362 misses, ~419 ms each); only rep1
+  (nothing new to compile) shows the backend's real warm cost, 65.31 ms/gen
+  (run 27.0 + readback 17.1 + build-hit 6.1 + misc 10.1 ms). Same shape as `iree_c7r` (`np_sr_a` predicts it).
+* **Per-call cache accounting: `build_calls` 632 = `trees_invoked` 632 of `trees_total` 2 000** (63 % of
+  tree-slots evaluated, 34 build calls per generation) — identical to the numpy mirror, i.e. a property of the
+  SR harness workload, not of the IREE backend.
+* **nanobind leak warnings at teardown** (`leaked 4390 instances` of `HalBuffer`/`MappedMemory`/`HalDevice`/
+  `HalAllocator`, `leaked 4389 keep_alive records`, in `iree_sr_a`; the eval group saw the same) — pre-existing
+  binding-teardown noise after the JSON is written; exit code 0 and no measured number affected. `iree_sr_b2`
+  produced **no** such block, consistent with the crash being mid-run rather than at teardown.
+* **No lock contention**: both chunks acquired `/tmp/gpbench_critical.lock` immediately (a non-blocking probe
+  before each chunk showed it free) and no lock wait is visible in either log; no ECC event; GPU 7 never
+  touched.
+* `test/benchmark/r2/last_run.txt` was rewritten by each chunk (it now holds `iree_sr_b2` only) and is **not**
+  committed. Files written by this operator: 4 result files (`iree_sr_a.json/.log`,
+  `iree_sr_b2.json/.log`), the `check_r2.py` 2-line `discover()` fix, and this section.
+* **R2 matrix status after this entry: 35/35 ids have records** (34 complete + `iree_sr_b2` crash-skeleton),
+  0 manifest failures. The report (`../REPORT.md`) should treat `iree_sr_b2` as a bounded-failure datapoint
+  ("IREE is not runnable at pop 1000 / tree 128 on this box at 8 192 cache / 65 536 fds"), **not** as a
+  measured training pair.
+
+**Commits this section covers:** `cbe4237` (validator `discover()` fix), `e809c1f` (`iree_sr_a` JSON+log),
+`cc12894` (`iree_sr_b2` JSON+log as the crashed record).
