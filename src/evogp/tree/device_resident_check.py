@@ -65,6 +65,16 @@ Checks
              and as ``_pad_rows`` preparations on numpy -- and its chunks
              assemble into the same host array ``run_plan`` returns (bit-exact,
              NaN/±inf masks included).
+``prune``    the candidate-chain pruning (``EVOGP_DENSE_PRUNE``): the plan
+             carries the population's used-function-id set as a canonical sorted
+             tuple, the set equals the one the RAW population tensors imply, the
+             emitted candidate count is exactly ``L x |used|`` (and strictly
+             below the ``EVOGP_DENSE_PRUNE=0`` full chain's ``L x 28``), the
+             pruned and full-chain graphs agree BIT-EXACTLY (value/loss variants,
+             ``per_row`` both ways, chunked and unchunked, an empty used set and
+             a leaf-only population), and the set joins the compile-cache key
+             (same shape + different set = a second compile, same set = a hit).
+             The warm A/B medians are recorded, never asserted.
 ``measure``  (``--measure``) warm per-call medians for the dense SR path at the
              ``P/N`` grid points, the pop=1 ``Tree`` path and the value path
              (``Forest.forward``), each with the per-call traffic summary -- the
@@ -83,6 +93,7 @@ Exit code 0 = every check passed, 1 = at least one failed, 2 = hard error.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import statistics
@@ -113,6 +124,7 @@ from evogp.tree.dense_integration_check import (  # noqa: E402
     check_contract,
     check_writable,
     compare,
+    pack,
     random_population,
     set_mode,
 )
@@ -1234,6 +1246,459 @@ def stage_seam(args: Any, report: Report) -> None:
 
 
 # ---------------------------------------------------------------------------
+# stage: candidate-op pruning (the used-function-id set)
+# ---------------------------------------------------------------------------
+
+#: The ids the candidate chain covers: ``Func.IF`` (id 0) is emitted separately
+#: as the ternary and an id outside ``1..28`` matches nothing anywhere, so the
+#: FULL chain is exactly ``len(_FULL_CHAIN_IDS)`` candidates per traced position.
+_FULL_CHAIN_IDS = tuple(range(1, 29))
+
+#: The descriptor-scale function set of the prune fixture: a real GP run's
+#: ``using_funcs`` is a handful of ops, and the pruning win scales with it.
+_PRUNE_FUNCS = ("+", "-", "*", "sin")
+
+
+def _emitted_positions(plan: Any) -> int:
+    """Positions the candidate chain is emitted for.
+
+    ``grow`` mode leaves the value buffer empty at the last position, where a
+    function node would need a child outside the row (decode-time validation
+    rejects it), so the body replaces the three gathers with a constant and emits
+    no candidate/ternary there; ``concat``/``scatter`` start from a full buffer
+    and emit at every position.
+    """
+    if plan.update_mode == "grow":
+        return max(0, int(plan.trace_len) - 1)
+    return int(plan.trace_len)
+
+
+class _prune_env:
+    """Set/restore ``EVOGP_DENSE_PRUNE`` for a block (``None`` = unset)."""
+
+    def __init__(self, value: Optional[str]) -> None:
+        # The env NAME is the contract (pre-implementation the symbol is absent),
+        # so it is read defensively: the stage must report, not crash.
+        self.name = getattr(D, "PRUNE_ENV", "EVOGP_DENSE_PRUNE")
+        self.value = value
+
+    def __enter__(self) -> "_prune_env":
+        self.previous = os.environ.get(self.name)
+        if self.value is None:
+            os.environ.pop(self.name, None)
+        else:
+            os.environ[self.name] = str(self.value)
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        if self.previous is None:
+            os.environ.pop(self.name, None)
+        else:
+            os.environ[self.name] = self.previous
+        return False
+
+
+def _raw_used_ids(forest: Forest) -> Tuple[int, ...]:
+    """The population's used function ids, from the RAW population tensors.
+
+    Deliberately independent of ``dense_engine``: it re-applies the documented
+    decode rules by hand -- base type ``node_type & TYPE_MASK``, a function node
+    is any base ``>= 2`` (an unknown base decodes as the ternary type), the id is
+    ``trunc`` toward zero clamped into ``[0, 29]`` -- and keeps the ids the
+    candidate chain dispatches on (``1..28``).
+    """
+    types = np.asarray(forest.batch_node_type.detach().cpu().numpy(), dtype=np.int64)
+    values = np.asarray(
+        forest.batch_node_value.detach().cpu().numpy(), dtype=np.float64
+    )
+    sizes = np.asarray(
+        forest.batch_subtree_size.detach().cpu().numpy(), dtype=np.int64
+    )
+    used = set()
+    for p in range(int(types.shape[0])):
+        for i in range(int(sizes[p, 0])):
+            if (int(types[p, i]) & int(NType.TYPE_MASK)) < 2:
+                continue  # a VAR / CONST leaf
+            func_id = int(np.trunc(values[p, i]))
+            func_id = 0 if func_id < 0 else min(func_id, 29)
+            if 1 <= func_id <= 28:
+                used.add(func_id)
+    return tuple(sorted(used))
+
+
+def _counted_build(plan: Any) -> Tuple[Any, Dict[str, Any]]:
+    """Cold-build ``plan`` with the three candidate emitters counted + timed.
+
+    The trace runs INSIDE ``build_cached``, so the compile cache is cleared
+    first: the counts are the graph's *emitted* op counts, not a hit.  The patched
+    names are the module-level ``D._emit_*`` that ``_dense_body`` resolves while
+    tracing (:mod:`etl_engine`'s emitters, parity by construction), so the count
+    is exactly the emitted candidate chain.
+    """
+    counts: Dict[str, Any] = {"unary": 0, "binary": 0, "ternary": 0}
+    originals = (D._emit_unary, D._emit_binary, D._emit_ternary)
+
+    def unary(func_id: int, a: Any) -> Any:
+        counts["unary"] += 1
+        return originals[0](func_id, a)
+
+    def binary(func_id: int, a: Any, b: Any) -> Any:
+        counts["binary"] += 1
+        return originals[1](func_id, a, b)
+
+    def ternary(a: Any, b: Any, c: Any) -> Any:
+        counts["ternary"] += 1
+        return originals[2](a, b, c)
+
+    D._emit_unary, D._emit_binary, D._emit_ternary = unary, binary, ternary
+    try:
+        E.clear_cache()  # the trace happens on a MISS: force the compile
+        start = time.perf_counter()
+        executable = D.build_dense(plan)
+        counts["build_ms"] = (time.perf_counter() - start) * 1e3
+    finally:
+        D._emit_unary, D._emit_binary, D._emit_ternary = originals
+    counts["candidates"] = int(counts["unary"] + counts["binary"])
+    return executable, counts
+
+
+def stage_prune(args: Any, report: Report, results: Dict[str, Any]) -> None:
+    print("== stage prune: candidate ops for the USED function ids only ==")
+    pop, rows, input_len = 64, 1024, 3
+    # A descriptor-scale function set (a real GP run's using_funcs is a handful of
+    # ops, not all 28) is what the emitted-op count -- and so the win -- scales
+    # with; the timing cells below use the same population.
+    forest = random_population(41, pop, 16, input_len, 0.35, _PRUNE_FUNCS, 3)
+    _, inputs, labels = fixture(pop, rows, input_len=input_len, seed=41)
+    expected = _raw_used_ids(forest)
+    x_host = np.ascontiguousarray(inputs.detach().cpu().numpy(), dtype=np.float32)
+    labels_host = np.ascontiguousarray(labels.detach().cpu().numpy(), dtype=np.float32)
+    backend_name, device, _ = E._resolve_backend(None, None)
+    # ``prune=`` is the post-implementation switch; the stage must still run (and
+    # FAIL its pruning checks, not crash) against the pre-implementation module.
+    supports_prune = "prune" in inspect.signature(D.plan_dense).parameters
+
+    def make_plan(
+        source: Forest = forest,
+        n_rows: int = rows,
+        *,
+        prune: Optional[bool] = None,
+        variant: str = "value",
+        per_row: bool = False,
+        budget_mb: Optional[float] = None,
+        use_mse: bool = True,
+    ) -> Any:
+        kwargs: Dict[str, Any] = {
+            "per_row": per_row,
+            "budget_mb": budget_mb,
+            "backend": os.environ.get("EVOGP_ETL_BACKEND"),
+            "variant": variant,
+            "use_mse": use_mse,
+        }
+        if prune is not None and supports_prune:
+            kwargs["prune"] = prune
+        return D.plan_dense(
+            source.batch_node_value,
+            source.batch_node_type,
+            source.batch_subtree_size,
+            source.input_len,
+            source.output_len,
+            n_rows,
+            **kwargs,
+        )
+
+    def run_plan_out(plan: Any, x: np.ndarray, labels_in: Optional[np.ndarray]) -> Any:
+        executable = D.build_dense(plan)
+        if plan.variant == "loss":
+            return D.run_loss_plan(
+                plan,
+                executable,
+                x,
+                labels_in,
+                backend_name=backend_name,
+                device=device,
+            )
+        return D.run_plan(plan, executable, x, backend_name=backend_name, device=device)
+
+    name = getattr(D, "PRUNE_ENV", "EVOGP_DENSE_PRUNE")
+    report.add(
+        f"dense_engine exposes the {name} knob + resolver",
+        hasattr(D, "PRUNE_ENV") and callable(getattr(D, "resolve_prune", None)),
+        f"PRUNE_ENV={getattr(D, 'PRUNE_ENV', None)!r}, "
+        f"resolve_prune={callable(getattr(D, 'resolve_prune', None))}",
+    )
+    report.add(
+        "plan_dense takes a prune= switch (explicit argument)",
+        supports_prune,
+        f"plan_dense parameters: {'prune' if supports_prune else 'no prune'}",
+    )
+    with _prune_env(None):
+        pruned_plan = make_plan()
+    used = getattr(pruned_plan, "used_func_ids", None)
+    report.add(
+        "the plan carries the used-function-id set",
+        used is not None,
+        f"used_func_ids={used!r}",
+    )
+    if used is None:
+        used = expected
+    used = tuple(int(v) for v in used)
+    report.add(
+        "the fixture exercises pruning (0 < |used| < 28)",
+        0 < len(expected) < len(_FULL_CHAIN_IDS),
+        f"|used|={len(expected)} of {len(_FULL_CHAIN_IDS)} ids {list(expected)}",
+    )
+    report.add(
+        "the pruned set is exactly the raw population's used ids",
+        used == expected,
+        f"plan={list(used)} raw={list(expected)}",
+    )
+    report.add(
+        "the used set is canonical (sorted, unique, inside 1..28)",
+        used == tuple(sorted(set(used))) and all(1 <= v <= 28 for v in used),
+        f"{len(used)} ids {list(used)}",
+    )
+
+    # -- emitted candidate ops: pruned vs the byte-identical full chain ---------
+    pruned_exe, pruned_counts = _counted_build(pruned_plan)
+    with _prune_env("0"):
+        full_plan = make_plan()
+    full_exe, full_counts = _counted_build(full_plan)
+    positions = _emitted_positions(pruned_plan)
+    report.add(
+        "the pruned graph emits exactly (emitted positions) x |used| candidates",
+        pruned_counts["candidates"] == positions * len(used),
+        f"{pruned_counts['candidates']} candidates = {positions} positions "
+        f"({pruned_plan.update_mode} mode) x {len(used)} ids",
+    )
+    report.add(
+        "the pruned graph emits STRICTLY fewer candidates than the full chain",
+        pruned_counts["candidates"] < full_counts["candidates"],
+        f"pruned={pruned_counts['candidates']} full={full_counts['candidates']} "
+        f"cut={full_counts['candidates'] / max(1, pruned_counts['candidates']):.2f}x",
+    )
+    report.add(
+        f"{name}=0 emits the full chain and reports the full id set",
+        full_counts["candidates"] == positions * len(_FULL_CHAIN_IDS)
+        and tuple(getattr(full_plan, "used_func_ids", ())) == _FULL_CHAIN_IDS,
+        f"{full_counts['candidates']} candidates, {positions} positions, "
+        f"ids={tuple(getattr(full_plan, 'used_func_ids', ()))!r}",
+    )
+    report.add(
+        "the IF (ternary) candidate is emitted once per emitted position",
+        pruned_counts["ternary"] == positions == full_counts["ternary"],
+        f"pruned={pruned_counts['ternary']} full={full_counts['ternary']} "
+        f"positions={positions}",
+    )
+    # -- prune vs full chain: BIT-EXACT results --------------------------------
+    def ab(
+        label: str,
+        plan_kwargs: Dict[str, Any],
+        x: np.ndarray,
+        labels_in: Any,
+        *,
+        source: Forest = forest,
+        source_rows: int = rows,
+    ) -> None:
+        plan_p = make_plan(source, source_rows, prune=True, **plan_kwargs)
+        plan_f = make_plan(source, source_rows, prune=False, **plan_kwargs)
+        out_p = run_plan_out(plan_p, x, labels_in)
+        out_f = run_plan_out(plan_f, x, labels_in)
+        equal, detail = _nan_safe_equal(out_p, out_f)
+        report.add(f"prune vs full chain, bit-exact: {label}", equal, detail)
+
+    ab("value, per_row=False, single chunk", {"variant": "value"}, x_host, None)
+    ab("loss (MSE), per_row=False", {"variant": "loss"}, x_host, labels_host)
+    ab(
+        "loss (MAE), per_row=False",
+        {"variant": "loss", "use_mse": False},
+        x_host,
+        labels_host,
+    )
+
+    # A population that uses (almost) every function id: its pruned graph is
+    # nearly the full chain, so it is the strongest bit-exactness case.
+    wide = random_population(45, 16, 16, input_len, 0.35, FUNCS_NAMES, 3)
+    report.add(
+        "the wide fixture uses nearly every function id",
+        len(_raw_used_ids(wide)) > len(expected),
+        f"|used|={len(_raw_used_ids(wide))} vs {len(expected)} for the narrow one",
+    )
+    ab(
+        "value, per_row=False, wide (near-full) id set",
+        {"variant": "value"},
+        x_host,
+        None,
+        source=wide,
+    )
+
+    # -- the used set is the WHOLE population's union, not a per-chunk slice ----
+    small = random_population(42, 8, 16, input_len, 0.35, _PRUNE_FUNCS, 3)
+    _, small_inputs, _ = fixture(8, 5, input_len=input_len, seed=42)
+    small_x = np.ascontiguousarray(small_inputs.detach().cpu().numpy(), dtype=np.float32)
+    chunk_kwargs: Dict[str, Any] = {"variant": "value"}
+    chunk_plan = None
+    for budget in _CANDIDATE_BUDGETS:
+        candidate = make_plan(small, 5, prune=True, variant="value", budget_mb=budget)
+        if candidate.p_chunks > 1 and candidate.n_chunks > 1:
+            chunk_kwargs["budget_mb"] = budget
+            chunk_plan = candidate
+            break
+    report.add(
+        "a P- AND N-chunked plan exists for the prune fixture",
+        chunk_plan is not None,
+        _plan_line(chunk_plan) if chunk_plan is not None else "no budget chunked both",
+    )
+    if chunk_plan is not None:
+        ab(
+            "value, per_row=False, P+N-chunked",
+            chunk_kwargs,
+            small_x,
+            None,
+            source=small,
+            source_rows=5,
+        )
+    _, pr_inputs, _ = fixture(8, 8, input_len=input_len, seed=43)
+    pr_x = np.ascontiguousarray(pr_inputs.detach().cpu().numpy(), dtype=np.float32)
+    ab(
+        "value, per_row=True",
+        {"variant": "value", "per_row": True},
+        pr_x,
+        None,
+        source=small,
+        source_rows=8,
+    )
+    # -- a leaf-only population (EMPTY used set) stays well defined -------------
+    leaf_only = pack([[("var", 1.0)]] * 8, 16, input_len)
+    leaf_used = _raw_used_ids(leaf_only)
+    report.add(
+        "a leaf-only population has an EMPTY used set",
+        leaf_used == (),
+        f"raw={list(leaf_used)}",
+    )
+    leaf_plan = make_plan(leaf_only, 5, prune=True, variant="value")
+    leaf_set = getattr(leaf_plan, "used_func_ids", None)
+    report.add(
+        "the empty used set is carried as an EMPTY tuple",
+        leaf_set is not None and tuple(int(v) for v in leaf_set) == (),
+        f"used_func_ids={leaf_set!r}",
+    )
+    set_mode("specialized", backend="numpy")
+    reference = leaf_only.batch_forward(small_inputs).detach().cpu().numpy()
+    set_mode("dense", backend="numpy")
+    values = run_plan_out(leaf_plan, small_x, None).reshape(reference.shape)
+    equal, detail = _nan_safe_equal(values, reference)
+    report.add(
+        "a leaf-only population (no candidates emitted) still evaluates",
+        equal,
+        detail,
+    )
+    set_mode("auto", backend="numpy")
+
+    # -- the used set JOINS the compile-cache key -------------------------------
+    other = pack(
+        [[("u", float(Func.SIN)), ("var", 1.0)]] * pop, 16, input_len
+    )
+    other_used = _raw_used_ids(other)
+    report.add(
+        "two populations can share a shape signature but differ in used ids",
+        other_used != expected and len(other_used) == 1,
+        f"fixture={list(expected)} other={list(other_used)}",
+    )
+    plan_a = make_plan(forest, rows, prune=True, variant="value")
+    plan_b = make_plan(other, rows, prune=True, variant="value")
+    same_shape = (
+        plan_a.trace_len == plan_b.trace_len
+        and plan_a.pop_size == plan_b.pop_size
+        and plan_a.p_chunk == plan_b.p_chunk
+        and plan_a.n_chunk == plan_b.n_chunk
+        and plan_a.input_len == plan_b.input_len
+        and plan_a.update_mode == plan_b.update_mode
+        and plan_a.variant == plan_b.variant
+    )
+    report.add(
+        "the two plans share the shape signature (only the used set differs)",
+        same_shape
+        and tuple(getattr(plan_b, "used_func_ids", ())) != tuple(
+            getattr(plan_a, "used_func_ids", ())
+        ),
+        _plan_line(plan_a) + f" used={list(getattr(plan_a, 'used_func_ids', ()))!r}"
+        f" vs {list(getattr(plan_b, 'used_func_ids', ()))!r}",
+    )
+    E.clear_cache()
+    exe_a = D.build_dense(plan_a)
+    stats_a = E.cache_stats()
+    exe_b = D.build_dense(plan_b)
+    stats_b = E.cache_stats()
+    exe_a2 = D.build_dense(plan_a)
+    stats_c = E.cache_stats()
+    report.add(
+        "a different used set recompiles (the set is part of the cache key)",
+        stats_a["misses"] == 1
+        and stats_b["misses"] == 2
+        and stats_b["hits"] == 0
+        and exe_b is not exe_a,
+        f"misses {stats_a['misses']} -> {stats_b['misses']}, "
+        f"distinct executables={exe_b is not exe_a}",
+    )
+    report.add(
+        "the same used set hits the same executable",
+        stats_c["hits"] == 1 and stats_c["misses"] == 2 and exe_a2 is exe_a,
+        f"hits={stats_c['hits']} misses={stats_c['misses']} "
+        f"same executable={exe_a2 is exe_a}",
+    )
+
+    # -- warm A/B timing (recorded, never asserted: the box may be loaded) ------
+    def median_ms(plan: Any, x: np.ndarray, labels_in: Any, repeats: int) -> float:
+        run_plan_out(plan, x, labels_in)  # one untimed call: build + first touch
+        samples = []
+        for _ in range(repeats):
+            start = time.perf_counter()
+            run_plan_out(plan, x, labels_in)
+            samples.append((time.perf_counter() - start) * 1e3)
+        return float(statistics.median(samples))
+
+    repeats = max(1, int(getattr(args, "repeats", 3)))
+    smaller = random_population(43, 16, 16, input_len, 0.35, _PRUNE_FUNCS, 3)
+    warm: Dict[str, Dict[str, float]] = {}
+    for label, source in (("P=64 N=1024", forest), ("P=16 N=1024", smaller)):
+        plan_p = make_plan(source, rows, prune=True, variant="loss")
+        plan_f = make_plan(source, rows, prune=False, variant="loss")
+        warm[label] = {
+            "pruned_ms": median_ms(plan_p, x_host, labels_host, repeats),
+            "full_ms": median_ms(plan_f, x_host, labels_host, repeats),
+        }
+    results["prune"] = {
+        "trace_len": int(pruned_plan.trace_len),
+        "emitted_positions": positions,
+        "update_mode": pruned_plan.update_mode,
+        "used_ids": list(used),
+        "expected_used_ids": list(expected),
+        "candidates_pruned": pruned_counts["candidates"],
+        "candidates_full": full_counts["candidates"],
+        "candidate_cut": full_counts["candidates"]
+        / max(1, pruned_counts["candidates"]),
+        "ternary_pruned": pruned_counts["ternary"],
+        "ternary_full": full_counts["ternary"],
+        "build_ms_pruned": pruned_counts["build_ms"],
+        "build_ms_full": full_counts["build_ms"],
+        "warm_sr_loss_ms": warm,
+    }
+    print(
+        f"[prune] L={pruned_plan.trace_len} used={list(used)} candidates "
+        f"{pruned_counts['candidates']} vs full {full_counts['candidates']} "
+        f"({full_counts['candidates'] / max(1, pruned_counts['candidates']):.2f}x), "
+        f"build {pruned_counts['build_ms']:.1f} vs {full_counts['build_ms']:.1f} ms"
+    )
+    for label, pair in warm.items():
+        print(
+            f"[prune] warm SR loss {label}: {pair['pruned_ms']:.1f} ms pruned vs "
+            f"{pair['full_ms']:.1f} ms full "
+            f"({pair['full_ms'] / max(1e-9, pair['pruned_ms']):.2f}x)"
+        )
+
+
+# ---------------------------------------------------------------------------
 # stage: measurement (warm per-call cost + per-call traffic)
 # ---------------------------------------------------------------------------
 
@@ -1336,14 +1801,14 @@ def _parse_cases(spec: str) -> List[Tuple[int, int]]:
 # ---------------------------------------------------------------------------
 
 
-_STAGES = ("policy", "hotpath", "parity", "seam", "measure")
+_STAGES = ("policy", "hotpath", "parity", "seam", "prune", "measure")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--stage",
-        default="policy,hotpath,parity,seam",
+        default="policy,hotpath,parity,seam,prune",
         help=f"comma-separated subset of {list(_STAGES)} (default: all but measure)",
     )
     parser.add_argument(
@@ -1397,6 +1862,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 stage_parity(args, report)
             elif stage == "seam":
                 stage_seam(args, report)
+            elif stage == "prune":
+                stage_prune(args, report, results)
             elif stage == "measure":
                 stage_measure(args, results)
     except Exception as exc:  # a hard error, not a check mismatch
