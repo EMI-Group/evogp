@@ -15,10 +15,12 @@ to be run by hand.
         src/evogp/tree/dense_spike_check.py --backend iree --quick
 
 Flags: ``--backend numpy|iree``, ``--mode grow|concat|scatter``,
-``--quick``/``--full``, ``--gpu N`` (visible index), ``--max-tree-len L``,
+``--quick``/``--full``/``--tiny``, ``--gpu N`` (visible index), ``--max-tree-len L``,
 ``--seed S``, ``--skip-measure``, ``--skip-parity``, ``--json PATH``,
-``--repeats K``.  Exit code 0 = every parity case passed, 1 = at least one
-mismatch, 2 = a hard error while building/running a case.
+``--repeats K`` (``--tiny`` shrinks the measurement grid to P in {4,16} and
+L in {8,16} so an iree run stays inside a short GPU budget).  Exit code 0 =
+every parity case passed, 1 = at least one mismatch, 2 = a hard error while
+building/running a case.
 
 What it does
 ------------
@@ -353,6 +355,16 @@ def _engine_reference(
     backend: str,
     out_device: Any = None,
 ) -> torch.Tensor:
+    """Specialized-engine reference result.
+    ``per_row=True`` on the ``iree`` backend uses the ``numpy`` engine instead:
+    ``etl_engine._run_tree`` uploads ``xin`` once per call (``prepared[0]``,
+    ``etl_engine.py:1237-1242``) and then feeds that same device tensor to every
+    tree, so on iree ``evaluate(..., per_row=True)`` silently evaluates every
+    tree on ``x``'s row 0.  The numpy backend uses the per-tree ``xin`` and is
+    correct (see ``case_engine_per_row_iree_bug``).
+    """
+    if backend == "iree" and per_row:
+        backend = "numpy"
     population = E.decode_population(values, types, sizes, input_len, 1)
     return E.evaluate(
         population, x, per_row=per_row, backend=backend, out_device=out_device
@@ -799,7 +811,7 @@ def measure_l_scaling(args, results: Dict[str, Any]) -> None:
     )
     backend_name, device, options = E._resolve_backend(args.backend, args.gpu)
     table = []
-    lengths = [8, 16, 32] if args.quick else [8, 16, 32, 64]
+    lengths = [8, 16] if args.tiny else ([8, 16, 32] if args.quick else [8, 16, 32, 64])
     for L in lengths:
         values, types, sizes = _chain_population(L)
         x = torch.randn(8, 2, dtype=torch.float32).numpy()
@@ -860,8 +872,8 @@ def measure_crossover(args, results: Dict[str, Any]) -> None:
         f"{'speedup':>8} {'dense_peak_MB':>13}"
     )
     rows = []
-    p_values = [64, 200] if args.quick else [64, 200, 1000]
-    n_values = [64, 1024] if args.quick else [64, 1024, 10000]
+    p_values = [4, 16] if args.tiny else ([64, 200] if args.quick else [64, 200, 1000])
+    n_values = [64, 1024] if args.quick or args.tiny else [64, 1024, 10000]
     backend_name, device, options = E._resolve_backend(args.backend, args.gpu)
     for P in p_values:
         for N in n_values:
@@ -1036,6 +1048,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=D.UPDATE_MODES, default=None)
     parser.add_argument("--quick", action="store_true", default=False)
     parser.add_argument("--full", action="store_true", default=False)
+    parser.add_argument(
+        "--tiny",
+        action="store_true",
+        default=False,
+        help="lowest-GPU-budget measurement profile (P in {4,16}, L in {8,16})",
+    )
     parser.add_argument("--gpu", type=int, default=0, help="IREE device index (visible)")
     parser.add_argument("--max-tree-len", type=int, default=64)
     parser.add_argument("--budget-mb", type=float, default=None)

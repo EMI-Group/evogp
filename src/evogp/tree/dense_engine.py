@@ -141,6 +141,76 @@ Integration proposal (follow-up round; nothing here is wired yet)
   the SAME ``x``); gate the per-position candidate chain by the position's
   possible opcodes; blocked writes (several rows per buffer update) to cut the
   ``L^2`` buffer traffic; an in-graph fitness reduction.
+SPIKE FINDINGS (round 1; measured with ``dense_spike_check.py``)
+----------------------------------------------------------------
+Run: repo root, ``PYTHONPATH=src ETL_DISABLE_LOCATIONS=1``, venv
+``/mnt/local-ssd/bchuang/evox/.venv/bin/python``; GPU 3 via
+``CUDA_VISIBLE_DEVICES=3`` + ``--gpu 0``.
+
+1. **Correctness (numpy backend, CPU).** The full battery passes 34/34
+   (``--backend numpy --quick``): random populations (4 descriptors/4 seeds ×
+   ``per_row`` True/False × ``sr_fitness`` MSE/MAE), a 1200-tree function sweep
+   over edge operands, unknown function ids / wrong-arity ids / unknown base
+   types, padding-junk-tail invariance (same tree + different junk tails ->
+   identical bits), fully constant trees, chunked execution (forced
+   ``p_chunk=n_chunk=1``), the ``DenseUnsupported`` fallback signals, and
+   one-compile-reuse (second call with a different population of the same shape
+   does **0** builds).  Every finite value is bit-exact; the only bit
+   differences are NaN payload bits (masks identical).
+2. **Fold-vs-emit (numpy).** Zero non-bit-exact finite values across the fold
+   search (4 const_prob levels × 2 seeds, 64 trees × 24 points) — expected, the
+   emitters use the same f32-hardware / f64-transcendental discipline as
+   ``_fold_*``.
+3. **Fold-vs-emit (iree-cuda) — 1 ulp, and it is the ENGINE that moves.** With
+   ``--backend iree`` the fold search reports ~24 non-bit-exact finite values per
+   population at ``max_rel`` 6e-8 … 3.3e-7 (1 ulp at those magnitudes) while the
+   dense result matches the engine's *emitted* path: the specialized engine folds
+   constant subtrees host-side with **numpy f64** transcendentals, the dense
+   graph evaluates them with **iree f64** transcendentals, and iree's f64 libm is
+   not bit-identical to numpy's. Same class of ~1 ulp difference for
+   ``const_out`` trees. All within the 1e-4 tolerance; report it, do not chase it.
+4. **STOP-SHIP: pre-existing ``etl_engine`` bug, iree + ``per_row=True``.**
+   ``etl_engine._run_tree`` (``etl_engine.py:1237-1242``) memoizes the
+   host->device input as ``prepared[0]`` and reuses it for every tree of one
+   ``evaluate`` call. That is right for ``per_row=False`` (same ``xin``) and
+   WRONG for ``per_row=True`` (``xin = xt[index:index+1]``), where every tree
+   silently runs on ``x``'s ROW 0. Minimal repro (2 × ``SUB(var0,var1)``,
+   ``x=[[10,1],[20,2]]``, expected ``[9,18]``): engine numpy ``[9,18]``,
+   engine iree ``[9,9]``, ``evaluate_dense`` iree ``[9,18]``. Reachable through
+   ``Forest.forward`` (``forest.py:117``) and therefore through
+   ``BraxProblem`` / ``MujocoProblem`` rollouts — the exact users of iree.
+   numpy (the default backend) is unaffected. Not fixed here: this round is
+   additive-only.
+5. **iree runtime robustness.** A long battery (≈25 compiled executables in one
+   process) segfaulted the interpreter mid-run, after emitting nanobind
+   "leaked function/HalBuffer" warnings — the etl/iree binding leaks device
+   buffers per live executable. Keep iree sessions short and split batteries
+   into stages; ``cache_stats()``/``clear_cache()`` between stages.
+6. **Economics (numpy CPU interpreter, warm medians, P/N from the script).**
+   Dense is **much slower** than the specialized path on numpy: 0.01–0.17×
+   (``P=64,N=64``: 18.8 ms specialized vs 209.7 ms dense; ``P=64,N=1024``:
+   19.9 ms vs 3137.6 ms), because the graph carries ≈264 ops per traced
+   position (≈264·L ops: L=8 → 2110, L=16 → 4478, L=32 → 9214) and ETL's numpy
+   interpreter pays per-op overhead on ``(L,P,N)`` tensors. Cold build is also
+   worse (dense 5.1 s vs 196 ms for P=64) and both grow with L (numpy L=32:
+   trace 204 ms, lower 468 ms, compile 1893 ms, load 397 ms).
+   On iree the trade is the opposite shape: dense pays ONE compile per shape
+   signature (7.2 s for L_trace=3/P=4/N=6 with ≈1.8k ops, i.e. iree compile
+   cost scales with the op count) and then ~88 ms per call for P=4/N=6
+   (dominated by the 8 host->device uploads per chunk, not the math), while the
+   specialized path pays ~0.89 s of compile PER TREE (3.56 s cold for P=4) and
+   ~1.9 ms of run per tree (7.6 ms for P=4). So dense-on-iree wins once
+   ``P × 0.89 s`` exceeds one dense compile, i.e. from roughly **P ≳ 10–20 at
+   L_trace ≈ 3**, and the crossover moves out linearly with L through the
+   dense compile cost. On numpy the same comparison is hopeless at every P.
+7. **Consequence for the integration policy.** Default OFF; the dense path is a
+   *shape-signature-specialized, one-compile-per-population* strategy whose only
+   realistic home is iree (or a future batched-kernel backend), and its worst
+   enemy is the per-position candidate chain. The cheapest large win identified
+   but not implemented in this round: pass the population's *used function id
+   set* (or its descriptor's ``using_funcs``) as a static cfg entry and emit only
+   those candidates — roughly a 3× op-count cut, paid for by recompiles only when
+   the used-id set changes (it saturates quickly in a GP run).
 """
 
 from __future__ import annotations
