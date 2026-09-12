@@ -1,0 +1,52 @@
+# test/benchmark/r2/round3/manifest.txt -- expected artifacts of the R3 GPU round.
+#
+# Format (TAB-separated, one config per line; '#' starts a comment line):
+#
+#     id <TAB> side(leg|new) <TAB> expected_json_path <TAB> stages?
+#
+#   * side          `leg` = the legacy CUDA checkout under PYTHONPATH (the JSON's own
+#                   `side` field says "old"); `new` = this repository's ETL engine.
+#                   check_r3.py maps leg -> old and verifies the JSON's `side` field.
+#   * expected path relative to the repository root; the runner writes exactly this file
+#                   (one JSON + one <id>.log per config).  Every R3 artifact lives under
+#                   test/benchmark/r2/round3/ -- the R2 records stay untouched.
+#   * `stages`      the config runs bench_gp.py with `--stage-probe`, so with
+#                   `--require-stages` its JSON must carry a `stages` block.
+#                   Every new-side R3 config passes the probe (all 9); the three
+#                   legacy-side configs have no stage probe by design, hence no marker.
+#                   Caveat: the R2 stage probe monkeypatches the SPECIALIZED engine call
+#                   sites only, so a run that took the dense route may carry an empty /
+#                   degenerate `stages` block -- the marker means "the config passes
+#                   --stage-probe", exactly as in R2, and is not a measurement guarantee.
+#
+# R3 re-measures the R2 headline configs with the R2 methodology (same harness, flags,
+# fixtures and wiring); the ids intentionally match the R2 config ids so every record can
+# be compared with its R2 counterpart via compare_rounds.py.  The runner (run_all.sh)
+# derives side/results dir/tag from its own config table; this file is the validator's
+# expectation list -- keep the two in sync (ids must match exactly).
+#
+# ---------------------------------------------------------------------------
+# group: light -- legacy CUDA side (same box as the numpy mirrors below)
+# ---------------------------------------------------------------------------
+leg_c5r2	leg	test/benchmark/r2/round3/results/legacy/leg_c5r2.json
+leg_fixture200_n64	leg	test/benchmark/r2/round3/results/legacy/leg_fixture200_n64.json
+leg_sr_a	leg	test/benchmark/r2/round3/results/legacy/leg_sr_a.json
+# ---------------------------------------------------------------------------
+# group: light -- new side, default "numpy" backend, stage probe ON
+# ---------------------------------------------------------------------------
+np_c5r2	new	test/benchmark/r2/round3/results/new/np_c5r2.json	stages
+np_fixture200_n64	new	test/benchmark/r2/round3/results/new/np_fixture200_n64.json	stages
+np_sr_a	new	test/benchmark/r2/round3/results/new/np_sr_a.json	stages
+# ---------------------------------------------------------------------------
+# group: iree -- new side, --backend iree, default `auto` eval policy (dense route)
+# ---------------------------------------------------------------------------
+iree_fixture64_n64	new	test/benchmark/r2/round3/results/new/iree_fixture64_n64.json	stages
+iree_fixture200_n64	new	test/benchmark/r2/round3/results/new/iree_fixture200_n64.json	stages
+iree_sr_a	new	test/benchmark/r2/round3/results/new/iree_sr_a.json	stages
+# ---------------------------------------------------------------------------
+# group: iree-spec -- the same three IREE workloads with EVOGP_EVAL_MODE=specialized
+# (the R2-era route: no dense evaluator -> wave-1 attribution only)
+# ---------------------------------------------------------------------------
+iree_fixture64_n64_spec	new	test/benchmark/r2/round3/results/new/iree_fixture64_n64_spec.json	stages
+iree_fixture200_n64_spec	new	test/benchmark/r2/round3/results/new/iree_fixture200_n64_spec.json	stages
+iree_sr_a_spec	new	test/benchmark/r2/round3/results/new/iree_sr_a_spec.json	stages
