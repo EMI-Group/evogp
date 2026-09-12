@@ -1222,23 +1222,31 @@ def decode_population(
 def _run_tree(
     tree: DecodedTree,
     xin: np.ndarray,
+    xin_key: int,
     n_rows: int,
     input_len: int,
     backend_name: str,
     device: Any,
     options: Dict[str, Any],
-    prepared: List[Any],
+    prepared: Dict[int, Any],
 ) -> np.ndarray:
-    """Build-or-hit one tree and run it; returns ``(n_rows, out_len)`` float32."""
+    """Build-or-hit one tree and run it; returns ``(n_rows, out_len)`` float32.
+
+    ``xin_key`` identifies the host input ``xin`` and is the memo key of
+    ``prepared`` (host->device copies, one per distinct input): every tree of one
+    ``evaluate`` call that sees the SAME rows shares a single upload, while
+    ``per_row=True`` keys by tree index because tree ``i`` must see row ``i``.
+    """
     exe = _executable(tree.program, n_rows, input_len, backend_name, device, options)
     if backend_name == "numpy":
         with _quiet():
             result = etl.run(exe, xin, tree.program)
         return np.asarray(result.numpy(), dtype=np.float32).reshape(n_rows, -1)
-    if not prepared:  # one host->device copy reused for every tree in the call
-        prepared.append(etl.from_numpy(xin).to(device))
+    device_input = prepared.get(xin_key)
+    if device_input is None:  # one host->device copy per distinct input block
+        prepared[xin_key] = device_input = etl.from_numpy(xin).to(device)
     with _quiet():
-        result = etl.run(exe, prepared[0], tree.program)
+        result = etl.run(exe, device_input, tree.program)
     return np.asarray(result.to(_CPU).numpy(), dtype=np.float32).reshape(n_rows, -1)
 
 
@@ -1258,6 +1266,10 @@ def evaluate(
 
     ``per_row=False`` -- ``x`` is ``(N, input_len)`` and every tree is evaluated
     on all ``N`` rows; the result is ``(pop_size, N, output_len)``.
+
+    On a device backend (``iree``) the host->device copy is memoized per distinct
+    input block: ``per_row=False`` converts ``x`` ONCE for the whole call, while
+    ``per_row=True`` transfers each tree's own ``(1, input_len)`` row.
 
     The result is a FRESH, contiguous, ``requires_grad=False`` float32 tensor on
     ``x``'s device (``out_device`` overrides it, e.g. ``"cuda"`` /
@@ -1279,14 +1291,22 @@ def evaluate(
     backend_name, device, options = _resolve_backend(backend, iree_device_index)
 
     rows = np.empty((pop.pop_size, n_rows, pop.output_len), dtype=np.float32)
-    prepared: List[Any] = []
+    prepared: Dict[int, Any] = {}
     for index, tree in enumerate(pop.trees):
         if tree.const_out is not None:
             rows[index, :, :] = _bits_to_float_arr(tree.const_out)
             continue
         xin = xt[index : index + 1] if per_row else xt
         rows[index] = _run_tree(
-            tree, xin, n_rows, pop.input_len, backend_name, device, options, prepared
+            tree,
+            xin,
+            0 if not per_row else index,  # tree index -> per-tree x row
+            n_rows,
+            pop.input_len,
+            backend_name,
+            device,
+            options,
+            prepared,
         )
     if per_row:
         rows = np.ascontiguousarray(rows[:, 0, :])

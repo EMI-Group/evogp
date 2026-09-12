@@ -24,6 +24,13 @@ L in {8,16} so an iree run stays inside a short GPU budget).  Exit code 0 =
 every parity case passed, 1 = at least one mismatch, 2 = a hard error while
 building/running a case.
 
+An iree session must stay under the etl/iree executable-leak budget (~25
+compiled executables per process segfault the interpreter, see
+``dense_engine``'s iree-robustness note): the heavy per_row cases
+(``function_sweep`` = 1200 trees, ``random_populations`` = 84 trees, ``shapes``
+= 24 trees through the chunked dense path) cannot run whole on iree -- split
+them with ``--only`` / keep the affected cases in their own short processes.
+
 What it does
 ------------
 1. **Parity battery** -- dense vs the specialized engine (same tensors, same
@@ -360,16 +367,11 @@ def _engine_reference(
     backend: str,
     out_device: Any = None,
 ) -> torch.Tensor:
-    """Specialized-engine reference result.
-    ``per_row=True`` on the ``iree`` backend uses the ``numpy`` engine instead:
-    ``etl_engine._run_tree`` uploads ``xin`` once per call (``prepared[0]``,
-    ``etl_engine.py:1237-1242``) and then feeds that same device tensor to every
-    tree, so on iree ``evaluate(..., per_row=True)`` silently evaluates every
-    tree on ``x``'s row 0.  The numpy backend uses the per-tree ``xin`` and is
-    correct (see ``case_engine_per_row_iree_bug``).
+    """Specialized-engine reference result on ``backend`` (dense vs engine are
+    always compared on ONE backend, so ``backend`` is passed through unchanged;
+    the engine's ``per_row=True`` contract is pinned by
+    ``case_engine_per_row_iree_bug``).
     """
-    if backend == "iree" and per_row:
-        backend = "numpy"
     population = E.decode_population(values, types, sizes, input_len, 1)
     return E.evaluate(
         population, x, per_row=per_row, backend=backend, out_device=out_device
