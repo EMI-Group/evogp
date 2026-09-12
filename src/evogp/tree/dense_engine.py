@@ -468,7 +468,9 @@ DEFAULT_UPDATE_MODE = "grow"
 #: the ``~264*L`` emitted ops goes.  On by default; ``=0`` restores the full chain
 #: byte-for-byte (the in-process "before" of an A/B).
 PRUNE_ENV = "EVOGP_DENSE_PRUNE"
-DEFAULT_PRUNE = True#: The dense graphs live in the *same* compile cache as the specialized ones.
+DEFAULT_PRUNE = True
+
+#: The dense graphs live in the *same* compile cache as the specialized ones.
 DENSE_CACHE = CACHE
 
 #: ``opcode`` values (mirroring ``NType`` base values, plus 5 for padding).

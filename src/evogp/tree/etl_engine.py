@@ -101,13 +101,21 @@ is shared across processes (documented ETL limitation).
 Per-tree executable memo (in-process front table)
 -------------------------------------------------
 ``build_cached`` is a memoized build, but its HIT path still re-derives the
-cache key on every call (program re-encode + sha256, behind a one-slot
-pickle-fingerprint fast path): measured 160-207 us per tree on the two probe
-fixtures (30-63-node trees) when consecutive lookups carry DIFFERENT programs
--- which is exactly the per-tree loop's access pattern -- against 2.4-2.8 us
-per tree for a plain value-keyed dict lookup doing the same work (see
-``warm_path_findings.md`` section 11; the battery is
-``executable_memo_check.py``).  The engine therefore keeps a bounded LRU memo
+cache key on every call (program re-encode + sha256 -- replayed from the
+ETL-side content-fingerprint memo when the program content repeats, so a
+program that is new or has fallen out of that memo pays the full walk):
+measured (while the ETL fast path was still one-slot, i.e. every DIFFERENT
+program paid the walk) 160-207 us per tree on the two probe fixtures
+(30-63-node trees) when consecutive lookups carry DIFFERENT programs
+-- which is exactly the per-tree loop's access pattern, and the population's
+store of distinct programs is what keeps the derivation full -- against
+2.4-2.8 us per tree for a plain value-keyed dict lookup doing the same work
+(see ``warm_path_findings.md`` section 11; the battery is
+``executable_memo_check.py``).  The ETL side has since cut both ends of that
+per-call cost (the fingerprint memo above, plus a run-path static-validation
+fast path), so what this table buys now is a cheaper lookup, not an escape
+from the key walk: ~2.4-2.8 us against a ~17-25 us ``build_cached`` hit.  The
+engine therefore keeps a bounded LRU memo
 (:data:`_EXECUTABLE_MEMO`, one entry per executable, ``maxsize`` =
 :data:`CACHE`'s) keyed by
 :func:`_executable_key` -- everything ``build_cached`` keys on: ``id(_eval_step)``,
@@ -136,11 +144,15 @@ and the module always passes backend/device/``target_backends`` itself, so it
 cannot change what this module computes (see :func:`_executable_key`).
 
 ADOPTION POINT: the memo is a deliberate stopgap for the ETL-side ``etl.jit`` /
-pre-bound-runner machinery, which should absorb it -- a pre-bound runner skips
-both ``build_cached``'s per-call key derivation AND ``etl.run``'s statics
-re-validation.  When that lands, delete :data:`_EXECUTABLE_MEMO` (and the
-``memo_*`` counters in :func:`cache_stats`) in favor of the pre-bound runner;
-nothing else in the engine depends on it.
+pre-bound-runner machinery, which has since landed (``etl.jit`` ->
+``JitFunction`` / ``BoundJit``, exported from ``etl/__init__.py``; ETL branch
+``evogit-agent-T1-A160``, on top of the ``main`` checkout installed here) --
+a pre-bound runner keeps the bound statics out of the per-call key derivation
+and the run boundary now validates them through the per-executable
+content-fingerprint fast path instead of an O(#tokens) per-leaf walk.
+Adopting it still means deleting :data:`_EXECUTABLE_MEMO` (and the ``memo_*``
+counters in :func:`cache_stats`); nothing else in the engine depends on it, and
+the swap is deliberately NOT made here.
 
 Speed knob: ``ETL_DISABLE_LOCATIONS=1``
 --------------------------------------
@@ -320,9 +332,11 @@ class _ExecutableMemo(OrderedDict):
     """Bounded LRU ``key -> Executable`` memo in front of :data:`CACHE`.
 
     ``etl.build_cached`` memoizes the build, but its hit path re-derives the
-    cache key on every call (program re-encode + sha256); this table is the
-    plain dict lookup that skips it (see the module docstring's "Per-tree
-    executable memo" section for the measurements and the full contract).
+    cache key on every call (program re-encode + sha256, replayed from the
+    ETL-side content-fingerprint memo when the program content repeats); this
+    table is the plain dict lookup that skips it (see the module docstring's
+    "Per-tree executable memo" section for the measurements and the full
+    contract).
 
     * A hit returns the very ``Executable`` object :data:`CACHE` holds
       (``build_cached`` returns identity on a hit, and an executable is
@@ -1128,8 +1142,9 @@ def _executable(
 
     One value-keyed lookup in :data:`_EXECUTABLE_MEMO` (:func:`_executable_key`)
     in front of ``etl.build_cached``; only a memo miss builds the
-    ``TensorSpec`` and re-derives ``build_cached``'s own (far more expensive)
-    key.  ``_ExecutableMemo`` documents the contract and
+    ``TensorSpec`` and re-derives ``build_cached``'s own key -- still the more
+    expensive path (~17-25 us for a fingerprint-replay hit against this memo's
+    ~2.4-2.8 us).  ``_ExecutableMemo`` documents the contract and
     ``executable_memo_check.py`` pins it.
     """
     key = _executable_key(program, n_rows, input_len, backend_name, device, options)
@@ -1938,13 +1953,17 @@ class SpecializedRunner:
                 if executable is None:  # constant tree: nothing to run
                     results.append(None)
                     continue
-                # ADOPTION POINT (ETL-side, deliberately NOT implemented here):
-                # ``etl.run`` re-validates the statics by value in O(#tokens) per
-                # call and walks the executable's structure every time.  The
-                # upstream ``etl.jit`` / pre-bound-runner work would carry a
-                # bound invocation that skips both; nothing in this repository
-                # emulates it and /mnt/local-ssd/bchuang/etl is not modified --
-                # when it lands, this is the one line to swap.
+                # ADOPTION POINT (ETL-side facility landed, swap NOT made
+                # here): ``etl.run`` re-passes the statics by value and
+                # re-validates them on every call -- now through the
+                # per-executable content-fingerprint fast path (ETL bench,
+                # numpy: a 60-token program 303 -> ~67-71 us per call) -- and
+                # it walks the executable's structure.  ``etl.jit`` ->
+                # ``JitFunction`` / ``BoundJit`` now carries the bound
+                # invocation that skips the consumer-side lookup and key
+                # derivation; nothing in this repository emulates it and
+                # /mnt/local-ssd/bchuang/etl is not modified.  This is the one
+                # line to swap.
                 results.append(etl.run(executable, payload, tree.program))
         return tuple(results)
 
