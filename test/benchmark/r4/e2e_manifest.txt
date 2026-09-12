@@ -1,0 +1,56 @@
+# test/benchmark/r4/e2e_manifest.txt -- expected artifacts of the R4 after-round E2E round.
+#
+# Format (TAB-separated, one record per line; '#' starts a comment line):
+#
+#     id <TAB> fixture(fixture64|fixture200) <TAB> backend(numpy|iree) <TAB>
+#     mode(auto|dynamic|specialized) <TAB> kind(shadow|stock) <TAB> expected_json_path
+#
+#   * id / path  the runner (run_e2e.sh) derives the tag (UPPER(id)), the args, the per-record
+#                env and the results dir from its own config table; this file is the
+#                VALIDATOR's expectation list.  Keep the two in sync (3-place sync: the
+#                runner's ALL_IDS/SHADOW_IDS/STOCK_IDS arrays + its config_spec() id parser +
+#                this file -- ids, columns AND the id order).
+#   * fixture    check_e2e_r4.py verifies the record's `fixture` basename (forest_random.npz /
+#                forest200_tree64_random.npz) and `config.pop` (64 / 200) against this column.
+#   * backend /  the record's env must say `EVOGP_ETL_BACKEND=<backend>` and
+#     mode       `EVOGP_EVAL_MODE=<mode>` -- i.e. that the record really is the config it
+#                claims to be; `auto` is the engine's own route policy (dense on iree for these
+#                fixtures), `dynamic` is the `dense` alias, `specialized` is the R2-era route.
+#   * kind       shadow = the PATCHED etl checkout on the PYTHONPATH (`src:<shadow checkout>`);
+#                stock = the stock/editable etl install only (`src`).  check_e2e_r4.py reads the
+#                recorded PYTHONPATH out of the record's `notes` and/or the sibling `<id>.log`'s
+#                `etl:` identity line and requires it to match this column.
+#
+# All 14 records, in the runner's canonical order (ALL_IDS): the headline iree-auto pairs first
+# (a shadow cell immediately followed by its same-window stock counterpart), then the remaining
+# shadow cells -- numpy before iree, fixture64 before fixture200, auto -> dynamic -> specialized.
+# Every record is
+#     bench_gp.py --task eval64 [--fixture <200-tree fixture>] --eval-reps 25 --mem-guard-mb 8192
+#       [--backend iree] [--max-cold-builds 400 on the fixture200 iree cells only] --stage-probe
+# with ETL_DISABLE_LOCATIONS=1, EVOGP_ETL_BACKEND, EVOGP_EVAL_MODE and (iree only)
+# EVOGP_ETL_IREE_DEVICE=0 / EVOGP_ETL_IREE_OPT_LEVEL=O1 in the environment.  The 12 shadow cells
+# are the R3 Arm A matrix re-measured after the code round on the patched checkout; the 2 stock
+# cells exist only for the same-window patch-vs-stock delta on the headline iree-auto route.
+# ---------------------------------------------------------------------------
+# headline pairs: shadow iree-auto + its stock counterpart (same fixture, same window)
+# ---------------------------------------------------------------------------
+e2e_fixture64_iree_auto	fixture64	iree	auto	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture64_iree_auto.json
+e2e_stock_fixture64_iree_auto	fixture64	iree	auto	stock	test/benchmark/r4/results/after/e2e/e2e_stock_fixture64_iree_auto.json
+e2e_fixture200_iree_auto	fixture200	iree	auto	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture200_iree_auto.json
+e2e_stock_fixture200_iree_auto	fixture200	iree	auto	stock	test/benchmark/r4/results/after/e2e/e2e_stock_fixture200_iree_auto.json
+# ---------------------------------------------------------------------------
+# remaining shadow cells: numpy backend, both fixtures, auto -> dynamic -> specialized
+# ---------------------------------------------------------------------------
+e2e_fixture64_numpy_auto	fixture64	numpy	auto	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture64_numpy_auto.json
+e2e_fixture64_numpy_dynamic	fixture64	numpy	dynamic	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture64_numpy_dynamic.json
+e2e_fixture64_numpy_specialized	fixture64	numpy	specialized	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture64_numpy_specialized.json
+e2e_fixture200_numpy_auto	fixture200	numpy	auto	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture200_numpy_auto.json
+e2e_fixture200_numpy_dynamic	fixture200	numpy	dynamic	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture200_numpy_dynamic.json
+e2e_fixture200_numpy_specialized	fixture200	numpy	specialized	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture200_numpy_specialized.json
+# ---------------------------------------------------------------------------
+# remaining shadow cells: iree backend (the auto cells are the headline pair above)
+# ---------------------------------------------------------------------------
+e2e_fixture64_iree_dynamic	fixture64	iree	dynamic	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture64_iree_dynamic.json
+e2e_fixture64_iree_specialized	fixture64	iree	specialized	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture64_iree_specialized.json
+e2e_fixture200_iree_dynamic	fixture200	iree	dynamic	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture200_iree_dynamic.json
+e2e_fixture200_iree_specialized	fixture200	iree	specialized	shadow	test/benchmark/r4/results/after/e2e/e2e_fixture200_iree_specialized.json
