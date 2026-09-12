@@ -56,6 +56,40 @@ W2 = the GPU-0 companion), so within-window ratios are the robust ones.
   pinned-specialized 1181/1500 in 595 s, fds flat at 91). The b2 ids stay outside the frozen manifests, and
   this is a "did not reproduce" datapoint, not proof of the original cause.
 
+## Round 4 (GPU, pure-forward round — before-baselines recorded; verdict pending)
+
+Round 4 (`r4/`) adds a **second measurement type** next to the end-to-end numbers R1–R3 quote: the **pure
+internal graph forward** — the compiled forward pass in a tight loop on a fixed device-resident `x`, with
+no readback, no host assembly and no per-call key derivation, i.e. the inner-loop scenario where the
+forward pass dominates. It is a first-class harness task (`--task eval-pure`, runner core `pure_forward.py`;
+the existing end-to-end tasks are unchanged), and the `--e2e-companion` block still prices the real
+`problem.evaluate(forest)` in the same process / same warm cache. The **before** campaign is recorded at
+`evogp e272714` / `etl 51a7141` (the frozen `build_{dense,specialized}_runner` APIs do not exist there, so
+every record is `local-fallback:*`), 8/8 configs complete (2 fixtures × dense/specialized × numpy/iree),
+one process per config, GPU 6.
+
+* **Headline (pure `median_per_invocation_ms`, one full-population forward; fixture64 / fixture200)** —
+  iree-dense **1.587 / 3.696 ms** vs numpy-dense 128.9 / 181.7 ms; specialized-numpy 8.390 / 49.332 ms vs
+  specialized-iree 53.2 / 214.7 ms. On iree dense beats specialized 33.5×/58.1× (per-tree dispatch
+  dominates: 53/171 `etl.run` calls at ≈1.0–1.3 ms each); on numpy the ordering flips (specialized
+  15.4×/3.68× faster than dense). The companion delta (E2E − pure, same process) prices the host glue
+  + readback: +1.4–7.2 ms on the iree rows, but ≈1× the pure number on numpy-specialized (+11.7 /
+  +47.8 ms). Cold construction is reported separately, never mixed in (iree compile 13.5–71.3 s vs the
+  1.6–214.7 ms warm numbers). Full table, derived observations and caveats: `r4/SUMMARY.md`.
+* **Where it lives** — `r4/SUMMARY.md` (analysis of record, incl. the after-round checklist §H),
+  `r4/README.md` (protocol, flag/JSON glossary, frozen-vs-fallback labeling), `r4/RUNLOG.md` (operator
+  log), records under `r4/results/` (+ `r4/results/backend_agreement/` pre-flight). The **after** round
+  (frozen runner APIs + etl `jit`/hot-path work) re-runs this protocol and folds the verdict into
+  `REPORT.md` — the Round-3 verdict above remains current until then.
+* **Gates / re-run** — `test/benchmark/r4/run_pure.sh` (`--group numpy|iree|all`, `--only <id>`, `--list`,
+  `--dry-run`), after the IREE agreement pre-flight `test/benchmark/r4/run_agreement_r4.sh` +
+  `<venv>/bin/python test/benchmark/r4/check_agreement_r4.py` (PASS, 30 checks); validator
+  `python3 test/benchmark/r4/check_r4.py --manifest test/benchmark/r4/manifest.txt --require-companion`
+  → 8 complete / 369 checks / 0 failures.
+* **Legacy side** — has no separable pure forward (its `evaluate` is one fused kernel including the
+  readback and the host assembly): `--task eval-pure` skips it by design (exit 3, `skipped: true`), so
+  R4 has no old-vs-new row.
+
 ## R2 round (GPU, baseline)
 
 Round 2 (`r2/`) is the baseline round: the same side-agnostic harness on the same box, comparing the legacy
@@ -89,9 +123,10 @@ CUDA engine against **both** ETL backends (default `numpy` CPU and opt-in IREE-c
 | `SPEC.md` | **Frozen methodology** (v1, 2026-09-11): workloads W1–W3, config matrix C0–C7, fairness rules, required JSON schema, priority order. Do not edit. |
 | `SUMMARY.md` | **Round-1 headline report** — verdict, per-config old-vs-new table (all numbers recomputed from the raw JSONs), why the gap looks like this, caveats, correctness anchor + validator results, reproducibility. |
 | `REPORT.md` | **Analysis of record** — leads with the **Round 3 verdict** (R2 → Arm A / Arm B, both engines), then the R2 baseline: warm/compile-separated old-vs-new comparison (legacy CUDA vs ETL `numpy`/`iree`), computed from `new/results/r2/` + `legacy/results/r2/`. |
-| `bench_gp.py` | Side-agnostic harness: drives the same public API against either engine, selected by `PYTHONPATH`; one JSON per run + per-generation/per-call timings, plus the R2 flags (`--backend`, `--data-rows`, `--max-cold-builds`, `--stage-probe`, `--mem-guard-mb`). |
+| `bench_gp.py` | Side-agnostic harness: drives the same public API against either engine, selected by `PYTHONPATH`; one JSON per run + per-generation/per-call timings, the R2 flags (`--backend`, `--data-rows`, `--max-cold-builds`, `--stage-probe`, `--mem-guard-mb`) and the R4 pure-forward task `--task eval-pure` (`--mode`, `--invocations`, `--warmup`, `--e2e-companion`, `--pure-runner`; runner core `pure_forward.py`). |
 | `stage_probe.py` | The `--stage-probe` module: runtime monkeypatching of the new engine's hot call sites into a cold-build / cache-hit / run / readback / upload split (self-test: `python3 test/benchmark/stage_probe.py`). |
 | `r2/` | **R2 protocol + the executed round 3**: `run_all.sh` (35-config runner), `manifest.txt` + `check_r2.py` (validator), `README.md`, `RUNLOG.md` (operator log), `backend_agreement.md` + `check_backend_agreement.py` (IREE-vs-numpy pre-flight), and the `round3/` sub-node (round 3 Arm A + Arm B: runners, manifests, checkers, records, `SUMMARY.md` / `SUMMARY_armB.md`). |
+| `r4/` | **Round 4 — pure-forward round (before-baselines recorded)**: `run_pure.sh` (8-config matrix runner), `manifest.txt` + `check_r4.py` (record validator with optional companion gate), `run_agreement_r4.sh` + `check_agreement_r4.py` (IREE pre-flight + gate), `README.md` (protocol, flag/JSON glossary, frozen-vs-fallback discipline), `SUMMARY.md` (before-baseline analysis of record + after-round checklist), `RUNLOG.md`, records in `results/` (+ `smoke/`, `backend_agreement/`). |
 | `fixtures/` | The 200-tree cross-side fixture `forest200_tree64_random.npz` (same npz schema as `../goldens/forest_random.npz`) + provenance `README.md` + eval sanity records; generator `make_r2_fixtures.py`. |
 | `new/` | NEW side: `run_matrix.sh` (round-1 config runner), `check_smoke.py` (JSON validator), `NOTES.md` (harness/schema, R2 flags, stage probe, smoke suite, matrix runs, deviations), `results/` (round-1 JSONs + logs) and `results/r2/` (R2 records). |
 | `legacy/` | OLD side: `setup_legacy.sh` (materialize + build `b613503`), `run_matrix.py` (config runner), `check_results.py` (JSON validator, incl. the C5 golden cross-check), `BUILD_NOTES.md` (build recipe/`.so` identity/GPU-7 fault), `NOTES.md`, `results/` (8 matrix JSONs + logs; `c4_rerun/` = noisier variance datapoint, not a headline record). |
