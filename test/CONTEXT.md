@@ -113,6 +113,9 @@ Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) 
   coverage of the robotics/classification problems, and nothing in this directory is wired into CI.
 - `etl_jit_probe.py` is bound to the `etl` package in the read-only foreign repo
   `/mnt/local-ssd/bchuang/etl`; it needs an idle GPU for quotable timings (the host is shared).
+- `etl_jit_probe.py` emits no machine-readable output (stdout report table only; exit 1 when one of its own
+  checks fails). The JSON-emitting ETL probes are `../src/evogp/tests/perf_probe.py` and the unmerged
+  `bench_gp.py` (see the `test/benchmark/` section above).
 
 ## Test Strategy
 - Manual smoke sequence for a post-rewrite change: `test/fix_bug.py` (public-API numerics, ~3 s) ->
