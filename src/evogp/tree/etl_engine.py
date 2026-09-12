@@ -46,7 +46,9 @@ executes only the compiled forward pass (one ``etl.run`` per non-constant tree,
 staged per-tree inputs, raw results, no readback and no cache lookup at all).
 It changes nothing about ``evaluate`` / ``sr_fitness``, is called by nothing in
 the library and is documented -- with the dense twin,
-``dense_engine.build_dense_runner`` -- in ``RUNNER_HOOKS.md``.Backend & device policy
+``dense_engine.build_dense_runner`` -- in ``RUNNER_HOOKS.md``.
+
+Backend & device policy
 -----------------------
 * Default backend: ``"numpy"`` (ETL's reference interpreter, **cpu**).
   Round-2 measurements make this the only sane default: a numpy executable is
@@ -249,6 +251,8 @@ __all__ = [
     "DEFAULT_CACHE_SIZE",
     "DecodedTree",
     "Population",
+    "SpecializedRunner",
+    "build_specialized_runner",
     "cache_stats",
     "clear_cache",
     "decode_population",
