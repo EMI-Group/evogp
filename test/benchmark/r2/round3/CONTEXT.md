@@ -25,7 +25,7 @@ Owned artifacts: the matrix runner, the backend-agreement pre-flight runner, the
 - GPU 6 by default, never GPU 7 (hardware ECC fault); treat medians as ±10 % on this shared box.
 - The R2 stage probe patches the specialized engine's call sites only, so a dense-route run may carry an empty/degenerate `stages` block — documented limitation, not a gate failure.
 - IREE stays opt-in and explicitly non-primary; `O2`/`O3` are never used, and no IREE number is quotable until the agreement gate passes.
-- `last_run.txt` and the agreement runner's `run_agreement_r3.last_run.txt` are generated output: delete freely, never commit.
+- `last_run.txt` (the matrix runner's id→exit-code table) is generated output — `.gitignore`d, delete freely. The agreement runner's `results/backend_agreement/run_agreement_r3.last_run.txt` is the executed pre-flight's arm→exit-code evidence and stays committed.
 
 ## Status
 Scaffold in place (runner, manifest, validators, comparison tool, protocol doc) and verified without GPU execution.
