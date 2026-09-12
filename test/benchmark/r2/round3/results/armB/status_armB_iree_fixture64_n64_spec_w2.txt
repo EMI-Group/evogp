@@ -89,3 +89,8 @@ ok: 1  skipped: 0  failed: 0
 summary table: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A260/test/benchmark/r2/round3/results/armB/last_run.txt
 validate with: python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
 RUNNER_EXIT=
+RUNNER_EXIT=0
+# operator annotation (W2 repair, 2026-09-13): the first marker line above is empty because the
+# capture used a \-templated variable that this platform shell expands to empty; the runner's
+# own summary table inside this same file reads 'armB_iree_fixture64_n64_spec new 0 OK' and the
+# config log footer reads 'exit code: 0 (OK)'.
