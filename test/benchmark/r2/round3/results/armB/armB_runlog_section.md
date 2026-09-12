@@ -1,7 +1,7 @@
 ---
 ## Arm B (9 configs: numpy + IREE auto/spec on the PATCHED ETL checkout) — <WINDOW: date + time range>
-**Operator:** <fill in when the Arm B windows run; later phases APPEND to this section — never edit the
-paragraphs above them, and never touch the R2/R3 sections above this one>.
+**Operator:** the Arm B round operators (tooling + agreement pre-flight + four matrix windows + the
+`iree_sr_b2` re-attempt + the W2 companion window).
 **Scope:** `test/benchmark/r2/round3/**` only — the Arm B tooling (`run_all_armB.sh`,
 `run_agreement_armB.sh`, `manifest_armB.txt`, `check_agreement_armB.py`,
 `selftest_check_agreement_armB.py`), the nine Arm B configs
@@ -887,4 +887,6 @@ re-names + the two recovered consoles, minus the mis-named file removed), `c24f9
 literal `${...}` spelling restored) and this follow-up commit, which carries the W2 subsection above,
 `results/armB/status_check_r3_armB_w2_final.txt` (the re-run gate, `CHECKER_EXIT=0`), the five window-6 anomaly
 bullets and the post-run state appended to `windows.md` window 6. Every W2 config commit used `git add -f` for the
+`*.log` files (`.gitignore:32` hides `*.log`, exactly as for Arm A's records).
+llets and the post-run state appended to `windows.md` window 6. Every W2 config commit used `git add -f` for the
 `*.log` files (`.gitignore:32` hides `*.log`, exactly as for Arm A's records).
