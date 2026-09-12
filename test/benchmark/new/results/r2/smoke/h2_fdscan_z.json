@@ -1,0 +1,195 @@
+{
+  "tag": "h2_fdscan_z",
+  "side": "new",
+  "task": "evalfresh",
+  "eval_kind": "fresh",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A158/test/goldens/forest_random.npz",
+  "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A158/src/evogp/__init__.py",
+  "evogp_commit": "38127243843b1ab71fc4e29ee64466132a794e68",
+  "etl_version": "0.1.0",
+  "problem": "W3' fresh population: Forest.random_generate(pop_size=16, descriptor=W1-style GenerateDescriptor(max_tree_len=32)) + SymbolicRegression(datapoints=x[(64, 2)], labels=labels[(64, 1)]) from test/goldens/forest_random.npz",
+  "config": {
+    "pop": 16,
+    "tree_len": 32,
+    "seed": 0,
+    "reps": 1,
+    "eval_reps": 1,
+    "backend": "iree",
+    "iree_device": 0,
+    "iree_opt_level": "O1",
+    "data_rows": null,
+    "mem_guard_mb": 8192,
+    "max_cold_builds": 40,
+    "allow_cold_builds": false,
+    "stage_probe": true
+  },
+  "env": {
+    "ETL_DISABLE_LOCATIONS": "1",
+    "EVOGP_ETL_BACKEND": "iree",
+    "EVOGP_ETL_IREE_DEVICE": "0",
+    "EVOGP_ETL_IREE_OPT_LEVEL": "O1",
+    "CUDA_VISIBLE_DEVICES": "6"
+  },
+  "gpu": {
+    "cuda_visible_devices": "6",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4",
+    "nvidia_smi_index": 6,
+    "nvidia_smi_used_mb_start": 4,
+    "free_mb_start": 48409,
+    "peak_allocated_bytes": 85504,
+    "peak_reserved_bytes": 2097152,
+    "nvidia_smi_used_mb_end": 443
+  },
+  "per_call_ms": [
+    4367.602556943893
+  ],
+  "first_call_ms": 4367.602556943893,
+  "median_warm_ms": null,
+  "wall_s": 4.51115333661437,
+  "partial": false,
+  "projection": null,
+  "complete": true,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 0.13692880049347878,
+      "wall_s": 4.51115333661437,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "per_call_ms": [
+        4367.602556943893
+      ],
+      "first_call_ms": 4367.602556943893,
+      "median_warm_ms": null
+    }
+  ],
+  "notes": "",
+  "started_at": "2026-09-12T14:38:35+08:00",
+  "finished_at": "2026-09-12T14:38:40+08:00",
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A158",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T3_A158/test/benchmark/bench_gp.py",
+  "skipped": false,
+  "skip_reason": null,
+  "fds": {
+    "start": 39,
+    "after_cold": 571,
+    "end": 571
+  },
+  "nofile_rlimit": [
+    65536,
+    65536
+  ],
+  "stages": {
+    "probe": "stage_probe/1",
+    "side": "new",
+    "partial": false,
+    "note": "",
+    "status": {
+      "probe": "stage_probe/1",
+      "installed": true,
+      "partial": false,
+      "note": "",
+      "engine_module": "evogp.tree.etl_engine",
+      "etl_module": "etl",
+      "wrapped": [
+        "decode_population",
+        "_run_tree",
+        "build_cached",
+        "run",
+        "from_numpy",
+        "evaluate",
+        "sr_fitness"
+      ],
+      "missing": [],
+      "counters": "CACHE.hits/CACHE.misses",
+      "nested_runs": 0
+    },
+    "reps": [
+      {
+        "rep": 0,
+        "kind": "eval",
+        "records": [
+          {
+            "i": 0,
+            "total_ms": 4367.603,
+            "probe_span_ms": 4367.635,
+            "decode_ms": 0.951,
+            "decode_calls": 1,
+            "sr_fitness_ms": 4343.098,
+            "sr_fitness_calls": 1,
+            "evaluate_ms": 4326.589,
+            "evaluate_calls": 1,
+            "loss_ms": 16.509,
+            "misc_ms": 23.554,
+            "build_ms": 4281.71,
+            "build_calls": 15,
+            "build_hit_ms": 0.0,
+            "build_hits": 0,
+            "build_miss_ms": 4281.71,
+            "build_misses": 15,
+            "run_ms": 30.915,
+            "run_calls": 15,
+            "readback_ms": 12.941,
+            "readback_calls": 15,
+            "upload_ms": 1.023,
+            "trees_total": 16,
+            "trees_invoked": 15,
+            "h2d_calls": 1,
+            "d2h_calls": 15
+          }
+        ],
+        "totals": {
+          "calls": 1,
+          "cold_builds": 15,
+          "cold_build_ms": 4281.71,
+          "total_build_misses": 15,
+          "total_build_miss_ms": 4281.71,
+          "warm_misses": 0,
+          "warm_build_miss_ms": 0,
+          "total_ms": 4367.603,
+          "probe_span_ms": 4367.635,
+          "decode_ms": 0.951,
+          "sr_fitness_ms": 4343.098,
+          "evaluate_ms": 4326.589,
+          "loss_ms": 16.509,
+          "misc_ms": 23.554,
+          "build_ms": 4281.71,
+          "build_hit_ms": 0.0,
+          "build_miss_ms": 4281.71,
+          "run_ms": 30.915,
+          "readback_ms": 12.941,
+          "upload_ms": 1.023,
+          "decode_calls": 1,
+          "sr_fitness_calls": 1,
+          "evaluate_calls": 1,
+          "build_calls": 15,
+          "build_hits": 0,
+          "build_misses": 15,
+          "run_calls": 15,
+          "readback_calls": 15,
+          "trees_invoked": 15,
+          "trees_total": 16,
+          "h2d_calls": 1,
+          "d2h_calls": 15
+        }
+      }
+    ]
+  },
+  "cold_builds": {
+    "enforced": true,
+    "limit": 40,
+    "allow_cold_builds": false,
+    "misses_start": 0,
+    "misses_last": 15,
+    "misses_max": 15,
+    "exceeded": false
+  },
+  "construct_s": 0.13692880049347878,
+  "harness_wall_s": 5.09746590256691
+}
