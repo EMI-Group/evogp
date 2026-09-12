@@ -326,6 +326,7 @@ __all__ = [
     "evaluate_dense",
     "plan_dense",
     "prepare_dense",
+    "resolve_auto_min_pop",
     "resolve_backend_name",
     "resolve_eval_mode",
     "should_use_dense",
