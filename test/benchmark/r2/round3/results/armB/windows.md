@@ -432,3 +432,75 @@ time to a config.
   job grew 1694 → 4496 MiB; uptime `23:51:25 up 252 days, 22:06, 45 users, load average: 68.60, 85.85,
   88.10`; no `bench_gp.py`/`iree-compile` process was left behind and the shared lock was released —
   `flock -n` re-acquires it immediately. Every attempt's JSON ends `complete: true`.)
+
+---
+
+## Window 6 — 2026-09-12 15:56 UTC (23:56 HKT) — Arm B **companion re-measurement (W2)**, all nine matrix configs on GPU 0
+
+- purpose / phase: **the companion window (the R3-W2 pattern)**. Every Arm B matrix window so far (windows 2/3/4)
+  ran on the runner-default GPU 6 while the ≈30 GB `syfang` tenant was resident and bursting to 85–100 %, so the
+  warm-delay deltas those records produced are *window-paired and noisy*. This window re-runs **all nine Arm B
+  matrix configs, one config per `run_all_armB.sh --only` invocation**, on the least-contended device found at
+  window start; the W2 records therefore become the companion records of record, exactly how R3 handled its own
+  contended light group. W1 stays retrievable in git history (pointer sha recorded in `armB_runlog_section.md`)
+  and the runner logs are append-only, so both windows remain visible side by side in `results/armB/new/<id>.log`
+  (the W1 JSONs were overwritten by the W2 snapshots and remain readable with `git show <sha>:<path>`).
+  **No Arm A/R2 record, no runner/checker script, no `manifest_armB.txt` row and no `../RUNLOG.md` line is
+  touched by this window.**
+- commands: nine foreground invocations, run order = the manifest's group order (iree-spec → iree → numpy), each
+  `CUDA_VISIBLE_DEVICES=0 bash test/benchmark/r2/round3/run_all_armB.sh --only <id>` with the console captured to
+  `results/armB/status_<id>_w2.txt` (the W1 `status_<id>.txt` files are untouched); then
+  `python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages`
+  captured verbatim to `results/armB/status_check_r3_armB_w2_final.txt`. The per-config command lines are the
+  `cmd:` header line of each `results/armB/new/<id>.log`; the shadow probes are the seventh block of
+  `etl_import_probe.txt`. The Arm B agreement pre-flight was **not** re-run — it is contention-independent and
+  stays as recorded.
+- cwd / interpreter: repository root of the companion-window worktree, `/mnt/local-ssd/bchuang/evox/.venv/bin/python`
+- PYTHONPATH: `src:/tmp/evogp_etl_patched_51a7141`   (shadow verified at window start, see
+  `etl_import_probe.txt`; the three patched-file hashes are unchanged since the agreement window)
+- CUDA_VISIBLE_DEVICES: **0**   (device decision under the window rule — least foreign utilization, then the
+  free-memory floor, then lower `memory.used`; rationale below the snapshot)
+- nvidia-smi (ALL GPUs), 2026-09-12T23:56:11+08:00 (UTC 15:56:11):
+  ```text
+  0, NVIDIA RTX A6000, 0, 1, 49140
+  1, NVIDIA RTX A6000, 0, 1, 49140
+  2, NVIDIA RTX A6000, 98, 21082, 49140
+  3, NVIDIA RTX A6000, 22, 15317, 49140
+  4, NVIDIA RTX A6000, 25, 15389, 49140
+  5, NVIDIA RTX A6000, 0, 24395, 49140
+  6, NVIDIA RTX A6000, 39, 30439, 49140
+  7, NVIDIA RTX A6000, 0, 1, 46068
+  ```
+  and the 10-sample / 1 s utilization series taken with it (`index, util%, mem.used MiB`):
+  `0, 0, 1 | 1, 0, 1 | 2, 44→100 | 3, 34–58 | 4, 25–70 | 5, 0, 24395 | 6, 4–100 | 7, 0, 1` — GPUs 0 and 1 sat at
+  `0 %, 1 MiB` in **every** sample; GPU 6 (the W1 device) oscillated `17 / 85 / 88 / 4 / 63 / 10 / 47 / 38 / 100 /
+  16 / 97 %` across the same series.
+- compute apps (pid → user, MiB), same snapshot:
+  - GPU 0 (`GPU-7ca10c94…`): no compute apps (1 MiB resident) — **chosen device, tenant-free**
+  - GPU 1 (`GPU-38ba30b9…`): no compute apps (1 MiB resident) — the idle tie partner, runner-up
+  - GPU 2 (`GPU-01343fc6…`): 1228200 → whhu (VLLM::EngineCore, up 35 d) 16454; 2467449 → hyqiu
+    (`task-vectors/bin/python -u`, up 20 m) 4496
+  - GPU 3 (`GPU-25828e67…`): 1285079 → hyqiu (`merge-qwen/bin/python -u`, up 1 d 12 h) 15260
+  - GPU 4 (`GPU-098b70f2…`): 1284680 → hyqiu (`merge-qwen/bin/python -u`, up 1 d 12 h) 15300
+  - GPU 5 (`GPU-a4c47eb9…`): 1228191 → whhu (VLLM::EngineCore, up 35 d) 24274
+  - GPU 6 (`GPU-b8253071…`): 2246336 → syfang (`python main.py --config exps/video_attention.json`, up 4 h
+    00 m) 30406 — the W1 device and the tenant whose bursts made W1 window-paired
+  - GPU 7 (`GPU-0f5f6bfd…`): no compute apps (1 MiB resident) — the hardware-ECC-fault card (2 263
+    uncorrected volatile ECC errors), never used
+- **device decision (recorded rationale):** GPUs 0 and 1 were the only tenant-free, fully idle devices
+  (0 % utilization and 1 MiB resident in all 10 samples), and both have ≈48.7 GiB free device memory — far above
+  the ≥12 GB requirement and this round's `--mem-guard-mb 8192` floor (the guard compares free device memory).
+  They tie on both criteria (identical `utilization.gpu` and identical `memory.used = 1 MiB`), so the tie-break
+  was the lower index. GPU 0 is also the device of R3's own companion (Arm A light-group) window and the
+  documented free fallback of window 5, so this window's `np_*` arms are additionally *device-paired* with their
+  Arm A companions; GPU 5 was idle but carries 24 395 MiB of whhu's VLLM; GPUs 2/3/4 were busy (22–100 %);
+  GPU 6 (the W1 device) was bursting to 100 %; GPU 7 is excluded permanently (hardware ECC fault).
+- uptime / loadavg: `23:56:11 up 252 days, 22:11, 45 users, load average: 84.74, 87.11, 88.22`
+  (`/proc/loadavg` 84.74 87.11 88.22 80/14050)
+- ulimit -n (after the runner's raise in each invocation): 65536
+- contention notes: the *device* is tenant-free (the point of the window: it removes the W1 device-side
+  contention source), while the *host* stays busy at 45 users / loadavg ≈85–88 — relevant because the `numpy`
+  group and the IREE compile phase are host-side. Per-config device contention is the `gpu (before)/(after)` pair
+  in each committed log; the contention-independent facts of this window are the exit codes, the build/miss
+  counts, the fd telemetry and the bitwise-identical `sr` fitness trajectories. Treat the medians as ±10 % as
+  always on this shared box.
