@@ -1,8 +1,10 @@
-"""Parity + measurement harness for the dense evaluator prototype (SPIKE).
+"""Parity + measurement harness for the integrated dense (one-graph) evaluator.
 
 Runnable script, deliberately NOT a pytest module (no ``test_`` prefix, no
-pytest import): it re-derives the numbers quoted in the spike report and is meant
-to be run by hand.
+pytest import): it re-derives the dense-evaluator numbers recorded in
+``DENSE_EVAL.md`` (the file name is historical -- it dates from the round in
+which the evaluator was written, and the name is kept because the adversarial
+battery imports this module's tree builders) and is meant to be run by hand.
 
     # numpy (CPU) parity battery + measurements
     PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 \
