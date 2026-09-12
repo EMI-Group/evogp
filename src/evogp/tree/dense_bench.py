@@ -226,6 +226,29 @@ def _git_head() -> Optional[str]:
         return None
 
 
+def _smi_proc_mb(pid: Optional[int] = None) -> Optional[float]:
+    """One-shot ``nvidia-smi`` device memory (MiB) owned by this process."""
+    try:
+        out = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-compute-apps=pid,used_memory",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout
+    except Exception:
+        return None
+    target = os.getpid() if pid is None else pid
+    for line in out.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) >= 2 and parts[0].isdigit() and int(parts[0]) == target:
+            return float(parts[1])
+    return 0.0
+
+
 def _rss_mb() -> float:
     """Current host RSS of this process (MiB) -- the numpy backend is host-side."""
     try:
@@ -452,6 +475,7 @@ class Bench:
         # host-memory model of the dense numpy path: bytes per (pop x row) element,
         # calibrated from the measured host RSS deltas (default from the L=32 probe)
         self._host_measurements: List[float] = []
+        self._device_measurements: List[float] = []
 
     # -- JSON (merged across the per-stage processes) -----------------------
     def _load_results(self) -> Dict[str, Any]:
@@ -558,6 +582,12 @@ class Bench:
             return min(self._host_measurements)
         return float(self.args.default_host_bytes_per_pop_row)
 
+    def _device_bytes_per_pn(self) -> float:
+        """Device bytes per (pop x row) element, from the measured peaks."""
+        if self._device_measurements:
+            return min(self._device_measurements)
+        return float(self.args.default_host_bytes_per_pop_row)
+
     def _compile_estimate_s(self, kind: str) -> float:
         if kind == "dense" and self._dense_compiles:
             return 1.5 * max(self._dense_compiles)
@@ -585,31 +615,41 @@ class Bench:
         est_total_s = self._compile_estimate_s("dense") + (
             repeats + self.args.warmup + 2
         ) * est_run_s
-        host_bytes_per_pn = self._host_bytes_per_pn()
         chunk_elements = max(1, record["plan"]["p_chunk"]) * max(
             1, record["plan"]["n_chunk"]
         )
-        host_mb = host_bytes_per_pn * chunk_elements / (1024.0 * 1024.0)
-        if host_mb > self.args.max_host_mb:
+        numpy_backend = self.backend == "numpy"
+        if numpy_backend:
+            bytes_per_pn = self._host_bytes_per_pn()
+            limit_mb = self.args.max_host_mb
+            what = "host RSS"
+        else:
+            bytes_per_pn = self._device_bytes_per_pn()
+            limit_mb = self.args.max_device_mb
+            what = "device memory"
+        host_mb = bytes_per_pn * chunk_elements / (1024.0 * 1024.0)
+        if host_mb > limit_mb:
             estimate_ms, note = self._dense_estimate_ms(pop_size, rows)
             record["dense"] = {
-                "status": "skipped_host_memory",
+                "status": (
+                    "skipped_host_memory" if numpy_backend else "skipped_device_memory"
+                ),
                 "warm_ms": round(estimate_ms, 3),
                 "warm_repeats": 0,
                 "source": note,
                 "host_estimate_mb": round(host_mb, 1),
-                "host_model_bytes_per_chunk_element": round(host_bytes_per_pn, 1),
+                "model_bytes_per_chunk_element": round(bytes_per_pn, 1),
+                "limit_mb": limit_mb,
                 "note": (
-                    f"predicted per-chunk host RSS {host_mb:.0f} MB > "
-                    f"--max-host-mb {self.args.max_host_mb:.0f} MB (the numpy "
-                    f"interpreter keeps ~{host_bytes_per_pn:.0f} bytes per pop x row "
+                    f"predicted per-chunk {what} {host_mb:.0f} MB > limit "
+                    f"{limit_mb:.0f} MB ({bytes_per_pn:.0f} bytes per pop x row "
                     f"element, chunk {record['plan']['p_chunk']}x"
                     f"{record['plan']['n_chunk']} x {record['plan']['p_chunks']}*"
                     f"{record['plan']['n_chunks']}); warm_ms from {note}"
                 ),
             }
             print(
-                f"  dense   SKIP (host RSS model {host_mb:.0f} MB) -> extrapolated "
+                f"  dense   SKIP ({what} model {host_mb:.0f} MB) -> extrapolated "
                 f"{estimate_ms:.1f} ms ({note})",
                 flush=True,
             )
@@ -654,6 +694,7 @@ class Bench:
         }
         if self.args.smi:
             torch.cuda.reset_peak_memory_stats()
+            device_before = _smi_proc_mb()
             sampler = SmiSampler(self.args.smi_index)
             sampler.start()
             try:
@@ -664,6 +705,17 @@ class Bench:
                 torch.cuda.max_memory_allocated() / (1024.0 * 1024.0), 2
             )
             memory["memory_call_matches"] = _compare(cold_out, memory_out)
+            memory["device_before_mb"] = device_before
+            if device_before is not None and memory["smi"]["peak_proc_mb"]:
+                device_delta = max(0.0, memory["smi"]["peak_proc_mb"] - device_before)
+                memory["device_delta_mb"] = round(device_delta, 1)
+                memory["device_bytes_per_pop_row"] = round(
+                    device_delta * 1024.0 * 1024.0 / chunk_elements, 1
+                )
+                if device_delta > 0 and chunk_elements >= 4096:
+                    self._device_measurements.append(
+                        device_delta * 1024.0 * 1024.0 / chunk_elements
+                    )
 
         times, out = _timed(
             lambda: _sr_fitness(forest, inputs, labels), repeats, self.args.warmup
@@ -1141,6 +1193,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip a dense case whose predicted host RSS exceeds this (numpy backend)",
     )
     parser.add_argument(
+        "--max-device-mb",
+        type=float,
+        default=8000.0,
+        help="skip a dense case whose predicted device footprint exceeds this (iree)",
+    )
+    parser.add_argument(
         "--default-host-bytes-per-pop-row",
         type=float,
         default=21400.0,
@@ -1209,6 +1267,8 @@ def print_table(results: Dict[str, Any]) -> None:
         if dense.get("status") != "measured":
             source = str(dense.get("status", "-"))
         rss = (dense.get("memory") or {}).get("host_rss_delta_mb")
+        if rss is None:
+            rss = dense.get("memory", {}).get("device_delta_mb")
         if rss is None:
             rss = dense.get("host_estimate_mb")
         print(

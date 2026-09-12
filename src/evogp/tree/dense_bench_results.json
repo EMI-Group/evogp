@@ -4,12 +4,31 @@
       "backend": "numpy",
       "budget_mb": 2048.0,
       "dense": {
-        "host_estimate_mb": 204086.3,
-        "note": "predicted host RSS 204086 MB > --max-host-mb 6000 MB (the numpy interpreter keeps ~21400 bytes per pop x row element); warm_ms from fit(origin,P=1000,N=64)",
-        "source": "fit(origin,P=1000,N=64)",
-        "status": "skipped_host_memory",
-        "warm_ms": 85639.779,
-        "warm_repeats": 0
+        "cache_hits_after_cold": 0,
+        "cache_misses": 1,
+        "cold_ms": 74617.511,
+        "compile_ms": 0.0,
+        "finite_fraction": 0.979,
+        "memory": {
+          "host_bytes_per_pop_row": 5.9,
+          "host_note": "current host RSS (/proc/self/statm) before the cold call / after the cold call / after the timed calls; the delta includes the compile and the run and is the calibration of the harness' own host-memory guard",
+          "host_rss_after_cold_mb": 3904.9,
+          "host_rss_after_warm_mb": 3789.1,
+          "host_rss_before_mb": 3733.2,
+          "host_rss_delta_mb": 55.9,
+          "model_out_mb": 38.147,
+          "model_peak_mb": 64.148,
+          "smi": null,
+          "torch_peak_alloc_mb": null
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 77472.969,
+        "warm_ms_all": [
+          77472.969
+        ],
+        "warm_repeats": 1,
+        "warmup": 0
       },
       "input_len": 4,
       "max_layer_cnt": 5,
@@ -33,6 +52,46 @@
         "trace_len": 32,
         "update_mode": "grow"
       },
+      "plans_previous": [
+        {
+          "budget_mb": 2048.0,
+          "dense_supported": true,
+          "input_len": 4,
+          "max_tree_length": 31,
+          "n_chunk": 4793,
+          "n_chunks": 3,
+          "n_rows": 10000,
+          "out_mb": 38.147,
+          "p_chunk": 1000,
+          "p_chunks": 1,
+          "peak_bytes": 2147776000,
+          "peak_mb": 2048.279,
+          "per_row": false,
+          "pop_size": 1000,
+          "row_len": 32,
+          "trace_len": 32,
+          "update_mode": "grow"
+        },
+        {
+          "budget_mb": 64.0,
+          "dense_supported": true,
+          "input_len": 4,
+          "max_tree_length": 31,
+          "n_chunk": 149,
+          "n_chunks": 68,
+          "n_rows": 10000,
+          "out_mb": 38.147,
+          "p_chunk": 1000,
+          "p_chunks": 1,
+          "peak_bytes": 67264000,
+          "peak_mb": 64.148,
+          "per_row": false,
+          "pop_size": 1000,
+          "row_len": 32,
+          "trace_len": 32,
+          "update_mode": "grow"
+        }
+      ],
       "pop": 1000,
       "programs": {
         "constant_trees": 104,
@@ -40,8 +99,93 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 0.007,
       "rows": 10000,
       "seed": 0,
+      "specialized": {
+        "cache_hits": 103,
+        "cache_misses": 793,
+        "cold_ms": 5005.428,
+        "compile_ms": 4449.882,
+        "decode_ms": 38.759,
+        "finite_fraction": 0.979,
+        "sample_model": {
+          "actual_compile_ms": 4449.882,
+          "actual_warm_ms": 555.545,
+          "cache_misses_per_tree": [
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            0
+          ],
+          "decode_ms": 39.262,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "model_compile_ms": 5059.34,
+          "model_warm_ms": 1063.759,
+          "per_tree_compile_ms_all": [
+            7.295,
+            0.482,
+            5.572,
+            5.907,
+            8.078,
+            8.343,
+            0.456,
+            4.379,
+            8.44,
+            7.064,
+            6.852,
+            0.48
+          ],
+          "per_tree_compile_ms_median": 6.38,
+          "per_tree_warm_ms_all": [
+            1.22,
+            0.333,
+            1.007,
+            0.93,
+            1.119,
+            1.18,
+            0.342,
+            0.817,
+            1.209,
+            1.043,
+            1.067,
+            0.332
+          ],
+          "per_tree_warm_ms_median": 1.025,
+          "sample_indices": [
+            0,
+            91,
+            182,
+            272,
+            363,
+            454,
+            545,
+            636,
+            727,
+            817,
+            908,
+            999
+          ],
+          "sample_pop": 1000,
+          "sample_size": 12
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 555.545,
+        "warm_ms_all": [
+          555.752,
+          555.339
+        ],
+        "warm_repeats": 2
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 15.66,
@@ -55,6 +199,17 @@
         "reference": "numpy-specialized (public API, same tensors)",
         "reference_finite_fraction": 1.0,
         "rows_checked": 32,
+        "specialized": {
+          "finite_tol_ok": true,
+          "inf_mask_ok": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "n": 32,
+          "n_inf": 0,
+          "n_nan": 0,
+          "nan_mask_ok": true,
+          "ok": true
+        },
         "verified": true
       }
     },
@@ -62,12 +217,31 @@
       "backend": "numpy",
       "budget_mb": 2048.0,
       "dense": {
-        "host_estimate_mb": 20898.4,
-        "note": "predicted host RSS 20898 MB > --max-host-mb 6000 MB (the numpy interpreter keeps ~21400 bytes per pop x row element); warm_ms from fit(origin,P=1000,N=64)",
-        "source": "fit(origin,P=1000,N=64)",
-        "status": "skipped_host_memory",
-        "warm_ms": 8769.513,
-        "warm_repeats": 0
+        "cache_hits_after_cold": 0,
+        "cache_misses": 1,
+        "cold_ms": 10919.531,
+        "compile_ms": 2290.563,
+        "finite_fraction": 0.979,
+        "memory": {
+          "host_bytes_per_pop_row": 3142.8,
+          "host_note": "current host RSS (/proc/self/statm) before the cold call / after the cold call / after the timed calls; the delta includes the compile and the run and is the calibration of the harness' own host-memory guard",
+          "host_rss_after_cold_mb": 3740.9,
+          "host_rss_after_warm_mb": 3757.7,
+          "host_rss_before_mb": 688.6,
+          "host_rss_delta_mb": 3069.2,
+          "model_out_mb": 3.906,
+          "model_peak_mb": 64.148,
+          "smi": null,
+          "torch_peak_alloc_mb": null
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 8628.968,
+        "warm_ms_all": [
+          8628.968
+        ],
+        "warm_repeats": 1,
+        "warmup": 0
       },
       "input_len": 4,
       "max_layer_cnt": 5,
@@ -91,6 +265,46 @@
         "trace_len": 32,
         "update_mode": "grow"
       },
+      "plans_previous": [
+        {
+          "budget_mb": 2048.0,
+          "dense_supported": true,
+          "input_len": 4,
+          "max_tree_length": 31,
+          "n_chunk": 1024,
+          "n_chunks": 1,
+          "n_rows": 1024,
+          "out_mb": 3.906,
+          "p_chunk": 1000,
+          "p_chunks": 1,
+          "peak_bytes": 459264000,
+          "peak_mb": 437.988,
+          "per_row": false,
+          "pop_size": 1000,
+          "row_len": 32,
+          "trace_len": 32,
+          "update_mode": "grow"
+        },
+        {
+          "budget_mb": 64.0,
+          "dense_supported": true,
+          "input_len": 4,
+          "max_tree_length": 31,
+          "n_chunk": 149,
+          "n_chunks": 7,
+          "n_rows": 1024,
+          "out_mb": 3.906,
+          "p_chunk": 1000,
+          "p_chunks": 1,
+          "peak_bytes": 67264000,
+          "peak_mb": 64.148,
+          "per_row": false,
+          "pop_size": 1000,
+          "row_len": 32,
+          "trace_len": 32,
+          "update_mode": "grow"
+        }
+      ],
       "pop": 1000,
       "programs": {
         "constant_trees": 104,
@@ -98,8 +312,93 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 0.059,
       "rows": 1024,
       "seed": 0,
+      "specialized": {
+        "cache_hits": 103,
+        "cache_misses": 793,
+        "cold_ms": 5034.493,
+        "compile_ms": 4524.487,
+        "decode_ms": 38.243,
+        "finite_fraction": 0.979,
+        "sample_model": {
+          "actual_compile_ms": 4449.882,
+          "actual_warm_ms": 555.545,
+          "cache_misses_per_tree": [
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            0
+          ],
+          "decode_ms": 39.262,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "model_compile_ms": 5059.34,
+          "model_warm_ms": 1063.759,
+          "per_tree_compile_ms_all": [
+            7.295,
+            0.482,
+            5.572,
+            5.907,
+            8.078,
+            8.343,
+            0.456,
+            4.379,
+            8.44,
+            7.064,
+            6.852,
+            0.48
+          ],
+          "per_tree_compile_ms_median": 6.38,
+          "per_tree_warm_ms_all": [
+            1.22,
+            0.333,
+            1.007,
+            0.93,
+            1.119,
+            1.18,
+            0.342,
+            0.817,
+            1.209,
+            1.043,
+            1.067,
+            0.332
+          ],
+          "per_tree_warm_ms_median": 1.025,
+          "sample_indices": [
+            0,
+            91,
+            182,
+            272,
+            363,
+            454,
+            545,
+            636,
+            727,
+            817,
+            908,
+            999
+          ],
+          "sample_pop": 1000,
+          "sample_size": 12
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 510.006,
+        "warm_ms_all": [
+          510.847,
+          509.164
+        ],
+        "warm_repeats": 2
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 15.66,
@@ -113,6 +412,17 @@
         "reference": "numpy-specialized (public API, same tensors)",
         "reference_finite_fraction": 1.0,
         "rows_checked": 32,
+        "specialized": {
+          "finite_tol_ok": true,
+          "inf_mask_ok": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "n": 32,
+          "n_inf": 0,
+          "n_nan": 0,
+          "nan_mask_ok": true,
+          "ok": true
+        },
         "verified": true
       }
     },
@@ -192,8 +502,93 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 0.912,
       "rows": 64,
       "seed": 0,
+      "specialized": {
+        "cache_hits": 103,
+        "cache_misses": 793,
+        "cold_ms": 4984.001,
+        "compile_ms": 4483.995,
+        "decode_ms": 39.262,
+        "finite_fraction": 0.979,
+        "sample_model": {
+          "actual_compile_ms": 4449.882,
+          "actual_warm_ms": 555.545,
+          "cache_misses_per_tree": [
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            0
+          ],
+          "decode_ms": 39.262,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "model_compile_ms": 5059.34,
+          "model_warm_ms": 1063.759,
+          "per_tree_compile_ms_all": [
+            7.295,
+            0.482,
+            5.572,
+            5.907,
+            8.078,
+            8.343,
+            0.456,
+            4.379,
+            8.44,
+            7.064,
+            6.852,
+            0.48
+          ],
+          "per_tree_compile_ms_median": 6.38,
+          "per_tree_warm_ms_all": [
+            1.22,
+            0.333,
+            1.007,
+            0.93,
+            1.119,
+            1.18,
+            0.342,
+            0.817,
+            1.209,
+            1.043,
+            1.067,
+            0.332
+          ],
+          "per_tree_warm_ms_median": 1.025,
+          "sample_indices": [
+            0,
+            91,
+            182,
+            272,
+            363,
+            454,
+            545,
+            636,
+            727,
+            817,
+            908,
+            999
+          ],
+          "sample_pop": 1000,
+          "sample_size": 12
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 500.006,
+        "warm_ms_all": [
+          502.112,
+          497.901
+        ],
+        "warm_repeats": 2
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 15.66,
@@ -203,7 +598,11 @@
       },
       "update_mode": "grow",
       "verify": {
-        "dense": {
+        "full_population": false,
+        "reference": "numpy-specialized (public API, same tensors)",
+        "reference_finite_fraction": 1.0,
+        "rows_checked": 32,
+        "specialized": {
           "finite_tol_ok": true,
           "inf_mask_ok": true,
           "max_abs": 0.0,
@@ -214,10 +613,6 @@
           "nan_mask_ok": true,
           "ok": true
         },
-        "full_population": false,
-        "reference": "numpy-specialized (public API, same tensors)",
-        "reference_finite_fraction": 1.0,
-        "rows_checked": 32,
         "verified": true
       }
     },
@@ -225,12 +620,31 @@
       "backend": "numpy",
       "budget_mb": 2048.0,
       "dense": {
-        "host_estimate_mb": 35848.0,
-        "note": "predicted host RSS 35848 MB > --max-host-mb 6000 MB (the numpy interpreter keeps ~18795 bytes per pop x row element); warm_ms from fit(a=-75.4ms,b=3.691ms/row)",
-        "source": "fit(a=-75.4ms,b=3.691ms/row)",
-        "status": "skipped_host_memory",
-        "warm_ms": 36836.556,
-        "warm_repeats": 0
+        "cache_hits_after_cold": 0,
+        "cache_misses": 1,
+        "cold_ms": 17815.656,
+        "compile_ms": 3431.157,
+        "finite_fraction": 0.985,
+        "memory": {
+          "host_bytes_per_pop_row": 12.6,
+          "host_note": "current host RSS (/proc/self/statm) before the cold call / after the cold call / after the timed calls; the delta includes the compile and the run and is the calibration of the harness' own host-memory guard",
+          "host_rss_after_cold_mb": 3892.4,
+          "host_rss_after_warm_mb": 3892.4,
+          "host_rss_before_mb": 3868.5,
+          "host_rss_delta_mb": 24.0,
+          "model_out_mb": 7.629,
+          "model_peak_mb": 64.014,
+          "smi": null,
+          "torch_peak_alloc_mb": null
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 14384.498,
+        "warm_ms_all": [
+          14384.498
+        ],
+        "warm_repeats": 1,
+        "warmup": 0
       },
       "input_len": 4,
       "max_layer_cnt": 5,
@@ -254,6 +668,46 @@
         "trace_len": 32,
         "update_mode": "grow"
       },
+      "plans_previous": [
+        {
+          "budget_mb": 2048.0,
+          "dense_supported": true,
+          "input_len": 4,
+          "max_tree_length": 31,
+          "n_chunk": 10000,
+          "n_chunks": 1,
+          "n_rows": 10000,
+          "out_mb": 7.629,
+          "p_chunk": 200,
+          "p_chunks": 1,
+          "peak_bytes": 896102400,
+          "peak_mb": 854.59,
+          "per_row": false,
+          "pop_size": 200,
+          "row_len": 32,
+          "trace_len": 32,
+          "update_mode": "grow"
+        },
+        {
+          "budget_mb": 64.0,
+          "dense_supported": true,
+          "input_len": 4,
+          "max_tree_length": 31,
+          "n_chunk": 748,
+          "n_chunks": 14,
+          "n_rows": 10000,
+          "out_mb": 7.629,
+          "p_chunk": 200,
+          "p_chunks": 1,
+          "peak_bytes": 67123200,
+          "peak_mb": 64.014,
+          "per_row": false,
+          "pop_size": 200,
+          "row_len": 32,
+          "trace_len": 32,
+          "update_mode": "grow"
+        }
+      ],
       "pop": 200,
       "programs": {
         "constant_trees": 15,
@@ -261,8 +715,94 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 0.008,
       "rows": 10000,
       "seed": 0,
+      "specialized": {
+        "cache_hits": 15,
+        "cache_misses": 170,
+        "cold_ms": 1045.652,
+        "compile_ms": 928.752,
+        "decode_ms": 11.025,
+        "finite_fraction": 0.985,
+        "sample_model": {
+          "actual_compile_ms": 928.752,
+          "actual_warm_ms": 116.9,
+          "cache_misses_per_tree": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "decode_ms": 7.918,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "model_compile_ms": 879.58,
+          "model_warm_ms": 194.425,
+          "per_tree_compile_ms_all": [
+            6.643,
+            5.191,
+            8.367,
+            1.341,
+            6.56,
+            5.156,
+            3.13,
+            5.149,
+            6.701,
+            8.991,
+            1.327,
+            4.46
+          ],
+          "per_tree_compile_ms_median": 5.174,
+          "per_tree_warm_ms_all": [
+            1.049,
+            0.938,
+            1.047,
+            0.488,
+            1.005,
+            0.929,
+            0.717,
+            0.867,
+            0.904,
+            1.133,
+            0.493,
+            0.833
+          ],
+          "per_tree_warm_ms_median": 0.917,
+          "sample_indices": [
+            0,
+            18,
+            36,
+            54,
+            72,
+            90,
+            109,
+            127,
+            145,
+            163,
+            181,
+            199
+          ],
+          "sample_pop": 200,
+          "sample_size": 12
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 116.9,
+        "warm_ms_all": [
+          118.458,
+          116.9,
+          116.138
+        ],
+        "warm_repeats": 3
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 16.31,
@@ -276,6 +816,17 @@
         "reference": "numpy-specialized (public API, same tensors)",
         "reference_finite_fraction": 1.0,
         "rows_checked": 32,
+        "specialized": {
+          "finite_tol_ok": true,
+          "inf_mask_ok": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "n": 32,
+          "n_inf": 0,
+          "n_nan": 0,
+          "nan_mask_ok": true,
+          "ok": true
+        },
         "verified": true
       }
     },
@@ -354,8 +905,94 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 0.028,
       "rows": 1024,
       "seed": 0,
+      "specialized": {
+        "cache_hits": 15,
+        "cache_misses": 170,
+        "cold_ms": 1020.258,
+        "compile_ms": 914.697,
+        "decode_ms": 7.745,
+        "finite_fraction": 0.985,
+        "sample_model": {
+          "actual_compile_ms": 928.752,
+          "actual_warm_ms": 116.9,
+          "cache_misses_per_tree": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "decode_ms": 7.918,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "model_compile_ms": 879.58,
+          "model_warm_ms": 194.425,
+          "per_tree_compile_ms_all": [
+            6.643,
+            5.191,
+            8.367,
+            1.341,
+            6.56,
+            5.156,
+            3.13,
+            5.149,
+            6.701,
+            8.991,
+            1.327,
+            4.46
+          ],
+          "per_tree_compile_ms_median": 5.174,
+          "per_tree_warm_ms_all": [
+            1.049,
+            0.938,
+            1.047,
+            0.488,
+            1.005,
+            0.929,
+            0.717,
+            0.867,
+            0.904,
+            1.133,
+            0.493,
+            0.833
+          ],
+          "per_tree_warm_ms_median": 0.917,
+          "sample_indices": [
+            0,
+            18,
+            36,
+            54,
+            72,
+            90,
+            109,
+            127,
+            145,
+            163,
+            181,
+            199
+          ],
+          "sample_pop": 200,
+          "sample_size": 12
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 105.561,
+        "warm_ms_all": [
+          105.561,
+          105.582,
+          105.123
+        ],
+        "warm_repeats": 3
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 16.31,
@@ -365,7 +1002,11 @@
       },
       "update_mode": "grow",
       "verify": {
-        "dense": {
+        "full_population": false,
+        "reference": "numpy-specialized (public API, same tensors)",
+        "reference_finite_fraction": 1.0,
+        "rows_checked": 32,
+        "specialized": {
           "finite_tol_ok": true,
           "inf_mask_ok": true,
           "max_abs": 0.0,
@@ -376,10 +1017,6 @@
           "nan_mask_ok": true,
           "ok": true
         },
-        "full_population": false,
-        "reference": "numpy-specialized (public API, same tensors)",
-        "reference_finite_fraction": 1.0,
-        "rows_checked": 32,
         "verified": true
       }
     },
@@ -459,8 +1096,94 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 0.637,
       "rows": 64,
       "seed": 0,
+      "specialized": {
+        "cache_hits": 15,
+        "cache_misses": 170,
+        "cold_ms": 988.148,
+        "compile_ms": 885.77,
+        "decode_ms": 7.918,
+        "finite_fraction": 0.985,
+        "sample_model": {
+          "actual_compile_ms": 928.752,
+          "actual_warm_ms": 116.9,
+          "cache_misses_per_tree": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "decode_ms": 7.918,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "model_compile_ms": 879.58,
+          "model_warm_ms": 194.425,
+          "per_tree_compile_ms_all": [
+            6.643,
+            5.191,
+            8.367,
+            1.341,
+            6.56,
+            5.156,
+            3.13,
+            5.149,
+            6.701,
+            8.991,
+            1.327,
+            4.46
+          ],
+          "per_tree_compile_ms_median": 5.174,
+          "per_tree_warm_ms_all": [
+            1.049,
+            0.938,
+            1.047,
+            0.488,
+            1.005,
+            0.929,
+            0.717,
+            0.867,
+            0.904,
+            1.133,
+            0.493,
+            0.833
+          ],
+          "per_tree_warm_ms_median": 0.917,
+          "sample_indices": [
+            0,
+            18,
+            36,
+            54,
+            72,
+            90,
+            109,
+            127,
+            145,
+            163,
+            181,
+            199
+          ],
+          "sample_pop": 200,
+          "sample_size": 12
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 102.378,
+        "warm_ms_all": [
+          102.447,
+          102.378,
+          101.84
+        ],
+        "warm_repeats": 3
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 16.31,
@@ -470,7 +1193,11 @@
       },
       "update_mode": "grow",
       "verify": {
-        "dense": {
+        "full_population": false,
+        "reference": "numpy-specialized (public API, same tensors)",
+        "reference_finite_fraction": 1.0,
+        "rows_checked": 32,
+        "specialized": {
           "finite_tol_ok": true,
           "inf_mask_ok": true,
           "max_abs": 0.0,
@@ -481,10 +1208,6 @@
           "nan_mask_ok": true,
           "ok": true
         },
-        "full_population": false,
-        "reference": "numpy-specialized (public API, same tensors)",
-        "reference_finite_fraction": 1.0,
-        "rows_checked": 32,
         "verified": true
       }
     },
@@ -492,12 +1215,31 @@
       "backend": "numpy",
       "budget_mb": 2048.0,
       "dense": {
-        "host_estimate_mb": 11471.4,
-        "note": "predicted host RSS 11471 MB > --max-host-mb 6000 MB (the numpy interpreter keeps ~18795 bytes per pop x row element); warm_ms from fit(a=68.9ms,b=0.5651ms/row)",
-        "source": "fit(a=68.9ms,b=0.5651ms/row)",
-        "status": "skipped_host_memory",
-        "warm_ms": 5720.29,
-        "warm_repeats": 0
+        "cache_hits_after_cold": 0,
+        "cache_misses": 1,
+        "cold_ms": 8825.483,
+        "compile_ms": 3460.137,
+        "finite_fraction": 1.0,
+        "memory": {
+          "host_bytes_per_pop_row": 5238.6,
+          "host_note": "current host RSS (/proc/self/statm) before the cold call / after the cold call / after the timed calls; the delta includes the compile and the run and is the calibration of the harness' own host-memory guard",
+          "host_rss_after_cold_mb": 3876.8,
+          "host_rss_after_warm_mb": 3890.0,
+          "host_rss_before_mb": 692.6,
+          "host_rss_delta_mb": 3197.4,
+          "model_out_mb": 2.441,
+          "model_peak_mb": 64.016,
+          "smi": null,
+          "torch_peak_alloc_mb": null
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 5365.346,
+        "warm_ms_all": [
+          5365.346
+        ],
+        "warm_repeats": 1,
+        "warmup": 0
       },
       "input_len": 4,
       "max_layer_cnt": 5,
@@ -521,6 +1263,46 @@
         "trace_len": 32,
         "update_mode": "grow"
       },
+      "plans_previous": [
+        {
+          "budget_mb": 2048.0,
+          "dense_supported": true,
+          "input_len": 4,
+          "max_tree_length": 31,
+          "n_chunk": 10000,
+          "n_chunks": 1,
+          "n_rows": 10000,
+          "out_mb": 2.441,
+          "p_chunk": 64,
+          "p_chunks": 1,
+          "peak_bytes": 286752768,
+          "peak_mb": 273.469,
+          "per_row": false,
+          "pop_size": 64,
+          "row_len": 32,
+          "trace_len": 32,
+          "update_mode": "grow"
+        },
+        {
+          "budget_mb": 64.0,
+          "dense_supported": true,
+          "input_len": 4,
+          "max_tree_length": 31,
+          "n_chunk": 2340,
+          "n_chunks": 5,
+          "n_rows": 10000,
+          "out_mb": 2.441,
+          "p_chunk": 64,
+          "p_chunks": 1,
+          "peak_bytes": 67125248,
+          "peak_mb": 64.016,
+          "per_row": false,
+          "pop_size": 64,
+          "row_len": 32,
+          "trace_len": 32,
+          "update_mode": "grow"
+        }
+      ],
       "pop": 64,
       "programs": {
         "constant_trees": 6,
@@ -528,8 +1310,94 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 0.006,
       "rows": 10000,
       "seed": 0,
+      "specialized": {
+        "cache_hits": 3,
+        "cache_misses": 55,
+        "cold_ms": 301.266,
+        "compile_ms": 266.885,
+        "decode_ms": 3.037,
+        "finite_fraction": 1.0,
+        "sample_model": {
+          "actual_compile_ms": 266.885,
+          "actual_warm_ms": 34.381,
+          "cache_misses_per_tree": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "decode_ms": 2.457,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "model_compile_ms": 307.23,
+          "model_warm_ms": 63.965,
+          "per_tree_compile_ms_all": [
+            6.661,
+            7.881,
+            3.925,
+            2.046,
+            6.802,
+            4.367,
+            0.465,
+            9.146,
+            4.495,
+            5.659,
+            7.307,
+            5.514
+          ],
+          "per_tree_compile_ms_median": 5.586,
+          "per_tree_warm_ms_all": [
+            1.036,
+            1.23,
+            0.485,
+            0.717,
+            0.993,
+            0.872,
+            0.32,
+            1.114,
+            0.839,
+            1.038,
+            1.09,
+            0.91
+          ],
+          "per_tree_warm_ms_median": 0.952,
+          "sample_indices": [
+            0,
+            6,
+            11,
+            17,
+            23,
+            29,
+            34,
+            40,
+            46,
+            52,
+            57,
+            63
+          ],
+          "sample_pop": 64,
+          "sample_size": 12
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 34.381,
+        "warm_ms_all": [
+          36.786,
+          34.381,
+          34.138
+        ],
+        "warm_repeats": 3
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 15.31,
@@ -543,6 +1411,17 @@
         "reference": "numpy-specialized (public API, same tensors)",
         "reference_finite_fraction": 1.0,
         "rows_checked": 32,
+        "specialized": {
+          "finite_tol_ok": true,
+          "inf_mask_ok": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "n": 32,
+          "n_inf": 0,
+          "n_nan": 0,
+          "nan_mask_ok": true,
+          "ok": true
+        },
         "verified": true
       }
     },
@@ -622,8 +1501,94 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 0.054,
       "rows": 1024,
       "seed": 0,
+      "specialized": {
+        "cache_hits": 3,
+        "cache_misses": 55,
+        "cold_ms": 294.741,
+        "compile_ms": 259.784,
+        "decode_ms": 2.446,
+        "finite_fraction": 1.0,
+        "sample_model": {
+          "actual_compile_ms": 266.885,
+          "actual_warm_ms": 34.381,
+          "cache_misses_per_tree": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "decode_ms": 2.457,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "model_compile_ms": 307.23,
+          "model_warm_ms": 63.965,
+          "per_tree_compile_ms_all": [
+            6.661,
+            7.881,
+            3.925,
+            2.046,
+            6.802,
+            4.367,
+            0.465,
+            9.146,
+            4.495,
+            5.659,
+            7.307,
+            5.514
+          ],
+          "per_tree_compile_ms_median": 5.586,
+          "per_tree_warm_ms_all": [
+            1.036,
+            1.23,
+            0.485,
+            0.717,
+            0.993,
+            0.872,
+            0.32,
+            1.114,
+            0.839,
+            1.038,
+            1.09,
+            0.91
+          ],
+          "per_tree_warm_ms_median": 0.952,
+          "sample_indices": [
+            0,
+            6,
+            11,
+            17,
+            23,
+            29,
+            34,
+            40,
+            46,
+            52,
+            57,
+            63
+          ],
+          "sample_pop": 64,
+          "sample_size": 12
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 34.957,
+        "warm_ms_all": [
+          33.955,
+          35.207,
+          34.957
+        ],
+        "warm_repeats": 3
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 15.31,
@@ -633,7 +1598,11 @@
       },
       "update_mode": "grow",
       "verify": {
-        "dense": {
+        "full_population": true,
+        "reference": "numpy-specialized (public API, same tensors)",
+        "reference_finite_fraction": 1.0,
+        "rows_checked": 64,
+        "specialized": {
           "finite_tol_ok": true,
           "inf_mask_ok": true,
           "max_abs": 0.0,
@@ -644,10 +1613,6 @@
           "nan_mask_ok": true,
           "ok": true
         },
-        "full_population": true,
-        "reference": "numpy-specialized (public API, same tensors)",
-        "reference_finite_fraction": 1.0,
-        "rows_checked": 64,
         "verified": true
       }
     },
@@ -727,8 +1692,94 @@
         "tree_nodes_max": 31,
         "tree_nodes_median": 17.0
       },
+      "ratio_warm_spec_over_dense": 0.3,
       "rows": 64,
       "seed": 0,
+      "specialized": {
+        "cache_hits": 3,
+        "cache_misses": 55,
+        "cold_ms": 291.773,
+        "compile_ms": 260.263,
+        "decode_ms": 2.457,
+        "finite_fraction": 1.0,
+        "sample_model": {
+          "actual_compile_ms": 266.885,
+          "actual_warm_ms": 34.381,
+          "cache_misses_per_tree": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "decode_ms": 2.457,
+          "method": "single-tree Forest (Forest[i].to_forest()), cache cleared per tree: cold one call, warm median of --sample-repeats",
+          "model_compile_ms": 307.23,
+          "model_warm_ms": 63.965,
+          "per_tree_compile_ms_all": [
+            6.661,
+            7.881,
+            3.925,
+            2.046,
+            6.802,
+            4.367,
+            0.465,
+            9.146,
+            4.495,
+            5.659,
+            7.307,
+            5.514
+          ],
+          "per_tree_compile_ms_median": 5.586,
+          "per_tree_warm_ms_all": [
+            1.036,
+            1.23,
+            0.485,
+            0.717,
+            0.993,
+            0.872,
+            0.32,
+            1.114,
+            0.839,
+            1.038,
+            1.09,
+            0.91
+          ],
+          "per_tree_warm_ms_median": 0.952,
+          "sample_indices": [
+            0,
+            6,
+            11,
+            17,
+            23,
+            29,
+            34,
+            40,
+            46,
+            52,
+            57,
+            63
+          ],
+          "sample_pop": 64,
+          "sample_size": 12
+        },
+        "source": "measured",
+        "status": "measured",
+        "warm_ms": 31.509,
+        "warm_ms_all": [
+          31.509,
+          31.533,
+          30.948
+        ],
+        "warm_repeats": 3
+      },
       "tree_lengths": {
         "max": 31,
         "mean": 15.31,
@@ -738,7 +1789,11 @@
       },
       "update_mode": "grow",
       "verify": {
-        "dense": {
+        "full_population": true,
+        "reference": "numpy-specialized (public API, same tensors)",
+        "reference_finite_fraction": 1.0,
+        "rows_checked": 64,
+        "specialized": {
           "finite_tol_ok": true,
           "inf_mask_ok": true,
           "max_abs": 0.0,
@@ -749,10 +1804,6 @@
           "nan_mask_ok": true,
           "ok": true
         },
-        "full_population": true,
-        "reference": "numpy-specialized (public API, same tensors)",
-        "reference_finite_fraction": 1.0,
-        "rows_checked": 64,
         "verified": true
       }
     }
@@ -760,7 +1811,10 @@
   "meta": {
     "commands": [
       "src/evogp/tree/dense_bench.py --backend numpy --pops 64,200 --rows 64,1024,10000 --stage dense --smi --smi-index 4 --json src/evogp/tree/dense_bench_results.json",
-      "src/evogp/tree/dense_bench.py --backend numpy --pops 1000 --rows 64,1024,10000 --stage dense --smi --smi-index 4 --json src/evogp/tree/dense_bench_results.json"
+      "src/evogp/tree/dense_bench.py --backend numpy --pops 1000 --rows 64,1024,10000 --stage dense --smi --smi-index 4 --json src/evogp/tree/dense_bench_results.json",
+      "src/evogp/tree/dense_bench.py --backend numpy --pops 64,200 --rows 10000 --budget-mb 64 --repeats 1 --warmup 0 --max-config-seconds 200 --stage dense --no-smi --json src/evogp/tree/dense_bench_results.json",
+      "src/evogp/tree/dense_bench.py --backend numpy --pops 1000 --rows 1024,10000 --budget-mb 64 --repeats 1 --warmup 0 --max-config-seconds 400 --stage dense --no-smi --json src/evogp/tree/dense_bench_results.json",
+      "src/evogp/tree/dense_bench.py --backend numpy --pops 64,200,1000 --rows 64,1024,10000 --stage specialized --numpy-sample --no-smi --json src/evogp/tree/dense_bench_results.json"
     ],
     "env": {
       "CUDA_VISIBLE_DEVICES": "4",
@@ -772,8 +1826,8 @@
       "EVOGP_ETL_IREE_OPT_LEVEL": null,
       "EVOGP_EVAL_MODE": "specialized"
     },
-    "generated": "2026-09-12 15:40:18",
-    "git_head": "2bc78dde40c4175a232e7dfaafc8ca05c4f2b472"
+    "generated": "2026-09-12 15:47:04",
+    "git_head": "42e329809242577cff1eaf7112c7a5d3931f453d"
   },
   "version": 1
 }
