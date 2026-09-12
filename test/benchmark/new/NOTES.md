@@ -31,6 +31,12 @@ CLI: `--task {sr,xor,eval64,evalfresh}` (required), `--pop`, `--gens`, `--tree-l
 `--max-wall-s`, `--min-gens 0`, `--notes`. Per-task defaults (SPEC): `sr` 200/100/64, `xor` 50/100/64,
 `eval64` `--eval-reps 25`, `evalfresh` pop 1000/tree-len 64/`--eval-reps 10`.
 
+*(Later additions, additive — the enumeration above is the Phase-1 state. R2 added `--backend`,
+`--iree-device`, `--iree-opt-level`, `--data-rows`, `--mem-guard-mb`, `--max-cold-builds`,
+`--allow-cold-builds`, `--stage-probe` (R2 section below) and made `--reps` default per task instead
+of always `1`; R4 added the task `eval-pure` with `--mode`, `--invocations`, `--warmup`,
+`--e2e-companion`, `--pure-runner` (R4 section at the end of this file).)*
+
 Env handling (set **before** importing evogp): `ETL_DISABLE_LOCATIONS=1` unless
 `--no-disable-locations` forces `"0"`. `EVOGP_ETL_BACKEND` / `EVOGP_ETL_IREE_DEVICE` /
 `EVOGP_ETL_IREE_OPT_LEVEL` are read from the ambient environment (nothing forced); they are inert on the
@@ -632,3 +638,129 @@ first record — `warm_misses == 0` is the machine-checkable proof that a warm p
   `stages.reps[].totals` is the authoritative cold/warm split.
 * The GPU/box conventions of §9 still apply (never GPU 7, one `flock`, `timeout` inside the lock,
   medians ±10%); all eight `h2_*` runs here kept them.
+
+## R4 — `--task eval-pure`: the pure internal forward pass (measurement type 2)
+
+Additive to everything above: with none of the R4 flags passed, every existing task keeps its exact
+pre-R4 code path and JSON (proved by smoke #4 below, an unchanged `eval64` control). The round-4
+**protocol**, 8-config matrix runner, manifest and validator are `../r4/` (`README.md`,
+`run_pure.sh`, `manifest.txt`, `check_r4.py`) — this section documents the **harness** side only:
+the two measurement types, the new flags, the `pure`/`compile`/`e2e_companion` JSON blocks, the
+stage-probe caveat and the legacy-side skip. The R4 artifact records are
+`../r4/results/smoke/pure64_*.{json,log}` (plumbing evidence) and, later, the `../r4/results/*.json`
+campaign records.
+
+### The two measurement types (why a second task exists)
+
+| | type 1 — END-TO-END (`eval64`/`evalfresh`) | type 2 — PURE FORWARD (`eval-pure`) |
+|---|---|---|
+| unit of work | one `problem.evaluate(forest)` | one full-population forward on the fixed `x`, `per_row=False` |
+| pays | host decode + compile-key derivation + `build_cached` lookup + the graph calls + D2H readback + host `rows` assembly + fitness reduction | the graph calls only: `etl.run` wrapper validation + backend invoke |
+| excludes | — | compile-key derivation, readback, host assembly, fitness reduction, the one-time input conversion/upload |
+| legacy engine | yes | **undefined** (the legacy evaluate is one fused kernel with readback+assembly inside it) |
+
+`E2E − pure` is therefore the per-call host-glue/readback residual the R2/R3 reports describe
+qualitatively — R4 measures both terms in the **same process** (`--e2e-companion K`), so the
+difference is not a cross-window comparison. Two measurement *definitions*, one engine: the pure
+number is a strict subset of the end-to-end number, never an alternative to it.
+
+### R4 flags — inert for every pre-existing task
+
+| flag | default | effect |
+|---|---|---|
+| `--task eval-pure` | — | the pure-forward task (`PURE_TASKS`); new side only — the legacy side writes `skipped: true` + `skip_reason` and exits `3`, never crashes |
+| `--mode {auto,dense,specialized,dynamic}` | `auto` | route to measure: an explicit value wins; `auto` → `EVOGP_EVAL_MODE` via `dense_engine.resolve_eval_mode()`, still `auto` → `dense_engine.should_use_dense(pop, backend)`; `dynamic` is a **dense alias** (recorded as requested `dynamic`). Both `mode_requested` and `mode_resolved` land in the JSON |
+| `--invocations N` | `50` | full-population forwards per timed block (the r4 runner passes 100 dense / 50 specialized) |
+| `--warmup W` | `10` | untimed warmup invocations right after the construction |
+| `--e2e-companion K` | `0` | after the pure reps: K synchronized `problem.evaluate(forest)` calls in the same process on the already-warm cache |
+| `--pure-runner {auto,frozen,fallback}` | `auto` | which constructor: `frozen` = the frozen `build_{dense,specialized}_runner` API (**hard error** when absent), `fallback` = the harness' own re-implementation (forces it even when the frozen API exists → the after-round A/B), `auto` = frozen when present else fallback |
+| `--reps R` | `5` for `eval-pure` (per-task default; still `1` elsewhere) | timed blocks; the runner is constructed **once** for the whole task (this path consumes no RNG, so the train/eval per-rep reseed would be pure noise) |
+| `--fixture`, `--data-rows`, `--backend`, `--mem-guard-mb`, `--max-cold-builds`, `--allow-cold-builds`, `--tag`, `--json-out`, `--notes`, `--seed` | unchanged | shared harness machinery; `--data-rows` tiles `x`/`labels` exactly as in `eval64` |
+| `--stage-probe` | off | **accepted but never installed** for this task (see below) |
+
+Semantics: one **invocation** = one full-population forward on the fixed `x`, `per_row=False`.
+Construct once (timed separately as `compile`), then `--warmup` untimed invocations, then R timed
+blocks of N invocations, one `torch.cuda.synchronize()` pair around each block. `per_invocation_ms =
+block_ms/N`; the headline is the **median across reps**. Nothing of the construction or of the
+warmup ever enters a pure number, so the JSON can never be read as a cold-start number.
+
+The runner-build + invoke-loop + timing core lives in the new module `../pure_forward.py` (lazy
+`etl`/`evogp.tree.*` imports, imports only on the new side); `bench_gp.py` keeps just the flag
+parsing, guards/telemetry and the payload assembly. Both constructors use the engine's **own**
+memo key and the **shared** `etl_engine.CACHE`, so warm/cold separation is the engine's, not a
+re-implementation of it.
+
+### JSON blocks (`results/<id>.json`, new side)
+
+`pure`: `mode_requested`, `mode_resolved` (`dense|specialized`), `runner_source`
+(`frozen-api:build_dense_runner` | `frozen-api:build_specialized_runner` | `local-fallback:dense` |
+`local-fallback:specialized`), `backend`, `per_row` (always `false`), `pop`, `n_trees`,
+`n_const_trees` (trees the specialized route never invokes; `0` by convention on the dense
+routes), `n_graph_calls_per_run` + `n_graph_calls_source` (`measured|introspected|assumed-1`),
+`invocations`, `warmup`, `reps`, `block_ms[]`, `per_invocation_ms[]` (one entry per rep),
+`median_/min_/mean_per_invocation_ms` (across reps), `per_graph_call_ms` (median /
+`n_graph_calls_per_run`), `per_tree_us` (median × 1000 / `n_trees`),
+`per_population_evaluate_ms` (**== `median_per_invocation_ms` by definition** — an invocation *is*
+one population evaluate, just without the readback/assembly) and `conventions` (the one-line scope
+statement). `median_per_invocation_ms` is also mirrored at the top level (the eval tasks'
+`median_warm_ms` convention).
+
+`compile` (cold, never mixed into a pure number): `decode_plan_ms` (host decode / dense plan + input
+conversion + the one-time upload), `build_ms` (`build_cached` only), `construct_total_ms` (the whole
+construction; the residual is the invocation-argument precompute), `cache_hits`/`cache_misses` (the
+shared `etl.CompileCache` delta), `path` (`frozen|fallback`).
+
+`e2e_companion`: `null` with `K=0`; else `{eval_reps, per_call_ms[], first_call_ms, median_warm_ms,
+note}` from the real `problem.evaluate(forest)` path in the same process (one sync pair per call; with
+`K == 1` the "median warm" is the median of the single call, so the field is never null). The note
+states the identity: *E2E minus pure = per-call decode+key derivation + readback + host assembly +
+fitness reduction*. **Both knobs must agree** — the pure route comes from `--mode`, the companion
+route from the engine policy (`EVOGP_EVAL_MODE`), so the r4 runner exports `EVOGP_EVAL_MODE=<mode>`
+per config; a config that sets only one of them silently compares two different routes.
+
+`per_rep[]` carries `{rep, construct_s (rep 0 only), wall_s, block_ms, per_invocation_ms,
+mode_resolved, runner_source, partial, projection, complete}`; the payload header keys
+(`tag`/`side`/`task`/`eval_kind`/`fixture`/`evogp_*`/`etl_version`/`env`/`gpu`/`fds`/`nofile_rlimit`/
+`cold_builds`/`skipped`/`skip_reason`/`partial`/`projection`/`complete`/`stages`/`started_at`/
+`finished_at`) and the exit codes (`0` complete · `3` skipped/guard · `130` interrupted · `1` crash)
+are the shared ones from §1/§2/R2.
+
+### Stage-probe caveat
+
+`--stage-probe` is **accepted and silently unused** for `eval-pure`: the probe monkeypatches
+`etl.run`, i.e. exactly the call the pure loop is measuring, so installing it would tax the
+measurement by construction (R2 measured ≈+1.3 ms/call ≈5-6 % on this workload). `bench_gp.py`
+prints a warning instead, `stages` stays `null` and the flag stays valid so a run script can pass
+one identical flag set to both measurement types. The specialized fallback calls `etl.run` as a
+plain function (matching the engine), not through the module attribute, so even an accidentally
+installed probe could not tax it.
+
+### Legacy side (OLD) — clean skip, not a crash
+
+`eval-pure` is new-side only: the legacy engine has no separable pure forward (one fused CUDA call
+per population, readback inside). On the OLD side the task writes a normal JSON payload with
+`"task": "eval-pure"`, `"side": "old"`, `"skipped": true` and a `skip_reason` naming the missing
+pure path, and exits `3` (the harness' SKIP convention); the R4 runner maps that to `SKIP`.
+
+### R4 smoke records (harness validation: fixture `forest_random.npz`, 64 trees, `--reps 2 --invocations 20 --warmup 5 --e2e-companion 4`)
+
+| record | mode / backend | pure median | per-invocation (reps) | graph calls | `compile` (build / total) | `runner_source` | companion first / warm median |
+|---|---|---|---|---|---|---|---|
+| `pure64_dense_numpy` | dense / numpy | **125.16 ms** | 124.27, 126.06 | 1 | 1 857.1 / 1 858.4 ms | `local-fallback:dense` | 138.8 / 151.9 ms |
+| `pure64_specialized_numpy` | specialized / numpy | **9.105 ms** | 8.376, 9.835 | 53 (11 const trees) | 155.6 / 157.1 ms | `local-fallback:specialized` | 38.5 / 20.4 ms |
+| `pure64_dense_iree` | dense / iree | **3.889 ms** | 3.755, 4.023 | 1 | 12 610.8 / 12 699.4 ms | `local-fallback:dense` | 105.4 / 28.6 ms |
+
+* Sanity triage holds: pure < companion in all three (the pure number is a strict subset), the
+  specialized pure is 13.7× cheaper than the dense one at pop 64 (53 graph calls vs 1 full-tensor
+  dense graph), and the 5 numpy hits / 48 misses of the specialized construction match R3's 48
+  cold builds on this fixture.
+* The `eval64` regression control re-measured `first 320.5 ms / warm median 32.9 ms` (numpy) and
+  `15 337.9 / 7.2 ms` (iree) — inside the R3 ballpark, i.e. the new branch is additive.
+* **Uncertainty to carry forward:** the block is timed with one sync pair and divided by `N`; a
+  per-call-synchronized control was **not** measured in the smoke, so `block/N` is *assumed* not to
+  hide async overlap (the iree invoke is synchronous). If a campaign record ever disagrees with a
+  per-call-synced spot check, add one sync per invocation in `pure_forward.time_block` and say so
+  in the write-up.  Also: all smoke records are `local-fallback:*` because the frozen
+  `build_{dense,specialized}_runner` API does not exist at HEAD — the frozen adapter's call form
+  (`frozen_runner()` / `forward(x)`, `assumed-1` graph-call counting when a frozen runner exposes no
+  counter) must be validated by the after-round A/B (`--pure-runner fallback|frozen`).

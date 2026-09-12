@@ -468,8 +468,8 @@ def check_record(path, expected, require_companion, checker, notes):
         )
     if payload.get("tag") is not None and str(payload.get("tag")).upper() != str(row["id"]).upper():
         notes.append(
-            f"{row['id']}: JSON tag {payload.get('tag')!r} != 'ID.upper()' -- not written by "
-            f"the current r4 runner (prior-round artifact?)"
+            f"{row['id']}: JSON tag {payload.get('tag')!r} != 'ID.upper()' -- the record was "
+            f"written with a custom --tag (smoke / manual run); run_pure.sh uses UPPER(id)"
         )
 
     # -- completeness ---------------------------------------------------------
@@ -658,8 +658,14 @@ def main(argv=None):
 
     if not targets:
         print(
-            f"check_r4.py: nothing to check (no manifest, and no JSON under: "
+            f"check_r4.py: nothing to check (no manifest, and no campaign JSON under: "
             f"{', '.join(paths) or 'the default dirs'})"
+        )
+        print(
+            "  hint: it is a directory scan, so results/smoke/ is skipped -- validate the "
+            "plumbing records with:\n"
+            "  check_r4.py --manifest test/benchmark/r4/results/smoke/manifest_smoke.txt "
+            "--require-companion"
         )
         return 1
 
