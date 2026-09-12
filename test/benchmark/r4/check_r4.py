@@ -12,8 +12,10 @@ anywhere with python3).  Per record:
   ``pure.mode_resolved`` / ``pure.backend`` match the manifest's mode/backend columns;
 * the ``pure`` block is structurally complete: ``invocations > 0``, ``reps >= 1``,
   ``per_invocation_ms`` / ``block_ms`` are lists of ``reps`` positive floats that agree with
-  each other (``per_invocation_ms[i] == block_ms[i] / invocations``), and the summary
-  numbers (``median`` / ``min`` / ``mean``) are positive with ``min <= median <= mean``
+  each other (``per_invocation_ms[i] == block_ms[i] / invocations``), and the summary numbers
+  (``median`` / ``min`` / ``mean``) are positive with ``min <= median <= max`` and
+  ``min <= mean <= max`` (``max`` recomputed from the per-rep list; ``min <= median <= mean``
+  is deliberately NOT asserted -- it is not an invariant of a left-skewed sample)
   **and equal to the same statistics recomputed from the list**;
 * ``per_population_evaluate_ms == median_per_invocation_ms`` (within 1e-9 relative by
   definition: one invocation IS one population evaluate), and the two normalizations
@@ -358,14 +360,37 @@ def check_pure_block(pure, complete, checker, rid):
         f"{rid}: pure.mean_per_invocation_ms is a positive number "
         f"(got {pure.get('mean_per_invocation_ms')!r})",
     )
-    if positive(median) and positive(pure.get("min_per_invocation_ms")) and positive(
-        pure.get("mean_per_invocation_ms")
-    ):
-        checker.check(
-            float(pure["min_per_invocation_ms"]) <= float(median) <= float(pure["mean_per_invocation_ms"]),
-            f"{rid}: min <= median <= mean of the per-invocation numbers "
-            f"({pure['min_per_invocation_ms']} / {median} / {pure['mean_per_invocation_ms']})",
-        )
+    # -- ordering of the summary numbers (always-valid bounds only) ------------
+    # ``min <= median <= mean`` is NOT an invariant of a sample: an odd, left-skewed block
+    # legitimately has median > mean (it did on 4 of this round's 8 records).  What does hold
+    # for any sample is min <= median <= max and min <= mean <= max; ``max`` is not a recorded
+    # key, so it is recomputed from the recorded per-rep list (the summaries-vs-list equality
+    # below pins the same list).  When that list is unusable -- a structurally broken record --
+    # only the sample-free lower bounds min <= median / min <= mean are checked.
+    smallest = pure.get("min_per_invocation_ms")
+    mean = pure.get("mean_per_invocation_ms")
+    if positive(smallest) and positive(median) and positive(mean):
+        largest = None
+        if (
+            isinstance(per_invocation, list)
+            and per_invocation
+            and all(is_number(v) for v in per_invocation)
+        ):
+            largest = max(float(v) for v in per_invocation)
+        trio = f"{smallest} / {median} / {mean}"
+        for name, value in (("median", float(median)), ("mean", float(mean))):
+            if largest is None:
+                checker.check(
+                    float(smallest) <= value,
+                    f"{rid}: min <= {name} of the per-invocation numbers (min/median/mean = "
+                    f"{trio}; no usable per-rep list to bound the max)",
+                )
+            else:
+                checker.check(
+                    float(smallest) <= value <= largest,
+                    f"{rid}: min <= {name} <= max of the per-invocation numbers (min/median/mean "
+                    f"= {trio}; max = {largest})",
+                )
     if complete and per_invocation:
         values = [float(v) for v in per_invocation]
         checker.check(
