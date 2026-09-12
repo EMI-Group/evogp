@@ -243,9 +243,9 @@ config_spec() {
                          CONFIG_ARGS=(--task evalfresh --pop 16 --tree-len 32 --eval-reps 10 --backend iree --stage-probe)
                          CONFIG_NOTE="IREE: 16 fresh trees -> 16 cold builds" ;;
     iree_sr_a)           CONFIG_SIDE=new; CONFIG_GROUP=iree
-                         CONFIG_ARGS=(--task sr --pop 200 --gens 10 --tree-len 64 --reps 2 --backend iree --stage-probe --max-cold-builds 3200)
+                         CONFIG_ARGS=(--task sr --pop 200 --gens 10 --tree-len 64 --reps 2 --backend iree --stage-probe --max-cold-builds 1500)
                          CONFIG_ENVS=(EVOGP_ETL_CACHE_SIZE=8192)
-                         CONFIG_NOTE="IREE: short W1 SR, cache 8192, cold-build budget 3200" ;;
+                         CONFIG_NOTE="IREE: short W1 SR, cache 8192; cold-build budget 1500 (FD-calibrated by the eval group: ~33 fds/build measured -> ~49.5k of the 65536 nofile limit; numpy-analog churn 517 builds)" ;;
     iree_c7r)            CONFIG_SIDE=new; CONFIG_GROUP=iree
                          CONFIG_ARGS=(--task sr --pop 50 --gens 3 --tree-len 32 --reps 1 --backend iree --stage-probe --max-cold-builds 200)
                          CONFIG_NOTE="IREE smoke-scale re-run of the old C7 datapoint" ;;
