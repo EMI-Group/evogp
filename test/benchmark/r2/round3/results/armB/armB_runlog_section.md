@@ -138,12 +138,79 @@ IREE arms ended with the usual nanobind `leaked … runtime-object` teardown noi
 64-tree arms → ≈1 033 on the 200-tree arms) without changing any exit code. Nothing in the window is a
 benchmark number: this gate decides *quotability*, not speed.
 ### Matrix groups (iree-spec, iree, numpy — 9 configs)
-<PLACEHOLDER — to be filled by the matrix phases. Expected shape: per group, the
-`run_all_armB.sh --group <g>` invocation, the window id/GPU from `windows.md`, the per-config
-status table (exit code, `complete`, `partial`, `first_ms`, `warm_ms`), the wall clock, and the
-`results/armB/last_run.txt` id→exit-code table (generated + `.gitignore`d, so quote it rather than
-commit it). `warm_ms` conventions are the ones at the top of this file; for `sr` ids report the
-per-rep median of `per_gen_ms[1:]` as `rep0 / rep1`.>
+
+#### Group `iree-spec` — EXECUTED 2026-09-12 23:09:12–23:15:32 HKT (window 2, GPU 6): 3/3 exit 0
+The two other groups (`iree`, `numpy`) have **not** run yet, so the round's validator legitimately
+reports their six ids as MISSING until a later phase fills them (its output is quoted at the end of this
+subsection); the three `iree-spec` records below are complete and carry meaningful `stages` blocks.
+
+**Commands (exact) — one foreground `run_all_armB.sh --only <id>` invocation per config, in run order,
+each console captured to `results/armB/status_<id>.txt`; the runner owns `ulimit`/`flock`/`timeout`:**
+```bash
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture64_n64_spec    # 23:09:12 → 23:09:37
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_fixture200_n64_spec   # 23:10:01 → 23:11:31
+bash test/benchmark/r2/round3/run_all_armB.sh --only armB_iree_sr_a_spec             # 23:11:40 → 23:15:32
+python3 test/benchmark/r2/round3/check_r3.py --manifest test/benchmark/r2/round3/manifest_armB.txt --require-stages
+```
+No `flock` wait was observable (each config's `started` timestamp is within seconds of its invocation
+and every invocation ran in the foreground of one long-budget call — the detached-`nohup` failure mode
+of the agreement window was not repeated). Runner-level group wall: **6 min 20 s** (23:09:12 →
+23:15:32), of which 25 s + 90 s + 232 s is inside the three configs; nothing approached the 3600 s cap.
+
+**Per-config status table** (per-config exit code = the log's `exit code: 0 (OK)` footer *and* the
+runner's own id→exit table in the same `status_<id>.txt` — the harness shell does not expose
+`PIPESTATUS`, so the status files carry the runner's table rather than a separate shell line).
+`first_ms` / `warm_ms` follow the metric rules at the top of this file (eval: `first_call_ms` and
+`median_warm_ms` over 25 calls; `sr`: rep0's `cold_first_gen_ms` as the first figure and the per-rep
+median of `per_gen_ms[1:]`):
+
+| id | exit | complete / partial | first_ms | warm_ms (rep0 / rep1) | cold builds (json `misses_max` / stage) | fds start→cold→end | wall (started→finished) | harness_wall_s | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| armB_iree_fixture64_n64_spec | 0 | `complete` / `partial=false` | 20 043.52 | 62.19 (25 calls) | 48 / 300 (json), stage 48 cold + 0 warm misses | 39 → 91 → 91 | 25 s (23:09:12 → 23:09:37) | 22.8 | GPU 6 foreign util 0 % before → 0 % after (≈30 GB `syfang` resident); stage block meaningful |
+| armB_iree_fixture200_n64_spec | 0 | `complete` / `partial=false` | 82 065.28 | 200.09 (25 calls) | 155 / 400 (json), stage 155 cold + 0 warm misses | 39 → 91 → 91 | 90 s (23:10:01 → 23:11:31) | 87.9 | GPU 6 foreign util 64 % before → 4 % after (heaviest contention point of the group) |
+| armB_iree_sr_a_spec | 0 | `complete` / `partial=false` | 64 950.88 (rep0 cold gen) | 12 889.64 / 57.32 (rep0 / rep1, median of `per_gen_ms[1:]`) | 517 / 1 500 (json), stage rep0 = 155 cold + 362 warm misses, rep1 = 0 | 39 → 91 → 91 | 232 s (23:11:40 → 23:15:32) | 228.9 | GPU 6 foreign util 0 % before → 46 % after; `best_fitness_final=-0.2510969936847687`, per-rep repair: rep0 cold 64 950.88 → rep1 cold 278.10 ms |
+
+`stages` quality (all three are **specialized**-route runs, so the probe is meaningful by construction):
+every record has `stages.partial=false`, `stages.note=""`, `installed=true`, the full
+`wrapped=[decode_population,_run_tree,build_cached,run,from_numpy,evaluate,sr_fitness]` list, 25 eval
+records (eval ids) / 10 + 10 train records (the `sr` id) and populated per-stage counters
+(`decode / build-hit / build-miss / run / readback / upload / loss / misc`, `h2d`/`d2h`) — no
+degenerate dense-route block. Stage split (console `stages[...]` lines, cold/warm totals):
+
+| id (rep) | cold misses (ms) | warm misses (ms) | decode + build-hit (calls) + build-miss (calls) + run (calls) + readback (calls) + loss + misc | h2d / d2h |
+|---|---|---|---|---|
+| fixture64_spec (rep0/eval) | 48 (19 864.5) | 0 (0.0) | 38.2 + 327.5 (1 277) + 19 864.5 (48) + 1 164.7 (1 325) + 502.5 (1 325) + 21 895.0 + 55.5 | 25 / 1 325 |
+| fixture200_n64_spec (rep0/eval) | 155 (81 600.2) | 0 (0.0) | 126.1 + 1 192.3 (4 120) + 81 600.2 (155) + 2 703.7 (4 275) + 1 375.1 (4 275) + 86 925.0 + 51.4 | 25 / 4 275 |
+| sr_a_spec (rep0/train) | 155 (63 901.9) | 362 (159 609.0) | 36.1 + 46.8 (115) + 223 510.9 (517) + 917.1 (632) + 453.8 (632) + 225 007.7 + 816.4 | 10 / 632 |
+| sr_a_spec (rep1/train) | 0 (0.0) | 0 (0.0) | 28.9 + 155.1 (632) + 0.0 (0) + 409.8 (632) + 230.7 (632) + 831.4 + 180.3 | 10 / 632 |
+
+**Arm A twin comparison (context only — the round's verdict tables are built by the write-up phase).**
+Both windows are contended and sat on GPU 6, so these are window-paired, not hardware-paired:
+
+| id | Arm B first_ms | Arm A first_ms | Δ | Arm B warm_ms | Arm A warm_ms | Δ |
+|---|---|---|---|---|---|---|
+| fixture64_n64_spec | 20 043.52 | 31 485.90 | −36.3 % | 62.19 | 67.87 | −8.4 % |
+| fixture200_n64_spec | 82 065.28 | 137 474.9 | −40.3 % | 200.09 | 228.50 | −12.4 % |
+| sr_a_spec (rep0 / rep1 warm) | 64 950.88 (cold gen) | 142 445.2 (cold gen) | — | 12 889.64 / 57.32 | 14 741.32 / 64.66 | −12.6 % / −11.4 % |
+
+The `sr` id's 10-generation trajectory is **identical to Arm A bitwise in best fitness**
+(`per_gen_best_fitness` equal element-for-element, `best_fitness_final=-0.2510969936847687` on both
+sides), i.e. the patched checkout changes no number the round cares about — consistent with the
+agreement gate's six bit-identical `values_sha256` pairs.
+
+**Validator (gate (ii), 3 of 9 ids on disk; the 6 MISSING lines are the unrun groups):**
+```text
+9 record(s): 3 complete, 0 partial, 0 skipped, 6 missing, 0 malformed (0 not in the manifest)
+18 check(s), 6 failure(s)      # all six are `missing JSON` for armB_iree_*/armB_np_* (groups not run yet)
+armB_iree_fixture64_n64_spec   new   eval64  complete   20043.52      62.19  48 (reps[0].totals.cold_builds)  0 (reps[0].totals.warm_misses)
+armB_iree_fixture200_n64_spec  new   eval64  complete   82065.28     200.09  155 (...)  0 (...)
+armB_iree_sr_a_spec            new   sr      complete   64950.88   12889.64  155 (...)  362 (...)
+```
+Full stdout kept as `results/armB/status_check_r3_iree-spec.txt` (checker exit 1, expected while the
+other two groups are unrun). The generated `results/armB/last_run.txt` holds only the **last**
+invocation's table (config 3: `armB_iree_sr_a_spec new 0 OK …`, `# ok=1 skipped=0 failed=0`); it is
+`.gitignore`d and not committed, which is why each invocation's table is archived in its
+`status_<id>.txt` instead.
 ### `iree_sr_b2` re-attempt (pop 1000 / gens 2 / tree 128 — not an Arm B matrix id)
 <PLACEHOLDER — to be filled if the phase runs it. This is the one R2 config that FAILED
 (silent native SIGSEGV, runner exit 139, after ≈800–900 builds and before generation 0 completed —
@@ -202,6 +269,28 @@ FD trajectory; a crash is again a bounded-failure datapoint, never a training re
   fixtures were present, `ulimit -n 65536` was raised by the runner before any arm, every arm exited 0
   (`ok=6 skipped=0 failed=0`), and the nanobind teardown warnings on the IREE arms are the known,
   harmless noise (no `leaked …` line changed an exit code).
+* **Window 2 / GPU 6 — the `iree-spec` group ran clean in one pass: 3/3 exit 0, no GUARD-SKIP, no
+  timeout, no interrupt, no re-run, no kill.** Each config was one foreground `run_all_armB.sh --only`
+  invocation (25 s / 90 s / 232 s wall, group total 6 min 20 s) well inside the runner's 3600 s cap and
+  the platform's call budget, so the agreement window's reaped-detached-batch failure mode did not
+  recur; both fixtures were present (no exit-3 guard path) and every log ends with `exit code: 0 (OK)`,
+  `gpu (after)` and `finished`.
+* **Window 2 / GPU 6 — host and GPU contention present, same tenant as Arm A's window.** The foreign
+  `syfang` job (≈30 GB resident) was at 0 % util at window start, 64 % during `armB_iree_fixture200_n64_spec`
+  and 46 % after `armB_iree_sr_a_spec`, with the host at loadavg ≈96–99 / 46 users (Arm A's iree-spec
+  window: same card, tenant util 0/100/4/0, tenant ≈22 GB). Consequence to respect when reading the A/B
+  table above: the first-call (−36 %/−40 %) and warm (−8 %/−13 %) deltas are **window-paired, not
+  hardware-paired** — IREE per-structure compile is documented as non-reproducible ±a factor of a few on
+  this box — whereas the `sr` trajectory's bitwise fitness identity is contention-independent.
+* **Window 2 — the three `stages` blocks are meaningful, not degenerate.** Every record reports
+  `partial=false`, `note=""`, `installed=true` and real per-stage counters for the specialized route
+  (25 eval records; 10 + 10 train records), which is exactly what the `--require-stages` marker on the
+  `iree-spec` manifest rows is meant to certify; the R3 caveat about a dense-route run carrying an
+  empty stage block did not apply to this group.
+* **Window 2 — no FD incident**: each config grew 39 → 91 fds across its cold phase and ended at 91,
+  inside the known IREE range, with `ulimit -n 65536` raised by the runner first; the nanobind
+  `leaked … runtime-object` teardown noise appeared in all three logs (≈4k instances on the 64-tree and
+  `sr` arms, ≈12.9k on the 200-tree arm) without touching any exit code.
 **Analysis of record:** Arm B's write-up goes here once the round runs; the baseline it is read against
 is `round3/SUMMARY.md` (Arm A) and, one level up, `../REPORT.md` (R2) — Arm B's headline question is
 whether the patched ETL checkout changes any R3 number or fitness vector, so the tables to produce are
@@ -214,4 +303,11 @@ records + `run_agreement_armB.last_run.txt` together with the dated `etl_import_
 (the agreement pre-flight probe block) and `windows.md` (window 1 + the executed-batch window 1b)
 appends in `6471160`, and the follow-up commit of that phase adds
 `results/armB/gate_outputs.md` plus the filled-in Environment rows, this subsection and the anomalies
-above.
+above. The `iree-spec` matrix phase (window 2) committed `144f1fe`
+(`etl_import_probe.txt` third block + `windows.md` window 2), `fc4e9dd` + `6c0a653`
+(`armB_iree_fixture64_n64_spec.{json,log}` + its `status_*.txt`; the `*.log` needed `git add -f`
+because `.gitignore:32` hides `*.log` and Arm A's records were force-added the same way), `1795c0d`
+(`armB_iree_fixture200_n64_spec.{json,log}` + `status_*.txt`), `72420d1`
+(`armB_iree_sr_a_spec.{json,log}` + `status_*.txt`) and the follow-up commit carrying
+`results/armB/status_check_r3_iree-spec.txt`, this matrix subsection and the four window-2 anomaly
+bullets.
