@@ -1015,7 +1015,7 @@ def _decode_row(
             base = raw
         if base == _NT_VAR:
             index_value = values[i]
-            if not _isfinite(index_value):
+            if not math.isfinite(index_value):
                 raise ValueError(
                     f"row {row}: node {i}: variable index node_value="
                     f"{values[i]!r} is not finite"
@@ -1101,7 +1101,7 @@ def _decode_row(
                 funcs[i] = 0  # the ternary branch ignores the function id
             else:
                 func_id = values[i]
-                if not _isfinite(func_id):
+                if not math.isfinite(func_id):
                     raise ValueError(
                         f"row {row}: node {i}: function id node_value={values[i]!r} "
                         "is not finite"
@@ -1109,7 +1109,7 @@ def _decode_row(
                 funcs[i] = int(func_id)  # C truncation toward zero
         elif arity != 3:
             func_id = values[i]
-            if not _isfinite(func_id):
+            if not math.isfinite(func_id):
                 raise ValueError(
                     f"row {row}: node {i}: function id node_value={values[i]!r} "
                     "is not finite"
