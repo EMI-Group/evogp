@@ -16,17 +16,45 @@ residual the R2/R3 reports describe qualitatively (per-tree dispatch/readback, r
 validation, host `rows` assembly).  R4 measures both sides of that difference in the *same
 process* (`--e2e-companion K`), so the subtraction is not a cross-window comparison.
 
-**Status: before-baselines RECORDED.**  The 8-config campaign ran on 2026-09-13 (HKT 03:46–03:56,
-GPU 6) at evogp `e272714` against the etl checkout `51a7141`, one process per config, 8/8 `complete`,
-every record `local-fallback:*` (the frozen `build_{dense,specialized}_runner` API does not exist at
-that HEAD).  Gate: `check_r4.py --manifest manifest.txt --require-companion` → 8 complete / 369 checks
-/ 0 failures; pre-flight `check_agreement_r4.py` → PASS (30 checks).  **The analysis of record is
-[`SUMMARY.md`](SUMMARY.md)**; the records are in [`results/`](results/) and the operator log in
-[`RUNLOG.md`](RUNLOG.md).  The after-round will, once the parallel code round lands the frozen
-`build_{dense,specialized}_runner` API: (1) re-run the agreement pre-flight first (the ETL changed),
-(2) re-run this same script unchanged, (3) compare the `local-fallback:*` records against the
-`frozen-api:*` ones with the A/B equivalence check below, (4) fold the numbers into `../REPORT.md` and
-the round write-up (checklist: `SUMMARY.md` §H).
+**Status: both halves of the round are RECORDED.**  *Before*: the 8-config campaign ran on 2026-09-13
+(HKT 03:46–03:56, GPU 6) at evogp `e272714` against the etl checkout `51a7141`, one process per config,
+8/8 `complete`, every record `local-fallback:*`.  *After* (HKT 07:34–07:52, GPU 6, two parallel worker
+sessions through the one shared `flock`): the same 8 configs at evogp `6e8bf6f` on a **read-only shadow
+export of etl `87c7562`** (`/tmp/evogp_etl_patched_87c7562`; the editable install stays stock, so the
+shadow is identified by the log's `file=` path — see "Identity of the two ETL checkouts"), every record
+`frozen-api:*`; plus a 14-cell metric type 1 matrix (12 shadow cells + 2 stock twins) and an A/B
+equivalence run showing the two constructors are bit-identical.  Gates:
+`check_r4.py --manifest manifest_after.txt --require-companion` → 8 complete / 369 checks / 0 failures;
+`… --manifest manifest.txt …` → 8 / 369 / 0 (before records untouched); `check_e2e_r4.py` → 14 complete /
+328 checks / 0 failures; `check_agreement_r4.py --agree-dir results/backend_agreement_after` →
+PASS-with-note (30 checks / 0 failures).  **The analysis of record is [`SUMMARY.md`](SUMMARY.md)**; the
+records are in [`results/`](results/) (before) and [`results/after/`](results/after/) (after), and the
+operator log in [`RUNLOG.md`](RUNLOG.md).  The after numbers are folded into `../REPORT.md`
+(Round-4 section) / `../CONTEXT.md` / `../README.md`.
+
+## The after-round in one screen
+
+* **Pure (type 2), 8/8 complete, all `frozen-api:*`**: `pure64/200 × dense/specialized × numpy/iree`
+  re-run unchanged (`run_pure.sh`) into `results/after/` under `NEW_PYTHONPATH=src:<shadow>` +
+  `NEW_RESULT_DIR=…/results/after`.  Every route got faster: numpy dense **−41.6 % / −46.8 %**, numpy
+  specialized **−21.1 % / −38.5 %**, iree dense **−8.8 % / −56.9 %**, and the specialized-iree cells
+  collapse **−88.9 %** (53.214 → 5.922 ms) / **−91.3 %** (214.655 → 18.570 ms) — their per-`etl.run` cost
+  falls to ≈0.11 ms on both fixtures.  Frozen records carry no `compile.build_ms` / `decode_plan_ms`
+  split (the builders *are* the construction) and `n_graph_calls_source = "introspected"` (1 / 53 / 171).
+  Deltas and derived ratios: `SUMMARY.md` §C.2 / §D.2.
+* **Type 1 (E2E), 14 cells**: `run_e2e.sh` drives `bench_gp.py --task eval64 --eval-reps 25` in the same
+  window; the iree `auto` headline is **≈6.1–6.7 ms** warm (≈10.1–10.6 s first call = the one-time dense
+  compile), the stock twin measures 6.556 / 6.461 ms ⇒ the ETL shadow is warm-neutral (+1.7 % / −6.4 %,
+  inside the shared-box band), and against the cross-window legacy anchor (0.6323 / 0.6357 ms) the
+  old-vs-new gap is **≈9.5–10.5×** (R3: ≈16.5–16.8×).  Tables, route observations and the stage-probe
+  split: `SUMMARY.md` § "Type 1 (E2E) after-round".
+* **Agreement + A/B**: the pre-flight was re-run into `results/backend_agreement_after/` (PASS-with-note);
+  `numpy` == `iree_specialized` stay bit-identical, the iree-dense vectors moved but stay within `1e-4` of
+  numpy.  `results/after/ab/ab_equivalence_report.txt` — frozen vs fallback on two configs: equal digests,
+  byte-identical `.npz`, `max|diff| = 0` over all 53 arrays.
+* **Identity**: the after campaign ran on the etl export `87c7562`, never on the editable install; the
+  proof chain is `results/after/etl_import_probe.txt` + the `etl:` line in every log (the `rev=` field is
+  the *editable repo's* HEAD — see the section below).
 
 ## Scope — 8 configs in two groups
 
@@ -147,7 +175,8 @@ there"; `e2e_companion` answers "how much host glue does the real call add".
 `pure.runner_source` and `compile.path` say which constructor ran; never present a
 `local-fallback:*` number as if it were the frozen engine's.
 
-* `fallback` (this round's only executable path — the frozen API does not exist at HEAD) is the
+* `fallback` (the **before** round's executable path — the frozen API did not exist at `e272714`; still
+  selectable with `--pure-runner fallback`) is the
   local re-implementation in `test/benchmark/pure_forward.py`: dense = `plan_dense` +
   `build_dense` + the per-chunk invocation args; specialized = `decode_population` + one
   `_executable(...)` per non-constant tree.  Both use the engine's **own** memo key and the
@@ -219,13 +248,19 @@ HEAD is recorded, default `/mnt/local-ssd/bchuang/etl`).
 | file | what it is |
 |---|---|
 | `README.md` | this protocol |
-| `run_pure.sh` | the 8-config matrix runner (`--group numpy\|iree\|all`, `--only`, `--list`, `--dry-run`, `--timeout`); writes `results/<id>.{json,log}` and `last_run.txt` (generated, gitignored) |
-| `manifest.txt` | the validator's expectation list (`id <TAB> mode <TAB> backend <TAB> path`), 8 canonical ids in runner order |
+| `run_pure.sh` | the 8-config matrix runner (`--group numpy\|iree\|all`, `--only`, `--list`, `--dry-run`, `--timeout`); writes `$NEW_RESULT_DIR/<id>.{json,log}` (default `results/`; the after campaign used `results/after/`) and `last_run.txt` (generated, gitignored) |
+| `manifest.txt` | the validator's expectation list (`id <TAB> mode <TAB> backend <TAB> path`), 8 canonical ids in runner order, paths in `results/` (the before records) |
+| `manifest_after.txt` | the same list with the paths in `results/after/` — the after-round record set (same ids, same order, same mode/backend columns) |
 | `check_r4.py` | stdlib-only record validator (structure, modes/backends vs manifest, timing-list consistency, always-valid ordering bounds, derived normalizations, optional companion gate); exit 1 on any failure |
-| `SUMMARY.md` | the round's analysis of record: before-baseline table, derived observations, agreement verdict, provenance/commands, caveats, after-round checklist |
-| `RUNLOG.md` | the operator log of the executed campaign (window/identity, pre-flight, matrix, anomalies, artifacts) |
-| `results/smoke/` | the pre-campaign plumbing records (3 pure smokes + one `eval64` regression control) and their scratch manifest; **not** manifest ids |
-| `results/<id>.json` | the 8 canonical campaign records (recorded 2026-09-13; the manifest's paths) |
+| `run_e2e.sh` | the type 1 (E2E) after-round runner: 14 `bench_gp.py --task eval64 --eval-reps 25` cells (`--group shadow\|stock\|all`, `--only`, `--list`, `--dry-run`; env `SHADOW_DIR` / `SHADOW_PYTHONPATH` / `STOCK_PYTHONPATH` / `E2E_RESULT_DIR`), one process per cell under the same lock/ulimit/timeout discipline, `--stage-probe` installed |
+| `e2e_manifest.txt` | the type 1 expectation list (`id <TAB> kind <TAB> fixture <TAB> backend <TAB> mode`), 14 cells in runner order |
+| `check_e2e_r4.py` | stdlib-only validator for the type 1 cells (identity, kind ↔ recorded PYTHONPATH / etl identity, 25-rep structure, timing/normalization consistency); exit 1 on any failure |
+| `SUMMARY.md` | the round's analysis of record: after verdict + §C/§C.2 tables, §D/§D.2 derived observations, the 14-cell type 1 section, §E agreement (before + after), §F provenance/commands, §G caveats, §H executed after-round checklist |
+| `RUNLOG.md` | the operator log of the executed campaigns (before: window/identity, pre-flight, matrix, anomalies, artifacts; after: the same for the shadow window, the A/B, the type 1 matrix and the committed commits) |
+| `results/smoke/` | the pre-campaign plumbing records (3 pure smokes + one `eval64` regression control + the legacy clean-skip record) and their scratch manifest; **not** manifest ids |
+| `results/<id>.json` | the 8 canonical **before** records (recorded 2026-09-13 03:46–03:56; `manifest.txt`'s paths; every one `local-fallback:*`) |
+| `results/after/` | the after-round artifacts: the 8 pure records (`manifest_after.txt`'s paths, `frozen-api:*`), `etl_import_probe.txt` (shadow import-precedence + sha pins), `ab/` (frozen-vs-fallback arms + saved outputs + `ab_equivalence_report.txt`) and `e2e/` (the 14 type 1 records + the committed `run_e2e_r4.last_run.txt`) |
+| `results/backend_agreement_after/` | the 6 after pre-flight records + logs + `_values.npy` + the committed `run_agreement_r4.last_run.txt` |
 | `CONTEXT.md` | the node's routing/context file |
 
 `last_run.txt` is generated output and gitignored; the smoke records are committed as plumbing
@@ -235,7 +270,9 @@ evidence.
 
 Same convention as R2/R3, on this round's two fixtures: numpy vs IREE-cuda O1 under the default `auto`
 policy (→ the dense route) vs IREE-cuda O1 with `EVOGP_EVAL_MODE=specialized`, six records (two fixtures ×
-three roles), one process each, output into `results/backend_agreement/`.
+three roles), one process each, output into `results/backend_agreement/` (before) — the after round wrote
+the same six into `results/backend_agreement_after/` via the additive `--agree-dir` override, on the ETL
+shadow export.
 
 ```bash
 # run the six records (GPU; drives the read-only R2 driver test/benchmark/r2/check_backend_agreement.py)
@@ -260,5 +297,15 @@ to report the **same** `values_sha256`; when a hash differs it falls back to
 reported — within tolerance is **PASS-with-note** (quotable, deviation recorded), beyond it is a **hard FAIL**
 and no IREE number from the round may be quoted.
 
-Evidence of the executed pre-flight (2026-09-13, GPU 6), its verdict and its R3/R2 hash continuity:
-`RUNLOG.md` § "STEP 1"; the records, logs and raw fitness vectors are in `results/backend_agreement/`.
+Evidence of the executed pre-flights (2026-09-13, GPU 6): the **before** set is in
+`results/backend_agreement/` (03:46–03:48, runner logs + `_values.npy`, verdict PASS-with-note, all six
+hashes bit-identical to the R3 pre-flight); the **after** set is in `results/backend_agreement_after/`
+(07:34–07:42, on the ETL shadow export, same verdict) — its `numpy` and `iree_spec` vectors are
+bit-identical to the before set while the two iree-dense vectors moved (still within `1e-4` of numpy:
+`max|diff|` 7.629e-06 / 0.03125).  Both verdicts, the per-role `values_sha256` and the movement are
+tabulated in `SUMMARY.md` §E; the operator narrative is `RUNLOG.md` § "STEP 1" (before) and
+§ "After-round" (after).
+
+The after round is gated, not just run: `check_agreement_r4.py --agree-dir
+test/benchmark/r4/results/backend_agreement_after` → PASS-with-note, 30 checks / 0 failures, and the
+default-directory gate over the before records still returns the same PASS-with-note.

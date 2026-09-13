@@ -18,9 +18,52 @@ no extension module, device-agnostic code) and is the only engine still in the r
 for a future reader is on the new side (batching/memoizing ETL builds across generations, avoiding
 rebuilds of unchanged structures), while the old side's speed is not recoverable without reintroducing
 compiled kernels. The old-side numbers were cross-validated through the same side-agnostic harness — see
-`xval/` (summarized in `SUMMARY.md` §5.1).
+`xval/` (summarized in `SUMMARY.md` §5.1). That is the **round-1** headline; the numbers of record are the
+**Round 4** section below (fixture-eval gap ≈9.5–10.5×, down from R2's 33–363× and R3's ≈16.5–16.8×).
 
-## Round 3 (GPU, current verdict)
+## Round 4 (GPU, current verdict — the pure-forward round)
+
+Round 4 (`r4/`) adds a **second measurement type** next to the end-to-end numbers R1–R3 quote: the **pure
+internal graph forward** — the compiled forward pass in a tight loop on a fixed device-resident `x`, with no
+readback, no host assembly and no per-call key derivation (harness task `--task eval-pure`, runner core
+`pure_forward.py`; the same process also runs the real `problem.evaluate(forest)` via `--e2e-companion K`, so
+`E2E − pure` prices the host glue on one box in one window). The round is recorded in **both halves**: the
+pre-code-round **before**-baselines at `evogp e272714` / etl `51a7141` (every record `local-fallback:*`) and
+the **after**-round that re-ran the identical 8-config protocol at `evogp 6e8bf6f` on a **read-only shadow
+export of etl `87c7562`** (every record `frozen-api:*`), plus a 14-cell type-1 (E2E) matrix. Analysis of
+record: `r4/SUMMARY.md`; protocol/flag/JSON glossary: `r4/README.md`; operator log: `r4/RUNLOG.md`.
+
+* **Pure (type 2) — before → after: every route faster** (`median_per_invocation_ms`, one full-population
+  forward; fixture64 / fixture200): numpy dense 128.936 → **75.230** / 181.686 → **96.717** ms; numpy
+  specialized 8.390 → **6.616** / 49.332 → **30.360** ms; iree dense 1.587 → **1.447** / 3.696 → **1.593** ms;
+  iree specialized 53.214 → **5.922** / 214.655 → **18.570** ms (−8.8 % to −91.3 %). The specialized-iree
+  collapse is the per-`etl.run` cost (1.0040 → 0.1117 ms; 1.2553 → 0.1086 ms), and the provenance flip is
+  complete and numerically inert: all 8 records `frozen-api:*` / `compile.path="frozen"` /
+  `n_graph_calls_source="introspected"` (1 / 53 / 171 calls), with the frozen-vs-fallback A/B exact
+  (`max|diff| = 0`, byte-identical captures).
+* **Type 1 (E2E) after — the 14-cell matrix** (warm medians, fixture64 / fixture200): iree `auto`(dense)
+  **6.667 / 6.050 ms** under the shadow and 6.556 / 6.461 ms on the **same-window stock twins** ⇒ the patched
+  ETL is **warm-neutral** (+1.7 % / −6.4 %); iree `dynamic` 7.398 / 6.348 ms; iree `specialized`
+  59.554 / 193.086 ms; numpy `auto` 10.844 / 52.891 ms, `dynamic` 71.373 / 85.244 ms, `specialized`
+  10.853 / 54.122 ms. Against the frozen legacy anchor (0.6323 / 0.6357 ms) the old-vs-new gap is
+  **≈9.5–10.5×**, down from R3's ≈16.5–16.8×, and the stock twin attributes the gain to the evogp side. iree
+  first call ≈10.1–10.6 s (the one-time dense compile, reported separately).
+* **Gates** — `check_r4.py --manifest test/benchmark/r4/manifest_after.txt --require-companion` → 8 complete /
+  369 checks / 0 failures (the before manifest gates the same 8 / 369 / 0); `check_e2e_r4.py` → 14 / 328 / 0;
+  `check_agreement_r4.py --agree-dir test/benchmark/r4/results/backend_agreement_after` → PASS-with-note
+  (30 checks — numpy == iree-specialized bit-identical, iree-dense within 1e-4).
+* **Where it lives / re-run** — records `r4/results/**` (before) and `r4/results/after/**` (the 8 pure
+  records + `e2e/` + the frozen-vs-fallback `ab/` + the shadow `etl_import_probe.txt`), both immutable.
+  Re-run with `test/benchmark/r4/run_pure.sh` (type 2) and `test/benchmark/r4/run_e2e.sh` (type 1), each after
+  the IREE pre-flight `test/benchmark/r4/run_agreement_r4.sh` +
+  `<venv>/bin/python test/benchmark/r4/check_agreement_r4.py`; the after window additionally needs
+  `NEW_PYTHONPATH="src:/tmp/evogp_etl_patched_87c7562"` (`git -C /mnt/local-ssd/bchuang/etl archive 87c7562 |
+  tar -x -C <dir>` — never write in the foreign repo) plus `NEW_RESULT_DIR=test/benchmark/r4/results/after`.
+* **Legacy side** — has no separable pure forward (its `evaluate` is one fused kernel including the readback
+  and the host assembly): `--task eval-pure` skips it by design (exit 3, `skipped: true`), so R4 has **no
+  old-vs-new pure row**.
+
+## Round 3 (GPU, previous round's verdict)
 
 Round 3 (`r2/round3/`) re-measures the R2 headline configs with the **R2 method unchanged** after two waves
 of engine work — host-side cuts in `src/evogp/tree/etl_engine.py` (wave 1) and the dense one-graph evaluator
@@ -32,16 +75,16 @@ of engine work — host-side cuts in `src/evogp/tree/etl_engine.py` (wave 1) and
 separately, medians ±10 % on this shared box, and both arms read in **two windows** (W1 = GPU 6 contended,
 W2 = the GPU-0 companion), so within-window ratios are the robust ones.
 
-* **Headline (warm medians; legacy ÷ ETL over fixture64 / fixture200 / `sr_a` rep1)** — the legacy engine is
-  now **≈16–23×** ahead of the default (`iree` dense) route, **≈36–142×** ahead of the `numpy` backend and
+* **Headline (warm medians; legacy ÷ ETL over fixture64 / fixture200 / `sr_a` rep1)** — R3 read the legacy
+  engine as **≈16–23×** ahead of the default (`iree` dense) route, **≈36–142×** ahead of the `numpy` backend and
   **≈94–372×** ahead of the forced-specialized route (R2: 110–363× iree, 33–148× numpy). Arm A reads
   0.6323 ms vs **10.64 / 23.29 ms** (fixture64) and 0.6357 vs **10.50 / 117.61 ms** (fixture200); Arm B
   (W2 records of record) reads **14.84 / 10.03 ms** iree-dense and 22.81 / 90.15 ms numpy. The compression is
   the dense route — **6.38× / 21.77×** cheaper per warm eval call than the same code pinned to R2's
   per-structure route, which still reads R2's numbers — while wave 1 and the patched ETL measured ≈neutral
   warm (their observable is fd economy: iree flat at 91 fds versus 2 395 / 5 819 / 9 723 / 17 243).
-* **Where it lives** — the verdict is the **"Round 3" section of `REPORT.md`** (head of the file, ahead of
-  the R2 sections); the detailed arm write-ups are `r2/round3/SUMMARY.md` (Arm A) and
+* **Where it lives** — the verdict is the **"Round 3" section of `REPORT.md`** (now behind the Round-4
+  verdict, ahead of the R2 sections); the detailed arm write-ups are `r2/round3/SUMMARY.md` (Arm A) and
   `r2/round3/SUMMARY_armB.md` (Arm B), with protocol, config table, commands and exit codes in
   `r2/round3/README.md`; records under `r2/round3/results/{new,legacy,backend_agreement,armB}/`.
 * **Gates** — Arm A: `check_r3.py --manifest test/benchmark/r2/round3/manifest.txt --require-stages` → 45
@@ -56,46 +99,13 @@ W2 = the GPU-0 companion), so within-window ratios are the robust ones.
   pinned-specialized 1181/1500 in 595 s, fds flat at 91). The b2 ids stay outside the frozen manifests, and
   this is a "did not reproduce" datapoint, not proof of the original cause.
 
-## Round 4 (GPU, pure-forward round — before-baselines recorded; verdict pending)
-
-Round 4 (`r4/`) adds a **second measurement type** next to the end-to-end numbers R1–R3 quote: the **pure
-internal graph forward** — the compiled forward pass in a tight loop on a fixed device-resident `x`, with
-no readback, no host assembly and no per-call key derivation, i.e. the inner-loop scenario where the
-forward pass dominates. It is a first-class harness task (`--task eval-pure`, runner core `pure_forward.py`;
-the existing end-to-end tasks are unchanged), and the `--e2e-companion` block still prices the real
-`problem.evaluate(forest)` in the same process / same warm cache. The **before** campaign is recorded at
-`evogp e272714` / `etl 51a7141` (the frozen `build_{dense,specialized}_runner` APIs do not exist there, so
-every record is `local-fallback:*`), 8/8 configs complete (2 fixtures × dense/specialized × numpy/iree),
-one process per config, GPU 6.
-
-* **Headline (pure `median_per_invocation_ms`, one full-population forward; fixture64 / fixture200)** —
-  iree-dense **1.587 / 3.696 ms** vs numpy-dense 128.9 / 181.7 ms; specialized-numpy 8.390 / 49.332 ms vs
-  specialized-iree 53.2 / 214.7 ms. On iree dense beats specialized 33.5×/58.1× (per-tree dispatch
-  dominates: 53/171 `etl.run` calls at ≈1.0–1.3 ms each); on numpy the ordering flips (specialized
-  15.4×/3.68× faster than dense). The companion delta (E2E − pure, same process) prices the host glue
-  + readback: +1.4–7.2 ms on the iree rows, but ≈1× the pure number on numpy-specialized (+11.7 /
-  +47.8 ms). Cold construction is reported separately, never mixed in (iree compile 13.5–71.3 s vs the
-  1.6–214.7 ms warm numbers). Full table, derived observations and caveats: `r4/SUMMARY.md`.
-* **Where it lives** — `r4/SUMMARY.md` (analysis of record, incl. the after-round checklist §H),
-  `r4/README.md` (protocol, flag/JSON glossary, frozen-vs-fallback labeling), `r4/RUNLOG.md` (operator
-  log), records under `r4/results/` (+ `r4/results/backend_agreement/` pre-flight). The **after** round
-  (frozen runner APIs + etl `jit`/hot-path work) re-runs this protocol and folds the verdict into
-  `REPORT.md` — the Round-3 verdict above remains current until then.
-* **Gates / re-run** — `test/benchmark/r4/run_pure.sh` (`--group numpy|iree|all`, `--only <id>`, `--list`,
-  `--dry-run`), after the IREE agreement pre-flight `test/benchmark/r4/run_agreement_r4.sh` +
-  `<venv>/bin/python test/benchmark/r4/check_agreement_r4.py` (PASS, 30 checks); validator
-  `python3 test/benchmark/r4/check_r4.py --manifest test/benchmark/r4/manifest.txt --require-companion`
-  → 8 complete / 369 checks / 0 failures.
-* **Legacy side** — has no separable pure forward (its `evaluate` is one fused kernel including the
-  readback and the host assembly): `--task eval-pure` skips it by design (exit 3, `skipped: true`), so
-  R4 has no old-vs-new row.
-
 ## R2 round (GPU, baseline)
 
 Round 2 (`r2/`) is the baseline round: the same side-agnostic harness on the same box, comparing the legacy
 CUDA engine against **both** ETL backends (default `numpy` CPU and opt-in IREE-cuda GPU), with
 **warm/steady-state per-call numbers as the headline and per-structure compilation reported separately**
-(the numbers above are round 1; the round-1 methodology in `SPEC.md` is unchanged).
+(the "Headline result" at the top of this file is round 1; the round-1 methodology in `SPEC.md` is
+unchanged).
 
 * **What it measured** — the round-1 workloads again, plus data-row scaling (64 / 1 024 / 10 000 rows), a
   200-tree fixture (`fixtures/`), the `stages` cold-build vs cache-hit decomposition (`stage_probe.py`), an
@@ -122,11 +132,11 @@ CUDA engine against **both** ETL backends (default `numpy` CPU and opt-in IREE-c
 |---|---|
 | `SPEC.md` | **Frozen methodology** (v1, 2026-09-11): workloads W1–W3, config matrix C0–C7, fairness rules, required JSON schema, priority order. Do not edit. |
 | `SUMMARY.md` | **Round-1 headline report** — verdict, per-config old-vs-new table (all numbers recomputed from the raw JSONs), why the gap looks like this, caveats, correctness anchor + validator results, reproducibility. |
-| `REPORT.md` | **Analysis of record** — leads with the **Round 3 verdict** (R2 → Arm A / Arm B, both engines), then the R2 baseline: warm/compile-separated old-vs-new comparison (legacy CUDA vs ETL `numpy`/`iree`), computed from `new/results/r2/` + `legacy/results/r2/`. |
+| `REPORT.md` | **Analysis of record** — leads with the **Round 4 verdict** (type-2 pure before/after, the 14-cell type-1 E2E after matrix, gates, residual blockers), then the Round-3 verdict (R2 → Arm A / Arm B, both engines) and the R2 baseline: warm/compile-separated old-vs-new comparison (legacy CUDA vs ETL `numpy`/`iree`), computed from `new/results/r2/` + `legacy/results/r2/`. |
 | `bench_gp.py` | Side-agnostic harness: drives the same public API against either engine, selected by `PYTHONPATH`; one JSON per run + per-generation/per-call timings, the R2 flags (`--backend`, `--data-rows`, `--max-cold-builds`, `--stage-probe`, `--mem-guard-mb`) and the R4 pure-forward task `--task eval-pure` (`--mode`, `--invocations`, `--warmup`, `--e2e-companion`, `--pure-runner`; runner core `pure_forward.py`). |
 | `stage_probe.py` | The `--stage-probe` module: runtime monkeypatching of the new engine's hot call sites into a cold-build / cache-hit / run / readback / upload split (self-test: `python3 test/benchmark/stage_probe.py`). |
 | `r2/` | **R2 protocol + the executed round 3**: `run_all.sh` (35-config runner), `manifest.txt` + `check_r2.py` (validator), `README.md`, `RUNLOG.md` (operator log), `backend_agreement.md` + `check_backend_agreement.py` (IREE-vs-numpy pre-flight), and the `round3/` sub-node (round 3 Arm A + Arm B: runners, manifests, checkers, records, `SUMMARY.md` / `SUMMARY_armB.md`). |
-| `r4/` | **Round 4 — pure-forward round (before-baselines recorded)**: `run_pure.sh` (8-config matrix runner), `manifest.txt` + `check_r4.py` (record validator with optional companion gate), `run_agreement_r4.sh` + `check_agreement_r4.py` (IREE pre-flight + gate), `README.md` (protocol, flag/JSON glossary, frozen-vs-fallback discipline), `SUMMARY.md` (before-baseline analysis of record + after-round checklist), `RUNLOG.md`, records in `results/` (+ `smoke/`, `backend_agreement/`). |
+| `r4/` | **Round 4 — the pure-forward round (before + after complete)**: `run_pure.sh` (8-config type-2 matrix) + `manifest.txt` / `manifest_after.txt` + `check_r4.py`, `run_e2e.sh` + `e2e_manifest.txt` + `check_e2e_r4.py` (the 14-cell type-1 matrix), `run_agreement_r4.sh` + `check_agreement_r4.py` (IREE pre-flight + gate), `README.md` (protocol, flag/JSON glossary, frozen-vs-fallback discipline), `SUMMARY.md` (analysis of record + verdict), `RUNLOG.md`, records in `results/` (before) + `results/after/` (pure + `e2e/` + `ab/` + the shadow probe) + `results/backend_agreement{,_after}/` + `results/smoke/`. |
 | `fixtures/` | The 200-tree cross-side fixture `forest200_tree64_random.npz` (same npz schema as `../goldens/forest_random.npz`) + provenance `README.md` + eval sanity records; generator `make_r2_fixtures.py`. |
 | `new/` | NEW side: `run_matrix.sh` (round-1 config runner), `check_smoke.py` (JSON validator), `NOTES.md` (harness/schema, R2 flags, stage probe, smoke suite, matrix runs, deviations), `results/` (round-1 JSONs + logs) and `results/r2/` (R2 records). |
 | `legacy/` | OLD side: `setup_legacy.sh` (materialize + build `b613503`), `run_matrix.py` (config runner), `check_results.py` (JSON validator, incl. the C5 golden cross-check), `BUILD_NOTES.md` (build recipe/`.so` identity/GPU-7 fault), `NOTES.md`, `results/` (8 matrix JSONs + logs; `c4_rerun/` = noisier variance datapoint, not a headline record). |
@@ -151,6 +161,22 @@ cd /tmp/evogp_legacy_bench && CUDA_VISIBLE_DEVICES=4 PYTHONPATH=src:/tmp/evogp_t
   <venv>/bin/python <repo>/test/benchmark/legacy/run_matrix.py --configs C1,C5 \
   --out <repo>/test/benchmark/legacy/results --commit b613503
 <venv>/bin/python <repo>/test/benchmark/legacy/check_results.py <repo>/test/benchmark/legacy/results/*.json --gpu 4
+```
+
+Round 4 (the current round) re-runs from **this** repository root — new side only, both measurement types,
+after the IREE agreement pre-flight:
+
+```bash
+test/benchmark/r4/run_pure.sh --list               # config table; --dry-run prints every exact command
+test/benchmark/r4/run_pure.sh --group numpy        # type 2; then --group iree, or no flag for all 8
+test/benchmark/r4/run_e2e.sh                       # type 1; 14 cells (--group shadow|stock|all, --only <id>)
+# IREE quotability pre-flight (GPU) + gates (GPU-free):
+bash test/benchmark/r4/run_agreement_r4.sh && <venv>/bin/python test/benchmark/r4/check_agreement_r4.py
+python3 test/benchmark/r4/check_r4.py --manifest test/benchmark/r4/manifest.txt --require-companion
+python3 test/benchmark/r4/check_e2e_r4.py
+# after-half re-run (the frozen-api side of the comparison): the read-only ETL shadow export of 87c7562
+#   NEW_PYTHONPATH="src:/tmp/evogp_etl_patched_87c7562" NEW_RESULT_DIR=test/benchmark/r4/results/after
+#   SHADOW_DIR=/tmp/evogp_etl_patched_87c7562   # for run_e2e.sh — never write inside the foreign repo
 ```
 
 **Shared host:** the box has other tenants on the A6000s, and both sides share one advisory lock —
