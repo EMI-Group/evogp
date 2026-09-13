@@ -49,8 +49,11 @@ makes it a single boolean test -- the uninstrumented control pass.
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
+import statistics
 import subprocess
 import sys
 import time
@@ -64,15 +67,24 @@ __all__ = [
     "Frame",
     "Profiler",
     "EtlProxy",
+    "Tee",
+    "PatchStack",
     "patch_attr",
     "install_etl_proxy",
     "patch_etl_tensor_to",
     "install_dense_wraps",
+    "install_plan_capture",
     "to_cuda",
     "build_eval_case",
+    "hashable_key",
+    "bench_call",
+    "arm_stats",
+    "sha256_bytes",
+    "median",
     "identity_stamp",
     "env_knobs",
     "gpu_sample",
+    "host_load",
     "write_json",
     "iso",
     "REPO_ROOT",
@@ -652,6 +664,61 @@ def gpu_sample(index: Optional[str] = None) -> Dict[str, str]:
     }
 
 
+def _cpu_busy_pct(window_s: float = 0.2) -> Optional[float]:
+    """Instantaneous whole-box CPU busy fraction over ``window_s`` (``None`` on error).
+
+    The R5 window ran next to a long-lived foreign data-loading job whose
+    ``/proc/loadavg`` contribution is dominated by *uninterruptible* tasks, so the
+    load figure alone says nothing about the CPU actually available to a probe.
+    This samples ``/proc/stat`` twice and reports the busy fraction of all cores,
+    so a record can state both numbers.
+    """
+
+    def snap() -> Dict[str, List[int]]:
+        out: Dict[str, List[int]] = {}
+        with open("/proc/stat") as handle:
+            for line in handle:
+                parts = line.split()
+                if parts and parts[0].startswith("cpu") and parts[0][3:].isdigit():
+                    out[parts[0]] = [int(value) for value in parts[1:]]
+        return out
+
+    try:
+        first = snap()
+        time.sleep(window_s)
+        second = snap()
+        busy = 0.0
+        for key, before in first.items():
+            after = second[key]
+            delta = [b - a for a, b in zip(before, after)]
+            total = sum(delta)
+            idle = delta[3] + delta[4] if len(delta) > 4 else delta[3]
+            busy += (total - idle) / total if total else 0.0
+        return 100.0 * busy / max(1, len(first))
+    except Exception:
+        return None
+
+
+def host_load(sample_window_s: float = 0.2) -> Dict[str, Any]:
+    """Host-tenancy sample: load average, real CPU utilisation, GPU utilisation."""
+    try:
+        with open("/proc/loadavg") as handle:
+            load = handle.read().strip()
+    except Exception:  # pragma: no cover - /proc is always there on Linux
+        load = "<unreadable>"
+    try:
+        nproc = len(os.sched_getaffinity(0))
+    except Exception:
+        nproc = os.cpu_count()
+    return {
+        "when": iso(),
+        "loadavg": load,
+        "nproc": nproc,
+        "cpu_busy_pct": _cpu_busy_pct(sample_window_s),
+        "gpu": gpu_sample().get("util_mem"),
+    }
+
+
 def identity_stamp(etl_module: Any = None, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """evogp commit + etl file/HEAD + interpreter/versions + env + GPU sample."""
     import torch
@@ -689,3 +756,158 @@ def write_json(path: str, payload: Any) -> None:
         json.dump(payload, handle, indent=2, sort_keys=False)
         handle.write("\n")
     os.replace(tmp, path)
+
+
+# ---------------------------------------------------------------------------
+# shared plumbing added for the Q6/Q3 probes (tee log, patch stack, arm timing)
+# ---------------------------------------------------------------------------
+
+
+class Tee:
+    """stdout + optional log file + in-memory buffer (the committed human record).
+
+    Every R5 probe writes exactly one ``.log`` next to its ``.json``; this is the
+    single implementation of that sink (``decomp_probe.py`` predates it and keeps
+    its own copy so its committed records stay reproducible byte-for-byte).
+    """
+
+    def __init__(self, path: Optional[str] = None):
+        self.handle = open(path, "w") if path else None
+        self.buffer = io.StringIO()
+
+    def write(self, text: str) -> None:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+        self.buffer.write(text)
+        if self.handle:
+            self.handle.write(text)
+            self.handle.flush()
+
+    def close(self) -> None:
+        if self.handle:
+            self.handle.close()
+
+    def text(self) -> str:
+        return self.buffer.getvalue()
+
+
+class PatchStack:
+    """Install/restore runtime monkeypatches in order (the Q6/Q3 cumulative arms).
+
+    ``set`` records the ORIGINAL attribute once per (target, name) and installs
+    ``new``; ``restore`` puts every recorded attribute back in reverse order, so a
+    probe can walk an arm chain (M0 -> M1 -> M2 ...) and then return to the
+    unpatched engine for the closing control.  Nothing here touches ``src/``.
+    """
+
+    def __init__(self) -> None:
+        self._saved: List[Tuple[Any, str, Any]] = []
+        self.installed: List[str] = []
+
+    def set(self, target: Any, name: str, new: Any, label: Optional[str] = None) -> Any:
+        old = getattr(target, name)
+        if not any(entry[0] is target and entry[1] == name for entry in self._saved):
+            self._saved.append((target, name, old))
+        setattr(target, name, new)
+        self.installed.append(label or name)
+        return old
+
+    def restore(self) -> List[str]:
+        restored = [name for _target, name, _old in reversed(self._saved)]
+        for target, name, old in reversed(self._saved):
+            setattr(target, name, old)
+        self._saved = []
+        self.installed = []
+        return restored
+
+
+def hashable_key(value: Any) -> Any:
+    """A hashable stand-in for one call argument (tensors by identity, dicts recursed).
+
+    Used to memoize engine calls keyed on their own arguments: the probe always
+    passes the SAME tensor objects (``Forest`` attributes / the fixture's ``x``),
+    so identity is the correct key -- and a container that is *not* identity-stable
+    is refused instead of silently sharing a memo entry.
+    """
+    if isinstance(value, (int, float, bool, str, bytes)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return tuple(sorted((key, hashable_key(val)) for key, val in value.items()))
+    if isinstance(value, (list, tuple)):
+        return tuple(hashable_key(item) for item in value)
+    if hasattr(value, "shape") or hasattr(value, "data_ptr"):
+        return ("obj", type(value).__name__, id(value))
+    raise TypeError(f"hashable_key: unsupported argument of type {type(value).__name__}")
+
+
+def bench_call(
+    fn: Callable[[], Any],
+    *,
+    profiler: Optional[Profiler] = None,
+    index: int = 0,
+    phase: str = "arm",
+    keep_result: bool = False,
+) -> Dict[str, Any]:
+    """ONE harness-shaped call: pre-sync, ``fn()``, post-sync (``bench_gp.py:1377-1381``).
+
+    Returns a row with ``call_ms`` (the region between the two syncs' *starts*), and
+    ``total_ms`` = the harness's own measured region (pre-sync -> after the
+    post-sync, i.e. including the fence), which is the comparable headline number.
+    With ``keep_result`` the returned value travels in the row (for the fitness
+    fingerprint; never hashed inside the timed region).
+    """
+    import torch
+
+    torch.cuda.synchronize()
+    t0 = NOW()
+    if profiler is not None and profiler.enabled:
+        profiler.begin_call(index, phase)
+    value = fn()
+    call_s = NOW() - t0
+    if profiler is not None and profiler.enabled:
+        profiler.end_call(call_s)
+    t1 = NOW()
+    torch.cuda.synchronize()
+    row = {
+        "index": index,
+        "phase": phase,
+        "call_ms": call_s * 1e3,
+        "post_sync_ms": (NOW() - t1) * 1e3,
+        "total_ms": (NOW() - t0) * 1e3,
+    }
+    if keep_result:
+        row["_result"] = value
+    return row
+
+
+def median(values: List[float]) -> Optional[float]:
+    """``statistics.median`` of the non-``None`` values (``None`` when empty)."""
+    clean = [float(v) for v in values if v is not None]
+    return statistics.median(clean) if clean else None
+
+
+def arm_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Warm-call statistics for one arm (call 0 = cold, excluded; harness convention)."""
+    warm = [row for row in rows if row.get("index") != 0]
+    return {
+        "calls": len(rows),
+        "warm_calls": len(warm),
+        "first_call_ms": rows[0]["total_ms"] if rows else None,
+        "median_warm_ms": median([row["total_ms"] for row in warm]),
+        "min_warm_ms": min([row["total_ms"] for row in warm]) if warm else None,
+        "max_warm_ms": max([row["total_ms"] for row in warm]) if warm else None,
+        "mean_warm_ms": statistics.fmean([row["total_ms"] for row in warm]) if warm else None,
+        "median_call_ms": median([row["call_ms"] for row in warm]),
+        "median_post_sync_ms": median([row["post_sync_ms"] for row in warm]),
+    }
+
+
+def sha256_bytes(value: Any) -> Optional[str]:
+    """sha256 of a torch tensor's host bytes (``None`` when the value is not a tensor)."""
+    import torch
+
+    if not isinstance(value, torch.Tensor):
+        return None
+    return hashlib.sha256(
+        value.detach().reshape(-1).cpu().numpy().tobytes()
+    ).hexdigest()
