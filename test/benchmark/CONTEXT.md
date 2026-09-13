@@ -11,7 +11,7 @@ Two measurement types since R4: **type 1** = the end-to-end public-API evaluatio
   `etl.build_cached` graphs) on its two backends: the default `numpy` (CPU reference interpreter) and the
   opt-in `iree` (IREE-cuda GPU), plus the dense one-graph evaluator (`src/evogp/tree/dense_engine.py`)
   that the `iree` backend takes under the default `EVOGP_EVAL_MODE=auto` for short-trace populations.
-Four measurement rounds are executed and committed (R4 adds the second measurement type):
+Five measurement rounds are executed and committed (R4 adds the second measurement type; R5 is an analysis-only RCA round):
 - **Round 1** — `SPEC.md` methodology, matrix C0–C7, records in `new/results/` + `legacy/results/`,
   write-up `SUMMARY.md`: legacy ~34×–7,670× faster per generation, the new side needing no build step.
 - **Round 2 (R2)** — protocol `r2/README.md`, records in `new/results/r2/` + `legacy/results/r2/`,
@@ -42,6 +42,17 @@ Four measurement rounds are executed and committed (R4 adds the second measureme
   **≈6.1–6.7 ms** warm against the frozen legacy anchor (0.6323 / 0.6357 ms) ⇒ an old-vs-new gap of
   **≈9.5–10.5×** (R3: ≈16.5–16.8×), the patched ETL measuring warm-neutral. No old-vs-new pure row: the
   legacy engine has no separable pure forward.
+- **Round 5 (R5, RCA round — diagnosis, not a new verdict)** — `r5/` (analysis of record `r5/RCA.md`,
+  protocol `r5/README.md`, gate `r5/check_r5.py`): analysis-only round that removes the cross-window doubt
+  (one serialized same-window run: legacy 0.6461 / 0.6372 ms, dense-iree e2e 5.3823 / 5.7912 ms, pure
+  1.2142 / 1.4612 ms ⇒ **8.33× / 9.09×** e2e, **1.88× / 2.29×** pure, honest band **≈8–11× centred ~9.5×**)
+  and decomposes one warm call into ≥8 measured components (uploads 3.51 / 1.53 ms dominant, `etl.run`
+  2.13 / 2.37 ms, decode+unique 0.70 / 1.38 ms, host loss assembly 0.51 ms, D2H 0.14 / 0.17 ms, readback
+  0.11 ms; reconciliation 99.94–99.95 %), pinning the GPU mechanism (dense graph = 310 device ops = 249
+  dispatches + 61 DtoD copies on a 125-deep serial chain vs the legacy engine's 3 ops; ~103× fewer needed).
+  Removal floors: host glue 3.3752 / 2.8064 ms, pure-only 2.3849 / 2.4497 ms. Compile churn, readback
+  volume and harness artifacts are falsified as contributors; legacy parity requires collapsing the op
+  count plus removing the host glue (`RCA.md` §8/§9).
 Everything here is hand-run tooling + frozen data: nothing imports it and the repo has no CI.
 
 ## Status
@@ -76,6 +87,12 @@ Everything here is hand-run tooling + frozen data: nothing imports it and the re
   old-vs-new pure row**: the legacy CUDA engine has no separable pure forward (`--task eval-pure` skips it,
   exit 3). The verdict is folded into the "Round 4" section at the head of `REPORT.md`, with the full tables
   in `r4/SUMMARY.md`.
+- R5 is complete (analysis-only, diagnosis of the R4 verdict — no verdict change): all eight questions
+  (Q1–Q8) answered with committed records under `r5/results/` (same-window anchors `r5/results/q4_window/`,
+  decomposition `r5/results/q1_decomp/`, GPU mechanism `r5/results/q2_gpu/`, floors `r5/results/q6_floors/`,
+  engine-vs-frozen A/B `r5/results/q3_ab/`), gate `python3 test/benchmark/r5/check_r5.py` → 1426 checks /
+  0 failures; open items (non-blocking) are enumerated in `r5/RCA.md` §10, and no `src/` or ETL change was
+  concluded necessary.
 
 ## Routing Table
 - `README.md` → short entry point: what this directory is, the round-1 headline, the Round-4 current-verdict section, contents, re-run commands, shared-host/flock note.
@@ -91,6 +108,7 @@ Everything here is hand-run tooling + frozen data: nothing imports it and the re
 - `r2/` → R2 protocol + the executed round 3: `README.md` (configs, rules, exit codes, wall-time expectations, results paths), `run_all.sh` (35-config runner), `manifest.txt` (validator's expectation list), `check_r2.py` (stdlib-only validator), `RUNLOG.md` (operator log, incl. the Round-3 Arm A + Arm B sections), `backend_agreement.md` + `check_backend_agreement.py` (the IREE-vs-numpy numeric pre-flight), `last_run.txt` (generated), `round3/` (round-3 sub-node).
 - `r2/round3/` → the executed round 3, Arm A + Arm B: runners `run_all.sh` / `run_all_armB.sh`, manifests `manifest.txt` / `manifest_armB.txt` + `check_r3.py` gate, agreement pre-flights `run_agreement_r3.sh` / `run_agreement_armB.sh` + `check_agreement*.py`, comparison tools `compare_rounds*.py` (self-tests), records `results/{new,legacy,backend_agreement}/` + `results/armB/`, write-ups `SUMMARY.md` / `SUMMARY_armB.md`; entry `r2/round3/README.md`, node context `r2/round3/CONTEXT.md`.
 - `r4/` → the executed round 4 (pure-forward, measurement type 2), **complete in both halves**: protocol `README.md`, the 8-config matrix runner `run_pure.sh` (fixture64/200 × dense/specialized × numpy/iree) + `manifest.txt` / `manifest_after.txt` + the `check_r4.py` gate, the 14-cell type-1 runner `run_e2e.sh` + `e2e_manifest.txt` + the `check_e2e_r4.py` gate, the agreement pre-flight `run_agreement_r4.sh` + `check_agreement_r4.py`, records `results/` (before, `local-fallback:*`) + `results/after/` (pure + `e2e/` + the frozen-vs-fallback `ab/` + `etl_import_probe.txt`) + `results/backend_agreement{,_after}/` + `results/smoke/`, operator log `RUNLOG.md`, analysis of record `SUMMARY.md` (the Round-4 verdict + numbers of record); entry `r4/README.md`, node context `r4/CONTEXT.md`.
+- `r5/` → the executed RCA round (analysis-only, diagnosis of the ≈9.5× gap): deliverable `RCA.md` (headline verdict + same-window anchors, per-call decomposition, GPU mechanism, floors, ranked mechanisms, "what would close what", open items), protocol `README.md`, stdlib-only gate `check_r5.py` (1426 checks), probes (`window_probe.sh`, `probe_lib.py`, `decomp_probe.py`, `minimal_loop.py`, `floor_probe.py`, `ab_probe.py`, `gpu_probe/`), immutable evidence `results/` (re-runs into fresh subdirs); entry `r5/README.md`, node context `r5/CONTEXT.md`.
 - `fixtures/` → the 200-tree cross-side fixture `forest200_tree64_random.npz` (same npz schema as `../goldens/forest_random.npz`, 64 shared data rows) + provenance `README.md` + the new-side eval sanity records; generator is `make_r2_fixtures.py`.
 - `make_r2_fixtures.py` → generates/verifies the R2 fixture (new side, GPU, `--verify` self-checks).
 
@@ -105,6 +123,7 @@ Everything here is hand-run tooling + frozen data: nothing imports it and the re
 - **ETL shadow identity is not recorded in the JSONs.** `etl_version` is `"0.1.0"` for both the stock and the patched checkout; the evidence is the per-config `etl:` header line in every `run_all_armB.sh` / `run_pure.sh` log (read `file=` / `pythonpath=`, never `rev=` / `etl_version`) plus the dated fresh-process probes in `r2/round3/results/armB/etl_import_probe.txt` (R3 shadow `51a7141`) and `r4/results/after/etl_import_probe.txt` (R4 shadow `87c7562`, with its sha256 pins and the `find_spec("etl.jit")` discriminator). Both `/tmp` exports are session-scoped and the R4 source branch no longer exists (no ref contains `87c7562`), so those committed probes and per-log lines are the surviving evidence.
 - **IREE `O2`/`O3` miscompile CUDA silently** — the rounds only ever use `O0`/`O1`, and any IREE timing is gated on the `O1` agreement pre-flight.
 - **The R2 directory-scan validation always reports 2 failures**: `legacy/results/r2/C5.json` and `C5b.json` are prior-round artifacts of round 1's `legacy/run_matrix.py` driver (they predate the R2 key schema and are not manifest ids). The scan skips `new/results/r2/backend_agreement/` because those are pre-flight records, not config results.
+- **CPU/GPU profilers are blocked on this box; kineto is the working fallback.** nsys 2022.4.2.1 collection succeeds but QDSTRM import/analysis fails against driver 535.247.01 (`Unknown runtime API function index: 440`, empty kernel tables); ncu 2022.3 fails with `API call is not supported in the installed CUDA driver`; `torch.profiler` (kineto) DOES see IREE kernels + DtoD copies, so a kernel timeline exists while per-launch host-vs-device splits stay inferred. Evidence: `r5/results/tool_recon/`, `r5/results/q2_gpu/kineto_f64/trace_facts.json`.
 
 ## Notes for Agents
 - `/tmp` artifacts are session-scoped: the built legacy checkout `/tmp/evogp_legacy_bench` and the offline build assets `/tmp/evogp_t1a263/siteutils` (py3.11 headers, sklearn) may be gone on a fresh session — rebuild with `legacy/setup_legacy.sh` (recipe + `.so` identity in `legacy/BUILD_NOTES.md`).

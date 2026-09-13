@@ -744,6 +744,10 @@ numbers and ±a factor for the compile numbers (§5).
 
 ## 8. Ranked optimization levers (for the engine-redesign workstream)
 
+> **RCA pointer (R5, analysis-only):** definitive root-cause analysis of the residual gap: `r5/RCA.md`
+> (same-window anchors ≈8–11×, the measured per-call decomposition, the 310-ops/125-deep-chain GPU mechanism
+> vs 3 legacy ops, and the removal floors). The levers below are the pre-RCA list (R2-era evidence).
+
 Impact-ranked; each lever states its evidence and expected direction.
 
 1. **Collapse the K per-tree invocations into a few batched launches (biggest lever).** Evidence: K = 53
