@@ -1,0 +1,173 @@
+[r6_triton_validation] r6 Triton numeric validation
+  record dir      : /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A31/test/benchmark/r6/results/validation
+  triton          : 3.2.0  torch 2.6.0+cu124
+  staging         : dense_engine.prepare_dense
+  evogp commit    : e1f5dcb2a27998deae3888abd7c504cc3aac2719
+  triton_eval     : /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A31/test/benchmark/r6/triton_eval.py sha256=163b5ffdb48b0bde219acd27e8b0eb7761e56a028bd96ec93f129fbb3937c96f
+  oracle          : /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A31/src/evogp/tests/reference_eval.py sha256=e93d682f30f2b584b460725e02332a68c9e1af4ad94c76b89b46ad87b4796aa8
+  gpu             : {'device_index': 0, 'name': 'NVIDIA RTX A6000', 'cc': '8.6', 'total_mem_mb': 48676.8, 'free_mem_mb_at_start': 17886.1, 'used_mem_mb_at_start': 30790.7, 'cuda_visible_devices': '6', 'cuda_runtime': '12.4', 'torch': '2.6.0+cu124'}
+  env             : {'CUDA_VISIBLE_DEVICES': '6', 'TRITON_CACHE_DIR': '/tmp/evogp_r6_triton_cache', 'CPATH': '/tmp/triton_feas/py311hdr/usr/include/python3.11:/tmp/triton_feas/py311hdr/usr/include', 'ETL_DISABLE_LOCATIONS': '1', 'PYTHONPATH': 'src'}
+
+declarations: staging=dense_engine.prepare_dense; covered_ops=31; exact_ops=['VAR', 'CONST', '+', '-', '*', '/']
+  special-value scan (fixture64): fixture64.consts: n=160 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.labels: n=64 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.x: n=128 zero=0 neg_zero=0 denormal=0 inf=0 nan=0
+
+[fixture64] test/goldens/forest_random.npz  pop=64 row_len=63 max_tree_len=15 rows=64 sha256=0bfb0bbf48cd6583...  used={'BFUNC:1': 62, 'BFUNC:2': 69, 'BFUNC:3': 69, 'BFUNC:4': 56, 'CONST': 160, 'VAR': 160}
+  loss[mse] vs oracle: n=64 bit=50/64 bit|nan=53/64 maxabs=7.62939453125e-06 maxrel=1.3377783247804705e-07 maxulp=2 special_mismatch=0 allclose=True  nan(triton/oracle)=3/3 inf=0/0  PASS
+  loss[mae] vs oracle: n=64 bit=53/64 bit|nan=56/64 maxabs=4.76837158203125e-07 maxrel=1.7045976578487261e-07 maxulp=2 special_mismatch=0 allclose=True  nan(triton/oracle)=3/3 inf=0/0  PASS
+  values   vs oracle: n=4096 bit=4088/4096 bit|nan=4096/4096 maxabs=0.0 maxrel=0.0 maxulp=0 special_mismatch=0 allclose=True  nan(triton/oracle)=24/24 inf=0/0  PASS
+  special-value scan (fixture200): fixture200.consts: n=828 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture200.labels: n=64 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture200.x: n=128 zero=0 neg_zero=0 denormal=0 inf=0 nan=0
+
+[fixture200] test/benchmark/fixtures/forest200_tree64_random.npz  pop=200 row_len=64 max_tree_len=31 rows=64 sha256=6789ef61ecf8898b...  used={'BFUNC:1': 373, 'BFUNC:2': 341, 'BFUNC:3': 350, 'BFUNC:4': 328, 'CONST': 828, 'VAR': 764}
+  loss[mse] vs oracle: n=200 bit=120/200 bit|nan=132/200 maxabs=0.0625 maxrel=1.8058765751984162e-07 maxulp=2 special_mismatch=0 allclose=True  nan(triton/oracle)=12/12 inf=0/0  PASS
+  loss[mae] vs oracle: n=200 bit=108/200 bit|nan=120/200 maxabs=3.0517578125e-05 maxrel=1.753253117327874e-07 maxulp=2 special_mismatch=0 allclose=True  nan(triton/oracle)=12/12 inf=0/0  PASS
+  values   vs oracle: n=12800 bit=12488/12800 bit|nan=12800/12800 maxabs=0.0 maxrel=0.0 maxulp=0 special_mismatch=0 allclose=True  nan(triton/oracle)=376/376 inf=0/0  PASS
+
+legacy goldens (test/goldens/sr_fitness.npz, pre-ETL CUDA fast-math captures):
+  forest_sr_fitness__hybrid_parallel__mse          n=64 bit=57/64 bit|nan=57/64 maxabs=7.62939453125e-06 maxrel=1.5657844775955813e-07 maxulp=2 special_mismatch=0 allclose=True  PASS
+  forest_sr_fitness__hybrid_parallel__nonmse       n=64 bit=58/64 bit|nan=58/64 maxabs=4.76837158203125e-07 maxrel=1.1234450397205229e-07 maxulp=1 special_mismatch=0 allclose=True  PASS
+  problem_evaluate__hybrid_parallel__mse           n=64 bit=54/64 bit|nan=57/64 maxabs=7.62939453125e-06 maxrel=1.5657844775955813e-07 maxulp=2 special_mismatch=0 allclose=True  PASS
+  forest_sr_fitness__data_parallel__mse            n=64 bit=57/64 bit|nan=57/64 maxabs=7.62939453125e-06 maxrel=1.5657844775955813e-07 maxulp=2 special_mismatch=0 allclose=True  PASS
+  forest_sr_fitness__data_parallel__nonmse         n=64 bit=58/64 bit|nan=58/64 maxabs=4.76837158203125e-07 maxrel=1.1234450397205229e-07 maxulp=1 special_mismatch=0 allclose=True  PASS
+  problem_evaluate__data_parallel__mse             n=64 bit=54/64 bit|nan=57/64 maxabs=7.62939453125e-06 maxrel=1.5657844775955813e-07 maxulp=2 special_mismatch=0 allclose=True  PASS
+  forest_sr_fitness__auto__mse                     n=64 bit=57/64 bit|nan=57/64 maxabs=7.62939453125e-06 maxrel=1.5657844775955813e-07 maxulp=2 special_mismatch=0 allclose=True  PASS
+  forest_sr_fitness__auto__nonmse                  n=64 bit=58/64 bit|nan=58/64 maxabs=4.76837158203125e-07 maxrel=1.1234450397205229e-07 maxulp=1 special_mismatch=0 allclose=True  PASS
+  problem_evaluate__auto__mse                      n=64 bit=54/64 bit|nan=57/64 maxabs=7.62939453125e-06 maxrel=1.5657844775955813e-07 maxulp=2 special_mismatch=0 allclose=True  PASS
+  forest_sr_fitness__tree_parallel__mse            n=64 bit=46/64 bit|nan=46/64 maxabs=1.52587890625e-05 maxrel=2.970286148456684e-07 maxulp=4 special_mismatch=0 allclose=True  PASS
+  forest_sr_fitness__tree_parallel__nonmse         n=64 bit=47/64 bit|nan=47/64 maxabs=1.430511474609375e-06 maxrel=2.2163308863809052e-07 maxulp=3 special_mismatch=0 allclose=True  PASS
+  problem_evaluate__tree_parallel__mse             n=64 bit=43/64 bit|nan=46/64 maxabs=1.52587890625e-05 maxrel=2.970286148456684e-07 maxulp=4 special_mismatch=0 allclose=True  PASS
+
+dense cross-check (evogp.tree.dense_engine.sr_fitness_dense, numpy backend):
+  fixture64: engine_vs_oracle n=64 bit=55/64 bit|nan=55/64 maxabs=7.62939453125e-06 maxrel=2.1246967526559772e-07 maxulp=2 special_mismatch=0 allclose=True  triton_vs_engine n=64 bit=55/64 bit|nan=58/64 maxabs=7.62939453125e-06 maxrel=1.3377783247804705e-07 maxulp=2 special_mismatch=0 allclose=True  PASS
+  fixture200: engine_vs_oracle n=200 bit=139/200 bit|nan=139/200 maxabs=0.0625 maxrel=2.1085569457974352e-07 maxulp=2 special_mismatch=0 allclose=True  triton_vs_engine n=200 bit=117/200 bit|nan=129/200 maxabs=0.00390625 maxrel=1.8058765751984162e-07 maxulp=2 special_mismatch=0 allclose=True  PASS
+
+per-op edge grid: 20x20 = 400 operand pairs, 76 with a denormal operand (0.190); constants per op: [0.0, 1.0, -1.0, 0.5, -2.0, inf, -inf, nan, 1.401298464324817e-45, -1.401298464324817e-45, 1000000000.0, 3.4028234663852886e+38, 1e-09, -1e-09]
+op               kind   trees     cmp      bit|nan     maxabs     maxrel  maxulp allclose torchref     loss   core   neg0  verdict
+VAR                   0     2     800    800/800    0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+CONST                 1    14    5600   5600/5600   0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
++                     3    46   18400  18400/18400  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+-                     3    46   18400  18400/18400  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+*                     3    46   18400  18400/18400  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+/                     3    46   18400  16944/18400  1.192e-07  1.000e+00 872415232    False    False     True   True  False  FAIL  denormal_operand,denormal_result
+loose_div             3    46   18400  17200/18400  1.401e-36  1.000e+00 65956648     True     True     True   True  False  PASS  denormal_operand,denormal_result
+pow                   3    46   18400  17256/18400  2.670e+22  2.047e+03 92274688    False    False     True   True  False  FAIL  denormal_operand,denormal_result,finite_ulp
+loose_pow             3    46   18400  17062/18400  2.670e+22  2.047e+03 92274688    False    False     True   True   True  FAIL  denormal_operand,denormal_result,finite_ulp
+max                   3    46   18400  18400/18400  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+min                   3    46   18400  18400/18400  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+<                     3    46   18400  18400/18400  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+>                     3    46   18400  18400/18400  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+<=                    3    46   18400  18400/18400  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+>=                    3    46   18400  18400/18400  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+sin                   2    16    6400   3720/6400   5.960e-08  1.000e+00       1     True     True     True   True   True  PASS  denormal_operand,finite_ulp
+cos                   2    16    6400   5440/6400   5.960e-08  7.161e-08       1     True     True     True   True   True  PASS  finite_ulp
+tan                   2    16    6400   3720/6400   2.384e-07  1.000e+00       1     True     True     True   True   True  PASS  denormal_operand,finite_ulp
+sinh                  2    16    6400   5520/6400   1.401e-45  1.000e+00       1     True     True     True   True   True  PASS  denormal_operand
+cosh                  2    16    6400   5040/6400   2.384e-07  7.725e-08       1     True     True     True   True   True  PASS  finite_ulp
+tanh                  2    16    6400   5040/6400   2.980e-08  1.000e+00       1     True     True     True   True   True  PASS  denormal_operand,finite_ulp
+log                   2    16    6400   6400/6400   0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+loose_log             2    16    6400   6400/6400   0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+exp                   2    16    6400   5960/6400   2.980e-08  8.101e-08       1     True     True     True   True   True  PASS  finite_ulp
+inv                   2    16    6400   5920/6400   2.939e-39  1.000e+00 2097152     True     True     True   True   True  PASS  denormal_result
+loose_inv             2    16    6400   5920/6400   2.939e-39  1.000e+00 2097152     True     True     True   True  False  PASS  denormal_result
+neg                   2    16    6400   5960/6400   0.000e+00  0.000e+00 4294967296     True     True     True   True   True  PASS  zero_sign
+abs                   2    16    6400   6400/6400   0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+sqrt                  2    16    6400   4640/6400   1.953e-03  1.000e+00 439682291    False    False    False   True   True  FAIL  denormal_operand,finite_ulp
+loose_sqrt            2    16    6400   4200/6400   1.953e-03  1.000e+00 439682291     True     True     True   True   True  PASS  denormal_operand,finite_ulp
+if                    4    52   20800  20800/20800  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+if[base5]             5    52   20800  20800/20800  0.000e+00  0.000e+00       0     True     True     True   True   True  PASS  -
+
+required edge cases:
+
+named edge cases (grid slot 0; agreement gate + oracle-semantics gate):
+case                               op         operands                          triton          oracle       torch_f32  bit  close    sem
+div_by_zero_is_nan                 /          (        1,        0)             nan             nan             nan True   True   True
+div_by_neg_zero_is_nan             /          (        1,       -0)             nan             nan             nan True   True   True
+div_by_denormal                    /          (        1,  1.4e-45)             inf             inf             inf True   True   None
+div_neg_by_denormal                /          (       -1,  1.4e-45)            -inf            -inf            -inf True   True   None
+loose_div_zero_zero                loose_div  (        0,        0)             0.0             0.0             0.0 True   True   True
+pow_zero_zero_is_one               pow        (        0,        0)             1.0             1.0             1.0 True   True   True
+pow_neg_base_half_is_nan           pow        (       -2,      0.5)             nan             nan             nan False   True   True
+lt_with_nan_operand_is_minus1      <          (      nan,        1)            -1.0            -1.0            -1.0 True   True   True
+gt_inf_over_minus_inf_is_one       >          (      inf,     -inf)             1.0             1.0             1.0 True   True   True
+log_zero_is_neginf                 log        (        0,        1)            -inf            -inf            -inf True   True   True
+log_negative_is_nan                log        (       -1,        1)             nan             nan             nan False   True   True
+sqrt_neg_one_is_nan                sqrt       (       -1,        1)             nan             nan             nan False   True   True
+sqrt_neg_zero_is_neg_zero          sqrt       (       -0,        1)            -0.0            -0.0            -0.0 True   True   True
+sqrt_denormal                      sqrt       (  1.4e-45,        1)             0.0 3.743392066509216e-23 3.743392066509216e-23 False   True   None
+loose_sqrt_denormal                loose_sqrt (  1.4e-45,        1)             0.0 3.743392066509216e-23 3.743392066509216e-23 False   True   None
+sin_denormal                       sin        (  1.4e-45,        1)             0.0 1.401298464324817e-45 1.401298464324817e-45 False   True   None
+inv_zero_is_nan                    inv        (        0,        1)             nan             nan             nan True   True   True
+inv_neg_zero_is_nan                inv        (       -0,        1)             nan             nan             nan True   True   True
+loose_inv_denormal                 loose_inv  (  1.4e-45,        1)    1000000000.0    1000000000.0    1000000000.0 True   True   None
+neg_neg_zero_is_pos_zero           neg        (       -0,        1)             0.0             0.0             0.0 True   True   True
+abs_neg_zero_is_pos_zero           abs        (       -0,        1)             0.0             0.0             0.0 True   True   True
+tanh_inf_is_one                    tanh       (      inf,        1)             1.0             1.0             1.0 True   True   True
+exp_overflow_is_pos_inf            exp        (  3.4e+38,        1)             inf             inf             inf True   True   True
+if_with_nan_condition_takes_else   if         (      nan,        1)             1.0             1.0             1.0 True   True   True
+  edge cases: 24/24 pass (tolerance-only bits-differ: ['pow_neg_base_half_is_nan', 'log_negative_is_nan', 'sqrt_neg_one_is_nan', 'sqrt_denormal', 'loose_sqrt_denormal', 'sin_denormal'])
+
+measured kernel coverage: 36 evaluators, 31 distinct ops exercised, uncovered=[], fallthrough_nodes=0
+
+====================================================================================================
+fixture64: mse: allclose=True max|d|=7.62939453125e-06 bit=50/64; mae: allclose=True max|d|=4.76837158203125e-07 bit=53/64; values: allclose=True bit=4088/4096 (bit|nan=4096/4096) | fixture200: mse: allclose=True max|d|=0.0625 bit=120/200; mae: allclose=True max|d|=3.0517578125e-05 bit=108/200; values: allclose=True bit=12488/12800 (bit|nan=12800/12800) | legacy goldens: 12/12 arrays allclose; max|d|=1.52587890625e-05 on forest_sr_fitness__tree_parallel__mse | per-op (31 ops, edge grid + constants): values-gate red on 4 ops ['/', 'pow', 'loose_pow', 'sqrt']; core-gate (no denormals/-0.0-literal) red on 0 [] | per-op mismatch classes (all ops): {'denormal_operand': 7760, 'denormal_result': 1792, 'finite_ulp': 10866, 'zero_sign': 440} | checks: 198/208 passed strictly; gate-severity failures 0 []; documented-deviation checks 10 ['op_values[/]', 'op_torch_ref[/]', 'op_bitexact[/]', 'op_values[pow]', 'op_torch_ref[pow]', 'op_values[loose_pow]', 'op_torch_ref[loose_pow]', 'op_values[sqrt]', 'op_torch_ref[sqrt]', 'op_loss_mse[sqrt]'] -> passed=True passed_strict=False
+====================================================================================================
+checks: 198/198 gate-severity passed; 198/208 of all recorded checks passed (strict passed_strict=False)
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+DOCUMENTED DEVIATIONS of the prototype kernel -- findings, not gate failures; see the `deviations`/'downgraded_checks' arrays in the JSON
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+DEVIATION[dev-ftz-denormals]: subnormal (denormal) float32 *operands* are flushed to zero + subnormal (denormal) float32 *results* are flushed to (signed) zero
+  scope: /: classes=['denormal_operand', 'denormal_result'] n=1456 max|d|=1.192e-07 max_ulp=872415232 beyond_tol=552; inv: classes=['denormal_result'] n=480 max|d|=2.939e-39 max_ulp=2097152 beyond_tol=0; loose_div: classes=['denormal_operand', 'denormal_result'] n=1200 max|d|=1.401e-36 max_ulp=65956648 beyond_tol=0; loose_inv: classes=['denormal_result'] n=480 max|d|=2.939e-39 max_ulp=2097152 beyond_tol=0; loose_pow: classes=['denormal_operand', 'denormal_result'] n=360 max|d|=2.670e+22 max_ulp=92274688 beyond_tol=128; loose_sqrt: classes=['denormal_operand'] n=880 max|d|=3.743e-23 max_ulp=439682291 beyond_tol=0; pow: classes=['denormal_operand', 'denormal_result'] n=296 max|d|=2.670e+22 max_ulp=92274688 beyond_tol=106; sin: classes=['denormal_operand'] n=880 max|d|=1.401e-45 max_ulp=1 beyond_tol=0; sinh: classes=['denormal_operand'] n=880 max|d|=1.401e-45 max_ulp=1 beyond_tol=0; sqrt: classes=['denormal_operand'] n=880 max|d|=3.743e-23 max_ulp=439682291 beyond_tol=440; tan: classes=['denormal_operand'] n=880 max|d|=1.401e-45 max_ulp=1 beyond_tol=0; tanh: classes=['denormal_operand'] n=880 max|d|=1.401e-45 max_ulp=1 beyond_tol=0
+  root cause: the JIT-compiled kernel does not preserve subnormal operands (grid values and tree constants alike) -- they behave as 0.0 -- while reference_eval is correctly rounded and keeps them.  The deleted legacy CUDA engine was built with -use_fast_math (FTZ) too, so this is legacy-consistent but NOT oracle/ETL-consistent. results in the subnormal range (|r| < 1.1754944e-38) come out as 0.0 where the oracle returns the subnormal, e.g. inv(f32_max) = 2.9387359e-39 -> 0.0, pow(f32_max, -1) -> 0.0, 1.0/f32_max -> 0.0; same FTZ root cause as denormal operands.  Value-level impact is tiny (<= 1.2e-38, inside the documented atol) but it is visible in the payload bits and can flip a later op's class (e.g. through a comparison or a division).
+  fixtures affected: False
+  fixture-impact evidence: fixture gates green: True; special-value scan of both fixtures (fixture200.consts: n=828 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture200.labels: n=64 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture200.x: n=128 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.consts: n=160 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.labels: n=64 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.x: n=128 zero=0 neg_zero=0 denormal=0 inf=0 nan=0)
+DEVIATION[dev-fast-math-ulp]: finite results differ by a few float32 ULP (non-correctly-rounded path)
+  scope: cos: classes=['finite_ulp'] n=960 max|d|=5.960e-08 max_ulp=1 beyond_tol=0; cosh: classes=['finite_ulp'] n=1360 max|d|=2.384e-07 max_ulp=1 beyond_tol=0; exp: classes=['finite_ulp'] n=440 max|d|=2.980e-08 max_ulp=1 beyond_tol=0; loose_pow: classes=['finite_ulp'] n=978 max|d|=6.872e+10 max_ulp=8388608 beyond_tol=0; loose_sqrt: classes=['finite_ulp'] n=1320 max|d|=1.953e-03 max_ulp=1 beyond_tol=0; pow: classes=['finite_ulp'] n=848 max|d|=6.872e+10 max_ulp=8388608 beyond_tol=0; sin: classes=['finite_ulp'] n=1800 max|d|=5.960e-08 max_ulp=1 beyond_tol=0; sqrt: classes=['finite_ulp'] n=880 max|d|=1.953e-03 max_ulp=1 beyond_tol=0; tan: classes=['finite_ulp'] n=1800 max|d|=2.384e-07 max_ulp=1 beyond_tol=0; tanh: classes=['finite_ulp'] n=480 max|d|=2.980e-08 max_ulp=1 beyond_tol=0
+  root cause: the kernel's libdevice/divide sequence is not correctly rounded for these operands (e.g. an approximate division or a fused/approximate transcendental libdevice entry point), while the oracle rounds every float32 node correctly.
+  fixtures affected: False
+  fixture-impact evidence: fixture gates green: True; special-value scan of both fixtures (fixture200.consts: n=828 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture200.labels: n=64 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture200.x: n=128 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.consts: n=160 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.labels: n=64 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.x: n=128 zero=0 neg_zero=0 denormal=0 inf=0 nan=0)
+DEVIATION[dev-zero-sign]: sign of zero differs (both values are 0.0, the sign bit is not)
+  scope: neg: classes=['zero_sign'] n=440 max|d|=0.000e+00 max_ulp=4294967296 beyond_tol=0
+  root cause: sign-sensitive op (e.g. `loose_inv`/`loose_div` clamping via copysign) receives an unsigned zero where the oracle keeps -0.0; value-equal, so it only matters for exact-bit or sign-sensitive semantics.
+  fixtures affected: False
+  fixture-impact evidence: fixture gates green: True; special-value scan of both fixtures (fixture200.consts: n=828 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture200.labels: n=64 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture200.x: n=128 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.consts: n=160 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.labels: n=64 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.x: n=128 zero=0 neg_zero=0 denormal=0 inf=0 nan=0)
+DEVIATION[dev-const-neglzero]: a -0.0 CONSTANT literal loses its sign (the kernel stages a CONST leaf as `0.0f + cval`), sign-flipping ops whose semantics depend on it
+  scope: /: bit_identical=840/1200 (diagnostic probe, not a gate); loose_div: bit_identical=400/1200 (diagnostic probe, not a gate); pow: bit_identical=1140/1200 (diagnostic probe, not a gate); loose_inv: bit_identical=0/400 (diagnostic probe, not a gate)
+  root cause: triton_eval builds a CONST leaf as `tl.zeros([BLOCK_N]) + cval`; IEEE `+0.0 + -0.0 = +0.0`, so a -0.0 constant reaches the op as +0.0 (the oracle keeps -0.0). This is a triton_eval (prototype) deviation: reported, NOT fixed by this round. -0.0 as an operand *value* (grid data) is preserved and covered by the grid gates.
+  fixtures affected: False
+  fixture-impact evidence: fixture gates green: True; special-value scan of both fixtures (fixture200.consts: n=828 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture200.labels: n=64 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture200.x: n=128 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.consts: n=160 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.labels: n=64 zero=0 neg_zero=0 denormal=0 inf=0 nan=0; fixture64.x: n=128 zero=0 neg_zero=0 denormal=0 inf=0 nan=0)
+
+DOWNGRADED CHECKS (10; documented deviations, not gates):
+  ~ op_values[/]  classes=['denormal_operand', 'denormal_result']
+      triton output='values' vs oracle over the full edge family; n=18400 bit=15442/18400 bit|nan=16944/18400 maxabs=1.1920928955078125e-07 maxrel=1.0 maxulp=872415232 special_mismatch=552 allclose=False | failures: core=True denormal_subset=n=2712 bit=1440/2712 bit|nan=1608/2712 maxabs=1.1920928955078125e-07 maxrel=1.0 maxulp=872415232 special_mismatch=552 allclose=False | examples=[{'tree': 0, 'tree_tag': 'grid', 'row': 12, 'triton': nan, 'reference': 0.0, 'triton_bits': '0x7fffffff', 'reference_bit
+  ~ op_torch_ref[/]  classes=['denormal_operand', 'denormal_result']
+      triton vs a direct torch.float32 implementation of the ENGINE_SPEC semantics; n=18400 bit=15442/18400 bit|nan=16944/18400 maxabs=1.1920928955078125e-07 maxrel=1.0 maxulp=872415232 special_mismatch=552 allclose=False
+  ~ op_bitexact[/]  classes=['denormal_operand', 'denormal_result']
+      declared bit-exact op (EXACT_OPS): bit-identical-or-both-NaN entries 16944/18400; n=18400 bit=15442/18400 bit|nan=16944/18400 maxabs=1.1920928955078125e-07 maxrel=1.0 maxulp=872415232 special_mismatch=552 allclose=False
+  ~ op_values[pow]  classes=['denormal_operand', 'denormal_result', 'finite_ulp']
+      triton output='values' vs oracle over the full edge family; n=18400 bit=14112/18400 bit|nan=17256/18400 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False | failures: core=True denormal_subset=n=2712 bit=1652/2712 bit|nan=2480/2712 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False | examples=[{'tree': 0, 'tree_tag': 'grid', 'row': 87, 'triton': 0.7071067094802856, 'reference': 0.7071067690849304, 'triton_bit
+  ~ op_torch_ref[pow]  classes=['denormal_operand', 'denormal_result', 'finite_ulp']
+      triton vs a direct torch.float32 implementation of the ENGINE_SPEC semantics; n=18400 bit=14070/18400 bit|nan=17214/18400 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False
+  ~ op_values[loose_pow]  classes=['denormal_operand', 'denormal_result', 'finite_ulp']
+      triton output='values' vs oracle over the full edge family; n=18400 bit=15812/18400 bit|nan=17062/18400 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False | failures: core=True denormal_subset=n=2712 bit=2248/2712 bit|nan=2416/2712 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False | examples=[{'tree': 0, 'tree_tag': 'grid', 'row': 87, 'triton': 0.7071067094802856, 'reference': 0.7071067690849304, 'triton_bit
+  ~ op_torch_ref[loose_pow]  classes=['denormal_operand', 'denormal_result', 'finite_ulp']
+      triton vs a direct torch.float32 implementation of the ENGINE_SPEC semantics; n=18400 bit=15748/18400 bit|nan=16998/18400 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False
+  ~ op_values[sqrt]  classes=['denormal_operand', 'finite_ulp']
+      triton output='values' vs oracle over the full edge family; n=6400 bit=2320/6400 bit|nan=4640/6400 maxabs=0.001953125 maxrel=1.0 maxulp=439682291 special_mismatch=440 allclose=False | failures: core=True denormal_subset=n=880 bit=0/880 bit|nan=0/880 maxabs=3.743392066509216e-23 maxrel=1.0 maxulp=439682291 special_mismatch=440 allclose=False | examples=[{'tree': 0, 'tree_tag': 'grid', 'row': 240, 'triton': 0.0, 'reference': 3.743392066509216e-23, 'triton_bits': '0x0', 'reference_bits': '0x1a3504f
+  ~ op_torch_ref[sqrt]  classes=['denormal_operand', 'finite_ulp']
+      triton vs a direct torch.float32 implementation of the ENGINE_SPEC semantics; n=6400 bit=2320/6400 bit|nan=4640/6400 maxabs=0.001953125 maxrel=1.0 maxulp=439682291 special_mismatch=440 allclose=False
+  ~ op_loss_mse[sqrt]  classes=['denormal_operand', 'finite_ulp']
+      triton run() MSE loss vs the oracle loss on the same family; n=16 bit=6/16 bit|nan=13/16 maxabs=64.0 maxrel=1.0441807493584031e-07 maxulp=1 special_mismatch=1 allclose=False
+
+passed=True (gate severity)  passed_strict=False  exit_code=0
+[r6_triton_validation] wrote /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A31/test/benchmark/r6/results/validation/validation.json (+ /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A31/test/benchmark/r6/results/validation/validation.log)
+[r6_triton_validation] documented deviation (not a gate): op_values[/] classes=['denormal_operand', 'denormal_result'] -- triton output='values' vs oracle over the full edge family; n=18400 bit=15442/18400 bit|nan=16944/18400 maxabs=1.1920928955078125e-07 maxrel=1.0 maxulp=872415232 special_mismatch=552 allclose=False | failures: core=True denormal_subset=n=2712 bit=1440/2712 bit|nan=1608/2712 maxabs=1.1920928955078125e-07 maxrel=1.0 maxulp=872415232 special_mismatch=552 allclose=False | examples=[{'tree': 0, 'tree_tag': 'grid', 'row': 12, 'triton': nan, 'reference': 0.0, 'triton_bits': '0x7fffffff', 'reference_bits': '0x0', 'operands': [0.0, 1.401298464324817e-45]}, {'tree': 0, 'tree_tag': 'grid', 'row': 13, 'triton': nan, 'reference': -0.0, 'triton_bits': '0x7fffffff', 'reference_bits': '-0x80000000', 'operands': [0.0, -1.401298464324817e-45]}, {'tree': 0, 'tree_tag': 'grid', 'row': 32, 'triton': nan, 'reference': -0.0, 'triton_bits': '0x7fffffff', 'reference_bits': '-0x80000000', 'operands': [-0.0, 1.401298464324817e-45]}]
+[r6_triton_validation] documented deviation (not a gate): op_torch_ref[/] classes=['denormal_operand', 'denormal_result'] -- triton vs a direct torch.float32 implementation of the ENGINE_SPEC semantics; n=18400 bit=15442/18400 bit|nan=16944/18400 maxabs=1.1920928955078125e-07 maxrel=1.0 maxulp=872415232 special_mismatch=552 allclose=False
+[r6_triton_validation] documented deviation (not a gate): op_bitexact[/] classes=['denormal_operand', 'denormal_result'] -- declared bit-exact op (EXACT_OPS): bit-identical-or-both-NaN entries 16944/18400; n=18400 bit=15442/18400 bit|nan=16944/18400 maxabs=1.1920928955078125e-07 maxrel=1.0 maxulp=872415232 special_mismatch=552 allclose=False
+[r6_triton_validation] documented deviation (not a gate): op_values[pow] classes=['denormal_operand', 'denormal_result', 'finite_ulp'] -- triton output='values' vs oracle over the full edge family; n=18400 bit=14112/18400 bit|nan=17256/18400 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False | failures: core=True denormal_subset=n=2712 bit=1652/2712 bit|nan=2480/2712 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False | examples=[{'tree': 0, 'tree_tag': 'grid', 'row': 87, 'triton': 0.7071067094802856, 'reference': 0.7071067690849304, 'triton_bits': '0x3f3504f2', 'reference_bits': '0x3f3504f3', 'operands': [2.0, -0.5]}, {'tree': 0, 'tree_tag': 'grid', 'row': 126, 'triton': 0.7071067094802856, 'reference': 0.7071067690849304, 'triton_bits': '0x3f3504f2', 'reference_bits': '0x3f3504f3', 'operands': [0.5, 0.5]}, {'tree': 0, 'tree_tag': 'grid', 'row': 163, 'triton': 0.0, 'reference': 2.938735877055719e-39, 'triton_bits': '0x0', 'reference_bits': '0x200000', 'operands': [3.4028234663852886e+38, -1.0]}]
+[r6_triton_validation] documented deviation (not a gate): op_torch_ref[pow] classes=['denormal_operand', 'denormal_result', 'finite_ulp'] -- triton vs a direct torch.float32 implementation of the ENGINE_SPEC semantics; n=18400 bit=14070/18400 bit|nan=17214/18400 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False
+[r6_triton_validation] documented deviation (not a gate): op_values[loose_pow] classes=['denormal_operand', 'denormal_result', 'finite_ulp'] -- triton output='values' vs oracle over the full edge family; n=18400 bit=15812/18400 bit|nan=17062/18400 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False | failures: core=True denormal_subset=n=2712 bit=2248/2712 bit|nan=2416/2712 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False | examples=[{'tree': 0, 'tree_tag': 'grid', 'row': 87, 'triton': 0.7071067094802856, 'reference': 0.7071067690849304, 'triton_bits': '0x3f3504f2', 'reference_bits': '0x3f3504f3', 'operands': [2.0, -0.5]}, {'tree': 0, 'tree_tag': 'grid', 'row': 107, 'triton': 0.7071067094802856, 'reference': 0.7071067690849304, 'triton_bits': '0x3f3504f2', 'reference_bits': '0x3f3504f3', 'operands': [-2.0, -0.5]}, {'tree': 0, 'tree_tag': 'grid', 'row': 126, 'triton': 0.7071067094802856, 'reference': 0.7071067690849304, 'triton_bits': '0x3f3504f2', 'reference_bits': '0x3f3504f3', 'operands': [0.5, 0.5]}]
+[r6_triton_validation] documented deviation (not a gate): op_torch_ref[loose_pow] classes=['denormal_operand', 'denormal_result', 'finite_ulp'] -- triton vs a direct torch.float32 implementation of the ENGINE_SPEC semantics; n=18400 bit=15748/18400 bit|nan=16998/18400 maxabs=2.6700694631493273e+22 maxrel=2047.0 maxulp=92274688 special_mismatch=84 allclose=False
+[r6_triton_validation] documented deviation (not a gate): op_values[sqrt] classes=['denormal_operand', 'finite_ulp'] -- triton output='values' vs oracle over the full edge family; n=6400 bit=2320/6400 bit|nan=4640/6400 maxabs=0.001953125 maxrel=1.0 maxulp=439682291 special_mismatch=440 allclose=False | failures: core=True denormal_subset=n=880 bit=0/880 bit|nan=0/880 maxabs=3.743392066509216e-23 maxrel=1.0 maxulp=439682291 special_mismatch=440 allclose=False | examples=[{'tree': 0, 'tree_tag': 'grid', 'row': 240, 'triton': 0.0, 'reference': 3.743392066509216e-23, 'triton_bits': '0x0', 'reference_bits': '0x1a3504f3', 'operands': [1.401298464324817e-45]}, {'tree': 0, 'tree_tag': 'grid', 'row': 241, 'triton': 0.0, 'reference': 3.743392066509216e-23, 'triton_bits': '0x0', 'reference_bits': '0x1a3504f3', 'operands': [1.401298464324817e-45]}, {'tree': 0, 'tree_tag': 'grid', 'row': 242, 'triton': 0.0, 'reference': 3.743392066509216e-23, 'triton_bits': '0x0', 'reference_bits': '0x1a3504f3', 'operands': [1.401298464324817e-45]}]
+[r6_triton_validation] documented deviation (not a gate): op_torch_ref[sqrt] classes=['denormal_operand', 'finite_ulp'] -- triton vs a direct torch.float32 implementation of the ENGINE_SPEC semantics; n=6400 bit=2320/6400 bit|nan=4640/6400 maxabs=0.001953125 maxrel=1.0 maxulp=439682291 special_mismatch=440 allclose=False
+[r6_triton_validation] documented deviation (not a gate): op_loss_mse[sqrt] classes=['denormal_operand', 'finite_ulp'] -- triton run() MSE loss vs the oracle loss on the same family; n=16 bit=6/16 bit|nan=13/16 maxabs=64.0 maxrel=1.0441807493584031e-07 maxulp=1 special_mismatch=1 allclose=False
+[r6_triton_validation] EXIT 0 (gate severity); passed_strict=False
