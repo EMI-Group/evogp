@@ -175,7 +175,8 @@ there"; `e2e_companion` answers "how much host glue does the real call add".
 `pure.runner_source` and `compile.path` say which constructor ran; never present a
 `local-fallback:*` number as if it were the frozen engine's.
 
-* `fallback` (this round's only executable path — the frozen API does not exist at HEAD) is the
+* `fallback` (the **before** round's executable path — the frozen API did not exist at `e272714`; still
+  selectable with `--pure-runner fallback`) is the
   local re-implementation in `test/benchmark/pure_forward.py`: dense = `plan_dense` +
   `build_dense` + the per-chunk invocation args; specialized = `decode_population` + one
   `_executable(...)` per non-constant tree.  Both use the engine's **own** memo key and the
