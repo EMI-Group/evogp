@@ -1,0 +1,367 @@
+{
+  "probe": "r5/gpu_probe/kineto_attempt.py",
+  "tag": "kineto_f64",
+  "config": {
+    "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/test/goldens/forest_random.npz",
+    "mode": "pure",
+    "invocations": 30,
+    "pop_size": 64,
+    "rows": 64
+  },
+  "construct_ms": 11859.511870890856,
+  "table_path": "test/benchmark/r5/results/q2_gpu/kineto_f64/kineto_key_averages.txt",
+  "trace_path": "test/benchmark/r5/results/q2_gpu/kineto_f64/kineto_trace.json.gz",
+  "n_events": 128,
+  "n_events_with_device_time": 126,
+  "iree_events": [
+    {
+      "key": "main_dispatch_0_elementwise_broadcast_64x64_i32xi32xi64xf32xf32",
+      "count": 30,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 44.99100000003091,
+      "self_device_time_total_us": 44.99100000003091
+    },
+    {
+      "key": "main_dispatch_1_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 128.28899999994974,
+      "self_device_time_total_us": 128.28899999994974
+    },
+    {
+      "key": "main_dispatch_4_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32",
+      "count": 30,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 66.59399999998641,
+      "self_device_time_total_us": 66.59399999998641
+    },
+    {
+      "key": "main_dispatch_5_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 125.95299999997223,
+      "self_device_time_total_us": 125.95299999997223
+    },
+    {
+      "key": "main_dispatch_8_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32",
+      "count": 30,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 66.72100000001592,
+      "self_device_time_total_us": 66.72100000001592
+    },
+    {
+      "key": "main_dispatch_9_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 125.56900000000678,
+      "self_device_time_total_us": 125.56900000000678
+    },
+    {
+      "key": "main_dispatch_12_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32",
+      "count": 30,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 66.30599999996775,
+      "self_device_time_total_us": 66.30599999996775
+    },
+    {
+      "key": "main_dispatch_13_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 125.6930000000757,
+      "self_device_time_total_us": 125.6930000000757
+    },
+    {
+      "key": "main_dispatch_16_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32",
+      "count": 30,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 66.68900000007488,
+      "self_device_time_total_us": 66.68900000007488
+    },
+    {
+      "key": "main_dispatch_17_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 125.21199999985765,
+      "self_device_time_total_us": 125.21199999985765
+    },
+    {
+      "key": "main_dispatch_20_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32",
+      "count": 30,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 66.55899999997564,
+      "self_device_time_total_us": 66.55899999997564
+    },
+    {
+      "key": "main_dispatch_21_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 125.34400000000824,
+      "self_device_time_total_us": 125.34400000000824
+    },
+    {
+      "key": "main_dispatch_24_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32",
+      "count": 30,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 66.43299999997907,
+      "self_device_time_total_us": 66.43299999997907
+    },
+    {
+      "key": "main_dispatch_25_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 124.80200000001787,
+      "self_device_time_total_us": 124.80200000001787
+    },
+    {
+      "key": "main_dispatch_28_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32",
+      "count": 30,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 66.55699999995704,
+      "self_device_time_total_us": 66.55699999995704
+    },
+    {
+      "key": "main_dispatch_29_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 125.72599999999875,
+      "self_device_time_total_us": 125.72599999999875
+    },
+    {
+      "key": "main_dispatch_32_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32",
+      "count": 30,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 66.27299999999013,
+      "self_device_time_total_us": 66.27299999999013
+    },
+    {
+      "key": "main_dispatch_33_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 125.1799999999821,
+      "self_device_time_total_us": 125.1799999999821
+    },
+    {
+      "key": "main_dispatch_36_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32",
+      "count": 30,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 66.91300000000047,
+      "self_device_time_total_us": 66.91300000000047
+    },
+    {
+      "key": "main_dispatch_37_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 125.98399999993853,
+      "self_device_time_total_us": 125.98399999993853
+    }
+  ],
+  "top_device_events": [
+    {
+      "key": "Memcpy DtoD (Device -> Device)",
+      "count": 1830,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 3102.8420000001024,
+      "self_device_time_total_us": 3102.8420000001024
+    },
+    {
+      "key": "main_dispatch_197_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 135.1410000000251,
+      "self_device_time_total_us": 135.1410000000251
+    },
+    {
+      "key": "main_dispatch_201_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 135.1009999999842,
+      "self_device_time_total_us": 135.1009999999842
+    },
+    {
+      "key": "main_dispatch_237_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 134.90900000005422,
+      "self_device_time_total_us": 134.90900000005422
+    },
+    {
+      "key": "main_dispatch_229_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 134.8800000000192,
+      "self_device_time_total_us": 134.8800000000192
+    },
+    {
+      "key": "main_dispatch_193_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 134.34299999998257,
+      "self_device_time_total_us": 134.34299999998257
+    },
+    {
+      "key": "main_dispatch_233_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 134.14400000002206,
+      "self_device_time_total_us": 134.14400000002206
+    },
+    {
+      "key": "main_dispatch_205_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 133.08800000006158,
+      "self_device_time_total_us": 133.08800000006158
+    },
+    {
+      "key": "main_dispatch_213_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 132.63399999995454,
+      "self_device_time_total_us": 132.63399999995454
+    },
+    {
+      "key": "main_dispatch_217_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 132.50700000001962,
+      "self_device_time_total_us": 132.50700000001962
+    },
+    {
+      "key": "main_dispatch_209_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 130.854000000003,
+      "self_device_time_total_us": 130.854000000003
+    },
+    {
+      "key": "main_dispatch_221_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 130.84799999997995,
+      "self_device_time_total_us": 130.84799999997995
+    },
+    {
+      "key": "main_dispatch_225_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 130.36799999998038,
+      "self_device_time_total_us": 130.36799999998038
+    },
+    {
+      "key": "main_dispatch_241_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 128.79599999996208,
+      "self_device_time_total_us": 128.79599999996208
+    },
+    {
+      "key": "main_dispatch_181_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 128.5140000000647,
+      "self_device_time_total_us": 128.5140000000647
+    },
+    {
+      "key": "main_dispatch_1_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 128.28899999994974,
+      "self_device_time_total_us": 128.28899999994974
+    },
+    {
+      "key": "main_dispatch_189_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 128.15999999994892,
+      "self_device_time_total_us": 128.15999999994892
+    },
+    {
+      "key": "main_dispatch_185_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 127.99799999993411,
+      "self_device_time_total_us": 127.99799999993411
+    },
+    {
+      "key": "main_dispatch_169_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 127.83999999995649,
+      "self_device_time_total_us": 127.83999999995649
+    },
+    {
+      "key": "main_dispatch_177_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 127.83600000007209,
+      "self_device_time_total_us": 127.83600000007209
+    },
+    {
+      "key": "main_dispatch_165_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 127.65199999999822,
+      "self_device_time_total_us": 127.65199999999822
+    },
+    {
+      "key": "main_dispatch_157_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 127.55299999995259,
+      "self_device_time_total_us": 127.55299999995259
+    },
+    {
+      "key": "main_dispatch_173_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 127.45900000002075,
+      "self_device_time_total_us": 127.45900000002075
+    },
+    {
+      "key": "main_dispatch_161_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 127.42300000000978,
+      "self_device_time_total_us": 127.42300000000978
+    },
+    {
+      "key": "main_dispatch_37_elementwise_64x64_i32xi64xf32",
+      "count": 90,
+      "cpu_time_total_us": 0.0,
+      "cuda_time_total_us": 125.98399999993853,
+      "self_device_time_total_us": 125.98399999993853
+    }
+  ],
+  "verdict": "iree kernels visible",
+  "stamp": {
+    "when": "2026-09-13T21:14:07+0800",
+    "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67",
+    "evogp_commit": "247c1e006a576ae7ea0639aea1a0a70d667a8554",
+    "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/__init__.py",
+    "etl_repo": "/mnt/local-ssd/bchuang/etl",
+    "etl_repo_head": "96df7da8f2ba39f52cf2f2b61888e67f70471bc9",
+    "etl_repo_status": "<empty>",
+    "python": "/mnt/local-ssd/bchuang/evox/.venv/bin/python",
+    "python_version": "3.11.2",
+    "torch": "2.6.0+cu124",
+    "numpy": "2.4.6",
+    "cuda_visible_devices": "6",
+    "cuda_available": true,
+    "env_knobs": {
+      "ETL_DISABLE_LOCATIONS": "1",
+      "EVOGP_ETL_BACKEND": "iree",
+      "EVOGP_ETL_IREE_DEVICE": "0",
+      "EVOGP_ETL_IREE_OPT_LEVEL": "O1",
+      "EVOGP_EVAL_MODE": "dense"
+    },
+    "gpu": {
+      "index": "6",
+      "util_mem": "6, NVIDIA RTX A6000, 0, 30822",
+      "compute_apps": "2903622, python, 30486 MiB\n3188419, /mnt/local-ssd/bchuang/evox/.venv/bin/python, 276 MiB"
+    },
+    "etl_file": "/mnt/local-ssd/bchuang/etl/etl/__init__.py",
+    "etl_version": "0.1.0",
+    "probe": "r5/gpu_probe/kineto_attempt.py",
+    "tag": "kineto_f64"
+  }
+}

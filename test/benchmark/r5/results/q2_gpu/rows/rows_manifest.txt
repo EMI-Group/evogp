@@ -1,0 +1,8 @@
+f64_r8     exit=0  test/benchmark/r5/results/q2_gpu/rows/f64_r8.json
+f64_r16    exit=0  test/benchmark/r5/results/q2_gpu/rows/f64_r16.json
+f64_r32    exit=0  test/benchmark/r5/results/q2_gpu/rows/f64_r32.json
+f64_r64    exit=0  test/benchmark/r5/results/q2_gpu/rows/f64_r64.json
+f64_r128   exit=0  test/benchmark/r5/results/q2_gpu/rows/f64_r128.json
+f64_r256   exit=0  test/benchmark/r5/results/q2_gpu/rows/f64_r256.json
+f200_r64   exit=0  test/benchmark/r5/results/q2_gpu/rows/f200_r64.json
+f200_r128  exit=0  test/benchmark/r5/results/q2_gpu/rows/f200_r128.json

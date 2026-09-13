@@ -1,0 +1,11 @@
+=== trace facts: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/test/benchmark/r5/results/q2_gpu/kineto_f64/kineto_trace.json.gz ===
+n_events: 33601
+kernel_calls: 7470
+memcpy_calls: 1830
+driver_api_calls: 7470
+kernel_us: {'count': 7470, 'total_us': 12290.407000000247, 'median_us': 1.408, 'mean_us': 1.645302141900937, 'min_us': 1.343, 'max_us': 3.072}
+memcpy_us: {'count': 1830, 'total_us': 3102.8420000000024, 'median_us': 1.632, 'mean_us': 1.6955420765027323, 'min_us': 1.184, 'max_us': 2.24}
+driver_us: {'count': 7470, 'total_us': 51162.01399999979, 'median_us': 6.45, 'mean_us': 6.848997858099064, 'min_us': 5.93, 'max_us': 173.58}
+device: {'n_events': 9300, 'span_us': 88267.7744140625, 'busy_us': 15393.249000000167, 'busy_pct': 17.439262632578362, 'gap_total_us': 72874.08203125, 'gap_count': 9299, 'gap_median_us': 5.8876953125, 'gap_mean_us': 7.836765462012044, 'gap_max_us': 1326.88671875}
+kernel_census: {"distinct_names": 125, "calls_per_name_histogram": {"30": 63, "90": 62}, "grid_x_block_histogram": {"(32, 1, 1)x(32, 1, 1)": 7470}, "occupancy_pct": {"count": 7470, "min": 1.0, "median": 1.0, "max": 1.0}, "shared_memory_bytes": {"max": 0.0, "nonzero_calls": 0}, "top_names": [["main_dispatch_1_elementwise_64x64_i32xi64xf32", 90], ["main_dispatch_5_elementwise_64x64_i32xi64xf32", 90], ["main_dispatch_9_elementwise_64x64_i32xi64xf32", 90], ["main_dispatch_13_elementwise_64x64_i32xi64xf32", 90], ["main_dispatch_17_elementwise_64x64_i32xi64xf32", 90]]}
+per_invocation: {"span_us_median": 2550.76318359375, "busy_us_median": 513.9059999999998, "busy_pct_median": 20.173794000774873, "gap_total_us_median": 2037.875, "gap_median_us_median": 5.85693359375, "n_events_per_group": 310}

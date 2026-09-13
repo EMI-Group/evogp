@@ -1,0 +1,317 @@
+=== r5/gpu_probe/dispatch_dump.py ===
+ETL_IREE_COMPILE_ARGS=--iree-flow-dump-dispatch-graph --iree-flow-dump-dispatch-graph-output-file=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/test/benchmark/r5/results/q2_gpu/dumps/f64_r8/dispatch_graph.dot --iree-scheduling-dump-statistics-file=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/test/benchmark/r5/results/q2_gpu/dumps/f64_r8/scheduling_stats.csv --iree-scheduling-dump-statistics-format=csv --iree-hal-dump-executable-binaries-to=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/test/benchmark/r5/results/q2_gpu/dumps/f64_r8/executables
+route      : backend=iree eval_mode=dense should_use_dense(64)=True
+case       : fixture=test/goldens/forest_random.npz pop=64 max_tree_len=63 rows=8 input_len=2 output_len=1 mode=pure
+runner     : invocations/graph-calls per run = 1
+plan       : trace_len=63 pop_size=64 n_rows=8 peak_bytes=420864 variant=value
+compile call (first, cold): 12704.942 ms
+warm calls ms: 2.997 3.076 3.041
+
+--- dispatch graph ---
+path: test/benchmark/r5/results/q2_gpu/dumps/f64_r8/dispatch_graph.dot
+exists: True
+bytes: 150976
+lines: 2084
+nodes: 578
+edges: 1500
+dispatch_nodes: 249
+longest_dispatch_chain: 125
+dispatch symbols:
+  @main_dispatch_0_elementwise_broadcast_64x8_i32xi32xi64xf32xf32
+  @main_dispatch_1_elementwise_64x8_i32xi64xf32
+  @main_dispatch_1_elementwise_64x8_i32xi64xf32
+  @main_dispatch_1_elementwise_64x8_i32xi64xf32
+  @main_dispatch_4_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_5_elementwise_64x8_i32xi64xf32
+  @main_dispatch_5_elementwise_64x8_i32xi64xf32
+  @main_dispatch_5_elementwise_64x8_i32xi64xf32
+  @main_dispatch_8_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_9_elementwise_64x8_i32xi64xf32
+  @main_dispatch_9_elementwise_64x8_i32xi64xf32
+  @main_dispatch_9_elementwise_64x8_i32xi64xf32
+  @main_dispatch_12_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_13_elementwise_64x8_i32xi64xf32
+  @main_dispatch_13_elementwise_64x8_i32xi64xf32
+  @main_dispatch_13_elementwise_64x8_i32xi64xf32
+  @main_dispatch_16_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_17_elementwise_64x8_i32xi64xf32
+  @main_dispatch_17_elementwise_64x8_i32xi64xf32
+  @main_dispatch_17_elementwise_64x8_i32xi64xf32
+  @main_dispatch_20_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_21_elementwise_64x8_i32xi64xf32
+  @main_dispatch_21_elementwise_64x8_i32xi64xf32
+  @main_dispatch_21_elementwise_64x8_i32xi64xf32
+  @main_dispatch_24_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_25_elementwise_64x8_i32xi64xf32
+  @main_dispatch_25_elementwise_64x8_i32xi64xf32
+  @main_dispatch_25_elementwise_64x8_i32xi64xf32
+  @main_dispatch_28_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_29_elementwise_64x8_i32xi64xf32
+  @main_dispatch_29_elementwise_64x8_i32xi64xf32
+  @main_dispatch_29_elementwise_64x8_i32xi64xf32
+  @main_dispatch_32_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_33_elementwise_64x8_i32xi64xf32
+  @main_dispatch_33_elementwise_64x8_i32xi64xf32
+  @main_dispatch_33_elementwise_64x8_i32xi64xf32
+  @main_dispatch_36_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_37_elementwise_64x8_i32xi64xf32
+  @main_dispatch_37_elementwise_64x8_i32xi64xf32
+  @main_dispatch_37_elementwise_64x8_i32xi64xf32
+  @main_dispatch_40_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_41_elementwise_64x8_i32xi64xf32
+  @main_dispatch_41_elementwise_64x8_i32xi64xf32
+  @main_dispatch_41_elementwise_64x8_i32xi64xf32
+  @main_dispatch_44_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_45_elementwise_64x8_i32xi64xf32
+  @main_dispatch_45_elementwise_64x8_i32xi64xf32
+  @main_dispatch_45_elementwise_64x8_i32xi64xf32
+  @main_dispatch_48_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_49_elementwise_64x8_i32xi64xf32
+  @main_dispatch_49_elementwise_64x8_i32xi64xf32
+  @main_dispatch_49_elementwise_64x8_i32xi64xf32
+  @main_dispatch_52_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_53_elementwise_64x8_i32xi64xf32
+  @main_dispatch_53_elementwise_64x8_i32xi64xf32
+  @main_dispatch_53_elementwise_64x8_i32xi64xf32
+  @main_dispatch_56_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_57_elementwise_64x8_i32xi64xf32
+  @main_dispatch_57_elementwise_64x8_i32xi64xf32
+  @main_dispatch_57_elementwise_64x8_i32xi64xf32
+  @main_dispatch_60_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_61_elementwise_64x8_i32xi64xf32
+  @main_dispatch_61_elementwise_64x8_i32xi64xf32
+  @main_dispatch_61_elementwise_64x8_i32xi64xf32
+  @main_dispatch_64_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_65_elementwise_64x8_i32xi64xf32
+  @main_dispatch_65_elementwise_64x8_i32xi64xf32
+  @main_dispatch_65_elementwise_64x8_i32xi64xf32
+  @main_dispatch_68_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_69_elementwise_64x8_i32xi64xf32
+  @main_dispatch_69_elementwise_64x8_i32xi64xf32
+  @main_dispatch_69_elementwise_64x8_i32xi64xf32
+  @main_dispatch_72_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_73_elementwise_64x8_i32xi64xf32
+  @main_dispatch_73_elementwise_64x8_i32xi64xf32
+  @main_dispatch_73_elementwise_64x8_i32xi64xf32
+  @main_dispatch_76_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_77_elementwise_64x8_i32xi64xf32
+  @main_dispatch_77_elementwise_64x8_i32xi64xf32
+  @main_dispatch_77_elementwise_64x8_i32xi64xf32
+  @main_dispatch_80_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_81_elementwise_64x8_i32xi64xf32
+  @main_dispatch_81_elementwise_64x8_i32xi64xf32
+  @main_dispatch_81_elementwise_64x8_i32xi64xf32
+  @main_dispatch_84_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_85_elementwise_64x8_i32xi64xf32
+  @main_dispatch_85_elementwise_64x8_i32xi64xf32
+  @main_dispatch_85_elementwise_64x8_i32xi64xf32
+  @main_dispatch_88_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_89_elementwise_64x8_i32xi64xf32
+  @main_dispatch_89_elementwise_64x8_i32xi64xf32
+  @main_dispatch_89_elementwise_64x8_i32xi64xf32
+  @main_dispatch_92_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_93_elementwise_64x8_i32xi64xf32
+  @main_dispatch_93_elementwise_64x8_i32xi64xf32
+  @main_dispatch_93_elementwise_64x8_i32xi64xf32
+  @main_dispatch_96_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_97_elementwise_64x8_i32xi64xf32
+  @main_dispatch_97_elementwise_64x8_i32xi64xf32
+  @main_dispatch_97_elementwise_64x8_i32xi64xf32
+  @main_dispatch_100_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_101_elementwise_64x8_i32xi64xf32
+  @main_dispatch_101_elementwise_64x8_i32xi64xf32
+  @main_dispatch_101_elementwise_64x8_i32xi64xf32
+  @main_dispatch_104_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_105_elementwise_64x8_i32xi64xf32
+  @main_dispatch_105_elementwise_64x8_i32xi64xf32
+  @main_dispatch_105_elementwise_64x8_i32xi64xf32
+  @main_dispatch_108_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_109_elementwise_64x8_i32xi64xf32
+  @main_dispatch_109_elementwise_64x8_i32xi64xf32
+  @main_dispatch_109_elementwise_64x8_i32xi64xf32
+  @main_dispatch_112_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_113_elementwise_64x8_i32xi64xf32
+  @main_dispatch_113_elementwise_64x8_i32xi64xf32
+  @main_dispatch_113_elementwise_64x8_i32xi64xf32
+  @main_dispatch_116_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_117_elementwise_64x8_i32xi64xf32
+  @main_dispatch_117_elementwise_64x8_i32xi64xf32
+  @main_dispatch_117_elementwise_64x8_i32xi64xf32
+  @main_dispatch_120_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_121_elementwise_64x8_i32xi64xf32
+  @main_dispatch_121_elementwise_64x8_i32xi64xf32
+  @main_dispatch_121_elementwise_64x8_i32xi64xf32
+  @main_dispatch_124_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_125_elementwise_64x8_i32xi64xf32
+  @main_dispatch_125_elementwise_64x8_i32xi64xf32
+  @main_dispatch_125_elementwise_64x8_i32xi64xf32
+  @main_dispatch_128_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_129_elementwise_64x8_i32xi64xf32
+  @main_dispatch_129_elementwise_64x8_i32xi64xf32
+  @main_dispatch_129_elementwise_64x8_i32xi64xf32
+  @main_dispatch_132_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_133_elementwise_64x8_i32xi64xf32
+  @main_dispatch_133_elementwise_64x8_i32xi64xf32
+  @main_dispatch_133_elementwise_64x8_i32xi64xf32
+  @main_dispatch_136_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_137_elementwise_64x8_i32xi64xf32
+  @main_dispatch_137_elementwise_64x8_i32xi64xf32
+  @main_dispatch_137_elementwise_64x8_i32xi64xf32
+  @main_dispatch_140_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_141_elementwise_64x8_i32xi64xf32
+  @main_dispatch_141_elementwise_64x8_i32xi64xf32
+  @main_dispatch_141_elementwise_64x8_i32xi64xf32
+  @main_dispatch_144_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_145_elementwise_64x8_i32xi64xf32
+  @main_dispatch_145_elementwise_64x8_i32xi64xf32
+  @main_dispatch_145_elementwise_64x8_i32xi64xf32
+  @main_dispatch_148_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_149_elementwise_64x8_i32xi64xf32
+  @main_dispatch_149_elementwise_64x8_i32xi64xf32
+  @main_dispatch_149_elementwise_64x8_i32xi64xf32
+  @main_dispatch_152_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_153_elementwise_64x8_i32xi64xf32
+  @main_dispatch_153_elementwise_64x8_i32xi64xf32
+  @main_dispatch_153_elementwise_64x8_i32xi64xf32
+  @main_dispatch_156_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_157_elementwise_64x8_i32xi64xf32
+  @main_dispatch_157_elementwise_64x8_i32xi64xf32
+  @main_dispatch_157_elementwise_64x8_i32xi64xf32
+  @main_dispatch_160_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_161_elementwise_64x8_i32xi64xf32
+  @main_dispatch_161_elementwise_64x8_i32xi64xf32
+  @main_dispatch_161_elementwise_64x8_i32xi64xf32
+  @main_dispatch_164_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_165_elementwise_64x8_i32xi64xf32
+  @main_dispatch_165_elementwise_64x8_i32xi64xf32
+  @main_dispatch_165_elementwise_64x8_i32xi64xf32
+  @main_dispatch_168_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_169_elementwise_64x8_i32xi64xf32
+  @main_dispatch_169_elementwise_64x8_i32xi64xf32
+  @main_dispatch_169_elementwise_64x8_i32xi64xf32
+  @main_dispatch_172_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_173_elementwise_64x8_i32xi64xf32
+  @main_dispatch_173_elementwise_64x8_i32xi64xf32
+  @main_dispatch_173_elementwise_64x8_i32xi64xf32
+  @main_dispatch_176_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_177_elementwise_64x8_i32xi64xf32
+  @main_dispatch_177_elementwise_64x8_i32xi64xf32
+  @main_dispatch_177_elementwise_64x8_i32xi64xf32
+  @main_dispatch_180_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_181_elementwise_64x8_i32xi64xf32
+  @main_dispatch_181_elementwise_64x8_i32xi64xf32
+  @main_dispatch_181_elementwise_64x8_i32xi64xf32
+  @main_dispatch_184_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_185_elementwise_64x8_i32xi64xf32
+  @main_dispatch_185_elementwise_64x8_i32xi64xf32
+  @main_dispatch_185_elementwise_64x8_i32xi64xf32
+  @main_dispatch_188_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_189_elementwise_64x8_i32xi64xf32
+  @main_dispatch_189_elementwise_64x8_i32xi64xf32
+  @main_dispatch_189_elementwise_64x8_i32xi64xf32
+  @main_dispatch_192_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_193_elementwise_64x8_i32xi64xf32
+  @main_dispatch_193_elementwise_64x8_i32xi64xf32
+  @main_dispatch_193_elementwise_64x8_i32xi64xf32
+  @main_dispatch_196_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_197_elementwise_64x8_i32xi64xf32
+  @main_dispatch_197_elementwise_64x8_i32xi64xf32
+  @main_dispatch_197_elementwise_64x8_i32xi64xf32
+  @main_dispatch_200_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_201_elementwise_64x8_i32xi64xf32
+  @main_dispatch_201_elementwise_64x8_i32xi64xf32
+  @main_dispatch_201_elementwise_64x8_i32xi64xf32
+  @main_dispatch_204_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_205_elementwise_64x8_i32xi64xf32
+  @main_dispatch_205_elementwise_64x8_i32xi64xf32
+  @main_dispatch_205_elementwise_64x8_i32xi64xf32
+  @main_dispatch_208_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_209_elementwise_64x8_i32xi64xf32
+  @main_dispatch_209_elementwise_64x8_i32xi64xf32
+  @main_dispatch_209_elementwise_64x8_i32xi64xf32
+  @main_dispatch_212_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_213_elementwise_64x8_i32xi64xf32
+  @main_dispatch_213_elementwise_64x8_i32xi64xf32
+  @main_dispatch_213_elementwise_64x8_i32xi64xf32
+  @main_dispatch_216_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_217_elementwise_64x8_i32xi64xf32
+  @main_dispatch_217_elementwise_64x8_i32xi64xf32
+  @main_dispatch_217_elementwise_64x8_i32xi64xf32
+  @main_dispatch_220_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_221_elementwise_64x8_i32xi64xf32
+  @main_dispatch_221_elementwise_64x8_i32xi64xf32
+  @main_dispatch_221_elementwise_64x8_i32xi64xf32
+  @main_dispatch_224_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_225_elementwise_64x8_i32xi64xf32
+  @main_dispatch_225_elementwise_64x8_i32xi64xf32
+  @main_dispatch_225_elementwise_64x8_i32xi64xf32
+  @main_dispatch_228_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_229_elementwise_64x8_i32xi64xf32
+  @main_dispatch_229_elementwise_64x8_i32xi64xf32
+  @main_dispatch_229_elementwise_64x8_i32xi64xf32
+  @main_dispatch_232_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_233_elementwise_64x8_i32xi64xf32
+  @main_dispatch_233_elementwise_64x8_i32xi64xf32
+  @main_dispatch_233_elementwise_64x8_i32xi64xf32
+  @main_dispatch_236_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_237_elementwise_64x8_i32xi64xf32
+  @main_dispatch_237_elementwise_64x8_i32xi64xf32
+  @main_dispatch_237_elementwise_64x8_i32xi64xf32
+  @main_dispatch_240_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_241_elementwise_64x8_i32xi64xf32
+  @main_dispatch_241_elementwise_64x8_i32xi64xf32
+  @main_dispatch_241_elementwise_64x8_i32xi64xf32
+  @main_dispatch_244_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+  @main_dispatch_245_elementwise_64x8_i32xi64xf32
+  @main_dispatch_245_elementwise_64x8_i32xi64xf32
+  @main_dispatch_245_elementwise_64x8_i32xi64xf32
+  @main_dispatch_248_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32
+dispatch node labels:
+  '%9 = flow.dispatch[]\\n@main_dispatch_0::@main_dispatch_0_elementwise_broadcast_64x8_i32xi32xi64xf32xf32(%2, %3, %0, %8, %__hoisted_tensor_8xi64)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%11 = flow.dispatch[]\\n@main_dispatch_1::@main_dispatch_1_elementwise_64x8_i32xi64xf32(%4, %10, %__hoisted_tensor_64x8xi64)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%12 = flow.dispatch[]\\n@main_dispatch_1::@main_dispatch_1_elementwise_64x8_i32xi64xf32(%5, %10, %__hoisted_tensor_64x8xi64)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%13 = flow.dispatch[]\\n@main_dispatch_1::@main_dispatch_1_elementwise_64x8_i32xi64xf32(%6, %10, %__hoisted_tensor_64x8xi64)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%14 = flow.dispatch[]\\n@main_dispatch_4::@main_dispatch_4_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32(%1, %2, %3, %0, %8, %__hoisted_tensor_8xi64, %11, %12, %13)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%21 = flow.dispatch[]\\n@main_dispatch_5::@main_dispatch_5_elementwise_64x8_i32xi64xf32(%4, %20, %__hoisted_tensor_64x8xi64)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%22 = flow.dispatch[]\\n@main_dispatch_5::@main_dispatch_5_elementwise_64x8_i32xi64xf32(%5, %20, %__hoisted_tensor_64x8xi64)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%23 = flow.dispatch[]\\n@main_dispatch_5::@main_dispatch_5_elementwise_64x8_i32xi64xf32(%6, %20, %__hoisted_tensor_64x8xi64)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%24 = flow.dispatch[]\\n@main_dispatch_8::@main_dispatch_8_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32(%1, %2, %3, %0, %8, %__hoisted_tensor_8xi64, %21, %22, %23)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%30 = flow.dispatch[]\\n@main_dispatch_9::@main_dispatch_9_elementwise_64x8_i32xi64xf32(%4, %29, %__hoisted_tensor_64x8xi64)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%31 = flow.dispatch[]\\n@main_dispatch_9::@main_dispatch_9_elementwise_64x8_i32xi64xf32(%5, %29, %__hoisted_tensor_64x8xi64)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+  '%32 = flow.dispatch[]\\n@main_dispatch_9::@main_dispatch_9_elementwise_64x8_i32xi64xf32(%6, %29, %__hoisted_tensor_64x8xi64)\\n<<NULL ATTRIBUTE>>\\ntensor<64x8xf32>'
+
+--- scheduling statistics ---
+sections: {'Aggregate Statistics (static, whole-program)': 1, 'Execution': 310}
+aggregate: {'Constants': '1', 'Constant Size': '4160', 'Variables': '0', 'Variable Size': '0', 'Awaits': '2', 'Submissions': '1', 'Transient Size': '376832', 'Fills': '0', 'Copies': '61', 'Dispatches': '249', 'Async Calls': '0', 'Executables': '125'}
+execution rows: 310
+  {'Depth': '0', 'Command': 'dispatch', 'Symbol': '@main_dispatch_0::@main_dispatch_0_elementwise_broadcast_64x8_i32xi32xi64xf32xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '6'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_1::@main_dispatch_1_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_1::@main_dispatch_1_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_1::@main_dispatch_1_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_4::@main_dispatch_4_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '10'}
+  {'Depth': '1', 'Command': 'copy', 'Symbol': '', 'Length': '2048', 'Invocations': '', 'Workload': '', 'Operands': '', 'Resources': ''}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_5::@main_dispatch_5_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_5::@main_dispatch_5_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_5::@main_dispatch_5_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_8::@main_dispatch_8_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '10'}
+  {'Depth': '1', 'Command': 'copy', 'Symbol': '', 'Length': '4096', 'Invocations': '', 'Workload': '', 'Operands': '', 'Resources': ''}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_9::@main_dispatch_9_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_9::@main_dispatch_9_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_9::@main_dispatch_9_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_12::@main_dispatch_12_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '10'}
+  {'Depth': '1', 'Command': 'copy', 'Symbol': '', 'Length': '6144', 'Invocations': '', 'Workload': '', 'Operands': '', 'Resources': ''}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_13::@main_dispatch_13_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_13::@main_dispatch_13_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_13::@main_dispatch_13_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_16::@main_dispatch_16_elementwise_64x8_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '10'}
+  {'Depth': '1', 'Command': 'copy', 'Symbol': '', 'Length': '8192', 'Invocations': '', 'Workload': '', 'Operands': '', 'Resources': ''}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_17::@main_dispatch_17_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_17::@main_dispatch_17_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+  {'Depth': '1', 'Command': 'dispatch', 'Symbol': '@main_dispatch_17::@main_dispatch_17_elementwise_64x8_i32xi64xf32', 'Length': '', 'Invocations': '1', 'Workload': '', 'Operands': '0', 'Resources': '4'}
+
+--- hal executables ---
+      573854  module__stdin__linked_cuda_nvptx_fb.ptx
+total 573854 bytes, pruned=False
+
+log: test/benchmark/r5/results/q2_gpu/dumps/f64_r8/dump.log
+record: test/benchmark/r5/results/q2_gpu/dumps/f64_r8.json

@@ -1,0 +1,5 @@
+=== r5 Q2(c) row-scaling series -- 2026-09-13T21:03:19+0800 ===
+evogp:   247c1e006a576ae7ea0639aea1a0a70d667a8554 (2 dirty files)
+etl:     96df7da8f2ba39f52cf2f2b61888e67f70471bc9 (/mnt/local-ssd/bchuang/etl)
+python:  /mnt/local-ssd/bchuang/evox/.venv/bin/python
+gpu:     CUDA_VISIBLE_DEVICES=6

@@ -1,0 +1,83 @@
+[f64_r32] cold-build guard ACTIVE: stop when the cumulative ETL compile misses exceed --max-cold-builds=400
+[f64_r32] harness=bench_gp.py side=new task=eval-pure pop=None gens=None tree_len=None seed=0 reps=5 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/__init__.py commit=247c1e006a576ae7ea0639aea1a0a70d667a8554 etl=0.1.0 json_out=test/benchmark/r5/results/q2_gpu/rows/f64_r32.json
+[f64_r32] pure: pop=64 n_rows=32 mode_requested=dense mode_resolved=dense backend=iree runner=auto invocations=100 warmup=10 reps=5 e2e_companion=11
+[f64_r32] constructed pure runner: source=frozen-api:build_dense_runner n_trees=64 n_const_trees=0 graph_calls/invocation=1 (introspected); compile 15524.6ms (decode_plan n/ams + build n/ams; 1 cache misses)
+[f64_r32] side=new rep0/5: per-invocation 1.8ms (block 177.1ms)
+[f64_r32] side=new rep1/5: per-invocation 1.5ms (block 146.4ms)
+[f64_r32] side=new rep2/5: per-invocation 1.4ms (block 143.4ms)
+[f64_r32] side=new rep3/5: per-invocation 1.1ms (block 113.8ms)
+[f64_r32] side=new rep4/5: per-invocation 1.2ms (block 117.7ms)
+[f64_r32] e2e companion: first 15127.2ms, warm median 8.7ms over 11 problem.evaluate() calls (pure median 1.4ms)
+[f64_r32] output capture (out of band, after all timing): n_blocks=1 shapes=[[64, 32]] total_elems=2048 nan=8 inf=0 sha256=ee0fcc2ef569a2322278a23e2648b9ee7773724eab35f907b21a182cb9b9ca8b
+[f64_r32] done side=new interrupted=False harness_wall_s=32.7 json_out=test/benchmark/r5/results/q2_gpu/rows/f64_r32.json
+nanobind: leaked 392 instances!
+ - leaked instance 0x7fac4585be48 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fac4585aa28 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fac4582bf68 of type "iree._runtime_libs._runtime.HalDevice"
+ - leaked instance 0x7fac4585bd68 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fac4585bae8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fac45859428 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fac45908c88 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fac459082e8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7fac55fc4138 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fac5575df38 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fac456adc18 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fac4c125c68 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fac4585a348 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fac456aed98 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fac5592c138 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fac459097e8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fac560459e8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fac456ade98 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7fac459098c8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7fac456ae3e8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - ... skipped remainder
+nanobind: leaked 391 keep_alive records!
+nanobind: leaked 5 types!
+ - leaked type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked type "iree._runtime_libs._runtime.HalDevice"
+ - leaked type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked type "iree._runtime_libs._runtime.HalDriver"
+nanobind: leaked 39 functions!
+ - leaked function "flush_profiling"
+ - leaked function "asarray"
+ - leaked function "queue_copy"
+ - leaked function "queue_alloca"
+ - leaked function "__iree_vm_type__"
+ - leaked function "__repr__"
+ - leaked function "byte_length"
+ - leaked function "trim"
+ - leaked function "end_profiling"
+ - leaked function "__eq__"
+ - leaked function "__repr__"
+ - leaked function "allocate_buffer_copy"
+ - leaked function "map"
+ - leaked function ""
+ - leaked function "create_semaphore"
+ - leaked function ""
+ - leaked function "query"
+ - leaked function "query_buffer_compatibility"
+ - leaked function "create_dlpack_capsule"
+ - leaked function "fill_zero"
+ - leaked function "create_view"
+ - leaked function "create_device_by_uri"
+ - leaked function "allocate_buffer"
+ - leaked function "allocate_host_staging_buffer_copy"
+ - leaked function "__iree_vm_cast__"
+ - leaked function "memory_type"
+ - leaked function ""
+ - leaked function "from_dlpack_capsule"
+ - leaked function "query_available_devices"
+ - leaked function "begin_profiling"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "allowed_usage"
+ - leaked function "queue_dealloca"
+ - leaked function "create_default_device"
+ - leaked function "queue_execute"
+ - leaked function "dump_device_info"
+ - leaked function ""
+ - leaked function "create_device"
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html

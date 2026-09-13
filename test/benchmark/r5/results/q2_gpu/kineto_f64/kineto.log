@@ -1,0 +1,122 @@
+=== r5/gpu_probe/kineto_attempt.py ===
+construct/first-call (outside the profile): 11859.512 ms
+
+--- kineto key averages (sorted by cuda time) ---
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                         Memcpy DtoD (Device -> Device)         0.00%       0.000us         0.00%       0.000us       0.000us       3.103ms        20.16%       3.103ms       1.696us          1830  
+        main_dispatch_197_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     135.141us         0.88%     135.141us       1.502us            90  
+        main_dispatch_201_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     135.101us         0.88%     135.101us       1.501us            90  
+        main_dispatch_237_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     134.909us         0.88%     134.909us       1.499us            90  
+        main_dispatch_229_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     134.880us         0.88%     134.880us       1.499us            90  
+        main_dispatch_193_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     134.343us         0.87%     134.343us       1.493us            90  
+        main_dispatch_233_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     134.144us         0.87%     134.144us       1.490us            90  
+        main_dispatch_205_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     133.088us         0.86%     133.088us       1.479us            90  
+        main_dispatch_213_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     132.634us         0.86%     132.634us       1.474us            90  
+        main_dispatch_217_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     132.507us         0.86%     132.507us       1.472us            90  
+        main_dispatch_209_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     130.854us         0.85%     130.854us       1.454us            90  
+        main_dispatch_221_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     130.848us         0.85%     130.848us       1.454us            90  
+        main_dispatch_225_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     130.368us         0.85%     130.368us       1.449us            90  
+        main_dispatch_241_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     128.796us         0.84%     128.796us       1.431us            90  
+        main_dispatch_181_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     128.514us         0.83%     128.514us       1.428us            90  
+          main_dispatch_1_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     128.289us         0.83%     128.289us       1.425us            90  
+        main_dispatch_189_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     128.160us         0.83%     128.160us       1.424us            90  
+        main_dispatch_185_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     127.998us         0.83%     127.998us       1.422us            90  
+        main_dispatch_169_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     127.840us         0.83%     127.840us       1.420us            90  
+        main_dispatch_177_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     127.836us         0.83%     127.836us       1.420us            90  
+        main_dispatch_165_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     127.652us         0.83%     127.652us       1.418us            90  
+        main_dispatch_157_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     127.553us         0.83%     127.553us       1.417us            90  
+        main_dispatch_173_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     127.459us         0.83%     127.459us       1.416us            90  
+        main_dispatch_161_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     127.423us         0.83%     127.423us       1.416us            90  
+         main_dispatch_37_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.984us         0.82%     125.984us       1.400us            90  
+          main_dispatch_5_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.953us         0.82%     125.953us       1.399us            90  
+        main_dispatch_141_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.826us         0.82%     125.826us       1.398us            90  
+         main_dispatch_29_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.726us         0.82%     125.726us       1.397us            90  
+        main_dispatch_121_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.701us         0.82%     125.701us       1.397us            90  
+         main_dispatch_13_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.693us         0.82%     125.693us       1.397us            90  
+         main_dispatch_61_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.664us         0.82%     125.664us       1.396us            90  
+        main_dispatch_149_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.640us         0.82%     125.640us       1.396us            90  
+         main_dispatch_85_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.598us         0.82%     125.598us       1.396us            90  
+        main_dispatch_125_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.596us         0.82%     125.596us       1.396us            90  
+        main_dispatch_145_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.569us         0.82%     125.569us       1.395us            90  
+          main_dispatch_9_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.569us         0.82%     125.569us       1.395us            90  
+        main_dispatch_133_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.505us         0.82%     125.505us       1.394us            90  
+         main_dispatch_69_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.504us         0.82%     125.504us       1.394us            90  
+        main_dispatch_109_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.503us         0.82%     125.503us       1.394us            90  
+        main_dispatch_101_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.447us         0.81%     125.447us       1.394us            90  
+         main_dispatch_65_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.431us         0.81%     125.431us       1.394us            90  
+         main_dispatch_77_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.407us         0.81%     125.407us       1.393us            90  
+         main_dispatch_93_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.376us         0.81%     125.376us       1.393us            90  
+         main_dispatch_73_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.374us         0.81%     125.374us       1.393us            90  
+         main_dispatch_97_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.347us         0.81%     125.347us       1.393us            90  
+         main_dispatch_45_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.347us         0.81%     125.347us       1.393us            90  
+         main_dispatch_21_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.344us         0.81%     125.344us       1.393us            90  
+        main_dispatch_117_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.341us         0.81%     125.341us       1.393us            90  
+        main_dispatch_153_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.311us         0.81%     125.311us       1.392us            90  
+         main_dispatch_49_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.308us         0.81%     125.308us       1.392us            90  
+         main_dispatch_53_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.285us         0.81%     125.285us       1.392us            90  
+        main_dispatch_137_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.277us         0.81%     125.277us       1.392us            90  
+        main_dispatch_105_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.218us         0.81%     125.218us       1.391us            90  
+         main_dispatch_17_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.212us         0.81%     125.212us       1.391us            90  
+         main_dispatch_41_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.187us         0.81%     125.187us       1.391us            90  
+        main_dispatch_245_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.185us         0.81%     125.185us       1.391us            90  
+        main_dispatch_113_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.181us         0.81%     125.181us       1.391us            90  
+         main_dispatch_33_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.180us         0.81%     125.180us       1.391us            90  
+         main_dispatch_89_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.174us         0.81%     125.174us       1.391us            90  
+         main_dispatch_57_elementwise_64x64_i32xi64xf32         0.00%       0.000us         0.00%       0.000us       0.000us     125.114us         0.81%     125.114us       1.390us            90  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 51.767ms
+Self CUDA time total: 15.393ms
+
+events: 128   with cuda time > 0: 126
+iree-looking event names: 125
+  {'key': 'main_dispatch_0_elementwise_broadcast_64x64_i32xi32xi64xf32xf32', 'count': 30, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 44.99100000003091, 'self_device_time_total_us': 44.99100000003091}
+  {'key': 'main_dispatch_1_elementwise_64x64_i32xi64xf32', 'count': 90, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 128.28899999994974, 'self_device_time_total_us': 128.28899999994974}
+  {'key': 'main_dispatch_4_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'count': 30, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 66.59399999998641, 'self_device_time_total_us': 66.59399999998641}
+  {'key': 'main_dispatch_5_elementwise_64x64_i32xi64xf32', 'count': 90, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 125.95299999997223, 'self_device_time_total_us': 125.95299999997223}
+  {'key': 'main_dispatch_8_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'count': 30, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 66.72100000001592, 'self_device_time_total_us': 66.72100000001592}
+  {'key': 'main_dispatch_9_elementwise_64x64_i32xi64xf32', 'count': 90, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 125.56900000000678, 'self_device_time_total_us': 125.56900000000678}
+  {'key': 'main_dispatch_12_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'count': 30, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 66.30599999996775, 'self_device_time_total_us': 66.30599999996775}
+  {'key': 'main_dispatch_13_elementwise_64x64_i32xi64xf32', 'count': 90, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 125.6930000000757, 'self_device_time_total_us': 125.6930000000757}
+  {'key': 'main_dispatch_16_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'count': 30, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 66.68900000007488, 'self_device_time_total_us': 66.68900000007488}
+  {'key': 'main_dispatch_17_elementwise_64x64_i32xi64xf32', 'count': 90, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 125.21199999985765, 'self_device_time_total_us': 125.21199999985765}
+  {'key': 'main_dispatch_20_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'count': 30, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 66.55899999997564, 'self_device_time_total_us': 66.55899999997564}
+  {'key': 'main_dispatch_21_elementwise_64x64_i32xi64xf32', 'count': 90, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 125.34400000000824, 'self_device_time_total_us': 125.34400000000824}
+  {'key': 'main_dispatch_24_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'count': 30, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 66.43299999997907, 'self_device_time_total_us': 66.43299999997907}
+  {'key': 'main_dispatch_25_elementwise_64x64_i32xi64xf32', 'count': 90, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 124.80200000001787, 'self_device_time_total_us': 124.80200000001787}
+  {'key': 'main_dispatch_28_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'count': 30, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 66.55699999995704, 'self_device_time_total_us': 66.55699999995704}
+  {'key': 'main_dispatch_29_elementwise_64x64_i32xi64xf32', 'count': 90, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 125.72599999999875, 'self_device_time_total_us': 125.72599999999875}
+  {'key': 'main_dispatch_32_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'count': 30, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 66.27299999999013, 'self_device_time_total_us': 66.27299999999013}
+  {'key': 'main_dispatch_33_elementwise_64x64_i32xi64xf32', 'count': 90, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 125.1799999999821, 'self_device_time_total_us': 125.1799999999821}
+  {'key': 'main_dispatch_36_elementwise_64x64_i32xi32xi64xf32xf32xf32xf32xi32xf32', 'count': 30, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 66.91300000000047, 'self_device_time_total_us': 66.91300000000047}
+  {'key': 'main_dispatch_37_elementwise_64x64_i32xi64xf32', 'count': 90, 'cpu_time_total_us': 0.0, 'cuda_time_total_us': 125.98399999993853, 'self_device_time_total_us': 125.98399999993853}
+
+top device-time events:
+      3102.842 us  n= 1830  Memcpy DtoD (Device -> Device)
+       135.141 us  n=   90  main_dispatch_197_elementwise_64x64_i32xi64xf32
+       135.101 us  n=   90  main_dispatch_201_elementwise_64x64_i32xi64xf32
+       134.909 us  n=   90  main_dispatch_237_elementwise_64x64_i32xi64xf32
+       134.880 us  n=   90  main_dispatch_229_elementwise_64x64_i32xi64xf32
+       134.343 us  n=   90  main_dispatch_193_elementwise_64x64_i32xi64xf32
+       134.144 us  n=   90  main_dispatch_233_elementwise_64x64_i32xi64xf32
+       133.088 us  n=   90  main_dispatch_205_elementwise_64x64_i32xi64xf32
+       132.634 us  n=   90  main_dispatch_213_elementwise_64x64_i32xi64xf32
+       132.507 us  n=   90  main_dispatch_217_elementwise_64x64_i32xi64xf32
+       130.854 us  n=   90  main_dispatch_209_elementwise_64x64_i32xi64xf32
+       130.848 us  n=   90  main_dispatch_221_elementwise_64x64_i32xi64xf32
+       130.368 us  n=   90  main_dispatch_225_elementwise_64x64_i32xi64xf32
+       128.796 us  n=   90  main_dispatch_241_elementwise_64x64_i32xi64xf32
+       128.514 us  n=   90  main_dispatch_181_elementwise_64x64_i32xi64xf32
+       128.289 us  n=   90  main_dispatch_1_elementwise_64x64_i32xi64xf32
+       128.160 us  n=   90  main_dispatch_189_elementwise_64x64_i32xi64xf32
+       127.998 us  n=   90  main_dispatch_185_elementwise_64x64_i32xi64xf32
+       127.840 us  n=   90  main_dispatch_169_elementwise_64x64_i32xi64xf32
+       127.836 us  n=   90  main_dispatch_177_elementwise_64x64_i32xi64xf32
+       127.652 us  n=   90  main_dispatch_165_elementwise_64x64_i32xi64xf32
+       127.553 us  n=   90  main_dispatch_157_elementwise_64x64_i32xi64xf32
+       127.459 us  n=   90  main_dispatch_173_elementwise_64x64_i32xi64xf32
+       127.423 us  n=   90  main_dispatch_161_elementwise_64x64_i32xi64xf32
+       125.984 us  n=   90  main_dispatch_37_elementwise_64x64_i32xi64xf32
+
+record: test/benchmark/r5/results/q2_gpu/kineto_f64.json

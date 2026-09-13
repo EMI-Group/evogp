@@ -1,0 +1,424 @@
+{
+  "trace": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/test/benchmark/r5/results/q2_gpu/kineto_f64/kineto_trace.json.gz",
+  "n_events": 33601,
+  "kernel_calls": 7470,
+  "memcpy_calls": 1830,
+  "driver_api_calls": 7470,
+  "kernel_us": {
+    "count": 7470,
+    "total_us": 12290.407000000247,
+    "median_us": 1.408,
+    "mean_us": 1.645302141900937,
+    "min_us": 1.343,
+    "max_us": 3.072
+  },
+  "memcpy_us": {
+    "count": 1830,
+    "total_us": 3102.8420000000024,
+    "median_us": 1.632,
+    "mean_us": 1.6955420765027323,
+    "min_us": 1.184,
+    "max_us": 2.24
+  },
+  "driver_us": {
+    "count": 7470,
+    "total_us": 51162.01399999979,
+    "median_us": 6.45,
+    "mean_us": 6.848997858099064,
+    "min_us": 5.93,
+    "max_us": 173.58
+  },
+  "device": {
+    "n_events": 9300,
+    "span_us": 88267.7744140625,
+    "busy_us": 15393.249000000167,
+    "busy_pct": 17.439262632578362,
+    "gap_total_us": 72874.08203125,
+    "gap_count": 9299,
+    "gap_median_us": 5.8876953125,
+    "gap_mean_us": 7.836765462012044,
+    "gap_max_us": 1326.88671875
+  },
+  "kernel_census": {
+    "distinct_names": 125,
+    "calls_per_name_histogram": {
+      "30": 63,
+      "90": 62
+    },
+    "grid_x_block_histogram": {
+      "(32, 1, 1)x(32, 1, 1)": 7470
+    },
+    "occupancy_pct": {
+      "count": 7470,
+      "min": 1.0,
+      "median": 1.0,
+      "max": 1.0
+    },
+    "shared_memory_bytes": {
+      "max": 0.0,
+      "nonzero_calls": 0
+    },
+    "top_names": [
+      [
+        "main_dispatch_1_elementwise_64x64_i32xi64xf32",
+        90
+      ],
+      [
+        "main_dispatch_5_elementwise_64x64_i32xi64xf32",
+        90
+      ],
+      [
+        "main_dispatch_9_elementwise_64x64_i32xi64xf32",
+        90
+      ],
+      [
+        "main_dispatch_13_elementwise_64x64_i32xi64xf32",
+        90
+      ],
+      [
+        "main_dispatch_17_elementwise_64x64_i32xi64xf32",
+        90
+      ]
+    ]
+  },
+  "per_invocation": [
+    {
+      "n_events": 310,
+      "span_us": 2783.7578125,
+      "busy_us": 506.87599999999975,
+      "busy_pct": 18.208336864793253,
+      "gap_total_us": 2276.8623046875,
+      "gap_count": 309,
+      "gap_median_us": 6.4638671875,
+      "gap_mean_us": 7.368486422936893,
+      "gap_max_us": 41.0244140625
+    },
+    {
+      "n_events": 310,
+      "span_us": 2506.732421875,
+      "busy_us": 516.1329999999998,
+      "busy_pct": 20.589872117820207,
+      "gap_total_us": 1990.5791015625,
+      "gap_count": 309,
+      "gap_median_us": 5.857421875,
+      "gap_mean_us": 6.442003564927185,
+      "gap_max_us": 27.45703125
+    },
+    {
+      "n_events": 310,
+      "span_us": 2501.7080078125,
+      "busy_us": 510.5589999999995,
+      "busy_pct": 20.40841690579364,
+      "gap_total_us": 1991.12890625,
+      "gap_count": 309,
+      "gap_median_us": 5.79296875,
+      "gap_mean_us": 6.443782868122978,
+      "gap_max_us": 29.6318359375
+    },
+    {
+      "n_events": 310,
+      "span_us": 2510.37890625,
+      "busy_us": 516.4489999999998,
+      "busy_pct": 20.572551765560785,
+      "gap_total_us": 1993.916015625,
+      "gap_count": 309,
+      "gap_median_us": 5.8232421875,
+      "gap_mean_us": 6.452802639563107,
+      "gap_max_us": 29.3447265625
+    },
+    {
+      "n_events": 310,
+      "span_us": 2486.955078125,
+      "busy_us": 509.3069999999997,
+      "busy_pct": 20.479139509990006,
+      "gap_total_us": 1977.6337890625,
+      "gap_count": 309,
+      "gap_median_us": 5.8232421875,
+      "gap_mean_us": 6.400109349716828,
+      "gap_max_us": 20.0322265625
+    },
+    {
+      "n_events": 310,
+      "span_us": 2490.8916015625,
+      "busy_us": 516.0359999999997,
+      "busy_pct": 20.71691918172183,
+      "gap_total_us": 1974.8427734375,
+      "gap_count": 309,
+      "gap_median_us": 5.8232421875,
+      "gap_mean_us": 6.391076936690938,
+      "gap_max_us": 20.384765625
+    },
+    {
+      "n_events": 310,
+      "span_us": 2495.7880859375,
+      "busy_us": 509.31799999999976,
+      "busy_pct": 20.407101182578295,
+      "gap_total_us": 1986.4541015625,
+      "gap_count": 309,
+      "gap_median_us": 5.79296875,
+      "gap_mean_us": 6.428654050364078,
+      "gap_max_us": 23.5205078125
+    },
+    {
+      "n_events": 310,
+      "span_us": 2522.251953125,
+      "busy_us": 516.1259999999999,
+      "busy_pct": 20.462904166276257,
+      "gap_total_us": 2006.11328125,
+      "gap_count": 309,
+      "gap_median_us": 5.85546875,
+      "gap_mean_us": 6.492275991100324,
+      "gap_max_us": 21.4716796875
+    },
+    {
+      "n_events": 310,
+      "span_us": 2591.595703125,
+      "busy_us": 509.19100000000014,
+      "busy_pct": 19.64777914186256,
+      "gap_total_us": 2082.3916015625,
+      "gap_count": 309,
+      "gap_median_us": 6.080078125,
+      "gap_mean_us": 6.739131396642395,
+      "gap_max_us": 23.935546875
+    },
+    {
+      "n_events": 310,
+      "span_us": 2496.748046875,
+      "busy_us": 516.576,
+      "busy_pct": 20.689953103059842,
+      "gap_total_us": 1980.158203125,
+      "gap_count": 309,
+      "gap_median_us": 5.7919921875,
+      "gap_mean_us": 6.408278974514563,
+      "gap_max_us": 20.2236328125
+    },
+    {
+      "n_events": 310,
+      "span_us": 2543.2431640625,
+      "busy_us": 509.59399999999965,
+      "busy_pct": 20.03717171841286,
+      "gap_total_us": 2033.6337890625,
+      "gap_count": 309,
+      "gap_median_us": 5.9208984375,
+      "gap_mean_us": 6.581339123179611,
+      "gap_max_us": 26.3359375
+    },
+    {
+      "n_events": 310,
+      "span_us": 2514.37890625,
+      "busy_us": 516.8279999999999,
+      "busy_pct": 20.554897223935455,
+      "gap_total_us": 1997.5390625,
+      "gap_count": 309,
+      "gap_median_us": 5.8564453125,
+      "gap_mean_us": 6.464527710355987,
+      "gap_max_us": 19.7763671875
+    },
+    {
+      "n_events": 310,
+      "span_us": 2473.2275390625,
+      "busy_us": 509.54099999999994,
+      "busy_pct": 20.60226938088948,
+      "gap_total_us": 1963.666015625,
+      "gap_count": 309,
+      "gap_median_us": 5.7919921875,
+      "gap_mean_us": 6.354906199433657,
+      "gap_max_us": 23.3916015625
+    },
+    {
+      "n_events": 310,
+      "span_us": 2638.1875,
+      "busy_us": 517.2539999999998,
+      "busy_pct": 19.60641538935348,
+      "gap_total_us": 2120.919921875,
+      "gap_count": 309,
+      "gap_median_us": 6.0810546875,
+      "gap_mean_us": 6.863818517394822,
+      "gap_max_us": 32.2880859375
+    },
+    {
+      "n_events": 310,
+      "span_us": 2561.7392578125,
+      "busy_us": 509.40999999999985,
+      "busy_pct": 19.885318087953696,
+      "gap_total_us": 2052.3173828125,
+      "gap_count": 309,
+      "gap_median_us": 5.8876953125,
+      "gap_mean_us": 6.6418038278721685,
+      "gap_max_us": 25.7275390625
+    },
+    {
+      "n_events": 310,
+      "span_us": 2589.1953125,
+      "busy_us": 516.7759999999996,
+      "busy_pct": 19.95894235962547,
+      "gap_total_us": 2072.404296875,
+      "gap_count": 309,
+      "gap_median_us": 5.984375,
+      "gap_mean_us": 6.706810022249191,
+      "gap_max_us": 25.6962890625
+    },
+    {
+      "n_events": 310,
+      "span_us": 2561.580078125,
+      "busy_us": 509.47,
+      "busy_pct": 19.888896089983522,
+      "gap_total_us": 2052.0947265625,
+      "gap_count": 309,
+      "gap_median_us": 5.888671875,
+      "gap_mean_us": 6.641083257483818,
+      "gap_max_us": 27.423828125
+    },
+    {
+      "n_events": 310,
+      "span_us": 2574.1572265625,
+      "busy_us": 516.3530000000001,
+      "busy_pct": 20.05910884820085,
+      "gap_total_us": 2057.79296875,
+      "gap_count": 309,
+      "gap_median_us": 5.9541015625,
+      "gap_mean_us": 6.659524170711974,
+      "gap_max_us": 25.279296875
+    },
+    {
+      "n_events": 310,
+      "span_us": 2516.779296875,
+      "busy_us": 509.62600000000015,
+      "busy_pct": 20.249133510943352,
+      "gap_total_us": 2007.138671875,
+      "gap_count": 309,
+      "gap_median_us": 5.82421875,
+      "gap_mean_us": 6.49559440736246,
+      "gap_max_us": 23.16796875
+    },
+    {
+      "n_events": 310,
+      "span_us": 2561.32421875,
+      "busy_us": 516.67,
+      "busy_pct": 20.171987451559325,
+      "gap_total_us": 2044.642578125,
+      "gap_count": 309,
+      "gap_median_us": 5.951171875,
+      "gap_mean_us": 6.616966272249191,
+      "gap_max_us": 25.248046875
+    },
+    {
+      "n_events": 310,
+      "span_us": 2605.1318359375,
+      "busy_us": 509.40800000000013,
+      "busy_pct": 19.554019991340713,
+      "gap_total_us": 2095.708984375,
+      "gap_count": 309,
+      "gap_median_us": 6.0791015625,
+      "gap_mean_us": 6.7822297228964405,
+      "gap_max_us": 27.2958984375
+    },
+    {
+      "n_events": 310,
+      "span_us": 2509.4833984375,
+      "busy_us": 516.8949999999995,
+      "busy_pct": 20.597665651896246,
+      "gap_total_us": 1992.57421875,
+      "gap_count": 309,
+      "gap_median_us": 5.79296875,
+      "gap_mean_us": 6.448460254854369,
+      "gap_max_us": 25.888671875
+    },
+    {
+      "n_events": 310,
+      "span_us": 2512.7802734375,
+      "busy_us": 510.4939999999998,
+      "busy_pct": 20.31590288241322,
+      "gap_total_us": 2002.2763671875,
+      "gap_count": 309,
+      "gap_median_us": 5.85546875,
+      "gap_mean_us": 6.479858793487055,
+      "gap_max_us": 21.1845703125
+    },
+    {
+      "n_events": 310,
+      "span_us": 2612.3642578125,
+      "busy_us": 517.0210000000001,
+      "busy_pct": 19.791305843119094,
+      "gap_total_us": 2095.3291015625,
+      "gap_count": 309,
+      "gap_median_us": 5.984375,
+      "gap_mean_us": 6.7810003286812295,
+      "gap_max_us": 32.7353515625
+    },
+    {
+      "n_events": 310,
+      "span_us": 2570.955078125,
+      "busy_us": 510.6569999999998,
+      "busy_pct": 19.86254074779177,
+      "gap_total_us": 2060.28125,
+      "gap_count": 309,
+      "gap_median_us": 5.8564453125,
+      "gap_mean_us": 6.667576860841424,
+      "gap_max_us": 24.8955078125
+    },
+    {
+      "n_events": 310,
+      "span_us": 2655.916015625,
+      "busy_us": 516.3179999999996,
+      "busy_pct": 19.440298449290303,
+      "gap_total_us": 2139.5849609375,
+      "gap_count": 309,
+      "gap_median_us": 6.17578125,
+      "gap_mean_us": 6.924223174555016,
+      "gap_max_us": 27.7119140625
+    },
+    {
+      "n_events": 310,
+      "span_us": 2478.9541015625,
+      "busy_us": 511.776,
+      "busy_pct": 20.644835645703342,
+      "gap_total_us": 1967.1640625,
+      "gap_count": 309,
+      "gap_median_us": 5.7919921875,
+      "gap_mean_us": 6.366226739482201,
+      "gap_max_us": 23.2314453125
+    },
+    {
+      "n_events": 310,
+      "span_us": 2572.076171875,
+      "busy_us": 516.3209999999996,
+      "busy_pct": 20.07409444735108,
+      "gap_total_us": 2055.7431640625,
+      "gap_count": 309,
+      "gap_median_us": 5.9521484375,
+      "gap_mean_us": 6.652890498584142,
+      "gap_max_us": 29.9833984375
+    },
+    {
+      "n_events": 310,
+      "span_us": 2571.8837890625,
+      "busy_us": 510.117,
+      "busy_pct": 19.834372072695682,
+      "gap_total_us": 2061.748046875,
+      "gap_count": 309,
+      "gap_median_us": 5.9833984375,
+      "gap_mean_us": 6.6723237762944985,
+      "gap_max_us": 24.6083984375
+    },
+    {
+      "n_events": 310,
+      "span_us": 2558.283203125,
+      "busy_us": 516.149,
+      "busy_pct": 20.17560054999042,
+      "gap_total_us": 2042.1162109375,
+      "gap_count": 309,
+      "gap_median_us": 5.82421875,
+      "gap_mean_us": 6.608790326658576,
+      "gap_max_us": 22.5595703125
+    }
+  ],
+  "per_invocation_summary": {
+    "span_us_median": 2550.76318359375,
+    "busy_us_median": 513.9059999999998,
+    "busy_pct_median": 20.173794000774873,
+    "gap_total_us_median": 2037.875,
+    "gap_median_us_median": 5.85693359375,
+    "n_events_per_group": 310
+  }
+}

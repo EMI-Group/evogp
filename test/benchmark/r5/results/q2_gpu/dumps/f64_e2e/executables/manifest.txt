@@ -1,0 +1,2 @@
+      590094  module__stdin__linked_cuda_nvptx_fb.ptx
+      590094  TOTAL (1 files)
