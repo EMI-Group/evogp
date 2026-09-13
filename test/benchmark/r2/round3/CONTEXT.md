@@ -34,6 +34,7 @@ A parallel **Arm B** workstream re-measures the nine new-side R3 configs against
 ## Constraints
 - R2 records (`../../new/results/r2/`, `../../legacy/results/r2/`) and the R2 methodology (`../SPEC.md`, `../README.md`) are read-only: never rewrite them, never add flags or change fixtures to make an R3 number nicer.
 - Method is R2: one process per config, `ulimit -n 65536` first, exactly one `flock -w 7200 /tmp/gpbench_critical.lock` per invocation with `timeout` inside it, warm median as the headline with compile/first-call reported separately, stage probe on the new side.
+- Record identity: a JSON's `evogp_commit` is `git rev-parse HEAD` of the harness's cwd (the EvoGP worktree), **not** the engine under test; the legacy side is identified by `side:"old"` + `evogp_file=/tmp/evogp_legacy_bench/src/evogp/__init__.py` (a `git archive b613503` materialization with no `.git`, `evogp_cuda.<abi>.so` built in place).
 - GPU 6 by default, never GPU 7 (hardware ECC fault); treat medians as ±10 % on this shared box.
 - The R2 stage probe patches the specialized engine's call sites only, so a dense-route run may carry an empty/degenerate `stages` block — documented limitation, not a gate failure.
 - IREE stays opt-in and explicitly non-primary; `O2`/`O3` are never used, and no IREE number is quotable until the agreement gate passes.
