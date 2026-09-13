@@ -60,6 +60,12 @@ Facts from the dumps (measured):
 * **Small kernels**: the linked PTX holds 125/127 kernels (`main_dispatch_*_elementwise_*`), i.e.
   one kernel per distinct op/shape; 61/62 buffer→buffer copies ride inside the same command buffer;
   `Awaits: 2, Submissions: 1, Executables: 125` in the scheduling statistics.
+* **The scheduling-statistics `Workload` column is empty** for every one of the 310 execution rows
+  (the per-dispatch workgroup counts are not resolved statically in this dump), so the workgroup
+  facts whose column does carry data are quoted instead: `Awaits: 2, Submissions: 1, Transient Size,
+  Copies: 61, Dispatches: 249, Executables: 125` (aggregate row), and the concrete **grid (32,1,1) ×
+  block (32,1,1), 1 % occupancy** per kernel come from the kineto trace (§D) — the stronger,
+  per-launch measurement. The per-command rows give `Depth` (0/1 only) and `Operands/Resources`.
 * **The e2e and pure routes compile the same structure** (249 dispatches / 125 kernels / chain 125);
   only the transient footprint differs (2.88 vs 2.86 MB). So the Q1/Q5 "host glue" split of the e2e
   call (pure ≈ 1/4 of the call) is not a GPU-structure difference.
