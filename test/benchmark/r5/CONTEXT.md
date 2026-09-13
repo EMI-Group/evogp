@@ -31,6 +31,12 @@ Deliverables: `RCA.md` + evidence records + stdlib-only gate `check_r5.py` + pro
 - Every record stamps: evogp commit (`git rev-parse HEAD`), `etl.__file__` + ETL repo HEAD (read-only `git -C`), env knobs, `CUDA_VISIBLE_DEVICES`, co-tenant `nvidia-smi` sample, counts, timestamps.
 - `/tmp` is 97 % full (≈16 GB free) — keep capture artifacts small, clean up scratch.
 
+## Measurement identity (round decision)
+- Primary cells measure the venv-default ETL — the read-only editable install of `/mnt/local-ssd/bchuang/etl` at HEAD `96df7da8f2ba39f52cf2f2b61888e67f70471bc9` (working tree clean at round start) — stamped per record via `etl.__file__` + `git -C /mnt/local-ssd/bchuang/etl rev-parse HEAD`.
+- Current main contains the r4-after shadow commit `87c7562` plus later jit changes (per-wrapper spec memo `4c0fb4f`, run-static fast path), so the r4 headline quotes (6.667 / 6.050 ms; pure 1.447 / 1.593 ms) are cross-window context only — r5's own same-window table is the anchor.
+- `/tmp/evogp_etl_patched_87c7562` is kept only as an optional one-cell shadow bridge (`NEW_PYTHONPATH="src:/tmp/evogp_etl_patched_87c7562"`), never as the primary environment.
+- Q4 IREE numbers are gated by re-running the full six-arm r4 agreement pre-flight into `results/backend_agreement/` (checker `check_agreement_r4.py --agree-dir …`; a missing stem is a hard failure, so all six arms are run).
+
 ## Notes for Agents (parent recon facts)
 - Legacy engine intact: `/tmp/evogp_legacy_bench` (built `.so`, py3.11); import requires `import torch` FIRST (libc10); legacy PYTHONPATH = `/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils`; legacy invocations `bench_gp.py --task eval64 [--fixture …] --eval-reps 25`.
 - nsys 2022.4.2.1 (target-only install): collection works, but QDSTRM import/analysis FAILS against driver 535.247.01 / CUDA 12.4 — `Unknown runtime API function index: 440`, kernel tables come out empty; host toolchain `/usr/lib/nsight-systems/host-linux-x64/QdstrmImporter` exists but shares the analysis code. Evidence: `/tmp/evogp_r5recon/import_log.txt` (copy into `results/tool_recon/`).
