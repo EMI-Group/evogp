@@ -1,0 +1,4347 @@
+{
+  "probe": "r5/ab_probe.py",
+  "tag": "ab_f64",
+  "stamp": {
+    "when": "2026-09-13T21:37:10+0800",
+    "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A68",
+    "evogp_commit": "b4003d4de3fbe610b2da5ebbefbe614fd5165c53",
+    "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A68/src/evogp/__init__.py",
+    "etl_repo": "/mnt/local-ssd/bchuang/etl",
+    "etl_repo_head": "96df7da8f2ba39f52cf2f2b61888e67f70471bc9",
+    "etl_repo_status": "<empty>",
+    "python": "/mnt/local-ssd/bchuang/evox/.venv/bin/python",
+    "python_version": "3.11.2",
+    "torch": "2.6.0+cu124",
+    "numpy": "2.4.6",
+    "cuda_visible_devices": "6",
+    "cuda_available": true,
+    "env_knobs": {
+      "ETL_DISABLE_LOCATIONS": "1",
+      "EVOGP_ETL_BACKEND": "iree",
+      "EVOGP_ETL_IREE_DEVICE": "0",
+      "EVOGP_ETL_IREE_OPT_LEVEL": "O1",
+      "EVOGP_EVAL_MODE": "auto"
+    },
+    "gpu": {
+      "index": "6",
+      "util_mem": "6, NVIDIA RTX A6000, 0, 30874",
+      "compute_apps": "2903622, python, 30486 MiB\n3196317, /mnt/local-ssd/bchuang/evox/.venv/bin/python, 340 MiB"
+    },
+    "etl_file": "/mnt/local-ssd/bchuang/etl/etl/__init__.py",
+    "etl_version": "0.1.0",
+    "probe": "r5/ab_probe.py",
+    "tag": "ab_f64",
+    "etl_head_probe": "96df7da8f2ba39f52cf2f2b61888e67f70471bc9"
+  },
+  "host_load_start": {
+    "when": "2026-09-13T21:36:43+0800",
+    "loadavg": "369.28 330.59 324.34 5/11646 3196388",
+    "nproc": 128,
+    "cpu_busy_pct": 3.708196271929825,
+    "gpu": "6, NVIDIA RTX A6000, 1, 30796"
+  },
+  "host_load_end": {
+    "when": "2026-09-13T21:37:10+0800",
+    "loadavg": "373.41 335.26 326.09 27/11640 3196574",
+    "nproc": 128,
+    "cpu_busy_pct": 7.203751566416039,
+    "gpu": "6, NVIDIA RTX A6000, 3, 30874"
+  },
+  "config": {
+    "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A68/test/goldens/forest_random.npz",
+    "reps": 25,
+    "pop_size": 64,
+    "max_tree_len": 63,
+    "input_len": 2,
+    "output_len": 1,
+    "data_rows": 64,
+    "eval_kind": "fixture",
+    "arm_order": [
+      "A1_engine_fresh",
+      "A2_engine_staged",
+      "A3_frozen_runner",
+      "A3_plain_control",
+      "A4_frozen_fresh",
+      "L1_engine_fresh_loss",
+      "L2_engine_staged_loss",
+      "R1_repl_fresh_loss",
+      "R2_repl_fresh_drained",
+      "E1_e2e_in_process"
+    ],
+    "value_plan_kwargs": {
+      "per_row": "False",
+      "backend": "None"
+    },
+    "loss_plan_kwargs": {
+      "per_row": "False",
+      "variant": "loss",
+      "use_mse": "True",
+      "backend": "None"
+    }
+  },
+  "route": {
+    "backend": "iree",
+    "eval_mode": "auto",
+    "should_use_dense": true,
+    "artifacts": {
+      "value": {
+        "variant": "value",
+        "trace_len": 63,
+        "pop_size": 64,
+        "n_rows": 64,
+        "p_chunks": 1,
+        "n_chunks": 1,
+        "p_chunk": 64,
+        "n_chunk": 64,
+        "per_row": false,
+        "executable_type": "Executable",
+        "build_ms": 12541.821986436844,
+        "cache": {
+          "hits": 0,
+          "misses": 1
+        }
+      },
+      "loss": {
+        "variant": "loss",
+        "trace_len": 63,
+        "pop_size": 64,
+        "n_rows": 64,
+        "p_chunks": 1,
+        "n_chunks": 1,
+        "p_chunk": 64,
+        "n_chunk": 64,
+        "per_row": false,
+        "executable_type": "Executable",
+        "build_ms": 12892.540398985147,
+        "cache": {
+          "hits": 0,
+          "misses": 1
+        }
+      }
+    },
+    "staged_payloads": {
+      "value": 8,
+      "loss": 10
+    },
+    "runner_identity": {
+      "executable_is_value_artifact": true,
+      "plan_variant": "value",
+      "plan_trace_len": 63,
+      "staged_payloads": 8,
+      "n_graph_calls_per_run": 1,
+      "construct_total_ms": 6.517447531223297,
+      "backend": "iree",
+      "device_resident": true
+    }
+  },
+  "arms": {
+    "A1_engine_fresh": {
+      "doc": "engine seam (_iter_plan_chunks), value artifact, FRESH payloads per call",
+      "plain": false,
+      "stats": {
+        "calls": 25,
+        "warm_calls": 24,
+        "first_call_ms": 4.888169467449188,
+        "median_warm_ms": 5.186755210161209,
+        "min_warm_ms": 3.9405561983585358,
+        "max_warm_ms": 8.242212235927582,
+        "mean_warm_ms": 5.033701503028472,
+        "median_call_ms": 5.160078406333923,
+        "median_post_sync_ms": 0.02491287887096405
+      },
+      "rows": [
+        {
+          "index": 0,
+          "phase": "A1_engine_fresh",
+          "call_ms": 4.862569272518158,
+          "post_sync_ms": 0.022288411855697632,
+          "total_ms": 4.888169467449188
+        },
+        {
+          "index": 1,
+          "phase": "A1_engine_fresh",
+          "call_ms": 4.817638546228409,
+          "post_sync_ms": 0.021871179342269897,
+          "total_ms": 4.8417747020721436
+        },
+        {
+          "index": 2,
+          "phase": "A1_engine_fresh",
+          "call_ms": 4.95385006070137,
+          "post_sync_ms": 0.021785497665405273,
+          "total_ms": 4.977922886610031
+        },
+        {
+          "index": 3,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.1987990736961365,
+          "post_sync_ms": 0.03110244870185852,
+          "total_ms": 5.23318350315094
+        },
+        {
+          "index": 4,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.617398768663406,
+          "post_sync_ms": 0.03783777356147766,
+          "total_ms": 5.6595876812934875
+        },
+        {
+          "index": 5,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.529031157493591,
+          "post_sync_ms": 0.041797757148742676,
+          "total_ms": 5.574509501457214
+        },
+        {
+          "index": 6,
+          "phase": "A1_engine_fresh",
+          "call_ms": 4.943292587995529,
+          "post_sync_ms": 0.02742186188697815,
+          "total_ms": 4.9736388027668
+        },
+        {
+          "index": 7,
+          "phase": "A1_engine_fresh",
+          "call_ms": 4.6734437346458435,
+          "post_sync_ms": 0.026553869247436523,
+          "total_ms": 4.704263061285019
+        },
+        {
+          "index": 8,
+          "phase": "A1_engine_fresh",
+          "call_ms": 4.797130823135376,
+          "post_sync_ms": 0.026270747184753418,
+          "total_ms": 4.8252977430820465
+        },
+        {
+          "index": 9,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.159709602594376,
+          "post_sync_ms": 0.02530217170715332,
+          "total_ms": 5.186617374420166
+        },
+        {
+          "index": 10,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.197480320930481,
+          "post_sync_ms": 0.025447458028793335,
+          "total_ms": 5.224592983722687
+        },
+        {
+          "index": 11,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.274403840303421,
+          "post_sync_ms": 0.024899840354919434,
+          "total_ms": 5.300864577293396
+        },
+        {
+          "index": 12,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.3438544273376465,
+          "post_sync_ms": 0.02485141158103943,
+          "total_ms": 5.370359867811203
+        },
+        {
+          "index": 13,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.387641489505768,
+          "post_sync_ms": 0.029727816581726074,
+          "total_ms": 5.4192617535591125
+        },
+        {
+          "index": 14,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.160447210073471,
+          "post_sync_ms": 0.024728477001190186,
+          "total_ms": 5.186893045902252
+        },
+        {
+          "index": 15,
+          "phase": "A1_engine_fresh",
+          "call_ms": 8.215673267841339,
+          "post_sync_ms": 0.024978071451187134,
+          "total_ms": 8.242212235927582
+        },
+        {
+          "index": 16,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.162052810192108,
+          "post_sync_ms": 0.0245608389377594,
+          "total_ms": 5.188312381505966
+        },
+        {
+          "index": 17,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.669157952070236,
+          "post_sync_ms": 0.02450123429298401,
+          "total_ms": 5.695179104804993
+        },
+        {
+          "index": 18,
+          "phase": "A1_engine_fresh",
+          "call_ms": 5.18050417304039,
+          "post_sync_ms": 0.02444535493850708,
+          "total_ms": 5.2065253257751465
+        },
+        {
+          "index": 19,
+          "phase": "A1_engine_fresh",
+          "call_ms": 4.005134105682373,
+          "post_sync_ms": 0.024374574422836304,
+          "total_ms": 4.031043499708176
+        },
+        {
+          "index": 20,
+          "phase": "A1_engine_fresh",
+          "call_ms": 3.914974629878998,
+          "post_sync_ms": 0.024061650037765503,
+          "total_ms": 3.9405561983585358
+        },
+        {
+          "index": 21,
+          "phase": "A1_engine_fresh",
+          "call_ms": 4.024673253297806,
+          "post_sync_ms": 0.0249519944190979,
+          "total_ms": 4.051122814416885
+        },
+        {
+          "index": 22,
+          "phase": "A1_engine_fresh",
+          "call_ms": 3.926638513803482,
+          "post_sync_ms": 0.024840235710144043,
+          "total_ms": 3.9531178772449493
+        },
+        {
+          "index": 23,
+          "phase": "A1_engine_fresh",
+          "call_ms": 4.022948443889618,
+          "post_sync_ms": 0.02473965287208557,
+          "total_ms": 4.0493011474609375
+        },
+        {
+          "index": 24,
+          "phase": "A1_engine_fresh",
+          "call_ms": 3.9459988474845886,
+          "post_sync_ms": 0.024925917387008667,
+          "total_ms": 3.972698003053665
+        }
+      ],
+      "etl_run_span_ms": 1.844128593802452,
+      "components": [
+        {
+          "component": "chunk_rows",
+          "count": 1,
+          "median_self_ms": 0.0036526471376419067
+        },
+        {
+          "component": "etl_from_numpy",
+          "count": 8,
+          "median_self_ms": 0.03078952431678772
+        },
+        {
+          "component": "etl_run",
+          "count": 1,
+          "median_self_ms": 1.844128593802452
+        },
+        {
+          "component": "etl_tensor_to_payload",
+          "count": 8,
+          "median_self_ms": 2.7644895017147064
+        },
+        {
+          "component": "prep_column",
+          "count": 7,
+          "median_self_ms": 0.03605149686336517
+        }
+      ],
+      "per_call_components": {
+        "prep_column": [
+          0.03353133797645569,
+          0.03150478005409241,
+          0.030796974897384644,
+          0.03723055124282837,
+          0.04433095455169678,
+          0.04996731877326965,
+          0.038642436265945435,
+          0.03674998879432678,
+          0.03660470247268677,
+          0.035490840673446655,
+          0.03575161099433899,
+          0.03598257899284363,
+          0.036597251892089844,
+          0.03557279706001282,
+          0.03684312105178833,
+          0.03870576620101929,
+          0.03559142351150513,
+          0.035706907510757446,
+          0.03650784492492676,
+          0.034574419260025024,
+          0.03515183925628662,
+          0.037550926208496094,
+          0.035565346479415894,
+          0.035628676414489746,
+          0.03612041473388672
+        ],
+        "etl_from_numpy": [
+          0.02393871545791626,
+          0.02732500433921814,
+          0.027760863304138184,
+          0.03489106893539429,
+          0.0432915985584259,
+          0.04194304347038269,
+          0.031404197216033936,
+          0.03127008676528931,
+          0.031016767024993896,
+          0.030796974897384644,
+          0.030882656574249268,
+          0.030782073736190796,
+          0.03142654895782471,
+          0.030662864446640015,
+          0.03244355320930481,
+          0.0316910445690155,
+          0.030141323804855347,
+          0.030428171157836914,
+          0.030774623155593872,
+          0.02938881516456604,
+          0.029303133487701416,
+          0.030077993869781494,
+          0.03084540367126465,
+          0.030413269996643066,
+          0.02970173954963684
+        ],
+        "etl_tensor_to_payload": [
+          2.853851765394211,
+          2.793300896883011,
+          2.9781758785247803,
+          3.0366256833076477,
+          3.1928308308124542,
+          3.333739936351776,
+          2.9022246599197388,
+          2.668313682079315,
+          2.7989596128463745,
+          2.730749547481537,
+          2.735678106546402,
+          2.8561241924762726,
+          2.72437185049057,
+          2.8713196516036987,
+          2.6969239115715027,
+          5.743686109781265,
+          2.707242965698242,
+          2.953026443719864,
+          2.8905458748340607,
+          2.4783872067928314,
+          2.378959208726883,
+          2.4804025888442993,
+          2.3767314851284027,
+          2.4797171354293823,
+          2.3951083421707153
+        ],
+        "chunk_rows": [
+          0.00293925404548645,
+          0.003460794687271118,
+          0.0033192336559295654,
+          0.006187707185745239,
+          0.005003064870834351,
+          0.005338340997695923,
+          0.003729015588760376,
+          0.003919005393981934,
+          0.003766268491744995,
+          0.0035725533962249756,
+          0.003591179847717285,
+          0.003468245267868042,
+          0.0036992132663726807,
+          0.0035315752029418945,
+          0.003919005393981934,
+          0.003952533006668091,
+          0.0034496188163757324,
+          0.0036284327507019043,
+          0.003721565008163452,
+          0.00356137752532959,
+          0.0034868717193603516,
+          0.0036731362342834473,
+          0.003632158041000366,
+          0.0037103891372680664,
+          0.00356137752532959
+        ],
+        "etl_run": [
+          1.761317253112793,
+          1.7720460891723633,
+          1.7386041581630707,
+          1.8525533378124237,
+          2.064824104309082,
+          1.8357038497924805,
+          1.7629973590373993,
+          1.7335042357444763,
+          1.7276853322982788,
+          2.1637119352817535,
+          2.18900665640831,
+          2.1538175642490387,
+          2.352241426706314,
+          2.2434256970882416,
+          2.1902211010456085,
+          2.1949224174022675,
+          2.185080200433731,
+          2.4490728974342346,
+          2.0226314663887024,
+          1.2731701135635376,
+          1.281827688217163,
+          1.287262886762619,
+          1.290343701839447,
+          1.2866482138633728,
+          1.2948811054229736
+        ]
+      },
+      "counts": {
+        "prep_column": 7,
+        "etl_from_numpy": 8,
+        "etl_tensor_to_payload": 8,
+        "chunk_rows": 1,
+        "etl_run": 1
+      },
+      "cache": {
+        "hits": 1,
+        "misses": 2,
+        "size": 2
+      }
+    },
+    "A2_engine_staged": {
+      "doc": "engine seam, value artifact, STAGED payloads",
+      "plain": false,
+      "stats": {
+        "calls": 25,
+        "warm_calls": 24,
+        "first_call_ms": 1.3628862798213959,
+        "median_warm_ms": 1.3180170208215714,
+        "min_warm_ms": 1.2971162796020508,
+        "max_warm_ms": 1.375887542963028,
+        "mean_warm_ms": 1.3216875183085601,
+        "median_call_ms": 1.2961272150278091,
+        "median_post_sync_ms": 0.020269304513931274
+      },
+      "rows": [
+        {
+          "index": 0,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.3391152024269104,
+          "post_sync_ms": 0.02242252230644226,
+          "total_ms": 1.3628862798213959
+        },
+        {
+          "index": 1,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2962855398654938,
+          "post_sync_ms": 0.020917505025863647,
+          "total_ms": 1.318424940109253
+        },
+        {
+          "index": 2,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2959688901901245,
+          "post_sync_ms": 0.020392239093780518,
+          "total_ms": 1.3176091015338898
+        },
+        {
+          "index": 3,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2976154685020447,
+          "post_sync_ms": 0.021167099475860596,
+          "total_ms": 1.3200528919696808
+        },
+        {
+          "index": 4,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2839250266551971,
+          "post_sync_ms": 0.020392239093780518,
+          "total_ms": 1.3056136667728424
+        },
+        {
+          "index": 5,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2873783707618713,
+          "post_sync_ms": 0.020209699869155884,
+          "total_ms": 1.3089179992675781
+        },
+        {
+          "index": 6,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2993961572647095,
+          "post_sync_ms": 0.020485371351242065,
+          "total_ms": 1.3211444020271301
+        },
+        {
+          "index": 7,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2837350368499756,
+          "post_sync_ms": 0.019688159227371216,
+          "total_ms": 1.3050958514213562
+        },
+        {
+          "index": 8,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2825354933738708,
+          "post_sync_ms": 0.02022460103034973,
+          "total_ms": 1.30404531955719
+        },
+        {
+          "index": 9,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.305948942899704,
+          "post_sync_ms": 0.020518898963928223,
+          "total_ms": 1.327749341726303
+        },
+        {
+          "index": 10,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.3466700911521912,
+          "post_sync_ms": 0.020157545804977417,
+          "total_ms": 1.3680122792720795
+        },
+        {
+          "index": 11,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2772642076015472,
+          "post_sync_ms": 0.019554048776626587,
+          "total_ms": 1.2979954481124878
+        },
+        {
+          "index": 12,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.349668949842453,
+          "post_sync_ms": 0.024672597646713257,
+          "total_ms": 1.375887542963028
+        },
+        {
+          "index": 13,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.351136714220047,
+          "post_sync_ms": 0.020314007997512817,
+          "total_ms": 1.3726763427257538
+        },
+        {
+          "index": 14,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.282334327697754,
+          "post_sync_ms": 0.01963973045349121,
+          "total_ms": 1.3031810522079468
+        },
+        {
+          "index": 15,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2978650629520416,
+          "post_sync_ms": 0.019859522581100464,
+          "total_ms": 1.3194158673286438
+        },
+        {
+          "index": 16,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.289214938879013,
+          "post_sync_ms": 0.020451843738555908,
+          "total_ms": 1.3108476996421814
+        },
+        {
+          "index": 17,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2843981385231018,
+          "post_sync_ms": 0.02010166645050049,
+          "total_ms": 1.3057179749011993
+        },
+        {
+          "index": 18,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.3018250465393066,
+          "post_sync_ms": 0.020198523998260498,
+          "total_ms": 1.3232417404651642
+        },
+        {
+          "index": 19,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2763552367687225,
+          "post_sync_ms": 0.01955777406692505,
+          "total_ms": 1.2971162796020508
+        },
+        {
+          "index": 20,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2901350855827332,
+          "post_sync_ms": 0.01981481909751892,
+          "total_ms": 1.311127096414566
+        },
+        {
+          "index": 21,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.302860677242279,
+          "post_sync_ms": 0.02047419548034668,
+          "total_ms": 1.3244710862636566
+        },
+        {
+          "index": 22,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.3065449893474579,
+          "post_sync_ms": 0.02905726432800293,
+          "total_ms": 1.3370849192142487
+        },
+        {
+          "index": 23,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.2904629111289978,
+          "post_sync_ms": 0.02004578709602356,
+          "total_ms": 1.311715692281723
+        },
+        {
+          "index": 24,
+          "phase": "A2_engine_staged",
+          "call_ms": 1.3114884495735168,
+          "post_sync_ms": 0.020638108253479004,
+          "total_ms": 1.3333559036254883
+        }
+      ],
+      "etl_run_span_ms": 1.2667588889598846,
+      "components": [
+        {
+          "component": "etl_run",
+          "count": 1,
+          "median_self_ms": 1.2667588889598846
+        }
+      ],
+      "per_call_components": {
+        "prep_column": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "etl_from_numpy": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "etl_tensor_to_payload": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "chunk_rows": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "etl_run": [
+          1.3017244637012482,
+          1.2661218643188477,
+          1.2673959136009216,
+          1.2695379555225372,
+          1.255616545677185,
+          1.2583285570144653,
+          1.2711696326732635,
+          1.2555494904518127,
+          1.2553930282592773,
+          1.278158277273178,
+          1.3174265623092651,
+          1.2495629489421844,
+          1.3195835053920746,
+          1.3191774487495422,
+          1.2545101344585419,
+          1.270335167646408,
+          1.2615136802196503,
+          1.256600022315979,
+          1.2744367122650146,
+          1.2486465275287628,
+          1.2625828385353088,
+          1.274455338716507,
+          1.2751556932926178,
+          1.259543001651764,
+          1.283995807170868
+        ]
+      },
+      "counts": {
+        "etl_run": 1
+      },
+      "cache": {
+        "hits": 1,
+        "misses": 2,
+        "size": 2
+      }
+    },
+    "A3_frozen_runner": {
+      "doc": "frozen build_dense_runner(forest, x).run() on staged inputs",
+      "plain": false,
+      "stats": {
+        "calls": 25,
+        "warm_calls": 24,
+        "first_call_ms": 1.3564042747020721,
+        "median_warm_ms": 1.3170670717954636,
+        "min_warm_ms": 1.3044141232967377,
+        "max_warm_ms": 1.3798363506793976,
+        "mean_warm_ms": 1.321918796747923,
+        "median_call_ms": 1.2956690043210983,
+        "median_post_sync_ms": 0.020118430256843567
+      },
+      "rows": [
+        {
+          "index": 0,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.3328418135643005,
+          "post_sync_ms": 0.022217631340026855,
+          "total_ms": 1.3564042747020721
+        },
+        {
+          "index": 1,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.3108588755130768,
+          "post_sync_ms": 0.020362436771392822,
+          "total_ms": 1.3324357569217682
+        },
+        {
+          "index": 2,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2916773557662964,
+          "post_sync_ms": 0.02010539174079895,
+          "total_ms": 1.3133585453033447
+        },
+        {
+          "index": 3,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2916885316371918,
+          "post_sync_ms": 0.020131468772888184,
+          "total_ms": 1.313094049692154
+        },
+        {
+          "index": 4,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.3023428618907928,
+          "post_sync_ms": 0.020042061805725098,
+          "total_ms": 1.3236887753009796
+        },
+        {
+          "index": 5,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2994706630706787,
+          "post_sync_ms": 0.0203549861907959,
+          "total_ms": 1.321103423833847
+        },
+        {
+          "index": 6,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2945421040058136,
+          "post_sync_ms": 0.019472092390060425,
+          "total_ms": 1.3152621686458588
+        },
+        {
+          "index": 7,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.3174749910831451,
+          "post_sync_ms": 0.02076849341392517,
+          "total_ms": 1.3394728302955627
+        },
+        {
+          "index": 8,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2929365038871765,
+          "post_sync_ms": 0.020664185285568237,
+          "total_ms": 1.3148300349712372
+        },
+        {
+          "index": 9,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.29033625125885,
+          "post_sync_ms": 0.02060830593109131,
+          "total_ms": 1.3121776282787323
+        },
+        {
+          "index": 10,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.3105757534503937,
+          "post_sync_ms": 0.019919127225875854,
+          "total_ms": 1.3317577540874481
+        },
+        {
+          "index": 11,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2910142540931702,
+          "post_sync_ms": 0.02033635973930359,
+          "total_ms": 1.31259486079216
+        },
+        {
+          "index": 12,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.294642686843872,
+          "post_sync_ms": 0.020332634449005127,
+          "total_ms": 1.316223293542862
+        },
+        {
+          "index": 13,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.300036907196045,
+          "post_sync_ms": 0.020071864128112793,
+          "total_ms": 1.3213492929935455
+        },
+        {
+          "index": 14,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.3532787561416626,
+          "post_sync_ms": 0.0245608389377594,
+          "total_ms": 1.3798363506793976
+        },
+        {
+          "index": 15,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.3275258243083954,
+          "post_sync_ms": 0.01994892954826355,
+          "total_ms": 1.3486966490745544
+        },
+        {
+          "index": 16,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.301545649766922,
+          "post_sync_ms": 0.01998618245124817,
+          "total_ms": 1.3227127492427826
+        },
+        {
+          "index": 17,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.285061240196228,
+          "post_sync_ms": 0.01953914761543274,
+          "total_ms": 1.305803656578064
+        },
+        {
+          "index": 18,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2850165367126465,
+          "post_sync_ms": 0.019881874322891235,
+          "total_ms": 1.3061277568340302
+        },
+        {
+          "index": 19,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.3045147061347961,
+          "post_sync_ms": 0.020578503608703613,
+          "total_ms": 1.3263337314128876
+        },
+        {
+          "index": 20,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2862347066402435,
+          "post_sync_ms": 0.02016127109527588,
+          "total_ms": 1.3076066970825195
+        },
+        {
+          "index": 21,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2966953217983246,
+          "post_sync_ms": 0.019945204257965088,
+          "total_ms": 1.3179108500480652
+        },
+        {
+          "index": 22,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.3088099658489227,
+          "post_sync_ms": 0.02059340476989746,
+          "total_ms": 1.3306885957717896
+        },
+        {
+          "index": 23,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2874789535999298,
+          "post_sync_ms": 0.01990795135498047,
+          "total_ms": 1.3085715472698212
+        },
+        {
+          "index": 24,
+          "phase": "A3_frozen_runner",
+          "call_ms": 1.2835264205932617,
+          "post_sync_ms": 0.019628554582595825,
+          "total_ms": 1.3044141232967377
+        }
+      ],
+      "etl_run_span_ms": 1.2664254754781723,
+      "components": [
+        {
+          "component": "etl_run",
+          "count": 1,
+          "median_self_ms": 1.2664254754781723
+        }
+      ],
+      "per_call_components": {
+        "prep_column": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "etl_from_numpy": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "etl_tensor_to_payload": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "chunk_rows": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "etl_run": [
+          1.2884065508842468,
+          1.2776181101799011,
+          1.260455697774887,
+          1.2602433562278748,
+          1.2713633477687836,
+          1.268584281206131,
+          1.263163983821869,
+          1.285068690776825,
+          1.263108104467392,
+          1.260761171579361,
+          1.28091499209404,
+          1.2610293924808502,
+          1.2651458382606506,
+          1.270689070224762,
+          1.321554183959961,
+          1.293875277042389,
+          1.2723766267299652,
+          1.2555643916130066,
+          1.2556985020637512,
+          1.2752041220664978,
+          1.2568458914756775,
+          1.267705112695694,
+          1.2788884341716766,
+          1.2582652270793915,
+          1.2545771896839142
+        ]
+      },
+      "counts": {
+        "etl_run": 1
+      },
+      "cache": {
+        "hits": 1,
+        "misses": 2,
+        "size": 2
+      }
+    },
+    "A3_plain_control": {
+      "doc": "A3 with the instrumentation inert (probe-overhead control)",
+      "plain": true,
+      "stats": {
+        "calls": 6,
+        "warm_calls": 5,
+        "first_call_ms": 1.35001540184021,
+        "median_warm_ms": 1.3236254453659058,
+        "min_warm_ms": 1.3037659227848053,
+        "max_warm_ms": 1.5207156538963318,
+        "mean_warm_ms": 1.363634318113327,
+        "median_call_ms": 1.3028830289840698,
+        "median_post_sync_ms": 0.020273029804229736
+      },
+      "rows": [
+        {
+          "index": 0,
+          "phase": "A3_plain_control",
+          "call_ms": 1.3275034725666046,
+          "post_sync_ms": 0.021930783987045288,
+          "total_ms": 1.35001540184021
+        },
+        {
+          "index": 1,
+          "phase": "A3_plain_control",
+          "call_ms": 1.2832656502723694,
+          "post_sync_ms": 0.020023435354232788,
+          "total_ms": 1.3037659227848053
+        },
+        {
+          "index": 2,
+          "phase": "A3_plain_control",
+          "call_ms": 1.2900717556476593,
+          "post_sync_ms": 0.020351260900497437,
+          "total_ms": 1.3109706342220306
+        },
+        {
+          "index": 3,
+          "phase": "A3_plain_control",
+          "call_ms": 1.3028830289840698,
+          "post_sync_ms": 0.02028048038482666,
+          "total_ms": 1.3236254453659058
+        },
+        {
+          "index": 4,
+          "phase": "A3_plain_control",
+          "call_ms": 1.5001557767391205,
+          "post_sync_ms": 0.020042061805725098,
+          "total_ms": 1.5207156538963318
+        },
+        {
+          "index": 5,
+          "phase": "A3_plain_control",
+          "call_ms": 1.3383254408836365,
+          "post_sync_ms": 0.020273029804229736,
+          "total_ms": 1.3590939342975616
+        }
+      ],
+      "etl_run_span_ms": null,
+      "components": [],
+      "per_call_components": {},
+      "counts": {},
+      "cache": {
+        "hits": 1,
+        "misses": 2,
+        "size": 2
+      }
+    },
+    "A4_frozen_fresh": {
+      "doc": "frozen runner's plan/executable/inputs, FRESH payloads",
+      "plain": false,
+      "stats": {
+        "calls": 25,
+        "warm_calls": 24,
+        "first_call_ms": 4.574235528707504,
+        "median_warm_ms": 4.870442673563957,
+        "min_warm_ms": 4.699550569057465,
+        "max_warm_ms": 22.566452622413635,
+        "mean_warm_ms": 5.631697829812765,
+        "median_call_ms": 4.829149693250656,
+        "median_post_sync_ms": 0.03862939774990082
+      },
+      "rows": [
+        {
+          "index": 0,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.54532727599144,
+          "post_sync_ms": 0.02730637788772583,
+          "total_ms": 4.574235528707504
+        },
+        {
+          "index": 1,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.8096664249897,
+          "post_sync_ms": 0.041179358959198,
+          "total_ms": 4.854846745729446
+        },
+        {
+          "index": 2,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 5.110621452331543,
+          "post_sync_ms": 0.03813207149505615,
+          "total_ms": 5.1511600613594055
+        },
+        {
+          "index": 3,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.691381007432938,
+          "post_sync_ms": 0.04016980528831482,
+          "total_ms": 4.7341398894786835
+        },
+        {
+          "index": 4,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.8338547348976135,
+          "post_sync_ms": 0.0402107834815979,
+          "total_ms": 4.876691848039627
+        },
+        {
+          "index": 5,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.820443689823151,
+          "post_sync_ms": 0.03993883728981018,
+          "total_ms": 4.862945526838303
+        },
+        {
+          "index": 6,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.700072109699249,
+          "post_sync_ms": 0.038567930459976196,
+          "total_ms": 4.740923643112183
+        },
+        {
+          "index": 7,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.9127936363220215,
+          "post_sync_ms": 0.041093677282333374,
+          "total_ms": 4.956599324941635
+        },
+        {
+          "index": 8,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 22.41455391049385,
+          "post_sync_ms": 0.14181062579154968,
+          "total_ms": 22.566452622413635
+        },
+        {
+          "index": 9,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.9782730638980865,
+          "post_sync_ms": 0.041000545024871826,
+          "total_ms": 5.021844059228897
+        },
+        {
+          "index": 10,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.752069711685181,
+          "post_sync_ms": 0.04052743315696716,
+          "total_ms": 4.795264452695847
+        },
+        {
+          "index": 11,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.856083542108536,
+          "post_sync_ms": 0.03978237509727478,
+          "total_ms": 4.8983134329319
+        },
+        {
+          "index": 12,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.899565130472183,
+          "post_sync_ms": 0.039711594581604004,
+          "total_ms": 4.941921681165695
+        },
+        {
+          "index": 13,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.824444651603699,
+          "post_sync_ms": 0.037319958209991455,
+          "total_ms": 4.864193499088287
+        },
+        {
+          "index": 14,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.927739500999451,
+          "post_sync_ms": 0.038217753171920776,
+          "total_ms": 4.968494176864624
+        },
+        {
+          "index": 15,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.818424582481384,
+          "post_sync_ms": 0.03803521394729614,
+          "total_ms": 4.859011620283127
+        },
+        {
+          "index": 16,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.787776619195938,
+          "post_sync_ms": 0.038351863622665405,
+          "total_ms": 4.828657954931259
+        },
+        {
+          "index": 17,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.658032208681107,
+          "post_sync_ms": 0.03748759627342224,
+          "total_ms": 4.699550569057465
+        },
+        {
+          "index": 18,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.771936684846878,
+          "post_sync_ms": 0.03803521394729614,
+          "total_ms": 4.812441766262054
+        },
+        {
+          "index": 19,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 5.177859216928482,
+          "post_sync_ms": 0.03769993782043457,
+          "total_ms": 5.217932164669037
+        },
+        {
+          "index": 20,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.899118095636368,
+          "post_sync_ms": 0.037979334592819214,
+          "total_ms": 4.93965670466423
+        },
+        {
+          "index": 21,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.8036351799964905,
+          "post_sync_ms": 0.03894791007041931,
+          "total_ms": 4.845011979341507
+        },
+        {
+          "index": 22,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.878263920545578,
+          "post_sync_ms": 0.038586556911468506,
+          "total_ms": 4.919417202472687
+        },
+        {
+          "index": 23,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.7332607209682465,
+          "post_sync_ms": 0.038217753171920776,
+          "total_ms": 4.773993045091629
+        },
+        {
+          "index": 24,
+          "phase": "A4_frozen_fresh",
+          "call_ms": 4.990093410015106,
+          "post_sync_ms": 0.03867223858833313,
+          "total_ms": 5.0312839448452
+        }
+      ],
+      "etl_run_span_ms": 1.4302246272563934,
+      "components": [
+        {
+          "component": "chunk_rows",
+          "count": 1,
+          "median_self_ms": 0.0057425349950790405
+        },
+        {
+          "component": "etl_from_numpy",
+          "count": 8,
+          "median_self_ms": 0.048669055104255676
+        },
+        {
+          "component": "etl_run",
+          "count": 1,
+          "median_self_ms": 1.4302246272563934
+        },
+        {
+          "component": "etl_tensor_to_payload",
+          "count": 8,
+          "median_self_ms": 2.984285354614258
+        },
+        {
+          "component": "prep_column",
+          "count": 7,
+          "median_self_ms": 0.057404860854148865
+        }
+      ],
+      "per_call_components": {
+        "prep_column": [
+          0.04250183701515198,
+          0.054970383644104004,
+          0.060249119997024536,
+          0.058356672525405884,
+          0.059388577938079834,
+          0.05909055471420288,
+          0.05817785859107971,
+          0.059310346841812134,
+          0.11918321251869202,
+          0.08578598499298096,
+          0.058453530073165894,
+          0.05804374814033508,
+          0.05751848220825195,
+          0.05751848220825195,
+          0.056590884923934937,
+          0.05574524402618408,
+          0.055033713579177856,
+          0.056196004152297974,
+          0.05632266402244568,
+          0.05701929330825806,
+          0.056099146604537964,
+          0.057291239500045776,
+          0.05565956234931946,
+          0.05684420466423035,
+          0.055983662605285645
+        ],
+        "etl_from_numpy": [
+          0.032979995012283325,
+          0.04723668098449707,
+          0.05058571696281433,
+          0.05066394805908203,
+          0.0510290265083313,
+          0.05103647708892822,
+          0.04932284355163574,
+          0.050809234380722046,
+          9.869907051324844,
+          0.05106627941131592,
+          0.051274895668029785,
+          0.051107257604599,
+          0.04869699478149414,
+          0.048413872718811035,
+          0.04860386252403259,
+          0.04756078124046326,
+          0.04763901233673096,
+          0.0487305223941803,
+          0.04822388291358948,
+          0.04838407039642334,
+          0.04829093813896179,
+          0.04864111542701721,
+          0.04770234227180481,
+          0.04843622446060181,
+          0.0482313334941864
+        ],
+        "etl_tensor_to_payload": [
+          2.9184818267822266,
+          2.9514841735363007,
+          3.0736997723579407,
+          2.8599202632904053,
+          2.973005175590515,
+          2.982575446367264,
+          2.877790480852127,
+          3.0612871050834656,
+          8.55356827378273,
+          3.052007406949997,
+          2.895727753639221,
+          3.020256757736206,
+          3.015536814928055,
+          2.985995262861252,
+          3.086920827627182,
+          2.9992610216140747,
+          2.9488056898117065,
+          2.8486624360084534,
+          2.962939441204071,
+          2.8977133333683014,
+          3.0307844281196594,
+          2.944711595773697,
+          3.037016838788986,
+          2.8977692127227783,
+          3.131978213787079
+        ],
+        "chunk_rows": [
+          0.0037848949432373047,
+          0.006031244993209839,
+          0.00622868537902832,
+          0.006113201379776001,
+          0.0060014426708221436,
+          0.0064782798290252686,
+          0.006292015314102173,
+          0.006146728992462158,
+          0.012040138244628906,
+          0.005718320608139038,
+          0.005707144737243652,
+          0.005520880222320557,
+          0.0058710575103759766,
+          0.005751848220825195,
+          0.005621463060379028,
+          0.005733221769332886,
+          0.005606561899185181,
+          0.005885958671569824,
+          0.005640089511871338,
+          0.005725771188735962,
+          0.005640089511871338,
+          0.005584210157394409,
+          0.006020069122314453,
+          0.005692243576049805,
+          0.005692243576049805
+        ],
+        "etl_run": [
+          1.3444237411022186,
+          1.4450810849666595,
+          1.612003892660141,
+          1.4024972915649414,
+          1.4272704720497131,
+          1.4091357588768005,
+          1.4031454920768738,
+          1.417551189661026,
+          3.1275376677513123,
+          1.4487765729427338,
+          1.428551971912384,
+          1.408696174621582,
+          1.4598816633224487,
+          1.41974538564682,
+          1.432076096534729,
+          1.4157667756080627,
+          1.4350451529026031,
+          1.397542655467987,
+          1.4073029160499573,
+          1.8726922571659088,
+          1.4594420790672302,
+          1.4449618756771088,
+          1.4318972826004028,
+          1.4256536960601807,
+          1.448657363653183
+        ]
+      },
+      "counts": {
+        "prep_column": 7,
+        "etl_from_numpy": 8,
+        "etl_tensor_to_payload": 8,
+        "chunk_rows": 1,
+        "etl_run": 1
+      },
+      "cache": {
+        "hits": 1,
+        "misses": 2,
+        "size": 2
+      }
+    },
+    "L1_engine_fresh_loss": {
+      "doc": "engine seam, LOSS artifact, FRESH payloads (the SR route's graph)",
+      "plain": false,
+      "stats": {
+        "calls": 25,
+        "warm_calls": 24,
+        "first_call_ms": 6.391949951648712,
+        "median_warm_ms": 6.141986697912216,
+        "min_warm_ms": 5.409613251686096,
+        "max_warm_ms": 9.917259216308594,
+        "mean_warm_ms": 6.378044839948416,
+        "median_call_ms": 6.096195429563522,
+        "median_post_sync_ms": 0.041017308831214905
+      },
+      "rows": [
+        {
+          "index": 0,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.349578499794006,
+          "post_sync_ms": 0.03955140709877014,
+          "total_ms": 6.391949951648712
+        },
+        {
+          "index": 1,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 9.024474769830704,
+          "post_sync_ms": 0.04000961780548096,
+          "total_ms": 9.067028760910034
+        },
+        {
+          "index": 2,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 5.962099879980087,
+          "post_sync_ms": 0.040065497159957886,
+          "total_ms": 6.004553288221359
+        },
+        {
+          "index": 3,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 5.3678639233112335,
+          "post_sync_ms": 0.03927946090698242,
+          "total_ms": 5.409613251686096
+        },
+        {
+          "index": 4,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 5.411524325609207,
+          "post_sync_ms": 0.03867223858833313,
+          "total_ms": 5.4526738822460175
+        },
+        {
+          "index": 5,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 5.7363361120224,
+          "post_sync_ms": 0.05616992712020874,
+          "total_ms": 5.794882774353027
+        },
+        {
+          "index": 6,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.187118589878082,
+          "post_sync_ms": 0.04044175148010254,
+          "total_ms": 6.230078637599945
+        },
+        {
+          "index": 7,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 5.977559834718704,
+          "post_sync_ms": 0.03952533006668091,
+          "total_ms": 6.0195401310920715
+        },
+        {
+          "index": 8,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.400514394044876,
+          "post_sync_ms": 0.04047900438308716,
+          "total_ms": 6.446558982133865
+        },
+        {
+          "index": 9,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 5.951229482889175,
+          "post_sync_ms": 0.04053860902786255,
+          "total_ms": 5.9943608939647675
+        },
+        {
+          "index": 10,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.11419603228569,
+          "post_sync_ms": 0.04606321454048157,
+          "total_ms": 6.16324320435524
+        },
+        {
+          "index": 11,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.223671138286591,
+          "post_sync_ms": 0.04618614912033081,
+          "total_ms": 6.272859871387482
+        },
+        {
+          "index": 12,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.321314722299576,
+          "post_sync_ms": 0.04173070192337036,
+          "total_ms": 6.365716457366943
+        },
+        {
+          "index": 13,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.147712469100952,
+          "post_sync_ms": 0.043138861656188965,
+          "total_ms": 6.193310022354126
+        },
+        {
+          "index": 14,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.3280947506427765,
+          "post_sync_ms": 0.05657970905303955,
+          "total_ms": 6.387703120708466
+        },
+        {
+          "index": 15,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 5.983311682939529,
+          "post_sync_ms": 0.04881247878074646,
+          "total_ms": 6.0350485146045685
+        },
+        {
+          "index": 16,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.045594811439514,
+          "post_sync_ms": 0.042401254177093506,
+          "total_ms": 6.09072670340538
+        },
+        {
+          "index": 17,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 5.855441093444824,
+          "post_sync_ms": 0.04005804657936096,
+          "total_ms": 5.898088216781616
+        },
+        {
+          "index": 18,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 5.9763602912425995,
+          "post_sync_ms": 0.04095211625099182,
+          "total_ms": 6.0199834406375885
+        },
+        {
+          "index": 19,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.078194826841354,
+          "post_sync_ms": 0.040046870708465576,
+          "total_ms": 6.1207301914691925
+        },
+        {
+          "index": 20,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 9.872451424598694,
+          "post_sync_ms": 0.04220008850097656,
+          "total_ms": 9.917259216308594
+        },
+        {
+          "index": 21,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 5.904361605644226,
+          "post_sync_ms": 0.04108250141143799,
+          "total_ms": 5.948200821876526
+        },
+        {
+          "index": 22,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.174840033054352,
+          "post_sync_ms": 0.04085898399353027,
+          "total_ms": 6.218381226062775
+        },
+        {
+          "index": 23,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.51998445391655,
+          "post_sync_ms": 0.04121661186218262,
+          "total_ms": 6.563875824213028
+        },
+        {
+          "index": 24,
+          "phase": "L1_engine_fresh_loss",
+          "call_ms": 6.4145103096961975,
+          "post_sync_ms": 0.041466206312179565,
+          "total_ms": 6.45865872502327
+        }
+      ],
+      "etl_run_span_ms": 1.858321949839592,
+      "components": [
+        {
+          "component": "chunk_rows",
+          "count": 2,
+          "median_self_ms": 0.011745840311050415
+        },
+        {
+          "component": "etl_from_numpy",
+          "count": 10,
+          "median_self_ms": 0.06314180791378021
+        },
+        {
+          "component": "etl_run",
+          "count": 1,
+          "median_self_ms": 1.858321949839592
+        },
+        {
+          "component": "etl_tensor_to_payload",
+          "count": 10,
+          "median_self_ms": 3.715602681040764
+        },
+        {
+          "component": "keep_mask",
+          "count": 1,
+          "median_self_ms": 0.0133514404296875
+        },
+        {
+          "component": "prep_column",
+          "count": 7,
+          "median_self_ms": 0.059273093938827515
+        }
+      ],
+      "per_call_components": {
+        "prep_column": [
+          0.06742030382156372,
+          0.05798041820526123,
+          0.05714595317840576,
+          0.05642697215080261,
+          0.057384371757507324,
+          0.05731731653213501,
+          0.05595386028289795,
+          0.05668029189109802,
+          0.05702674388885498,
+          0.05702674388885498,
+          0.058844685554504395,
+          0.060264021158218384,
+          0.060439109802246094,
+          0.059410929679870605,
+          0.06201118230819702,
+          0.0627376139163971,
+          0.06027892231941223,
+          0.06095319986343384,
+          0.06140768527984619,
+          0.05979463458061218,
+          0.0623948872089386,
+          0.05938112735748291,
+          0.060383230447769165,
+          0.05916506052017212,
+          0.05916506052017212
+        ],
+        "etl_from_numpy": [
+          0.0649578869342804,
+          0.06232038140296936,
+          0.06218627095222473,
+          0.0599399209022522,
+          0.060636550188064575,
+          0.061005353927612305,
+          0.05955249071121216,
+          0.059563666582107544,
+          0.0645369291305542,
+          0.061631202697753906,
+          0.06047636270523071,
+          0.06249547004699707,
+          0.061511993408203125,
+          0.06123632192611694,
+          0.06395578384399414,
+          0.06517022848129272,
+          0.06501004099845886,
+          0.0643506646156311,
+          0.07281079888343811,
+          0.0653192400932312,
+          0.06508082151412964,
+          0.06378814578056335,
+          0.06578117609024048,
+          0.06410479545593262,
+          0.06548687815666199
+        ],
+        "etl_tensor_to_payload": [
+          3.6888569593429565,
+          7.022332400083542,
+          3.5939067602157593,
+          3.3994056284427643,
+          3.432396799325943,
+          3.3575929701328278,
+          3.738660365343094,
+          3.604445606470108,
+          4.0388330817222595,
+          3.6032870411872864,
+          3.7193894386291504,
+          3.7331655621528625,
+          3.9543062448501587,
+          3.7483274936676025,
+          3.9433613419532776,
+          3.626994788646698,
+          3.6791376769542694,
+          3.528270870447159,
+          3.5838522017002106,
+          3.7118159234523773,
+          7.3981136083602905,
+          3.5227499902248383,
+          3.790125250816345,
+          3.921370953321457,
+          3.8110949099063873
+        ],
+        "chunk_rows": [
+          0.017952173948287964,
+          0.013750046491622925,
+          0.011175870895385742,
+          0.011432915925979614,
+          0.011283904314041138,
+          0.01155957579612732,
+          0.011265277862548828,
+          0.011377036571502686,
+          0.011548399925231934,
+          0.011350959539413452,
+          0.012233853340148926,
+          0.012062489986419678,
+          0.011779367923736572,
+          0.01190975308418274,
+          0.011980533599853516,
+          0.012114644050598145,
+          0.012323260307312012,
+          0.011712312698364258,
+          0.011879950761795044,
+          0.012606382369995117,
+          0.011410564184188843,
+          0.011879950761795044,
+          0.012345612049102783,
+          0.011499971151351929,
+          0.011708587408065796
+        ],
+        "etl_run": [
+          2.098873257637024,
+          1.4897510409355164,
+          1.8631145358085632,
+          1.4718510210514069,
+          1.4715828001499176,
+          1.8656887114048004,
+          1.9429363310337067,
+          1.8749050796031952,
+          1.8612034618854523,
+          1.8473640084266663,
+          1.8773339688777924,
+          1.9659027457237244,
+          1.8627643585205078,
+          1.8966123461723328,
+          1.8554404377937317,
+          1.8231645226478577,
+          1.8432624638080597,
+          1.8096640706062317,
+          1.8517859280109406,
+          1.8254108726978302,
+          1.93747878074646,
+          1.8436461687088013,
+          1.85355544090271,
+          2.042684704065323,
+          2.075694501399994
+        ],
+        "keep_mask": [
+          0.028129667043685913,
+          0.014554709196090698,
+          0.013861805200576782,
+          0.01266971230506897,
+          0.01368299126625061,
+          0.012990087270736694,
+          0.02127140760421753,
+          0.013500452041625977,
+          0.012774020433425903,
+          0.012692064046859741,
+          0.013440847396850586,
+          0.013209879398345947,
+          0.012580305337905884,
+          0.012703239917755127,
+          0.013578683137893677,
+          0.014074146747589111,
+          0.013094395399093628,
+          0.013809651136398315,
+          0.012967735528945923,
+          0.013090670108795166,
+          0.013262033462524414,
+          0.013146549463272095,
+          0.013485550880432129,
+          0.013649463653564453,
+          0.013519078493118286
+        ]
+      },
+      "counts": {
+        "prep_column": 7,
+        "etl_from_numpy": 10,
+        "etl_tensor_to_payload": 10,
+        "chunk_rows": 2,
+        "etl_run": 1,
+        "keep_mask": 1
+      },
+      "cache": {
+        "hits": 1,
+        "misses": 2,
+        "size": 2
+      }
+    },
+    "L2_engine_staged_loss": {
+      "doc": "engine seam, LOSS artifact, STAGED payloads",
+      "plain": false,
+      "stats": {
+        "calls": 25,
+        "warm_calls": 24,
+        "first_call_ms": 2.1275803446769714,
+        "median_warm_ms": 1.978505402803421,
+        "min_warm_ms": 1.8501915037631989,
+        "max_warm_ms": 2.1500401198863983,
+        "mean_warm_ms": 1.9712702681620915,
+        "median_call_ms": 1.9342545419931412,
+        "median_post_sync_ms": 0.0402349978685379
+      },
+      "rows": [
+        {
+          "index": 0,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 2.090010792016983,
+          "post_sync_ms": 0.0352710485458374,
+          "total_ms": 2.1275803446769714
+        },
+        {
+          "index": 1,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 2.0561330020427704,
+          "post_sync_ms": 0.03319978713989258,
+          "total_ms": 2.091500908136368
+        },
+        {
+          "index": 2,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.8762573599815369,
+          "post_sync_ms": 0.03350153565406799,
+          "total_ms": 1.911856234073639
+        },
+        {
+          "index": 3,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.849442720413208,
+          "post_sync_ms": 0.03289058804512024,
+          "total_ms": 1.8863976001739502
+        },
+        {
+          "index": 4,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.8600858747959137,
+          "post_sync_ms": 0.0327378511428833,
+          "total_ms": 1.8951930105686188
+        },
+        {
+          "index": 5,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 2.0456835627555847,
+          "post_sync_ms": 0.03284960985183716,
+          "total_ms": 2.080801874399185
+        },
+        {
+          "index": 6,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 2.0923949778079987,
+          "post_sync_ms": 0.05461275577545166,
+          "total_ms": 2.1500401198863983
+        },
+        {
+          "index": 7,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 2.005741000175476,
+          "post_sync_ms": 0.05552545189857483,
+          "total_ms": 2.064220607280731
+        },
+        {
+          "index": 8,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.9634701311588287,
+          "post_sync_ms": 0.04412233829498291,
+          "total_ms": 2.010177820920944
+        },
+        {
+          "index": 9,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.9340552389621735,
+          "post_sync_ms": 0.04346296191215515,
+          "total_ms": 1.980215311050415
+        },
+        {
+          "index": 10,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.992400735616684,
+          "post_sync_ms": 0.04461407661437988,
+          "total_ms": 2.039588987827301
+        },
+        {
+          "index": 11,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.943044364452362,
+          "post_sync_ms": 0.04221498966217041,
+          "total_ms": 1.9880272448062897
+        },
+        {
+          "index": 12,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 2.001643180847168,
+          "post_sync_ms": 0.0433214008808136,
+          "total_ms": 2.0477324724197388
+        },
+        {
+          "index": 13,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.9310228526592255,
+          "post_sync_ms": 0.04291906952857971,
+          "total_ms": 1.976795494556427
+        },
+        {
+          "index": 14,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.9925311207771301,
+          "post_sync_ms": 0.04408881068229675,
+          "total_ms": 2.039402723312378
+        },
+        {
+          "index": 15,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.9372999668121338,
+          "post_sync_ms": 0.045221298933029175,
+          "total_ms": 1.9852705299854279
+        },
+        {
+          "index": 16,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.9798874855041504,
+          "post_sync_ms": 0.0471062958240509,
+          "total_ms": 2.0297840237617493
+        },
+        {
+          "index": 17,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.9344538450241089,
+          "post_sync_ms": 0.03828108310699463,
+          "total_ms": 1.9751526415348053
+        },
+        {
+          "index": 18,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.879774034023285,
+          "post_sync_ms": 0.039540231227874756,
+          "total_ms": 1.9217953085899353
+        },
+        {
+          "index": 19,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.8268115818500519,
+          "post_sync_ms": 0.03231316804885864,
+          "total_ms": 1.861240714788437
+        },
+        {
+          "index": 20,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.84592604637146,
+          "post_sync_ms": 0.034067779779434204,
+          "total_ms": 1.8822476267814636
+        },
+        {
+          "index": 21,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.8310025334358215,
+          "post_sync_ms": 0.04092976450920105,
+          "total_ms": 1.8742121756076813
+        },
+        {
+          "index": 22,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.8507540225982666,
+          "post_sync_ms": 0.03304705023765564,
+          "total_ms": 1.8859244883060455
+        },
+        {
+          "index": 23,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.8137134611606598,
+          "post_sync_ms": 0.03279745578765869,
+          "total_ms": 1.8501915037631989
+        },
+        {
+          "index": 24,
+          "phase": "L2_engine_staged_loss",
+          "call_ms": 1.847878098487854,
+          "post_sync_ms": 0.03269314765930176,
+          "total_ms": 1.8827170133590698
+        }
+      ],
+      "etl_run_span_ms": 1.8695853650569916,
+      "components": [
+        {
+          "component": "etl_run",
+          "count": 1,
+          "median_self_ms": 1.8695853650569916
+        }
+      ],
+      "per_call_components": {
+        "prep_column": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "etl_from_numpy": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "etl_tensor_to_payload": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "chunk_rows": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "etl_run": [
+          1.9940920174121857,
+          2.0038746297359467,
+          1.8257834017276764,
+          1.799553632736206,
+          1.8115974962711334,
+          1.9970573484897614,
+          2.033982425928116,
+          1.9301027059555054,
+          1.8904432654380798,
+          1.8679872155189514,
+          1.926511526107788,
+          1.8769316375255585,
+          1.935608685016632,
+          1.8656142055988312,
+          1.9265823066234589,
+          1.8711835145950317,
+          1.9131563603878021,
+          1.8712356686592102,
+          1.8252991139888763,
+          1.772996038198471,
+          1.796916127204895,
+          1.7779543995857239,
+          1.7979927361011505,
+          1.7651841044425964,
+          1.7982050776481628
+        ],
+        "keep_mask": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "counts": {
+        "etl_run": 1
+      },
+      "cache": {
+        "hits": 1,
+        "misses": 2,
+        "size": 2
+      }
+    },
+    "R1_repl_fresh_loss": {
+      "doc": "probe-replicated fresh loop + etl.run (replication control)",
+      "plain": false,
+      "stats": {
+        "calls": 25,
+        "warm_calls": 24,
+        "first_call_ms": 6.720628589391708,
+        "median_warm_ms": 6.030244752764702,
+        "min_warm_ms": 5.784880369901657,
+        "max_warm_ms": 9.951483458280563,
+        "mean_warm_ms": 6.208063258479039,
+        "median_call_ms": 5.987228825688362,
+        "median_post_sync_ms": 0.040646642446517944
+      },
+      "rows": [
+        {
+          "index": 0,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.674777716398239,
+          "post_sync_ms": 0.04325062036514282,
+          "total_ms": 6.720628589391708
+        },
+        {
+          "index": 1,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.741920322179794,
+          "post_sync_ms": 0.040475279092788696,
+          "total_ms": 5.784880369901657
+        },
+        {
+          "index": 2,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.9453025460243225,
+          "post_sync_ms": 0.040918588638305664,
+          "total_ms": 5.98897784948349
+        },
+        {
+          "index": 3,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.815837532281876,
+          "post_sync_ms": 0.043410807847976685,
+          "total_ms": 5.862072110176086
+        },
+        {
+          "index": 4,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.918122828006744,
+          "post_sync_ms": 0.04081800580024719,
+          "total_ms": 5.961481481790543
+        },
+        {
+          "index": 5,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.900919437408447,
+          "post_sync_ms": 0.04190951585769653,
+          "total_ms": 5.945280194282532
+        },
+        {
+          "index": 6,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.746707320213318,
+          "post_sync_ms": 0.039599835872650146,
+          "total_ms": 5.788780748844147
+        },
+        {
+          "index": 7,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.754686892032623,
+          "post_sync_ms": 0.03970786929130554,
+          "total_ms": 5.796968936920166
+        },
+        {
+          "index": 8,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.024979054927826,
+          "post_sync_ms": 0.03929808735847473,
+          "total_ms": 6.066720932722092
+        },
+        {
+          "index": 9,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.910761654376984,
+          "post_sync_ms": 0.03923103213310242,
+          "total_ms": 5.952589213848114
+        },
+        {
+          "index": 10,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.631989032030106,
+          "post_sync_ms": 0.04108622670173645,
+          "total_ms": 6.675705313682556
+        },
+        {
+          "index": 11,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.012249737977982,
+          "post_sync_ms": 0.04003942012786865,
+          "total_ms": 6.054829806089401
+        },
+        {
+          "index": 12,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.283901631832123,
+          "post_sync_ms": 0.041056424379348755,
+          "total_ms": 6.327521055936813
+        },
+        {
+          "index": 13,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 9.906992316246033,
+          "post_sync_ms": 0.041779130697250366,
+          "total_ms": 9.951483458280563
+        },
+        {
+          "index": 14,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.2163881957530975,
+          "post_sync_ms": 0.045534223318099976,
+          "total_ms": 6.265036761760712
+        },
+        {
+          "index": 15,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.081048399209976,
+          "post_sync_ms": 0.043332576751708984,
+          "total_ms": 6.127156317234039
+        },
+        {
+          "index": 16,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.173841655254364,
+          "post_sync_ms": 0.039711594581604004,
+          "total_ms": 6.216078996658325
+        },
+        {
+          "index": 17,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.962207913398743,
+          "post_sync_ms": 0.04085898399353027,
+          "total_ms": 6.005659699440002
+        },
+        {
+          "index": 18,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.147049367427826,
+          "post_sync_ms": 0.03834813833236694,
+          "total_ms": 6.187707185745239
+        },
+        {
+          "index": 19,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.012577563524246,
+          "post_sync_ms": 0.04003196954727173,
+          "total_ms": 6.055198609828949
+        },
+        {
+          "index": 20,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.099376827478409,
+          "post_sync_ms": 0.04372745752334595,
+          "total_ms": 6.145834922790527
+        },
+        {
+          "index": 21,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 6.01591169834137,
+          "post_sync_ms": 0.043511390686035156,
+          "total_ms": 6.062176078557968
+        },
+        {
+          "index": 22,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.828451365232468,
+          "post_sync_ms": 0.03715977072715759,
+          "total_ms": 5.8710016310215
+        },
+        {
+          "index": 23,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.858767777681351,
+          "post_sync_ms": 0.03794953227043152,
+          "total_ms": 5.898997187614441
+        },
+        {
+          "index": 24,
+          "phase": "R1_repl_fresh_loss",
+          "call_ms": 5.962032824754715,
+          "post_sync_ms": 0.037066638469696045,
+          "total_ms": 6.00137934088707
+        }
+      ],
+      "etl_run_span_ms": 1.8925033509731293,
+      "components": [
+        {
+          "component": "chunk_rows",
+          "count": 2,
+          "median_self_ms": 0.0056438148021698
+        },
+        {
+          "component": "etl_from_numpy",
+          "count": 10,
+          "median_self_ms": 0.0682678073644638
+        },
+        {
+          "component": "etl_run",
+          "count": 1,
+          "median_self_ms": 1.8925033509731293
+        },
+        {
+          "component": "etl_tensor_to_other",
+          "count": 10,
+          "median_self_ms": 3.6588404327630997
+        },
+        {
+          "component": "keep_mask",
+          "count": 1,
+          "median_self_ms": 0.01294352114200592
+        },
+        {
+          "component": "prep_column",
+          "count": 7,
+          "median_self_ms": 0.03232993185520172
+        }
+      ],
+      "per_call_components": {
+        "prep_column": [
+          0.03683939576148987,
+          0.03397837281227112,
+          0.03247708082199097,
+          0.032182782888412476,
+          0.03251805901527405,
+          0.03231316804885864,
+          0.03262609243392944,
+          0.03218650817871094,
+          0.0323466956615448,
+          0.03167241811752319,
+          0.03273412585258484,
+          0.03219768404960632,
+          0.032495707273483276,
+          0.03172829747200012,
+          0.03676488995552063,
+          0.031773000955581665,
+          0.03377348184585571,
+          0.03160536289215088,
+          0.03265216946601868,
+          0.029049813747406006,
+          0.03175809979438782,
+          0.0344105064868927,
+          0.03390386700630188,
+          0.029668211936950684,
+          0.02944841980934143
+        ],
+        "etl_from_numpy": [
+          0.07171183824539185,
+          0.0682249665260315,
+          0.06812810897827148,
+          0.06831064820289612,
+          0.06797909736633301,
+          0.06889551877975464,
+          0.06900355219841003,
+          0.06728619337081909,
+          0.06768479943275452,
+          0.06939470767974854,
+          0.07275864481925964,
+          0.06890669465065002,
+          0.06740167737007141,
+          0.07105991244316101,
+          0.0708065927028656,
+          0.06840750575065613,
+          0.06898492574691772,
+          0.06588548421859741,
+          0.0689774751663208,
+          0.06850063800811768,
+          0.06806105375289917,
+          0.06447732448577881,
+          0.06344914436340332,
+          0.060848891735076904,
+          0.06368011236190796
+        ],
+        "etl_tensor_to_payload": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "chunk_rows": [
+          0.006716698408126831,
+          0.005681067705154419,
+          0.0056140124797821045,
+          0.005662441253662109,
+          0.005062669515609741,
+          0.005640089511871338,
+          0.005502253770828247,
+          0.005949288606643677,
+          0.005725771188735962,
+          0.005684792995452881,
+          0.006183981895446777,
+          0.006139278411865234,
+          0.005599111318588257,
+          0.0055655837059021,
+          0.006329268217086792,
+          0.005647540092468262,
+          0.005509704351425171,
+          0.00545009970664978,
+          0.005602836608886719,
+          0.005252659320831299,
+          0.0058002769947052,
+          0.005967915058135986,
+          0.005941838026046753,
+          0.005204230546951294,
+          0.005144625902175903
+        ],
+        "etl_run": [
+          1.863531768321991,
+          1.8068961799144745,
+          1.8438026309013367,
+          1.839466392993927,
+          1.9764192402362823,
+          1.806408166885376,
+          1.823771744966507,
+          1.8098726868629456,
+          1.8483176827430725,
+          1.8505416810512543,
+          1.9649304449558258,
+          1.884613186120987,
+          2.0577721297740936,
+          1.9039399921894073,
+          1.8922798335552216,
+          1.9243359565734863,
+          1.8884949386119843,
+          1.962270587682724,
+          1.8952451646327972,
+          1.933857798576355,
+          2.0102523267269135,
+          1.892726868391037,
+          1.9062124192714691,
+          1.9389763474464417,
+          1.853935420513153
+        ],
+        "keep_mask": [
+          0.019028782844543457,
+          0.013321638107299805,
+          0.012770295143127441,
+          0.012919306755065918,
+          0.011928379535675049,
+          0.01307949423789978,
+          0.013269484043121338,
+          0.014580786228179932,
+          0.012967735528945923,
+          0.014197081327438354,
+          0.014260411262512207,
+          0.012598931789398193,
+          0.012721866369247437,
+          0.012919306755065918,
+          0.014718621969223022,
+          0.012528151273727417,
+          0.012539327144622803,
+          0.01288577914237976,
+          0.012859702110290527,
+          0.013228505849838257,
+          0.018633902072906494,
+          0.014115124940872192,
+          0.013850629329681396,
+          0.011801719665527344,
+          0.011973083019256592
+        ],
+        "etl_tensor_to_other": [
+          4.306647926568985,
+          3.488268703222275,
+          3.661990165710449,
+          3.5295747220516205,
+          3.504578024148941,
+          3.65569069981575,
+          3.4817419946193695,
+          3.496706485748291,
+          3.7295110523700714,
+          3.621339797973633,
+          4.205014556646347,
+          3.677014261484146,
+          3.7861615419387817,
+          7.548663765192032,
+          3.830164670944214,
+          3.705497831106186,
+          3.8344189524650574,
+          3.5655200481414795,
+          3.8067810237407684,
+          3.645550459623337,
+          3.6394894123077393,
+          3.6705173552036285,
+          3.502313047647476,
+          3.507189452648163,
+          3.693241626024246
+        ]
+      },
+      "counts": {
+        "prep_column": 7,
+        "etl_from_numpy": 10,
+        "chunk_rows": 2,
+        "etl_run": 1,
+        "keep_mask": 1,
+        "etl_tensor_to_other": 10
+      },
+      "cache": {
+        "hits": 1,
+        "misses": 2,
+        "size": 2
+      }
+    },
+    "R2_repl_fresh_drained": {
+      "doc": "probe-replicated fresh loop + explicit fence + etl.run",
+      "plain": false,
+      "stats": {
+        "calls": 25,
+        "warm_calls": 24,
+        "first_call_ms": 6.1313696205616,
+        "median_warm_ms": 6.116893142461777,
+        "min_warm_ms": 5.906801670789719,
+        "max_warm_ms": 9.110994637012482,
+        "mean_warm_ms": 6.299415758500497,
+        "median_call_ms": 6.081126630306244,
+        "median_post_sync_ms": 0.0345427542924881
+      },
+      "rows": [
+        {
+          "index": 0,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.095346063375473,
+          "post_sync_ms": 0.033602118492126465,
+          "total_ms": 6.1313696205616
+        },
+        {
+          "index": 1,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.102569401264191,
+          "post_sync_ms": 0.034302473068237305,
+          "total_ms": 6.139159202575684
+        },
+        {
+          "index": 2,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.0228705406188965,
+          "post_sync_ms": 0.03369152545928955,
+          "total_ms": 6.058838218450546
+        },
+        {
+          "index": 3,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.068915128707886,
+          "post_sync_ms": 0.033989548683166504,
+          "total_ms": 6.105247884988785
+        },
+        {
+          "index": 4,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 5.866248160600662,
+          "post_sync_ms": 0.03803148865699768,
+          "total_ms": 5.906801670789719
+        },
+        {
+          "index": 5,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.093338131904602,
+          "post_sync_ms": 0.03294646739959717,
+          "total_ms": 6.128538399934769
+        },
+        {
+          "index": 6,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 9.075567126274109,
+          "post_sync_ms": 0.032998621463775635,
+          "total_ms": 9.110994637012482
+        },
+        {
+          "index": 7,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.0476139187812805,
+          "post_sync_ms": 0.0331588089466095,
+          "total_ms": 6.083119660615921
+        },
+        {
+          "index": 8,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 5.878232419490814,
+          "post_sync_ms": 0.0336281955242157,
+          "total_ms": 5.91428205370903
+        },
+        {
+          "index": 9,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.066571921110153,
+          "post_sync_ms": 0.03477558493614197,
+          "total_ms": 6.103638559579849
+        },
+        {
+          "index": 10,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 5.932237952947617,
+          "post_sync_ms": 0.034499913454055786,
+          "total_ms": 5.968950688838959
+        },
+        {
+          "index": 11,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.115827709436417,
+          "post_sync_ms": 0.05519762635231018,
+          "total_ms": 6.174050271511078
+        },
+        {
+          "index": 12,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.322316825389862,
+          "post_sync_ms": 0.037789344787597656,
+          "total_ms": 6.363216787576675
+        },
+        {
+          "index": 13,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.245315074920654,
+          "post_sync_ms": 0.034399330615997314,
+          "total_ms": 6.281927227973938
+        },
+        {
+          "index": 14,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.237730383872986,
+          "post_sync_ms": 0.04145130515098572,
+          "total_ms": 6.2822215259075165
+        },
+        {
+          "index": 15,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.770145148038864,
+          "post_sync_ms": 0.04092603921890259,
+          "total_ms": 6.813913583755493
+        },
+        {
+          "index": 16,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.872065365314484,
+          "post_sync_ms": 0.05641952157020569,
+          "total_ms": 6.932243704795837
+        },
+        {
+          "index": 17,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.469603627920151,
+          "post_sync_ms": 0.03450736403465271,
+          "total_ms": 6.506636738777161
+        },
+        {
+          "index": 18,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.018109619617462,
+          "post_sync_ms": 0.04006922245025635,
+          "total_ms": 6.061062216758728
+        },
+        {
+          "index": 19,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.156999617815018,
+          "post_sync_ms": 0.034578144550323486,
+          "total_ms": 6.1941929161548615
+        },
+        {
+          "index": 20,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 5.905933678150177,
+          "post_sync_ms": 0.035237520933151245,
+          "total_ms": 5.943585187196732
+        },
+        {
+          "index": 21,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.055600941181183,
+          "post_sync_ms": 0.033408403396606445,
+          "total_ms": 6.091471761465073
+        },
+        {
+          "index": 22,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 5.878925323486328,
+          "post_sync_ms": 0.038061290979385376,
+          "total_ms": 5.919557064771652
+        },
+        {
+          "index": 23,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 6.128106266260147,
+          "post_sync_ms": 0.033389776945114136,
+          "total_ms": 6.163988262414932
+        },
+        {
+          "index": 24,
+          "phase": "R2_repl_fresh_drained",
+          "call_ms": 5.901262164115906,
+          "post_sync_ms": 0.03470107913017273,
+          "total_ms": 5.938339978456497
+        }
+      ],
+      "etl_run_span_ms": 1.8888302147388458,
+      "components": [
+        {
+          "component": "chunk_rows",
+          "count": 2,
+          "median_self_ms": 0.005217269062995911
+        },
+        {
+          "component": "etl_from_numpy",
+          "count": 10,
+          "median_self_ms": 0.0647716224193573
+        },
+        {
+          "component": "etl_run",
+          "count": 1,
+          "median_self_ms": 1.8888302147388458
+        },
+        {
+          "component": "etl_tensor_to_other",
+          "count": 10,
+          "median_self_ms": 3.70621494948864
+        },
+        {
+          "component": "fence:drain",
+          "count": 1,
+          "median_self_ms": 0.03970041871070862
+        },
+        {
+          "component": "keep_mask",
+          "count": 1,
+          "median_self_ms": 0.012343749403953552
+        },
+        {
+          "component": "prep_column",
+          "count": 7,
+          "median_self_ms": 0.030044466257095337
+        }
+      ],
+      "per_call_components": {
+        "prep_column": [
+          0.031635165214538574,
+          0.029820948839187622,
+          0.029981136322021484,
+          0.03166869282722473,
+          0.029657036066055298,
+          0.03412365913391113,
+          0.029869377613067627,
+          0.029947608709335327,
+          0.03001466393470764,
+          0.02966448664665222,
+          0.030007213354110718,
+          0.03032386302947998,
+          0.03734976053237915,
+          0.032085925340652466,
+          0.030916184186935425,
+          0.04011392593383789,
+          0.04030764102935791,
+          0.04456564784049988,
+          0.031165778636932373,
+          0.0351443886756897,
+          0.029861927032470703,
+          0.029947608709335327,
+          0.029493123292922974,
+          0.030074268579483032,
+          0.02995505928993225
+        ],
+        "etl_from_numpy": [
+          0.06358698010444641,
+          0.06425008177757263,
+          0.06458163261413574,
+          0.06288662552833557,
+          0.0641755759716034,
+          0.06517767906188965,
+          0.06418675184249878,
+          0.06755068898200989,
+          0.06411224603652954,
+          0.06499886512756348,
+          0.06372109055519104,
+          0.06371363997459412,
+          0.06936118006706238,
+          0.06578117609024048,
+          0.07122382521629333,
+          0.08185580372810364,
+          0.08403882384300232,
+          0.0739656388759613,
+          0.06473064422607422,
+          0.06496161222457886,
+          0.06390735507011414,
+          0.06492435932159424,
+          0.06293132901191711,
+          0.06481260061264038,
+          0.0632554292678833
+        ],
+        "etl_tensor_to_payload": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "chunk_rows": [
+          0.005766749382019043,
+          0.0050961971282958984,
+          0.005144625902175903,
+          0.00504031777381897,
+          0.005211681127548218,
+          0.0061318278312683105,
+          0.004932284355163574,
+          0.005330890417098999,
+          0.005152076482772827,
+          0.005017966032028198,
+          0.004980713129043579,
+          0.005517154932022095,
+          0.005558133125305176,
+          0.005632638931274414,
+          0.005237758159637451,
+          0.007081776857376099,
+          0.007189810276031494,
+          0.0069551169872283936,
+          0.005315989255905151,
+          0.0060014426708221436,
+          0.005133450031280518,
+          0.005133450031280518,
+          0.0052228569984436035,
+          0.005140900611877441,
+          0.00494346022605896
+        ],
+        "etl_run": [
+          2.066154032945633,
+          1.9488632678985596,
+          2.029813826084137,
+          1.9501298666000366,
+          1.9068531692028046,
+          1.8860101699829102,
+          1.8515661358833313,
+          1.8564239144325256,
+          1.8740184605121613,
+          1.8623322248458862,
+          1.886717975139618,
+          2.039983868598938,
+          1.9084736704826355,
+          1.8945783376693726,
+          1.8915198743343353,
+          1.9546449184417725,
+          2.099350094795227,
+          1.8371418118476868,
+          1.8909424543380737,
+          1.920655369758606,
+          1.8130652606487274,
+          1.8733963370323181,
+          1.8442235887050629,
+          1.8639825284481049,
+          1.8442831933498383
+        ],
+        "keep_mask": [
+          0.011742115020751953,
+          0.012073665857315063,
+          0.01161918044090271,
+          0.011779367923736572,
+          0.012151896953582764,
+          0.014040619134902954,
+          0.011790543794631958,
+          0.012420117855072021,
+          0.011879950761795044,
+          0.012200325727462769,
+          0.012118369340896606,
+          0.012326985597610474,
+          0.018127262592315674,
+          0.015106052160263062,
+          0.01231953501701355,
+          0.015400350093841553,
+          0.014621764421463013,
+          0.015169382095336914,
+          0.012733042240142822,
+          0.014360994100570679,
+          0.01236051321029663,
+          0.012170523405075073,
+          0.012099742889404297,
+          0.01337006688117981,
+          0.012472271919250488
+        ],
+        "etl_tensor_to_other": [
+          3.5628825426101685,
+          3.6880075931549072,
+          3.5357512533664703,
+          3.658246248960495,
+          3.499787300825119,
+          3.733482211828232,
+          6.751470267772675,
+          3.720555454492569,
+          3.5330280661582947,
+          3.742314875125885,
+          3.583095967769623,
+          3.588203340768814,
+          3.89731302857399,
+          3.86616587638855,
+          3.8138851523399353,
+          4.210405051708221,
+          4.128187894821167,
+          4.081714898347855,
+          3.6512017250061035,
+          3.729909658432007,
+          3.625929355621338,
+          3.6918744444847107,
+          3.564685583114624,
+          3.7995949387550354,
+          3.597341477870941
+        ],
+        "fence:drain": [
+          0.0393986701965332,
+          0.038586556911468506,
+          0.037901103496551514,
+          0.03793090581893921,
+          0.03939121961593628,
+          0.03749877214431763,
+          0.04645809531211853,
+          0.042129307985305786,
+          0.03972277045249939,
+          0.038739293813705444,
+          0.039014965295791626,
+          0.03929808735847473,
+          0.04582107067108154,
+          0.0443384051322937,
+          0.05031749606132507,
+          0.05062669515609741,
+          0.04924088716506958,
+          0.04192069172859192,
+          0.03943219780921936,
+          0.04294887185096741,
+          0.03991648554801941,
+          0.039380043745040894,
+          0.03967806696891785,
+          0.04079937934875488,
+          0.038839876651763916
+        ]
+      },
+      "counts": {
+        "prep_column": 7,
+        "etl_from_numpy": 10,
+        "chunk_rows": 2,
+        "etl_run": 1,
+        "keep_mask": 1,
+        "etl_tensor_to_other": 10,
+        "fence:drain": 1
+      },
+      "cache": {
+        "hits": 1,
+        "misses": 2,
+        "size": 2
+      }
+    },
+    "E1_e2e_in_process": {
+      "doc": "problem.evaluate(forest) -- the in-process e2e companion",
+      "plain": false,
+      "stats": {
+        "calls": 25,
+        "warm_calls": 24,
+        "first_call_ms": 44.54091563820839,
+        "median_warm_ms": 8.1732627004385,
+        "min_warm_ms": 6.470620632171631,
+        "max_warm_ms": 12.287698686122894,
+        "mean_warm_ms": 8.117605776836475,
+        "median_call_ms": 8.132457733154297,
+        "median_post_sync_ms": 0.03777258098125458
+      },
+      "rows": [
+        {
+          "index": 0,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 44.45499926805496,
+          "post_sync_ms": 0.08125975728034973,
+          "total_ms": 44.54091563820839
+        },
+        {
+          "index": 1,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 7.785100489854813,
+          "post_sync_ms": 0.023949891328811646,
+          "total_ms": 7.81051442027092
+        },
+        {
+          "index": 2,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 6.810463964939117,
+          "post_sync_ms": 0.024091452360153198,
+          "total_ms": 6.835963577032089
+        },
+        {
+          "index": 3,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 6.89687579870224,
+          "post_sync_ms": 0.02387911081314087,
+          "total_ms": 6.922245025634766
+        },
+        {
+          "index": 4,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 6.6452957689762115,
+          "post_sync_ms": 0.024162232875823975,
+          "total_ms": 6.670936942100525
+        },
+        {
+          "index": 5,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 6.445929408073425,
+          "post_sync_ms": 0.023227185010910034,
+          "total_ms": 6.470620632171631
+        },
+        {
+          "index": 6,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 6.492946296930313,
+          "post_sync_ms": 0.023830682039260864,
+          "total_ms": 6.518173962831497
+        },
+        {
+          "index": 7,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 6.4495280385017395,
+          "post_sync_ms": 0.024046748876571655,
+          "total_ms": 6.474979221820831
+        },
+        {
+          "index": 8,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 7.219754159450531,
+          "post_sync_ms": 0.03705918788909912,
+          "total_ms": 7.259152829647064
+        },
+        {
+          "index": 9,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.205700665712357,
+          "post_sync_ms": 0.03819912672042847,
+          "total_ms": 8.246153593063354
+        },
+        {
+          "index": 10,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.331827819347382,
+          "post_sync_ms": 0.03814697265625,
+          "total_ms": 8.372321724891663
+        },
+        {
+          "index": 11,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.180271834135056,
+          "post_sync_ms": 0.03775209188461304,
+          "total_ms": 8.220363408327103
+        },
+        {
+          "index": 12,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.118990808725357,
+          "post_sync_ms": 0.037726014852523804,
+          "total_ms": 8.158966898918152
+        },
+        {
+          "index": 13,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.079886436462402,
+          "post_sync_ms": 0.03779307007789612,
+          "total_ms": 8.11995193362236
+        },
+        {
+          "index": 14,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.103210479021072,
+          "post_sync_ms": 0.03940612077713013,
+          "total_ms": 8.145004510879517
+        },
+        {
+          "index": 15,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.881200104951859,
+          "post_sync_ms": 0.03987923264503479,
+          "total_ms": 8.923400193452835
+        },
+        {
+          "index": 16,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.582409471273422,
+          "post_sync_ms": 0.040650367736816406,
+          "total_ms": 8.625458925962448
+        },
+        {
+          "index": 17,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 11.286098510026932,
+          "post_sync_ms": 0.06831064820289612,
+          "total_ms": 11.357419192790985
+        },
+        {
+          "index": 18,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 12.243878096342087,
+          "post_sync_ms": 0.04116073250770569,
+          "total_ms": 12.287698686122894
+        },
+        {
+          "index": 19,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.143950253725052,
+          "post_sync_ms": 0.040199607610702515,
+          "total_ms": 8.186772465705872
+        },
+        {
+          "index": 20,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.213430643081665,
+          "post_sync_ms": 0.03746896982192993,
+          "total_ms": 8.253239095211029
+        },
+        {
+          "index": 21,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.163701742887497,
+          "post_sync_ms": 0.03978237509727478,
+          "total_ms": 8.20590928196907
+        },
+        {
+          "index": 22,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.138962090015411,
+          "post_sync_ms": 0.03731250762939453,
+          "total_ms": 8.178673684597015
+        },
+        {
+          "index": 23,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.125953376293182,
+          "post_sync_ms": 0.03945454955101013,
+          "total_ms": 8.167851716279984
+        },
+        {
+          "index": 24,
+          "phase": "E1_e2e_in_process",
+          "call_ms": 8.368760347366333,
+          "post_sync_ms": 0.03944709897041321,
+          "total_ms": 8.41076672077179
+        }
+      ],
+      "etl_run_span_ms": 1.853814348578453,
+      "components": [
+        {
+          "component": "as_numpy_d2h",
+          "count": 5,
+          "median_self_ms": 0.21484866738319397
+        },
+        {
+          "component": "build_dense_build_cached",
+          "count": 1,
+          "median_self_ms": 0.1270454376935959
+        },
+        {
+          "component": "chunk_rows",
+          "count": 2,
+          "median_self_ms": 0.010903924703598022
+        },
+        {
+          "component": "etl_from_numpy",
+          "count": 10,
+          "median_self_ms": 0.05914643406867981
+        },
+        {
+          "component": "etl_run",
+          "count": 1,
+          "median_self_ms": 1.853814348578453
+        },
+        {
+          "component": "etl_tensor_to_payload",
+          "count": 10,
+          "median_self_ms": 3.672603517770767
+        },
+        {
+          "component": "etl_tensor_to_to_host",
+          "count": 1,
+          "median_self_ms": 0.1447778195142746
+        },
+        {
+          "component": "forest_sr_self",
+          "count": 1,
+          "median_self_ms": 0.040102750062942505
+        },
+        {
+          "component": "input_to_numpy_self",
+          "count": 1,
+          "median_self_ms": 0.007836148142814636
+        },
+        {
+          "component": "keep_mask",
+          "count": 1,
+          "median_self_ms": 0.012870877981185913
+        },
+        {
+          "component": "outer_evaluate",
+          "count": 1,
+          "median_self_ms": 0.04192441701889038
+        },
+        {
+          "component": "plan_dense_self",
+          "count": 1,
+          "median_self_ms": 0.11695548892021179
+        },
+        {
+          "component": "policy_should_use_dense",
+          "count": 1,
+          "median_self_ms": 0.026367604732513428
+        },
+        {
+          "component": "prep_column",
+          "count": 7,
+          "median_self_ms": 0.05398876965045929
+        },
+        {
+          "component": "prepare_dense_self",
+          "count": 1,
+          "median_self_ms": 1.062849536538124
+        },
+        {
+          "component": "run_loss_plan_self",
+          "count": 1,
+          "median_self_ms": 0.4243049770593643
+        },
+        {
+          "component": "sr_fitness_dense_self",
+          "count": 1,
+          "median_self_ms": 0.16011670231819153
+        },
+        {
+          "component": "to_host_self",
+          "count": 1,
+          "median_self_ms": 0.01479126513004303
+        }
+      ],
+      "per_call_components": {
+        "prep_column": [
+          0.056236982345581055,
+          0.03633275628089905,
+          0.03402680158615112,
+          0.033389776945114136,
+          0.03302842378616333,
+          0.03387033939361572,
+          0.03279373049736023,
+          0.033054500818252563,
+          0.04058331251144409,
+          0.05421042442321777,
+          0.07027015089988708,
+          0.05342438817024231,
+          0.053338706493377686,
+          0.053763389587402344,
+          0.053767114877700806,
+          0.05428493022918701,
+          0.05681067705154419,
+          0.08770078420639038,
+          0.06076321005821228,
+          0.0558905303478241,
+          0.05457550287246704,
+          0.055924057960510254,
+          0.054780393838882446,
+          0.05480647087097168,
+          0.05584210157394409
+        ],
+        "etl_from_numpy": [
+          0.059273093938827515,
+          0.040259212255477905,
+          0.03927573561668396,
+          0.03547966480255127,
+          0.03651529550552368,
+          0.0363178551197052,
+          0.035822391510009766,
+          0.035375356674194336,
+          0.04852563142776489,
+          0.05822628736495972,
+          0.057715922594070435,
+          0.05980953574180603,
+          0.05957484245300293,
+          0.05871802568435669,
+          0.05736947059631348,
+          0.05960091948509216,
+          0.06036832928657532,
+          0.08340179920196533,
+          0.06275996565818787,
+          0.06230548024177551,
+          0.06206706166267395,
+          0.061724334955215454,
+          0.06522238254547119,
+          0.06175413727760315,
+          0.060420483350753784
+        ],
+        "etl_tensor_to_payload": [
+          7.237222045660019,
+          3.3739767968654633,
+          3.239784389734268,
+          3.2999441027641296,
+          3.175683319568634,
+          3.089405596256256,
+          3.0944496393203735,
+          3.089696168899536,
+          3.529127687215805,
+          3.8706064224243164,
+          3.756500780582428,
+          3.7742964923381805,
+          3.7469230592250824,
+          3.665100783109665,
+          3.742080181837082,
+          4.419386386871338,
+          3.900595009326935,
+          5.503568798303604,
+          7.4029117822647095,
+          3.696545958518982,
+          3.652051091194153,
+          3.573622554540634,
+          3.6502480506896973,
+          3.6801062524318695,
+          3.8433223962783813
+        ],
+        "chunk_rows": [
+          0.01072511076927185,
+          0.007063150405883789,
+          0.006690621376037598,
+          0.006925314664840698,
+          0.007092952728271484,
+          0.006861984729766846,
+          0.00675395131111145,
+          0.006400048732757568,
+          0.011429190635681152,
+          0.011265277862548828,
+          0.010520219802856445,
+          0.012006610631942749,
+          0.010777264833450317,
+          0.010967254638671875,
+          0.010699033737182617,
+          0.011213123798370361,
+          0.01084059476852417,
+          0.015482306480407715,
+          0.010751187801361084,
+          0.01161918044090271,
+          0.011242926120758057,
+          0.011213123798370361,
+          0.011917203664779663,
+          0.011198222637176514,
+          0.011142343282699585
+        ],
+        "etl_run": [
+          1.850072294473648,
+          1.851603388786316,
+          1.8385276198387146,
+          1.7433948814868927,
+          1.7668455839157104,
+          1.7323978245258331,
+          1.763220876455307,
+          1.7220303416252136,
+          1.8428638577461243,
+          1.812957227230072,
+          1.9817240536212921,
+          1.8238425254821777,
+          1.8538646399974823,
+          1.899268478155136,
+          1.8560588359832764,
+          1.8537640571594238,
+          2.0282119512557983,
+          2.0357519388198853,
+          1.9989311695098877,
+          1.876089721918106,
+          1.9043423235416412,
+          1.9295625388622284,
+          1.91444531083107,
+          1.8535591661930084,
+          1.8700100481510162
+        ],
+        "keep_mask": [
+          0.012889504432678223,
+          0.008542090654373169,
+          0.008072704076766968,
+          0.007625669240951538,
+          0.008139759302139282,
+          0.007700175046920776,
+          0.007700175046920776,
+          0.007927417755126953,
+          0.012308359146118164,
+          0.013660639524459839,
+          0.012800097465515137,
+          0.012896955013275146,
+          0.014532357454299927,
+          0.012453645467758179,
+          0.012490898370742798,
+          0.013250857591629028,
+          0.013127923011779785,
+          0.015042722225189209,
+          0.012867152690887451,
+          0.013049691915512085,
+          0.01370161771774292,
+          0.013392418622970581,
+          0.013004988431930542,
+          0.012874603271484375,
+          0.012937933206558228
+        ],
+        "etl_tensor_to_other": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "fence:drain": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "policy_should_use_dense": [
+          0.09972602128982544,
+          0.04220008850097656,
+          0.018749386072158813,
+          0.018440186977386475,
+          0.017140060663223267,
+          0.01776963472366333,
+          0.018887221813201904,
+          0.016883015632629395,
+          0.01676008105278015,
+          0.02635270357131958,
+          0.027060508728027344,
+          0.02609938383102417,
+          0.025894492864608765,
+          0.026308000087738037,
+          0.026382505893707275,
+          0.0263899564743042,
+          0.027913600206375122,
+          0.02862885594367981,
+          0.032648444175720215,
+          0.029690563678741455,
+          0.03711879253387451,
+          0.026501715183258057,
+          0.027727335691452026,
+          0.025860965251922607,
+          0.027991831302642822
+        ],
+        "as_numpy_d2h": [
+          0.4531368613243103,
+          0.26712566614151,
+          0.1517273485660553,
+          0.1481771469116211,
+          0.14927610754966736,
+          0.14569982886314392,
+          0.14432519674301147,
+          0.14627724885940552,
+          0.14609098434448242,
+          0.21396949887275696,
+          0.22091343998908997,
+          0.212986022233963,
+          0.21572783589363098,
+          0.21366402506828308,
+          0.2137981355190277,
+          0.2213306725025177,
+          0.22701174020767212,
+          0.22902339696884155,
+          0.2467334270477295,
+          0.2275034785270691,
+          0.22809207439422607,
+          0.2263486385345459,
+          0.22459030151367188,
+          0.21269172430038452,
+          0.22839754819869995
+        ],
+        "input_to_numpy_self": [
+          0.013496726751327515,
+          0.009804964065551758,
+          0.00527501106262207,
+          0.005193054676055908,
+          0.005248934030532837,
+          0.00657886266708374,
+          0.005386769771575928,
+          0.005070120096206665,
+          0.004969537258148193,
+          0.008091330528259277,
+          0.007808208465576172,
+          0.007763504981994629,
+          0.008217990398406982,
+          0.007789582014083862,
+          0.007763504981994629,
+          0.007517635822296143,
+          0.008940696716308594,
+          0.0078640878200531,
+          0.009655952453613281,
+          0.00842660665512085,
+          0.008199363946914673,
+          0.00821426510810852,
+          0.008210539817810059,
+          0.00799819827079773,
+          0.008121132850646973
+        ],
+        "prepare_dense_self": [
+          1.9913800060749054,
+          1.1706352233886719,
+          0.7137507200241089,
+          0.8811205625534058,
+          0.7045716047286987,
+          0.6644651293754578,
+          0.6797648966312408,
+          0.6598196923732758,
+          0.664442777633667,
+          1.0616444051265717,
+          1.0626651346683502,
+          1.0974965989589691,
+          1.0443441569805145,
+          1.048404723405838,
+          1.063033938407898,
+          1.103810966014862,
+          1.1232979595661163,
+          1.6685985028743744,
+          1.244962215423584,
+          1.0513216257095337,
+          1.105625182390213,
+          1.1325031518936157,
+          1.0868385434150696,
+          1.0842829942703247,
+          1.1329352855682373
+        ],
+        "plan_dense_self": [
+          0.18679723143577576,
+          0.09834021329879761,
+          0.07977336645126343,
+          0.07990747690200806,
+          0.08925050497055054,
+          0.07517635822296143,
+          0.07457658648490906,
+          0.07312744855880737,
+          0.074777752161026,
+          0.11765584349632263,
+          0.11517107486724854,
+          0.11690706014633179,
+          0.1170039176940918,
+          0.11673197150230408,
+          0.1162402331829071,
+          0.11901557445526123,
+          0.12642145156860352,
+          0.18983334302902222,
+          0.13113021850585938,
+          0.11856108903884888,
+          0.15066936612129211,
+          0.12662261724472046,
+          0.11779367923736572,
+          0.12587010860443115,
+          0.127449631690979
+        ],
+        "build_dense_build_cached": [
+          0.3742016851902008,
+          0.14534592628479004,
+          0.08974969387054443,
+          0.08446723222732544,
+          0.08929893374443054,
+          0.08281320333480835,
+          0.07500126957893372,
+          0.07392838597297668,
+          0.08017197251319885,
+          0.12689828872680664,
+          0.13300776481628418,
+          0.12719258666038513,
+          0.1260899007320404,
+          0.12825056910514832,
+          0.12502819299697876,
+          0.12864172458648682,
+          0.12866780161857605,
+          0.21052733063697815,
+          0.13837218284606934,
+          0.1368485391139984,
+          0.13972818851470947,
+          0.13523176312446594,
+          0.12362375855445862,
+          0.12615323066711426,
+          0.12884289026260376
+        ],
+        "etl_tensor_to_to_host": [
+          0.2322867512702942,
+          0.11862069368362427,
+          0.12056529521942139,
+          0.10813027620315552,
+          0.11092796921730042,
+          0.10760873556137085,
+          0.11195987462997437,
+          0.12691691517829895,
+          0.14185160398483276,
+          0.14418736100196838,
+          0.14299526810646057,
+          0.16499310731887817,
+          0.1524314284324646,
+          0.15436112880706787,
+          0.14046579599380493,
+          0.15383213758468628,
+          0.1475811004638672,
+          0.15792250633239746,
+          0.14798715710639954,
+          0.14343485236167908,
+          0.15097111463546753,
+          0.14616549015045166,
+          0.1453682780265808,
+          0.15955418348312378,
+          0.15354156494140625
+        ],
+        "to_host_self": [
+          0.017911195755004883,
+          0.010609626770019531,
+          0.009611248970031738,
+          0.009629875421524048,
+          0.01008063554763794,
+          0.00939890742301941,
+          0.009667128324508667,
+          0.010777264833450317,
+          0.014778226613998413,
+          0.014718621969223022,
+          0.014625489711761475,
+          0.015534460544586182,
+          0.014610588550567627,
+          0.015273690223693848,
+          0.014804303646087646,
+          0.015739351511001587,
+          0.016339123249053955,
+          0.01766905188560486,
+          0.016532838344573975,
+          0.015076249837875366,
+          0.014230608940124512,
+          0.015243887901306152,
+          0.015478581190109253,
+          0.015653669834136963,
+          0.015657395124435425
+        ],
+        "run_loss_plan_self": [
+          0.5498640239238739,
+          0.3249906003475189,
+          0.2817399799823761,
+          0.2636946737766266,
+          0.27531012892723083,
+          0.2680271863937378,
+          0.2661608159542084,
+          0.26374682784080505,
+          0.3737136721611023,
+          0.42236223816871643,
+          0.42743608355522156,
+          0.42444467544555664,
+          0.424165278673172,
+          0.42212381958961487,
+          0.4150308668613434,
+          0.43344125151634216,
+          0.43759867548942566,
+          0.588979572057724,
+          0.4441402852535248,
+          0.43663010001182556,
+          0.4299171268939972,
+          0.44111907482147217,
+          0.43057650327682495,
+          0.43970346450805664,
+          0.4309937357902527
+        ],
+        "sr_fitness_dense_self": [
+          0.3210194408893585,
+          0.13838335871696472,
+          0.10953471064567566,
+          0.1055300235748291,
+          0.10443851351737976,
+          0.10414421558380127,
+          0.10519474744796753,
+          0.11198967695236206,
+          0.14363974332809448,
+          0.16091763973236084,
+          0.20341947674751282,
+          0.16188621520996094,
+          0.1583695411682129,
+          0.15927106142044067,
+          0.1581721007823944,
+          0.16951560974121094,
+          0.17146766185760498,
+          0.31835585832595825,
+          0.17449632287025452,
+          0.16765668988227844,
+          0.16168877482414246,
+          0.17061829566955566,
+          0.15931576490402222,
+          0.16440078616142273,
+          0.1673661172389984
+        ],
+        "forest_sr_self": [
+          0.409051775932312,
+          0.08124858140945435,
+          0.026553869247436523,
+          0.02884119749069214,
+          0.026673078536987305,
+          0.0266246497631073,
+          0.02594292163848877,
+          0.030007213354110718,
+          0.028211623430252075,
+          0.04024431109428406,
+          0.03981590270996094,
+          0.040821731090545654,
+          0.045612454414367676,
+          0.03956630825996399,
+          0.04012882709503174,
+          0.04007667303085327,
+          0.04369392991065979,
+          0.04550814628601074,
+          0.053375959396362305,
+          0.04376843571662903,
+          0.04173070192337036,
+          0.03970414400100708,
+          0.04167109727859497,
+          0.03947317600250244,
+          0.042553991079330444
+        ],
+        "outer_evaluate": [
+          30.536003410816193,
+          0.05119293928146362,
+          0.03310665488243103,
+          0.03308430314064026,
+          0.03174692392349243,
+          0.027194619178771973,
+          0.03159046173095703,
+          0.032201409339904785,
+          0.04056096076965332,
+          0.04174932837486267,
+          0.04182383418083191,
+          0.041466206312179565,
+          0.04170835018157959,
+          0.04204362630844116,
+          0.043477863073349,
+          0.044386833906173706,
+          0.04719197750091553,
+          0.07463991641998291,
+          0.047538429498672485,
+          0.04332885146141052,
+          0.041700899600982666,
+          0.04390627145767212,
+          0.04202499985694885,
+          0.04427134990692139,
+          0.04515796899795532
+        ]
+      },
+      "counts": {
+        "prep_column": 7,
+        "etl_from_numpy": 10,
+        "etl_tensor_to_payload": 10,
+        "chunk_rows": 2,
+        "etl_run": 1,
+        "keep_mask": 1,
+        "policy_should_use_dense": 1,
+        "as_numpy_d2h": 5,
+        "input_to_numpy_self": 1,
+        "prepare_dense_self": 1,
+        "plan_dense_self": 1,
+        "build_dense_build_cached": 1,
+        "etl_tensor_to_to_host": 1,
+        "to_host_self": 1,
+        "run_loss_plan_self": 1,
+        "sr_fitness_dense_self": 1,
+        "forest_sr_self": 1,
+        "outer_evaluate": 1
+      },
+      "cache": {
+        "hits": 26,
+        "misses": 2,
+        "size": 2
+      }
+    }
+  },
+  "deltas": [
+    {
+      "name": "A1-A2 total",
+      "high": "A1_engine_fresh",
+      "low": "A2_engine_staged",
+      "metric": "median_warm_ms",
+      "median_high": 5.186755210161209,
+      "median_low": 1.3180170208215714,
+      "delta_ms": 3.8687381893396378,
+      "meaning": "cost of building/uploading the payloads fresh, per call (prep+upload+semaphores)",
+      "evidence": "measured"
+    },
+    {
+      "name": "A1-A2 run span",
+      "high": "A1_engine_fresh",
+      "low": "A2_engine_staged",
+      "metric": "etl_run",
+      "median_high": 1.844128593802452,
+      "median_low": 1.2667588889598846,
+      "delta_ms": 0.5773697048425674,
+      "meaning": "payload-freshness cost INSIDE etl.run (fresh buffers vs staged buffers)",
+      "evidence": "measured"
+    },
+    {
+      "name": "A2-A3 total",
+      "high": "A2_engine_staged",
+      "low": "A3_frozen_runner",
+      "metric": "median_warm_ms",
+      "median_high": 1.3180170208215714,
+      "median_low": 1.3170670717954636,
+      "delta_ms": 0.0009499490261077881,
+      "meaning": "engine-seam staged call vs frozen runner.run() (same staged artifact)",
+      "evidence": "measured"
+    },
+    {
+      "name": "A2-A3 run span",
+      "high": "A2_engine_staged",
+      "low": "A3_frozen_runner",
+      "metric": "etl_run",
+      "median_high": 1.2667588889598846,
+      "median_low": 1.2664254754781723,
+      "delta_ms": 0.0003334134817123413,
+      "meaning": "the run path itself (engine seam vs frozen run(): same etl.run, same args)",
+      "evidence": "measured"
+    },
+    {
+      "name": "A4-A3 total",
+      "high": "A4_frozen_fresh",
+      "low": "A3_frozen_runner",
+      "metric": "median_warm_ms",
+      "median_high": 4.870442673563957,
+      "median_low": 1.3170670717954636,
+      "delta_ms": 3.5533756017684937,
+      "meaning": "upload cost in runner terms (frozen plan/executable fed with fresh payloads)",
+      "evidence": "measured"
+    },
+    {
+      "name": "A4-A3 run span",
+      "high": "A4_frozen_fresh",
+      "low": "A3_frozen_runner",
+      "metric": "etl_run",
+      "median_high": 1.4302246272563934,
+      "median_low": 1.2664254754781723,
+      "delta_ms": 0.16379915177822113,
+      "meaning": "the same freshness question on the frozen artifact",
+      "evidence": "measured"
+    },
+    {
+      "name": "L1-L2 total",
+      "high": "L1_engine_fresh_loss",
+      "low": "L2_engine_staged_loss",
+      "metric": "median_warm_ms",
+      "median_high": 6.141986697912216,
+      "median_low": 1.978505402803421,
+      "delta_ms": 4.163481295108795,
+      "meaning": "fresh-vs-staged payload cost on the LOSS artifact (the engine's real route)",
+      "evidence": "measured"
+    },
+    {
+      "name": "L1-L2 run span",
+      "high": "L1_engine_fresh_loss",
+      "low": "L2_engine_staged_loss",
+      "metric": "etl_run",
+      "median_high": 1.858321949839592,
+      "median_low": 1.8695853650569916,
+      "delta_ms": -0.011263415217399597,
+      "meaning": "freshness cost inside etl.run on the LOSS artifact",
+      "evidence": "measured"
+    },
+    {
+      "name": "L2-A3 run span",
+      "high": "L2_engine_staged_loss",
+      "low": "A3_frozen_runner",
+      "metric": "etl_run",
+      "median_high": 1.8695853650569916,
+      "median_low": 1.2664254754781723,
+      "delta_ms": 0.6031598895788193,
+      "meaning": "LOSS artifact staged run vs VALUE artifact staged run (in-graph loss vs values)",
+      "evidence": "measured"
+    },
+    {
+      "name": "R1-L1 total",
+      "high": "R1_repl_fresh_loss",
+      "low": "L1_engine_fresh_loss",
+      "metric": "median_warm_ms",
+      "median_high": 6.030244752764702,
+      "median_low": 6.141986697912216,
+      "delta_ms": -0.11174194514751434,
+      "meaning": "replication fidelity of the probe-side fresh loop (must be ~0)",
+      "evidence": "measured"
+    },
+    {
+      "name": "R2-R1 total",
+      "high": "R2_repl_fresh_drained",
+      "low": "R1_repl_fresh_loss",
+      "metric": "median_warm_ms",
+      "median_high": 6.116893142461777,
+      "median_low": 6.030244752764702,
+      "delta_ms": 0.08664838969707489,
+      "meaning": "cost of an explicit fence between staging and the run (the drain that etl.run absorbs)",
+      "evidence": "measured"
+    },
+    {
+      "name": "R2-R1 run span",
+      "high": "R2_repl_fresh_drained",
+      "low": "R1_repl_fresh_loss",
+      "metric": "etl_run",
+      "median_high": 1.8888302147388458,
+      "median_low": 1.8925033509731293,
+      "delta_ms": -0.0036731362342834473,
+      "meaning": "how much of etl.run's fresh-payload cost is the staging copy's drain",
+      "evidence": "measured"
+    },
+    {
+      "name": "E1-A3 total",
+      "high": "E1_e2e_in_process",
+      "low": "A3_frozen_runner",
+      "metric": "median_warm_ms",
+      "median_high": 8.1732627004385,
+      "median_low": 1.3170670717954636,
+      "delta_ms": 6.856195628643036,
+      "meaning": "in-process e2e evaluate minus frozen pure run (the e2e_companion analogue)",
+      "evidence": "measured"
+    },
+    {
+      "name": "E1-L2 total",
+      "high": "E1_e2e_in_process",
+      "low": "L2_engine_staged_loss",
+      "metric": "median_warm_ms",
+      "median_high": 8.1732627004385,
+      "median_low": 1.978505402803421,
+      "delta_ms": 6.194757297635078,
+      "meaning": "in-process e2e minus the staged loss run: the per-call host glue + prologue around the run",
+      "evidence": "measured"
+    },
+    {
+      "name": "A3-A3plain overhead",
+      "high": "A3_frozen_runner",
+      "low": "A3_plain_control",
+      "metric": "median_warm_ms",
+      "median_high": 1.3170670717954636,
+      "median_low": 1.3236254453659058,
+      "delta_ms": -0.0065583735704422,
+      "meaning": "probe instrumentation overhead on the frozen run() path (plain control)",
+      "evidence": "measured"
+    }
+  ],
+  "cache_final": {
+    "hits": 26,
+    "misses": 2,
+    "size": 2
+  },
+  "probe_notes": [],
+  "install_status": {
+    "wrapped": [
+      "outer_evaluate",
+      "forest_sr_self",
+      "policy_should_use_dense",
+      "sr_fitness_dense_self",
+      "input_to_numpy_self",
+      "as_numpy_d2h",
+      "plan_dense_self",
+      "prepare_dense_self",
+      "build_dense_build_cached",
+      "run_loss_plan_self",
+      "prep_column",
+      "to_host_self",
+      "etl (module proxy: from_numpy/run)",
+      "etl.core.Tensor.to (by caller)",
+      "chunk_rows",
+      "keep_mask"
+    ],
+    "missing": [],
+    "depth_overflow": 0
+  }
+}

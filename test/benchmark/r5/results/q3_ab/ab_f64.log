@@ -1,0 +1,70 @@
+=== r5/ab_probe.py: tag=ab_f64 ===
+fixture      : /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A68/test/goldens/forest_random.npz
+route        : backend=iree eval_mode=auto should_use_dense(64)=True
+case         : Forest(pop=64, max_tree_len=63, input_len=2, output_len=1) + SymbolicRegression(datapoints=xtorch.Size([64, 2]), labels=labelstorch.Size([64, 1]))
+etl          : /mnt/local-ssd/bchuang/etl/etl/__init__.py
+wrapped      : outer_evaluate, forest_sr_self, policy_should_use_dense, sr_fitness_dense_self, input_to_numpy_self, as_numpy_d2h, plan_dense_self, prepare_dense_self, build_dense_build_cached, run_loss_plan_self, prep_column, to_host_self
+missing      : none
+cache        : hits=0 misses=0 size=0
+
+-- building the two artifacts (value first: it is also the M5/Q6 graph) --
+   value artifact: {'variant': 'value', 'trace_len': 63, 'pop_size': 64, 'n_rows': 64, 'p_chunks': 1, 'n_chunks': 1, 'p_chunk': 64, 'n_chunk': 64, 'per_row': False, 'executable_type': 'Executable'} build 12541.8 ms
+   loss  artifact: {'variant': 'loss', 'trace_len': 63, 'pop_size': 64, 'n_rows': 64, 'p_chunks': 1, 'n_chunks': 1, 'p_chunk': 64, 'n_chunk': 64, 'per_row': False, 'executable_type': 'Executable'} build 12892.5 ms
+   staged payloads: value=8 loss=10 (filled out of band)
+
+-- frozen runner build (build_dense_runner(forest, x)) --
+   built in 6.5 ms; artifact identity (runner.executable is the value artifact): True
+
+A1_engine_fresh            5.1868 ms  (min 3.9406 / max 8.2422)  etl_run 1.8441 ms  first 4.9 ms
+      counts: chunk_rows=1, etl_from_numpy=8, etl_run=1, etl_tensor_to_payload=8, prep_column=7
+A2_engine_staged           1.3180 ms  (min 1.2971 / max 1.3759)  etl_run 1.2668 ms  first 1.4 ms
+      counts: etl_run=1
+A3_frozen_runner           1.3171 ms  (min 1.3044 / max 1.3798)  etl_run 1.2664 ms  first 1.4 ms
+      counts: etl_run=1
+A3_plain_control           1.3236 ms  (min 1.3038 / max 1.5207)  etl_run n/a ms  first 1.4 ms
+      counts: 
+A4_frozen_fresh            4.8704 ms  (min 4.6996 / max 22.5665)  etl_run 1.4302 ms  first 4.6 ms
+      counts: chunk_rows=1, etl_from_numpy=8, etl_run=1, etl_tensor_to_payload=8, prep_column=7
+L1_engine_fresh_loss       6.1420 ms  (min 5.4096 / max 9.9173)  etl_run 1.8583 ms  first 6.4 ms
+      counts: chunk_rows=2, etl_from_numpy=10, etl_run=1, etl_tensor_to_payload=10, keep_mask=1, prep_column=7
+L2_engine_staged_loss      1.9785 ms  (min 1.8502 / max 2.1500)  etl_run 1.8696 ms  first 2.1 ms
+      counts: etl_run=1
+R1_repl_fresh_loss         6.0302 ms  (min 5.7849 / max 9.9515)  etl_run 1.8925 ms  first 6.7 ms
+      counts: chunk_rows=2, etl_from_numpy=10, etl_run=1, etl_tensor_to_other=10, keep_mask=1, prep_column=7
+R2_repl_fresh_drained      6.1169 ms  (min 5.9068 / max 9.1110)  etl_run 1.8888 ms  first 6.1 ms
+      counts: chunk_rows=2, etl_from_numpy=10, etl_run=1, etl_tensor_to_other=10, fence:drain=1, keep_mask=1, prep_column=7
+E1_e2e_in_process          8.1733 ms  (min 6.4706 / max 12.2877)  etl_run 1.8538 ms  first 44.5 ms
+      counts: as_numpy_d2h=5, build_dense_build_cached=1, chunk_rows=2, etl_from_numpy=10, etl_run=1, etl_tensor_to_payload=10, etl_tensor_to_to_host=1, forest_sr_self=1, input_to_numpy_self=1, keep_mask=1
+
+=== arm table (harness-shaped warm median, call 0 excluded) ===
+arm                        total_ms  etl_run_ms  doc
+A1_engine_fresh              5.1868      1.8441  engine seam (_iter_plan_chunks), value artifact, FRESH payloads per call
+A2_engine_staged             1.3180      1.2668  engine seam, value artifact, STAGED payloads
+A3_frozen_runner             1.3171      1.2664  frozen build_dense_runner(forest, x).run() on staged inputs
+A3_plain_control             1.3236 n/a  A3 with the instrumentation inert (probe-overhead control)
+A4_frozen_fresh              4.8704      1.4302  frozen runner's plan/executable/inputs, FRESH payloads
+L1_engine_fresh_loss         6.1420      1.8583  engine seam, LOSS artifact, FRESH payloads (the SR route's graph)
+L2_engine_staged_loss        1.9785      1.8696  engine seam, LOSS artifact, STAGED payloads
+R1_repl_fresh_loss           6.0302      1.8925  probe-replicated fresh loop + etl.run (replication control)
+R2_repl_fresh_drained        6.1169      1.8888  probe-replicated fresh loop + explicit fence + etl.run
+E1_e2e_in_process            8.1733      1.8538  problem.evaluate(forest) -- the in-process e2e companion
+
+=== deltas (median warm ms; run spans are the etl.run exclusive bucket) ===
+delta                metric        delta_ms     label  meaning
+A1-A2 total          median_warm_ms    3.8687  measured  cost of building/uploading the payloads fresh, per call (prep+upload+semaphores)
+A1-A2 run span       etl_run         0.5774  measured  payload-freshness cost INSIDE etl.run (fresh buffers vs staged buffers)
+A2-A3 total          median_warm_ms    0.0009  measured  engine-seam staged call vs frozen runner.run() (same staged artifact)
+A2-A3 run span       etl_run         0.0003  measured  the run path itself (engine seam vs frozen run(): same etl.run, same args)
+A4-A3 total          median_warm_ms    3.5534  measured  upload cost in runner terms (frozen plan/executable fed with fresh payloads)
+A4-A3 run span       etl_run         0.1638  measured  the same freshness question on the frozen artifact
+L1-L2 total          median_warm_ms    4.1635  measured  fresh-vs-staged payload cost on the LOSS artifact (the engine's real route)
+L1-L2 run span       etl_run        -0.0113  measured  freshness cost inside etl.run on the LOSS artifact
+L2-A3 run span       etl_run         0.6032  measured  LOSS artifact staged run vs VALUE artifact staged run (in-graph loss vs values)
+R1-L1 total          median_warm_ms   -0.1117  measured  replication fidelity of the probe-side fresh loop (must be ~0)
+R2-R1 total          median_warm_ms    0.0866  measured  cost of an explicit fence between staging and the run (the drain that etl.run absorbs)
+R2-R1 run span       etl_run        -0.0037  measured  how much of etl.run's fresh-payload cost is the staging copy's drain
+E1-A3 total          median_warm_ms    6.8562  measured  in-process e2e evaluate minus frozen pure run (the e2e_companion analogue)
+E1-L2 total          median_warm_ms    6.1948  measured  in-process e2e minus the staged loss run: the per-call host glue + prologue around the run
+A3-A3plain overhead  median_warm_ms   -0.0066  measured  probe instrumentation overhead on the frozen run() path (plain control)
+
+record: test/benchmark/r5/results/q3_ab/ab_f64.json

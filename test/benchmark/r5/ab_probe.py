@@ -399,9 +399,13 @@ def main(argv=None):
 
     # ---- deltas -----------------------------------------------------------
     def delta(name, high, low, metric, meaning, label):
-        key = "etl_run_span_ms" if metric == "etl_run" else "median_warm_ms"
-        high_value = arms[high][key]
-        low_value = arms[low][key]
+        def value(arm):
+            if metric == "etl_run":
+                return arm["etl_run_span_ms"]
+            return arm["stats"]["median_warm_ms"]
+
+        high_value = value(arms[high])
+        low_value = value(arms[low])
         return {
             "name": name,
             "high": high,
