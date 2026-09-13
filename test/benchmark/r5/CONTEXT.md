@@ -8,7 +8,10 @@ Analysis-only: NO behavior changes to `src/evogp`; NO writes in the foreign ETL 
 Deliverables: `RCA.md` + evidence records + stdlib-only gate `check_r5.py` + protocol `README.md` under this node.
 
 ## Status
-- Round starting; parent recon complete (env facts below). Update as phases land; mark unfinished questions as open in `RCA.md`.
+- Round running; parent recon complete (env facts below); unfinished questions get marked open in `RCA.md` as phases land.
+- Phase plan: P0 env freeze + Q4 window (first recorded phase) → Q1/Q5/Q7/Q8 decomposition → Q2 GPU mechanism → Q6 floors → Q3 A/B → RCA write-up + check_r5.py.
+- In flight: Phase 0 + Q4 — env-freeze files, the window cells (leg f64/f200, dense-iree eval64 f64/f200, pure f64/f200, +stage-probe bridge, legacy drift bracket, optional 87c7562 shadow bridge) and the six-arm agreement pre-flight into `results/backend_agreement/`.
+- Open: Q1–Q3, Q5–Q8 analyses; RCA.md / README.md / check_r5.py pending.
 
 ## Routing Table
 - `README.md` → protocol: Q1–Q8, method, run order, exact re-run commands, evidence map.
