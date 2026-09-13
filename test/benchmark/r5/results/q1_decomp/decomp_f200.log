@@ -1,0 +1,149 @@
+route          : backend=iree eval_mode=auto should_use_dense(200)=True
+=== r5/decomp_probe.py: tag=decomp_f200 ===
+fixture        : test/benchmark/fixtures/forest200_tree64_random.npz
+case           : Forest(pop=200, max_tree_len=64, input_len=2, output_len=1) + SymbolicRegression(datapoints=xtorch.Size([64, 2]), labels=labelstorch.Size([64, 1]))
+etl            : /mnt/local-ssd/bchuang/etl/etl/__init__.py
+wrapped        : outer_evaluate, forest_sr_self, policy_should_use_dense, sr_fitness_dense_self, input_to_numpy_self, as_numpy_d2h, plan_dense_self, prepare_dense_self, build_dense_build_cached, run_loss_plan_self, prep_column, to_host_self, etl (module proxy: from_numpy/run), etl.core.Tensor.to (by caller)
+missing        : none
+compile cache  : hits=0 misses=0 size=0
+
+-- warm phase: call 0 cold, calls 1..N-1 warm (bench_gp.py:1374-1381) --
+call  0  total 12613.683 ms  call 12613.437  post-sync  0.231  build 12545.837  cache hits=0 misses=1
+call  1  total    9.541 ms  call    9.503  post-sync  0.033  build     0.198  cache hits=1 misses=1
+call  2  total    6.722 ms  call    6.689  post-sync  0.030  build     0.088  cache hits=2 misses=1
+call  3  total    6.638 ms  call    6.608  post-sync  0.027  build     0.085  cache hits=3 misses=1
+call  4  total    6.910 ms  call    6.881  post-sync  0.026  build     0.084  cache hits=4 misses=1
+call  5  total    9.246 ms  call    9.217  post-sync  0.026  build     0.085  cache hits=5 misses=1
+call  6  total    6.592 ms  call    6.564  post-sync  0.025  build     0.085  cache hits=6 misses=1
+call  7  total    6.761 ms  call    6.730  post-sync  0.027  build     0.096  cache hits=7 misses=1
+call  8  total    6.655 ms  call    6.627  post-sync  0.026  build     0.077  cache hits=8 misses=1
+call  9  total    6.363 ms  call    6.336  post-sync  0.025  build     0.076  cache hits=9 misses=1
+call 10  total    6.595 ms  call    6.569  post-sync  0.024  build     0.075  cache hits=10 misses=1
+call 11  total    9.474 ms  call    9.447  post-sync  0.026  build     0.075  cache hits=11 misses=1
+call 12  total    6.575 ms  call    6.548  post-sync  0.025  build     0.076  cache hits=12 misses=1
+call 13  total    6.713 ms  call    6.681  post-sync  0.030  build     0.074  cache hits=13 misses=1
+call 14  total    6.640 ms  call    6.613  post-sync  0.025  build     0.075  cache hits=14 misses=1
+call 15  total    6.537 ms  call    6.510  post-sync  0.025  build     0.075  cache hits=15 misses=1
+call 16  total    6.433 ms  call    6.401  post-sync  0.030  build     0.076  cache hits=16 misses=1
+call 17  total    8.703 ms  call    8.676  post-sync  0.025  build     0.075  cache hits=17 misses=1
+call 18  total    6.477 ms  call    6.451  post-sync  0.025  build     0.095  cache hits=18 misses=1
+call 19  total    6.422 ms  call    6.391  post-sync  0.029  build     0.084  cache hits=19 misses=1
+call 20  total    6.525 ms  call    6.499  post-sync  0.025  build     0.078  cache hits=20 misses=1
+call 21  total    6.446 ms  call    6.419  post-sync  0.025  build     0.081  cache hits=21 misses=1
+call 22  total    8.862 ms  call    8.836  post-sync  0.025  build     0.077  cache hits=22 misses=1
+call 23  total    6.575 ms  call    6.548  post-sync  0.025  build     0.076  cache hits=23 misses=1
+call 24  total    6.324 ms  call    6.297  post-sync  0.025  build     0.075  cache hits=24 misses=1
+
+-- region-sync control: CUDA fence inside every span (5 calls) --
+sync_region  call  0  total     6.989 ms  call     6.978  post-sync   0.010
+sync_region  call  1  total     6.813 ms  call     6.802  post-sync   0.010
+sync_region  call  2  total     6.952 ms  call     6.940  post-sync   0.010
+sync_region  call  3  total     9.216 ms  call     9.205  post-sync   0.010
+sync_region  call  4  total     6.815 ms  call     6.804  post-sync   0.010
+
+-- uninstrumented control: wrappers inert (5 calls) --
+plain        call  0  total     6.367 ms  call     6.341  post-sync   0.025
+plain        call  1  total     6.212 ms  call     6.186  post-sync   0.025
+plain        call  2  total     6.182 ms  call     6.156  post-sync   0.025
+plain        call  3  total     6.291 ms  call     6.265  post-sync   0.025
+plain        call  4  total     8.423 ms  call     8.397  post-sync   0.025
+
+-- cold rebuild control: DENSE_CACHE.clear() then 1 call(s) --
+cold         call  0  total 11283.765 ms  call 11283.661  post-sync   0.089
+
+=== warm component table (exclusive, warm calls only) ===
+component                    count  median_ms  %total   total_ms
+outer_evaluate                   1     0.0295   0.45%      0.752
+forest_sr_self                   1     0.0277   0.42%      0.720
+sr_fitness_dense_self            1     0.1146   1.73%      2.800
+plan_dense_self                  1     0.0782   1.18%      1.964
+prepare_dense_self               1     1.3830  20.90%     34.837
+as_numpy_d2h                     5     0.1683   2.54%      4.199
+input_to_numpy_self              1     0.0052   0.08%      0.133
+policy_should_use_dense          1     0.0183   0.28%      0.502
+build_dense_build_cached         1     0.0767   1.16%      2.040
+run_loss_plan_self               1     0.5134   7.76%     12.434
+prep_column                      7     0.0340   0.51%      0.831
+etl_from_numpy                  10     0.0373   0.56%      0.917
+etl_tensor_to_payload           10     1.5300  23.12%     47.312
+etl_tensor_to_to_host            1     0.1165   1.76%      2.932
+etl_run                          1     2.3673  35.78%     57.308
+to_host_self                     1     0.0105   0.16%      0.258
+SUM(exclusive)                         6.5106  98.40%    169.942
+in-process warm median total: 6.6167 ms over 24 calls (sum-of-medians / median-total = 98.40%)
+per-call reconciliation (sum(exclusive)/call wall): median 99.94%  range 99.89-99.96%
+
+--- control: sync_region ---
+median total 6.9519 ms | median call 6.9403 ms | median post-sync 0.0098 ms | first 6.989 ms
+outer_evaluate                   1     0.0341   0.49%
+forest_sr_self                   1     0.0273   0.39%
+sr_fitness_dense_self            1     0.1080   1.55%
+plan_dense_self                  1     0.0734   1.06%
+prepare_dense_self               1     1.3500  19.42%
+as_numpy_d2h                     5     0.1899   2.73%
+input_to_numpy_self              1     0.0075   0.11%
+policy_should_use_dense          1     0.0238   0.34%
+build_dense_build_cached         1     0.0806   1.16%
+run_loss_plan_self               1     0.5084   7.31%
+prep_column                      7     0.0600   0.86%
+etl_from_numpy                  10     0.0381   0.55%
+etl_tensor_to_payload           10     1.5245  21.93%
+etl_tensor_to_to_host            1     0.1111   1.60%
+etl_run                          1     2.3530  33.85%
+to_host_self                     1     0.0132   0.19%
+inline fences (mean ms booked inside their own span):
+fence_after:policy_should_use_dense           0.0137
+fence_after:as_numpy_d2h               0.0647
+fence_after:input_to_numpy_self           0.0099
+fence_after:prepare_dense_self           0.0236
+fence_after:plan_dense_self            0.0131
+fence_after:build_dense_build_cached           0.0157
+fence_after:prep_column                0.1468
+fence_after:etl_run                    0.0304
+fence_after:to_host_self               0.0198
+fence_after:run_loss_plan_self           0.0192
+fence_after:sr_fitness_dense_self           0.0153
+fence_after:forest_sr_self             0.0105
+fence_after:outer_evaluate             0.0132
+
+--- control: plain ---
+median total 6.2908 ms | median call 6.2651 ms | median post-sync 0.0250 ms | first 6.367 ms
+
+--- control: cold ---
+median total 11283.7651 ms | median call 11283.6605 ms | median post-sync 0.0885 ms | first 11283.765 ms
+outer_evaluate                   1     0.0795   0.00%
+forest_sr_self                   1     0.0502   0.00%
+sr_fitness_dense_self            1     0.5103   0.00%
+plan_dense_self                  1     0.0749   0.00%
+prepare_dense_self               1     1.3273   0.01%
+as_numpy_d2h                     5     0.1728   0.00%
+input_to_numpy_self              1     0.0054   0.00%
+policy_should_use_dense          1     0.0183   0.00%
+build_dense_build_cached         1 11273.0561  99.91%
+run_loss_plan_self               1     1.4341   0.01%
+prep_column                      7     0.1139   0.00%
+etl_from_numpy                  10     0.0822   0.00%
+etl_tensor_to_payload           10     2.6757   0.02%
+etl_tensor_to_to_host            1     0.2549   0.00%
+etl_run                          1     3.7750   0.03%
+to_host_self                     1     0.0228   0.00%
+
+caller histograms (external buckets):
+external:etl_tensor_to_payload: {'payload': 310, 'etl_tensor_to_payload': 310}
+external:etl_tensor_to_to_host: {'_to_host': 31, 'etl_tensor_to_to_host': 31}
+external:fence_after:policy_should_use_dense: {'fence_after:policy_should_use_dense': 5}
+external:fence_after:as_numpy_d2h: {'fence_after:as_numpy_d2h': 25}
+external:fence_after:input_to_numpy_self: {'fence_after:input_to_numpy_self': 5}
+external:fence_after:prepare_dense_self: {'fence_after:prepare_dense_self': 5}
+external:fence_after:plan_dense_self: {'fence_after:plan_dense_self': 5}
+external:fence_after:build_dense_build_cached: {'fence_after:build_dense_build_cached': 5}
+external:fence_after:prep_column: {'fence_after:prep_column': 35}
+external:fence_after:etl_run: {'fence_after:etl_run': 5}
+external:fence_after:to_host_self: {'fence_after:to_host_self': 5}
+external:fence_after:run_loss_plan_self: {'fence_after:run_loss_plan_self': 5}
+external:fence_after:sr_fitness_dense_self: {'fence_after:sr_fitness_dense_self': 5}
+external:fence_after:forest_sr_self: {'fence_after:forest_sr_self': 5}
+external:fence_after:outer_evaluate: {'fence_after:outer_evaluate': 5}
+
+record: test/benchmark/r5/results/q1_decomp/decomp_f200.json
+fitness: {'value': nan, 'sha256': 'cb37e64a911720bbe5a920a90bff95d2f6e41d8dd5a18511fec048689dda7805', 'all_equal': True}
