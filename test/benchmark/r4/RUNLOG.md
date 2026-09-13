@@ -6,6 +6,9 @@ Operator log for the R4 pre-flight + matrix (`r4/run_agreement_r4.sh`, `r4/run_p
 the appended per-config logs (`results/<id>.{json,log}`, `results/backend_agreement/<stem>.{json,log}` +
 `<stem>_values.npy`) — this file is the summary and the interpretation, not a second source of numbers.
 Values marked *derived* are computed here from the committed JSONs (everything else is a harness field).
+Section order follows execution: the before-baseline campaign of 03:46–03:56 (this part of the file),
+its post-campaign validator addendum, and then the **after-round** of 07:34–07:52 as the last section
+(the frozen `build_{dense,specialized}_runner` API had landed by then).
 
 Scope of the operator's writes: `test/benchmark/r4/` only (the two new agreement files, this log, an appended
 README subsection, the campaign records under `results/`). No engine, `r2/**`, `SPEC.md`, `REPORT.md`,
@@ -237,8 +240,10 @@ operator's write scope); flagged here and in the completion report for the round
 | `r4/README.md` | + the appended "IREE agreement pre-flight" subsection |
 | not committed | `r4/last_run.txt`, `results/backend_agreement/run_agreement_r4.last_run.txt` (generated/disposable) |
 
-Next round (after the parallel code round lands the frozen `build_{dense,specialized}_runner` API): re-run
-`r4/run_pure.sh` unchanged and A/B the `local-fallback:*` records above against the `frozen-api:*` ones.
+**After-round (executed — see the section at the end of this file).**  The frozen
+`build_{dense,specialized}_runner` API landed; `run_pure.sh` was re-run unchanged into `results/after/`
+(on a read-only shadow export of etl `87c7562`) and the `local-fallback:*` records above were A/B-ed
+against the `frozen-api:*` ones (bit-identical outputs, `results/after/ab/ab_equivalence_report.txt`).
 
 ---
 
@@ -261,4 +266,264 @@ python3 test/benchmark/r4/check_r4.py --manifest test/benchmark/r4/results/smoke
 #   -> 3 record(s): 3 complete, ...; 139 check(s), 0 failure(s)   (exit 0; the three custom-`--tag` notes stay, as expected)
 ```
 
-(369 = 361 + one extra bounds check per record.)  The round's write-up is `SUMMARY.md`.
+(369 = 361 + one extra bounds check per record.)  The round's write-up is `SUMMARY.md` — as is the
+after-round section that follows.
+
+---
+
+## After-round (2026-09-13, HKT 07:34–07:52)
+
+The after-round re-ran the same 8-config protocol at the code round's HEAD — which had landed the frozen
+`build_{dense,specialized}_runner` API, the `EVOGP_EVAL_MODE=dynamic` → dense alias, the adjusted auto
+gates + `EVOGP_DENSE_MAX_TREE_LEN`, and the etl `jit` + hot-path work — and added a 14-cell metric type 1
+(`problem.evaluate`) matrix on the same box in the same window. Like everything above it is executed
+evidence, not a plan; the analysis of record is `SUMMARY.md` (§C.2, the "Type 1 (E2E) after-round"
+section, §E, §H). Two parallel worker sessions drove it — one the pre-flight + the pure matrix, one the
+type 1 matrix — interleaved through the same single shared `flock`.
+
+### Window, box and engine identity (after-round)
+
+| item | value |
+|---|---|
+| window (HKT, 2026-09-13) | pre-flight 07:34:54–07:42:16 (7 m 22 s); pure matrix 07:44:37–07:50:52 (numpy group 07:45:41–07:48:00 after one sandbox teardown, iree group 07:48:02–07:50:52); type 1 matrix 07:44:34–07:51:42 in 3 chunks (07:44:34–07:45:28, 07:45:34–07:48:04, 07:48:32–07:51:42) |
+| `git rev-parse HEAD` | `6e8bf6f0ff7ee2d82e890bca464c3c833f5fae40` (every after JSON records `evogp_commit=6e8bf6f0ff7e`) |
+| engine under test (new side) | `PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562`; backend `numpy` (default) and `iree` (opt-in, O1, device 0); `ETL_DISABLE_LOCATIONS=1`; `--tag` = upper-case id (`E2E_<ID>` on the type 1 cells) |
+| `etl` identity | a **read-only shadow export** of upstream commit `87c7562713b75b235e4945c6311de054652fc919`, materialized with `git -C /mnt/local-ssd/bchuang/etl archive 87c7562 \| tar -x -C /tmp/evogp_etl_patched_87c7562` (never written inside the foreign repo, no worktree added, no ref created). The editable install is untouched, so the per-config `etl:` line reads `repo=/mnt/local-ssd/bchuang/etl rev=51a7141885d7… file=/tmp/evogp_etl_patched_87c7562/etl/__init__.py pythonpath=src:/tmp/evogp_etl_patched_87c7562` — **`rev=` is the editable repo's HEAD, the `file=` path is the shadow identity.** Both checkouts report `etl_version=0.1.0`, so that JSON field cannot distinguish them. |
+| shadow evidence chain | `results/after/etl_import_probe.txt` (commit `b55b0bc`): fresh-process probes resolve `PYTHONPATH=src` → `/mnt/local-ssd/bchuang/etl/etl/__init__.py` and `PYTHONPATH=src:/tmp/evogp_etl_patched_87c7562` → the shadow (PYTHONPATH beats the PEP-660 editable finder), sha256 pins for the six changed files (`etl/__init__.py`, `build_cache.py`, `persist/cache.py`, `pipeline.py`, `trace/_tree.py` + the new `etl/jit.py`), and `find_spec("etl.jit")` as the discriminator. The source branch `evogit-agent-T1-A160` **no longer exists**, no ref contains `87c7562` and `main` (`51a7141`) is not a descendant of it, so the export + that probe are the surviving evidence (the `/tmp` shadow is session-scoped). |
+| interpreter | `/mnt/local-ssd/bchuang/evox/.venv/bin/python` (py3.11, torch 2.6.0+cu124); no `python` on PATH |
+| GPU | `CUDA_VISIBLE_DEVICES=6` (NVIDIA RTX A6000): **idle at the start** (`0 %, 1 MiB`), while foreign tenants held GPUs 0–2 at 90–100 %; later samples 2–4 % and 1–313 MiB (the parallel worker session's context). **GPU 7 never touched.** |
+| lock | exactly one `flock -w 7200 /tmp/gpbench_critical.lock` per record, `timeout` inside it, never nested; no lock-wait message and no timeout on any of the 28 after-records; `ulimit -n 65536` first in every runner |
+| fds | numpy records 39 → **59** flat, every iree record 39 → **91** flat (the patched-ETL profile, not stock's ~32–35 fds per compiled structure) |
+| fixtures | unchanged: `test/goldens/forest_random.npz` (64 trees, 64 rows) and `test/benchmark/fixtures/forest200_tree64_random.npz` (200 trees, 64 rows) |
+
+Exact commands (one bash call each, from the repository root):
+
+```bash
+export ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6
+PY=/mnt/local-ssd/bchuang/evox/.venv/bin/python
+SHADOW=/tmp/evogp_etl_patched_87c7562                       # git -C /mnt/local-ssd/bchuang/etl archive 87c7562 | tar -x -C …
+# STEP 1 — agreement pre-flight into the after dir (6 records, 7 m 22 s incl. one resume)
+NEW_PYTHONPATH="src:$SHADOW" bash test/benchmark/r4/run_agreement_r4.sh \
+    --agree-dir test/benchmark/r4/results/backend_agreement_after
+$PY test/benchmark/r4/check_agreement_r4.py --agree-dir test/benchmark/r4/results/backend_agreement_after
+# STEP 2 — the same 8-config pure matrix, after-artifacts dir
+NEW_PYTHONPATH="src:$SHADOW" NEW_RESULT_DIR=test/benchmark/r4/results/after \
+    bash test/benchmark/r4/run_pure.sh --group numpy
+NEW_PYTHONPATH="src:$SHADOW" NEW_RESULT_DIR=test/benchmark/r4/results/after \
+    bash test/benchmark/r4/run_pure.sh --group iree
+python3 test/benchmark/r4/check_r4.py --manifest test/benchmark/r4/manifest_after.txt --require-companion
+# STEP 3 — the 14-cell metric type 1 matrix (driven in 3 chunks; run_e2e_r4.last_run.txt keeps only the last one)
+SHADOW_DIR=$SHADOW bash test/benchmark/r4/run_e2e.sh
+python3 test/benchmark/r4/check_e2e_r4.py
+```
+
+### STEP 1 — agreement pre-flight into the after dir (6 records, all exit 0)
+
+Same six roles as the before pre-flight (2 fixtures × `numpy` / `iree` under the default `auto` policy →
+dense / `iree` + `EVOGP_EVAL_MODE=specialized`), re-run against the shadow export. Gate
+`check_agreement_r4.py --agree-dir test/benchmark/r4/results/backend_agreement_after` →
+**PASS-with-note on both fixtures, 30 checks / 0 failures, exit 0**.
+
+| record | exit | started → finished | `values_sha256` | per_call_ms (cold, warm) |
+|---|---|---|---|---|
+| `fixture64_numpy` | 0 | 07:34:54 → 07:34:57 | `2e5c0fa1fdbe…` | 217.8, 13.3 |
+| `fixture64_iree` | 0 | 07:34:57 → 07:35:11 | `fbe52b281581…` | 11 447.6, 9.9 |
+| `fixture64_iree_spec` | 0 | 07:40:53 → 07:41:09 | `2e5c0fa1fdbe…` | 13 639.9, 80.2 |
+| `fixture200_numpy` | 0 | 07:41:09 → 07:41:14 | `16d5bbe98481…` | 1 168.8, 64.4 |
+| `fixture200_iree` | 0 | 07:41:14 → 07:41:28 | `74a46ed4bf75…` | 11 657.3, 7.8 |
+| `fixture200_iree_spec` | 0 | 07:41:28 → 07:42:16 | `16d5bbe98481…` | 44 850.8, 237.3 |
+
+* `numpy` == `iree_spec` **bit-identically** per fixture (4 of 6 records unchanged from the before set);
+  the two `iree` (dense) vectors **moved** before → after (`b8192cb1770b…` → `fbe52b281581…` at
+  fixture64, `07948efededc…` → `74a46ed4bf75…` at fixture200) but stay inside the fallback tolerance
+  (`max|diff|` 7.629e-06 / 0.03125, max relative diff 1.06e-07 / 1.81e-07; before: 7.629e-06 / 3.906e-03
+  and 1.08e-07 / 2.03e-07) — the documented dense-vs-per-structure summation-order difference, so the
+  after IREE timings are quotable **with that deviation recorded**.
+* NaN/±inf placement unchanged (3 NaN / 64, 12 NaN / 200, 0 inf); every identity re-hash clean
+  (`fixture_sha256` = `0bfb0bbf48cd…` / `6789ef61ecf8…`; each `<stem>_values.npy` == its JSON's
+  `values_sha256`).
+* **Sandbox teardown (1/6):** the first invocation was killed mid `fixture64_iree_spec` (its block starts
+  07:35:11 and ends without a result line). The record was completed by an `--only
+  fixture64_iree_spec,fixture200_numpy,fixture200_iree,fixture200_iree_spec` resume, so
+  `results/backend_agreement_after/fixture64_iree_spec.log` holds **two** header blocks (105 lines vs the
+  usual 92) and the committed `run_agreement_r4.last_run.txt` lists only the four resumed records.
+
+### STEP 2 — the pure-forward matrix, after-records (8/8 complete, `frozen-api:*`)
+
+Both groups ran in the canonical order (numpy first, then iree), one process per config, none skipped:
+**8/8 exit 0, `complete=true`**. Every record carries `pure.runner_source = frozen-api:build_{dense,
+specialized}_runner`, `compile.path = "frozen"` and `n_graph_calls_source = "introspected"` — the landed
+builders expose their own counter, so no record has the `assumed-1` fallback.
+
+| id | started → finished | `median_per_invocation_ms` | per graph call | calls/run (introspected) | `construct_total_ms` | companion `median_warm_ms` | fds |
+|---|---|---|---|---|---|---|---|
+| `pure64_dense_numpy` | 07:45:41 → 07:46:28 | 75.230 | 75.2302 | 1 | 1 682.1 | 64.966 | 39→59→59 |
+| `pure64_specialized_numpy` | 07:46:28 → 07:46:37 | 6.616 | 0.1248 | 53 | 154.9 | 11.206 | 39→59→59 |
+| `pure200_dense_numpy` | 07:46:37 → 07:47:40 | 96.717 | 96.7171 | 1 | 1 760.2 | 84.137 | 39→59→59 |
+| `pure200_specialized_numpy` | 07:47:40 → 07:48:00 | 30.360 | 0.1775 | 171 | 1 020.9 | 50.670 | 39→59→59 |
+| `pure64_dense_iree` | 07:48:02 → 07:48:31 | 1.447 | 1.4468 | 1 | 11 611.1 | 8.477 | 39→91→91 |
+| `pure64_specialized_iree` | 07:48:31 → 07:49:02 | 5.922 | 0.1117 | 53 | 12 851.3 | 60.410 | 39→91→91 |
+| `pure200_dense_iree` | 07:49:02 → 07:49:45 | 1.593 | 1.5926 | 1 | 11 663.4 | 6.462 | 39→91→91 |
+| `pure200_specialized_iree` | 07:49:45 → 07:50:52 | 18.570 | 0.1086 | 171 | 42 603.6 | 195.368 | 39→91→91 |
+
+Per-rep spreads (the 5 timed blocks, ms/invocation, *derived*): 77.63/76.56/74.98/75.23/74.50,
+6.67/6.78/6.58/6.62/6.59, 103.86/97.42/96.72/96.12/95.19, 30.84/30.58/29.78/30.36/29.97,
+1.72/1.46/1.44/1.45/1.38, 7.21/5.96/5.57/5.75/5.92, 1.78/1.56/1.59/1.59/1.60, 18.57/18.54/17.73/19.00/22.11.
+
+* **Before → after (the headline)**: 128.936 → 75.230 (**−41.6 %**), 8.390 → 6.616 (**−21.1 %**),
+  181.686 → 96.717 (**−46.8 %**), 49.332 → 30.360 (**−38.5 %**), 1.587 → 1.447 (**−8.8 %**),
+  53.214 → 5.922 (**−88.9 %**), 3.696 → 1.593 (**−56.9 %**), 214.655 → 18.570 (**−91.3 %**).  The
+  specialized-iree route's per-`etl.run` cost fell 1.0040 → 0.1117 ms (64) and 1.2553 → 0.1086 ms (200),
+  i.e. the per-tree dispatch that dominated the before round is now the cheap part of that route.
+* **The frozen construction is opaque by design**: `compile.build_ms` and `compile.decode_plan_ms` are
+  `null` in all 8 records (the builders *are* the construction), so the before-table's decode/build split
+  has no after counterpart — only `construct_total_ms` (1 682.1 / 154.9 / 1 760.2 / 1 020.9 / 11 611.1 /
+  12 851.3 / 11 663.4 / 42 603.6 ms). Cache counters: `cache_misses` 1 / 48 / 1 / 155 (same work as
+  before) and `cache_hits` 0 everywhere (the fallback records counted 5 / 16 hits on the specialized
+  numpy routes — a raw counter difference between the two constructors, recorded not interpreted).
+* **`pure < companion` holds for 6/8** — the two exceptions are the numpy-dense cells
+  (`pure64_dense_numpy` 75.230 pure vs 64.966 companion, `pure200_dense_numpy` 96.717 vs 84.137), the same
+  class as the before-round anomaly #1: raw numpy is CPU-bound and the box's CPU load moves within a
+  sub-second scale. Reported as measured — no rerun, no cherry-picking.
+* **Sandbox teardown (1 config):** the first numpy-group attempt died with the sandbox at 07:44:37 right
+  after `pure64_dense_numpy` started, so `results/after/pure64_dense_numpy.log` has a duplicated header
+  block (35 lines vs the usual 25); the config was re-run inside the group resume (07:45:41 start). All
+  logs are left exactly as the machine wrote them.
+* Validator: `python3 test/benchmark/r4/check_r4.py --manifest test/benchmark/r4/manifest_after.txt
+  --require-companion` → **8 record(s): 8 complete, 0 partial, 0 skipped, 0 missing, 0 malformed;
+  369 check(s), 0 failure(s)** (exit 0). `manifest_after.txt` mirrors `manifest.txt`: same 8 ids in the
+  same order with the same mode/backend columns, only the paths point at `results/after/`.
+
+### STEP 2b — A/B equivalence: frozen constructor vs the local fallback
+
+Two configs (`pure64_dense_numpy`, `pure64_specialized_numpy`), both arms run with the engine's
+out-of-band capture (taken after all timing, never inside a timed block):
+
+```bash
+NEW_RESULT_DIR=test/benchmark/r4/results/after/ab/frozen  NEW_PYTHONPATH="src:$SHADOW" \
+  PURE_EXTRA_ARGS="--pure-runner frozen   --output-checksum --save-output-dir test/benchmark/r4/results/after/ab/frozen_save" \
+  bash test/benchmark/r4/run_pure.sh --only pure64_dense_numpy,pure64_specialized_numpy
+NEW_RESULT_DIR=test/benchmark/r4/results/after/ab/fallback NEW_PYTHONPATH="src:$SHADOW" \
+  PURE_EXTRA_ARGS="--pure-runner fallback --output-checksum --save-output-dir test/benchmark/r4/results/after/ab/fallback_save" \
+  bash test/benchmark/r4/run_pure.sh --only pure64_dense_numpy,pure64_specialized_numpy
+```
+
+Both arms exited 0 (2/2 configs each; the fallback arm still works at the new HEAD). Verdict
+`results/after/ab/ab_equivalence_report.txt` — **ALL EQUAL**:
+
+* equal `pure.output_checksum` digests per config (`0f190fee3766…` dense, `6adddedf1ccf…` specialized),
+  and the frozen arm's digests equal the canonical after-records';
+* the saved `<TAG>_output.npz` files are **byte-identical** across the arms (sha256 `7964012d6e5b…` /
+  `edd599e44dab…`);
+* all **53** captured arrays `np.array_equal(…, equal_nan=True)` with `max|diff| = 0`, identical NaN
+  placement, identical shapes/dtypes.
+
+The A/B arms' own medians (dense 77.344 frozen vs 76.543 fallback; specialized 6.498 vs 6.623) are a
+separate out-of-band sample of the same route and are not the canonical numbers. The two
+`FROZEN-ADAPTER` seams in `../pure_forward.py` — the assumed `build_*(forest, x)` call form and the no-arg
+`.run()` — fit the landed signatures with **no adjustment** (`src/evogp/tree/RUNNER_HOOKS.md` §1).
+
+### STEP 3 — the type 1 (`problem.evaluate`) matrix, 14 cells
+
+`--task eval64 --eval-reps 25`, one process per cell, `--stage-probe` installed (its tax is accepted
+here), 12 **shadow** cells re-measuring the R3 Arm A matrix (both backends × `auto` / `dynamic` /
+`specialized`) plus 2 **stock** twins of the headline iree-`auto` cells against the editable etl install,
+in the same window. Driven in 3 chunks; **14/14 exit 0, `complete=true`**, validator
+`python3 test/benchmark/r4/check_e2e_r4.py` → **14 complete / 328 checks / 0 failures** (exit 0).
+
+| id | kind | `median_warm_ms` | `first_call_ms` | fds | cold misses |
+|---|---|---|---|---|---|
+| `e2e_fixture64_iree_auto` | shadow | 6.667 | 10 060.5 | 39→91→91 | 1 |
+| `e2e_stock_fixture64_iree_auto` | stock | 6.556 | 10 069.3 | 39→91→91 | 1 |
+| `e2e_fixture200_iree_auto` | shadow | 6.050 | 10 569.7 | 39→91→91 | 1 |
+| `e2e_stock_fixture200_iree_auto` | stock | 6.461 | 10 393.5 | 39→91→91 | 1 |
+| `e2e_fixture64_numpy_auto` | shadow | 10.844 | 191.7 | 39→59→59 | — (numpy) |
+| `e2e_fixture64_numpy_dynamic` | shadow | 71.373 | 1 537.0 | 39→59→59 | — (numpy) |
+| `e2e_fixture64_numpy_specialized` | shadow | 10.853 | 192.5 | 39→59→59 | — (numpy) |
+| `e2e_fixture200_numpy_auto` | shadow | 52.891 | 1 054.2 | 39→59→59 | — (numpy) |
+| `e2e_fixture200_numpy_dynamic` | shadow | 85.244 | 1 639.7 | 39→59→59 | — (numpy) |
+| `e2e_fixture200_numpy_specialized` | shadow | 54.122 | 1 121.2 | 39→59→59 | — (numpy) |
+| `e2e_fixture64_iree_dynamic` | shadow | 7.398 | 10 176.3 | 39→91→91 | 1 |
+| `e2e_fixture64_iree_specialized` | shadow | 59.554 | 12 983.8 | 39→91→91 | 48 |
+| `e2e_fixture200_iree_dynamic` | shadow | 6.348 | 10 358.9 | 39→91→91 | 1 |
+| `e2e_fixture200_iree_specialized` | shadow | 193.086 | 43 381.9 | 39→91→91 | 155 |
+
+Row order is the runner's table order (stock cells follow their shadow twins).  Every cell ran 25 warm
+calls; the warm min–max per cell and the full stage-probe split are in `SUMMARY.md`.
+
+* **Same-window stock ↔ shadow** (the only two cells with a twin): 6.556 → 6.667 ms (+0.111 ms,
+  **+1.7 %**) at fixture64 and 6.461 → 6.050 ms (−0.411 ms, **−6.4 %**) at fixture200 ⇒ the patched-ETL
+  shadow is **warm-neutral** inside the ±10–20 % shared-box band.
+* **Against R3 and the legacy anchor** (both cross-window): R3 Arm A quoted 10.64 / 10.50 ms on these two
+  cells, so this window is 1.60× / 1.74× faster — and the same-window stock twin shows the gain comes
+  from the evogp side, not the ETL patch.  Against the legacy CUDA anchor (0.6323 / 0.6357 ms) the
+  old-vs-new gap is ≈10.5× / 9.5× (shadow) and ≈10.4× / 10.2× (stock), i.e. **≈9.5–10.5×**, down from
+  R3's ≈16.5–16.8×.
+* **Routes**: on iree `auto` ≈ `dynamic` (6.667 / 7.398 ms at 64, 6.050 / 6.348 ms at 200 — both are the
+  dense evaluator) while `specialized` costs 8.9× / 31.9× more; on numpy `auto` == `specialized`
+  (10.844 ≈ 10.853, 52.891 ≈ 54.122) and `dynamic` is the slow dense alias (71.373 / 85.244).  The
+  ≈10.1–10.6 s `first_call_ms` on every iree-`auto`/`dynamic` cell is the one-time dense-graph compile
+  (cross-window-compatible with R3's Arm A cold calls, 13 640.3 / 13 207.4 ms).
+* **Stage probe**: the dense-routed cells (`auto`, `dynamic`) report their cost in the uninstrumented
+  `misc` bucket (`build_calls = 0`, a probe limitation); the iree `specialized` cells are dominated by the
+  cold `build_miss` inside call 0 (12 809 ms / 42 868 ms = 48 / 155 builds) plus readback 445.8 / 1 354.8 ms
+  over the 25 calls; the numpy cells split into `build_miss` 153–978 ms, `run` 232–1 237 ms,
+  `decode` 27.6–115.9 ms, `readback` 16.0–59.7 ms.
+* **Chunking**: the 4 headline cells ran 07:44:34–07:45:28, the 6 numpy cells 07:45:34–07:48:04 and the
+  4 remaining iree cells 07:48:32–07:51:42.  `results/after/e2e/run_e2e_r4.last_run.txt` **is committed**
+  but holds only the last chunk's 4-row table (it is regenerated per invocation) — the other exit codes
+  come from the per-cell log headers.
+
+### Anomalies, deviations and caveats (after-round)
+
+1. **Sandbox teardowns cost one retry each** (see STEP 1 and STEP 2 above): the killed
+   `fixture64_iree_spec` (two blocks in its log; the committed agreement `last_run.txt` lists only the 4
+   resumed records) and one pure-matrix batch attempt (`pure64_dense_numpy.log` duplicated header,
+   35 vs 25 lines).  Machine-written logs were left as written; every record they describe is `complete`
+   and exit 0.
+2. **The type 1 matrix ran chunked**, so the committed `run_e2e_r4.last_run.txt` covers only the final
+   chunk (4 rows).  All 14 JSONs pass `check_e2e_r4.py`; a reader must not read that table as "4 records
+   were produced".
+3. **numpy-dense companions below the pure number** (−10.26 / −12.58 ms) — the same class as the
+   before-round anomaly #1 (CPU-bound backend, sub-second box noise; the same route agrees to ≈2 % one
+   step later on the 200-tree fixture).  Reported as measured; no rerun and no cherry-picking.
+4. **IREE shutdown dump**: every IREE process prints a `nanobind: this is likely caused by a reference
+   counting issue` teardown dump after its `done` line.  All exit codes are 0 and all records are
+   `complete`; it is an interpreter-teardown artifact of the IREE runtime binding, not a failed record.
+5. **The ETL shadow is identified by path, not by version** (see the identity table): `etl_version` is
+   `0.1.0` for both checkouts and `rev=` is the editable repo's HEAD; the shadow identity is the
+   `file=/tmp/evogp_etl_patched_87c7562/etl/__init__.py` path in every log, backed by the committed
+   import probe.  Because the branch is gone and `/tmp` is session-scoped, that probe + the per-log line
+   are the surviving evidence.
+6. **Contention**: GPU 6 was idle at the start (`0 %, 1 MiB`) with foreign tenants on GPUs 0–2 at 90–100 %
+   and reached `0 %, ~269 MiB` (a context from the parallel pure worker) at the end.  No flock contention
+   beyond normal interleaving, no timeout, no guard hit, `ulimit -n 65536` (rlimit recorded 65536 in all
+   28 after-records), fd curves flat per backend.
+
+### Artifacts of the after-round (committed)
+
+| commit | paths | what |
+|---|---|---|
+| `a9a076b` | `check_agreement_r4.py`, `run_agreement_r4.sh`, `run_pure.sh` | tooling prep: the additive `--agree-dir` / `R4_AGREE_DIR` override chain in both agreement tools and `PURE_EXTRA_ARGS` (extra flags pass-through) in `run_pure.sh` — the frozen default paths keep pointing at the before records |
+| `b55b0bc` | `results/after/etl_import_probe.txt` | the shadow materialization + fresh-process import-precedence probe (the shadow's evidence of record) |
+| `1bcac8e` | `results/backend_agreement_after/**` (19 files) | STEP 1: the 6 pre-flight records + logs + `_values.npy` + the committed `run_agreement_r4.last_run.txt` |
+| `8b04156` | `check_e2e_r4.py` (734 lines), `e2e_manifest.txt` (56), `run_e2e.sh` (590) | STEP 3 tooling: the type 1 runner, its 14-cell expectation list and its stdlib-only validator |
+| `115a324` | `manifest_after.txt` (52), `results/after/*.{json,log}` (8 pairs), `results/after/ab/**` | STEP 2: the pure matrix records + the A/B arms, saved outputs and `ab_equivalence_report.txt` |
+| `b247e15` | `results/after/e2e/**` (29 files) | STEP 3: the 14 type 1 records + logs and the committed `run_e2e_r4.last_run.txt` |
+| not committed | `results/after/*/last_run.txt` (where generated), `pure*.log` scratch | generated/disposable — except the two after `last_run.txt` files that were deliberately committed with their records |
+
+Final gates (re-run after the after-round artifacts were committed; all four exit 0):
+
+```bash
+python3 test/benchmark/r4/check_r4.py --manifest test/benchmark/r4/manifest_after.txt --require-companion
+#   -> 8 record(s): 8 complete, ...; 369 check(s), 0 failure(s)
+python3 test/benchmark/r4/check_r4.py --manifest test/benchmark/r4/manifest.txt --require-companion
+#   -> 8 record(s): 8 complete, ...; 369 check(s), 0 failure(s)   (before records untouched)
+python3 test/benchmark/r4/check_e2e_r4.py
+#   -> 14 record(s): 14 complete, ...; 328 check(s), 0 failure(s)
+$PY test/benchmark/r4/check_agreement_r4.py --agree-dir test/benchmark/r4/results/backend_agreement_after
+#   -> PASS-with-note on both fixtures; gate: PASS (30 check(s), 0 failure(s))
+```
+
+Folding these numbers into the parent-level documents (`../REPORT.md` Round-4 verdict, `../CONTEXT.md`,
+`../README.md`) belongs to the parent node, not to R4.
