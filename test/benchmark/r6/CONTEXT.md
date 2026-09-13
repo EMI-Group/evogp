@@ -16,6 +16,7 @@ A decisive negative (documented no-go with specific evidence) is an acceptable o
 
 ## Status
 - Skeleton created (mission brief below); no artifacts yet — keep this section and the Routing Table current as phases land.
+- Campaign runner in place and offline-validated: `run_cells.sh` (`--list`, `--dry-run`, `--only`, `--window`, freshness gate; the `check` group's dependency-pre-flight body exercised with a stub interpreter and its report/gate semantics verified) — **no cell has been executed on the GPU yet**, so `results/` is still empty and the window is unrecorded; the campaign runs later in one continuous window (`bash run_cells.sh --group check --window <label>` then `--group all --window <label>`).
 
 ## Environment (session-scoped; verify, don't assume)
 - Python: `/mnt/local-ssd/bchuang/evox/.venv/bin/python` (py3.11.2, torch 2.6.0+cu124, triton 3.2.0 with its own ptxas); no `python`/`python3` on PATH with torch.
