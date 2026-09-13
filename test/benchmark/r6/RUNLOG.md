@@ -330,3 +330,57 @@ Preconditions that are session-scoped, re-check them before quoting numbers: the
 (`/tmp/triton_feas/py311hdr`, otherwise rebuild with `dpkg-deb -x` of `libpython3.11-dev`), the warm
 compile cache `/tmp/evogp_r6_triton_cache`, and `nvidia-smi` showing GPU 6 free of a *compute-active*
 tenant (a *memory-resident* tenant is the normal state here and measured throughout).
+
+---
+
+## 8. Validation revision caveat (run 2) — appended; §1–§7 are unchanged
+
+The numeric validation ran **twice**, and the two records are **not the same kernel**. Both are kept
+(`results/validation/**` is immutable evidence); the caveat lives here because the round's gate reports it
+as a NOTE rather than a failure.
+
+| | **run 1** — record of record | **run 2** — replicate |
+|---|---|---|
+| record | `results/validation/validation.json` | `results/validation/run2/validation.json` |
+| tag / started | `r6_triton_validation` / 2026-09-14 00:35:17 | `r6_triton_validation_run2` / 00:39:47 |
+| worktree HEAD | `e1f5dcb2a27998deae3888abd7c504cc3aac2719` | `599181a556333dbf57f6b7fcf067ff880b4e28fb` |
+| declared `triton_eval.py` sha256 | `163b5ffdb48b0bde219acd27e8b0eb7761e56a028bd96ec93f129fbb3937c96f` = the committed file | `e155dd13c03ac4d8a5fb5bf9adb4129324e87f02cd3c3c08a76b56e9233b9c5d` = **not** the committed revision |
+| deviation entries | **4** | **3** (no `dev-zero-sign`) |
+| `dev-zero-sign` (ops `['neg']`) | 440 entries (= the headline's `zero_sign` class) | **absent** |
+| `denormal_result` class | 1792 | **832** |
+| `dev-ftz-denormals` | **9552** (= 7760 + 1792) | **8592** (= 7760 + 832) |
+| `denormal_operand` class | 7760 | 7760 (unchanged) |
+| `finite_ulp` / `dev-fast-math-ulp` | 10866 | 10866 (unchanged) |
+| `dev-const-neglzero` (diagnostic, not a gate) | 4000 | 4000 (**both**) |
+| checks | 198/208 strict, 0 gate-severity failures, `passed=True` / `passed_strict=False` | identical |
+| elapsed | 10.6 s | 11.2 s |
+
+**What happened.** Run 1 pinned the committed `triton_eval.py`; run 2 was a replicate in a *different*
+worktree that declared a **different** `triton_eval.py` revision. A full all-objects blob scan shows that
+`e155dd13…` exists in **no git object** (the only committed revision of `triton_eval.py` hashes to
+`163b5ffd…`), i.e. run 2 measured an **uncommitted working-tree variant** — the variant carried an
+uncommitted `neg` sign-handling fix that was probed for the replicate and **never landed**.  Run 1 is
+therefore the record of record for the committed kernel; run 2 is a same-headline replicate on the
+uncommitted variant.
+
+**The divergence is behavioural, not a hash typo** — the per-op evidence moves exactly where that
+uncommitted change would show:
+
+* the vanished class is the `neg` op's sign-of-zero class (`dev-zero-sign`, `ops=['neg']`, 440 entries in
+  run 1 → gone in run 2), and with it the headline's `zero_sign` mismatch count;
+* *derived*: `dev-ftz-denormals` loses exactly 960 `denormal_result` entries (1792 → 832) — the two ops that
+  drop out of its op list, `inv` (480) + `loose_inv` (480), both of which had `denormal_result` as their only
+  FTZ class in run 1 (the list goes from 12 op names to 10);
+* everything else is shared: `denormal_operand` 7760, `finite_ulp` 10866, `dev-const-neglzero` 4000 in
+  both, and the fixture64 / fixture200 / legacy-goldens headline segments are identical (only the per-op
+  mismatch-class tail of the headline differs).
+
+**The gate asserts exactly these facts.** `check_r6.py` (`provenance:*`, exit stays 0) checks that the
+committed file still hashes to `163b5ffd…`, that run 1 pins it, that run 2 declares a well-formed
+`e155dd13…` revision which is *not* the committed one, that the two runs came from different worktrees, and
+then pins the signature above (`provenance:run2_mismatch_classes`, `run2_zero_sign`, `run2_shared_classes`,
+`deviation_counts`, `run2_deviations`, `zero_sign_count`, `ftz_counts`, `const_neglzero_both`) plus the
+run-2-vs-run-1 equality of the fixture/golden blocks (`valcross.*`).  It prints the finding as a NOTE and
+the round stays green: **14 records / 1440 checks / 0 failures**.
+
+When quoting validation numbers, quote **run 1** (the committed kernel).
