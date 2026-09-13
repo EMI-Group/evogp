@@ -1,0 +1,5 @@
+# r6 extra (b): triton compile-cache economics -- file counts (operator-generated)
+when=2026-09-14T01:00:10+08:00
+warm_cache=/tmp/evogp_r6_triton_cache   dirs_before=41 files_before=251   dirs_after=41 files_after=251
+fresh_cache=/tmp/r6_fresh_cache dirs_before=0 files_before=0   dirs_after=3 files_after=9
+method: dirs = find <dir> -mindepth 1 -maxdepth 1 -type d | wc -l ; files = find <dir> -type f | wc -l

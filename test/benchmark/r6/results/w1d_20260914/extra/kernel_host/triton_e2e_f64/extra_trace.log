@@ -1,0 +1,35 @@
+=== extra_trace.py target=triton-e2e tag=EXTRA_TRITON_E2E_F64 ===
+[EXTRA_TRITON_E2E_F64] triton: {"staging": null, "kernel": null, "block_n": null, "num_warps": null, "launches_per_call": null, "compile_ms": null, "stage_upload_ms": null, "used_ops": null, "fallthrough_nodes": null}
+[EXTRA_TRITON_E2E_F64] clean: 0.1174 ms/invocation (100 invocations)
+[EXTRA_TRITON_E2E_F64] post-trace clean: 0.1279 ms/invocation
+[EXTRA_TRITON_E2E_F64] kernels: 300 (3.000/invocation), kernel time 8.24 us/invocation, avg kernel 2.747506666666668 us
+[EXTRA_TRITON_E2E_F64] device total 8.28 us/invocation (runtime API 0.04 us), host residual 109.08 us/invocation
+[EXTRA_TRITON_E2E_F64] leaf kernels: 300 (3.00/invocation), 8.24 us/invocation, avg 2.747506666666668 us, leaf residual 109.12 us/invocation
+
+--- kineto key averages (sorted by device time) ---
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                                        _sr_eval_kernel         0.00%       0.000us         0.00%       0.000us       0.000us     581.188us        82.71%     581.188us       5.812us           100  
+                                              aten::neg        18.21%       1.073ms        29.03%       1.711ms      17.106us     121.532us        17.29%     121.532us       1.215us           100  
+void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us     121.532us        17.29%     121.532us       1.215us           100  
+                                         cuLaunchKernel        14.75%     869.179us        14.75%     869.179us       8.692us       3.647us         0.52%       3.647us       0.036us           100  
+                                               aten::to        37.57%       2.214ms        37.57%       2.214ms      11.071us       0.000us         0.00%       0.000us       0.000us           200  
+                                           aten::detach         3.53%     208.190us         8.01%     472.289us       2.361us       0.000us         0.00%       0.000us       0.000us           200  
+                                                 detach         4.48%     264.099us         4.48%     264.099us       1.320us       0.000us         0.00%       0.000us       0.000us           200  
+                                            aten::empty        10.32%     608.320us        10.32%     608.320us       6.083us       0.000us         0.00%       0.000us       0.000us           100  
+                                       cudaLaunchKernel        10.81%     637.289us        10.81%     637.289us       6.373us       0.000us         0.00%       0.000us       0.000us           100  
+                                  cudaDeviceSynchronize         0.32%      19.030us         0.32%      19.030us       9.515us       0.000us         0.00%       0.000us       0.000us             2  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 5.894ms
+Self CUDA time total: 702.720us
+
+top device rows:
+       581.188 us  n=  100  _sr_eval_kernel
+       121.532 us  n=  100  aten::neg
+       121.532 us  n=  100  void at::native::vectorized_elementwise_kernel<4, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambd
+         3.647 us  n=  100  cuLaunchKernel
+
+table: test/benchmark/r6/results/w1d_20260914/extra/kernel_host/triton_e2e_f64/kineto_key_averages.txt
+trace: test/benchmark/r6/results/w1d_20260914/extra/kernel_host/triton_e2e_f64/kineto_trace.json.gz
+record: test/benchmark/r6/results/w1d_20260914/extra/kernel_host/triton_e2e_f64/facts.json

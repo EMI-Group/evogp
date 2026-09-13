@@ -1,0 +1,179 @@
+{
+  "tag": "EXTRA_LEGACY_E2E_F64",
+  "target": "legacy-e2e",
+  "route": "legacy evogp_cuda: problem.evaluate(forest)",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/goldens/forest_random.npz",
+  "pop_size": 64,
+  "rows": 64,
+  "describe": {},
+  "table_path": "test/benchmark/r6/results/w1d_20260914/extra/kernel_host/legacy_e2e_f64/kineto_key_averages.txt",
+  "trace_path": "test/benchmark/r6/results/w1d_20260914/extra/kernel_host/legacy_e2e_f64/kineto_trace.json.gz",
+  "wall_stamp": "2026-09-14T00:59:34+0800",
+  "invocations": 100,
+  "clean_per_invocation_ms": 0.6318847835063934,
+  "profiled_per_invocation_ms": 0.6136658415198326,
+  "profiler_overhead_ms": -0.01821894198656082,
+  "device_time_total_us": 1518.036000000051,
+  "kernel_time_total_us": 1470.7090000000517,
+  "runtime_api_time_total_us": 47.326999999999316,
+  "device_time_per_invocation_us": 15.18036000000051,
+  "kernel_time_per_invocation_us": 14.707090000000516,
+  "runtime_api_time_per_invocation_us": 0.47326999999999314,
+  "kernel_count": 500,
+  "kernels_per_invocation": 5.0,
+  "avg_kernel_us": 2.9414180000001036,
+  "kernel_time_leaf_total_us": 1470.7090000000517,
+  "kernel_time_leaf_per_invocation_us": 14.707090000000516,
+  "leaf_kernel_count": 500,
+  "leaf_kernels_per_invocation": 5.0,
+  "avg_leaf_kernel_us": 2.9414180000001036,
+  "host_residual_per_invocation_us": 616.7044235063929,
+  "host_residual_profiled_per_invocation_us": 598.4854815198321,
+  "leaf_residual_per_invocation_us": 617.1776935063929,
+  "double_counting_note": "kineto key averages hold both a C++ op row (e.g. aten::neg, evogp_cuda::tree_SR_fitness) and the raw CUDA kernel rows it launched; the op row's device time is its children's, so kernel_time_total_us counts those children twice.  *_leaf_* fields keep only self-time-dominated rows (the raw kernels); read those as the device cost.",
+  "n_events": 14,
+  "n_events_with_device_time": 6,
+  "kernel_rows": [
+    {
+      "key": "evogp_cuda::tree_SR_fitness",
+      "count": 100,
+      "cpu_us": 57405.599,
+      "device_us": 638.7280000000537,
+      "self_device_us": 638.7280000000537
+    },
+    {
+      "key": "void treeGPRegressionFitnessKernel<false, true>(float const*, short const*, short const*, float const*, float const*, float*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 470.6310000000194,
+      "self_device_us": 470.6310000000194
+    },
+    {
+      "key": "averageFitnessValueKernel(float*, unsigned int, unsigned int)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 120.770000000035,
+      "self_device_us": 120.770000000035
+    },
+    {
+      "key": "aten::neg",
+      "count": 100,
+      "cpu_us": 1599.4750000000076,
+      "device_us": 120.28999999997177,
+      "self_device_us": 120.28999999997177
+    },
+    {
+      "key": "void at::native::vectorized_elementwise_kernel<4, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 120.28999999997177,
+      "self_device_us": 120.28999999997177
+    }
+  ],
+  "leaf_rows": [
+    {
+      "key": "evogp_cuda::tree_SR_fitness",
+      "count": 100,
+      "cpu_us": 57405.599,
+      "device_us": 638.7280000000537,
+      "self_device_us": 638.7280000000537
+    },
+    {
+      "key": "void treeGPRegressionFitnessKernel<false, true>(float const*, short const*, short const*, float const*, float const*, float*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 470.6310000000194,
+      "self_device_us": 470.6310000000194
+    },
+    {
+      "key": "averageFitnessValueKernel(float*, unsigned int, unsigned int)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 120.770000000035,
+      "self_device_us": 120.770000000035
+    },
+    {
+      "key": "aten::neg",
+      "count": 100,
+      "cpu_us": 1599.4750000000076,
+      "device_us": 120.28999999997177,
+      "self_device_us": 120.28999999997177
+    },
+    {
+      "key": "void at::native::vectorized_elementwise_kernel<4, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 120.28999999997177,
+      "self_device_us": 120.28999999997177
+    }
+  ],
+  "runtime_rows": [
+    {
+      "key": "Memset (Device)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 47.326999999999316,
+      "self_device_us": 47.326999999999316
+    }
+  ],
+  "top_device_rows": [
+    {
+      "key": "evogp_cuda::tree_SR_fitness",
+      "count": 100,
+      "cpu_us": 57405.599,
+      "device_us": 638.7280000000537,
+      "self_device_us": 638.7280000000537
+    },
+    {
+      "key": "void treeGPRegressionFitnessKernel<false, true>(float const*, short const*, short const*, float const*, float const*, float*, unsigned int, unsigned int, unsigned int, unsigned int, unsigned int)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 470.6310000000194,
+      "self_device_us": 470.6310000000194
+    },
+    {
+      "key": "averageFitnessValueKernel(float*, unsigned int, unsigned int)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 120.770000000035,
+      "self_device_us": 120.770000000035
+    },
+    {
+      "key": "aten::neg",
+      "count": 100,
+      "cpu_us": 1599.4750000000076,
+      "device_us": 120.28999999997177,
+      "self_device_us": 120.28999999997177
+    },
+    {
+      "key": "void at::native::vectorized_elementwise_kernel<4, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 120.28999999997177,
+      "self_device_us": 120.28999999997177
+    },
+    {
+      "key": "Memset (Device)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 47.326999999999316,
+      "self_device_us": 47.326999999999316
+    }
+  ],
+  "median_per_invocation_ms": 0.622775312513113,
+  "stamp": {
+    "python": "3.11.2",
+    "torch": "2.6.0+cu124",
+    "torch_cuda": "12.4",
+    "cuda_visible_devices": "6",
+    "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32",
+    "when": "2026-09-14T00:59:34+0800",
+    "evogp_file": "/tmp/evogp_legacy_bench/src/evogp/__init__.py",
+    "etl_version": "0.1.0",
+    "evogp_commit": "4c33ec86d509f657ed97855c7134ba78c8b5b415",
+    "triton": "3.2.0",
+    "gpu": "NVIDIA RTX A6000",
+    "probe": "r6/extra_trace.py",
+    "tag": "EXTRA_LEGACY_E2E_F64"
+  }
+}

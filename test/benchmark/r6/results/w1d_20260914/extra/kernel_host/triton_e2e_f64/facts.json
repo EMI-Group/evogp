@@ -1,0 +1,137 @@
+{
+  "tag": "EXTRA_TRITON_E2E_F64",
+  "target": "triton-e2e",
+  "route": "public API with evogp.tree.dense_engine.sr_fitness_dense rebound to triton_eval.sr_fitness_triton (type-1 envelope)",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/goldens/forest_random.npz",
+  "pop_size": 64,
+  "rows": 64,
+  "describe": {},
+  "table_path": "test/benchmark/r6/results/w1d_20260914/extra/kernel_host/triton_e2e_f64/kineto_key_averages.txt",
+  "trace_path": "test/benchmark/r6/results/w1d_20260914/extra/kernel_host/triton_e2e_f64/kineto_trace.json.gz",
+  "wall_stamp": "2026-09-14T00:59:30+0800",
+  "invocations": 100,
+  "clean_per_invocation_ms": 0.117361880838871,
+  "profiled_per_invocation_ms": 0.12787606567144394,
+  "profiler_overhead_ms": 0.010514184832572937,
+  "device_time_total_us": 827.8990000000013,
+  "kernel_time_total_us": 824.2520000000004,
+  "runtime_api_time_total_us": 3.647000000000844,
+  "device_time_per_invocation_us": 8.278990000000013,
+  "kernel_time_per_invocation_us": 8.242520000000004,
+  "runtime_api_time_per_invocation_us": 0.03647000000000844,
+  "kernel_count": 300,
+  "kernels_per_invocation": 3.0,
+  "avg_kernel_us": 2.747506666666668,
+  "kernel_time_leaf_total_us": 824.2520000000004,
+  "kernel_time_leaf_per_invocation_us": 8.242520000000004,
+  "leaf_kernel_count": 300,
+  "leaf_kernels_per_invocation": 3.0,
+  "avg_leaf_kernel_us": 2.747506666666668,
+  "host_residual_per_invocation_us": 109.082890838871,
+  "host_residual_profiled_per_invocation_us": 119.59707567144393,
+  "leaf_residual_per_invocation_us": 109.119360838871,
+  "double_counting_note": "kineto key averages hold both a C++ op row (e.g. aten::neg, evogp_cuda::tree_SR_fitness) and the raw CUDA kernel rows it launched; the op row's device time is its children's, so kernel_time_total_us counts those children twice.  *_leaf_* fields keep only self-time-dominated rows (the raw kernels); read those as the device cost.",
+  "n_events": 10,
+  "n_events_with_device_time": 4,
+  "kernel_rows": [
+    {
+      "key": "_sr_eval_kernel",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 581.1879999999801,
+      "self_device_us": 581.1879999999801
+    },
+    {
+      "key": "aten::neg",
+      "count": 100,
+      "cpu_us": 1710.6369999999988,
+      "device_us": 121.53200000001016,
+      "self_device_us": 121.53200000001016
+    },
+    {
+      "key": "void at::native::vectorized_elementwise_kernel<4, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 121.53200000001016,
+      "self_device_us": 121.53200000001016
+    }
+  ],
+  "leaf_rows": [
+    {
+      "key": "_sr_eval_kernel",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 581.1879999999801,
+      "self_device_us": 581.1879999999801
+    },
+    {
+      "key": "aten::neg",
+      "count": 100,
+      "cpu_us": 1710.6369999999988,
+      "device_us": 121.53200000001016,
+      "self_device_us": 121.53200000001016
+    },
+    {
+      "key": "void at::native::vectorized_elementwise_kernel<4, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 121.53200000001016,
+      "self_device_us": 121.53200000001016
+    }
+  ],
+  "runtime_rows": [
+    {
+      "key": "cuLaunchKernel",
+      "count": 100,
+      "cpu_us": 869.1790000000037,
+      "device_us": 3.647000000000844,
+      "self_device_us": 3.647000000000844
+    }
+  ],
+  "top_device_rows": [
+    {
+      "key": "_sr_eval_kernel",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 581.1879999999801,
+      "self_device_us": 581.1879999999801
+    },
+    {
+      "key": "aten::neg",
+      "count": 100,
+      "cpu_us": 1710.6369999999988,
+      "device_us": 121.53200000001016,
+      "self_device_us": 121.53200000001016
+    },
+    {
+      "key": "void at::native::vectorized_elementwise_kernel<4, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",
+      "count": 100,
+      "cpu_us": 0.0,
+      "device_us": 121.53200000001016,
+      "self_device_us": 121.53200000001016
+    },
+    {
+      "key": "cuLaunchKernel",
+      "count": 100,
+      "cpu_us": 869.1790000000037,
+      "device_us": 3.647000000000844,
+      "self_device_us": 3.647000000000844
+    }
+  ],
+  "median_per_invocation_ms": 0.12261897325515747,
+  "stamp": {
+    "python": "3.11.2",
+    "torch": "2.6.0+cu124",
+    "torch_cuda": "12.4",
+    "cuda_visible_devices": "6",
+    "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32",
+    "when": "2026-09-14T00:59:30+0800",
+    "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/src/evogp/__init__.py",
+    "etl_version": "0.1.0",
+    "evogp_commit": "4c33ec86d509f657ed97855c7134ba78c8b5b415",
+    "triton": "3.2.0",
+    "gpu": "NVIDIA RTX A6000",
+    "probe": "r6/extra_trace.py",
+    "tag": "EXTRA_TRITON_E2E_F64"
+  }
+}

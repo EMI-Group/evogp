@@ -1,0 +1,8 @@
+[EXTRA_TRITON_WARMCACHE] e2e: pop=64 max_tree_len=63 n_rows=64 input_len=2 output_len=1 fixture=test/goldens/forest_random.npz
+[EXTRA_TRITON_WARMCACHE] seam: evogp.tree.dense_engine.sr_fitness_dense -> triton_eval.sr_fitness_triton (EVOGP_EVAL_MODE=dense)
+[EXTRA_TRITON_WARMCACHE] call 0 (cold, pays staging + JIT): 732.664 ms
+[EXTRA_TRITON_WARMCACHE] calls=25 cold=732.664 ms median_warm=0.131 ms mean_warm=0.151 ms min_warm=0.127 ms wall=0.737 s
+[EXTRA_TRITON_WARMCACHE] seam_calls=25 triton_runs=25 builds=1 cache_hits=24 data_uploads=1
+[EXTRA_TRITON_WARMCACHE] wrote /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/results/w1d_20260914/extra/compile_econ/warm_cache/triton_f64_warmcache.json (+ log /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/results/w1d_20260914/extra/compile_econ/warm_cache/triton_f64_warmcache.json.log)
+[EXTRA_TRITON_WARMCACHE] counter gate PASSED: triton_call_count=25/25 triton_runs=25/25 fallbacks=0
+[EXTRA_TRITON_WARMCACHE] EXIT 0

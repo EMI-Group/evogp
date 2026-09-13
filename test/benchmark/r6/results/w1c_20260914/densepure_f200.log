@@ -1,0 +1,101 @@
+===============================================================================
+R6 window cell densepure_f200  (group=pure side=new type=2 fixture=fixture200 cap=900s)  started 2026-09-14T00:51:54+08:00
+window: w1c_20260914   result dir: test/benchmark/r6/results/w1c_20260914
+note: type 2: pure dense-iree forward, 100 invocations/block x 5 blocks + 11 e2e companions (r4/run_pure.sh pure64_dense_iree + the r5 window flags)
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 900s (SIGINT, SIGKILL after 30s) INSIDE the lock wrapper (/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/run_under_lock.py -> fcntl.flock /tmp/gpbench_critical.lock)
+env: PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_EVAL_MODE=dense
+side: ETL engine (src) -- etl: repo=/mnt/local-ssd/bchuang/etl rev=96df7da8f2ba39f52cf2f2b61888e67f70471bc9 file=/mnt/local-ssd/bchuang/etl/etl/__init__.py pythonpath=src
+evogp: repo=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32 rev=4c33ec8 new_pythonpath=src legacy_root=/tmp/evogp_legacy_bench legacy_so=/tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so legacy_pythonpath=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils
+gpu (before): 6, NVIDIA RTX A6000, 7, 30521
+gpu tenants (before): 2903622, python, 30486 MiB
+cmd: /mnt/local-ssd/bchuang/evox/.venv/bin/python /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/run_under_lock.py timeout -s INT -k 30 900 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_EVAL_MODE=dense /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval-pure --fixture test/benchmark/fixtures/forest200_tree64_random.npz --mode dense --backend iree --reps 5 --warmup 10 --invocations 100 --e2e-companion 11 --mem-guard-mb 8192 --max-cold-builds 400 --output-checksum --tag DENSEPURE_F200 --notes r6\ same-window\ campaign:\ window=w1c_20260914\ cell=densepure_f200\ group=pure\ side=new\ type=2\ fixture=fixture200\ PYTHONPATH=src --json-out test/benchmark/r6/results/w1c_20260914/densepure_f200.json
+out: test/benchmark/r6/results/w1c_20260914/densepure_f200.json
+--- run output ---
+[DENSEPURE_F200] cold-build guard ACTIVE: stop when the cumulative ETL compile misses exceed --max-cold-builds=400
+[DENSEPURE_F200] harness=bench_gp.py side=new task=eval-pure pop=None gens=None tree_len=None seed=0 reps=5 eval_reps=None ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/src/evogp/__init__.py commit=4c33ec86d509f657ed97855c7134ba78c8b5b415 etl=0.1.0 json_out=test/benchmark/r6/results/w1c_20260914/densepure_f200.json
+[DENSEPURE_F200] pure: pop=200 n_rows=64 mode_requested=dense mode_resolved=dense backend=iree runner=auto invocations=100 warmup=10 reps=5 e2e_companion=11
+[DENSEPURE_F200] constructed pure runner: source=frozen-api:build_dense_runner n_trees=200 n_const_trees=0 graph_calls/invocation=1 (introspected); compile 12815.2ms (decode_plan n/ams + build n/ams; 1 cache misses)
+[DENSEPURE_F200] side=new rep0/5: per-invocation 1.7ms (block 166.3ms)
+[DENSEPURE_F200] side=new rep1/5: per-invocation 1.4ms (block 138.1ms)
+[DENSEPURE_F200] side=new rep2/5: per-invocation 1.4ms (block 142.8ms)
+[DENSEPURE_F200] side=new rep3/5: per-invocation 1.4ms (block 141.1ms)
+[DENSEPURE_F200] side=new rep4/5: per-invocation 1.5ms (block 145.3ms)
+[DENSEPURE_F200] e2e companion: first 11880.9ms, warm median 10.5ms over 11 problem.evaluate() calls (pure median 1.4ms)
+[DENSEPURE_F200] output capture (out of band, after all timing): n_blocks=1 shapes=[[200, 64]] total_elems=12800 nan=376 inf=0 sha256=e77992ded140f01dabb130fac450284346eafd3027adf082ea12100d9299f322
+[DENSEPURE_F200] done side=new interrupted=False harness_wall_s=26.5 json_out=test/benchmark/r6/results/w1c_20260914/densepure_f200.json
+nanobind: leaked 392 instances!
+ - leaked instance 0x7f74415f94a8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f744db41f38 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f744e45eca8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f7441681748 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f74415d7f28 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f74415fa308 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f74415d79c8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f744e4d68e8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f744de87798 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f7441681348 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f74415f90a8 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f7441465b28 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f74415fa4c8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7f74416806e8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7f744d9543b8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f744d57d768 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f7441465fd8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f7441680c68 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f74415f9128 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7f74415fb2e8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - ... skipped remainder
+nanobind: leaked 391 keep_alive records!
+nanobind: leaked 5 types!
+ - leaked type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked type "iree._runtime_libs._runtime.HalDevice"
+ - leaked type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked type "iree._runtime_libs._runtime.HalDriver"
+nanobind: leaked 39 functions!
+ - leaked function "trim"
+ - leaked function "query"
+ - leaked function "begin_profiling"
+ - leaked function "dump_device_info"
+ - leaked function "queue_dealloca"
+ - leaked function ""
+ - leaked function "allowed_usage"
+ - leaked function "__repr__"
+ - leaked function ""
+ - leaked function "fill_zero"
+ - leaked function "create_device"
+ - leaked function "__iree_vm_type__"
+ - leaked function "allocate_host_staging_buffer_copy"
+ - leaked function "byte_length"
+ - leaked function "create_dlpack_capsule"
+ - leaked function ""
+ - leaked function "memory_type"
+ - leaked function "create_default_device"
+ - leaked function "asarray"
+ - leaked function "query_buffer_compatibility"
+ - leaked function "allocate_buffer_copy"
+ - leaked function "__iree_vm_cast__"
+ - leaked function ""
+ - leaked function "map"
+ - leaked function "queue_alloca"
+ - leaked function "create_view"
+ - leaked function "queue_copy"
+ - leaked function "end_profiling"
+ - leaked function "flush_profiling"
+ - leaked function "__eq__"
+ - leaked function "__repr__"
+ - leaked function "queue_execute"
+ - leaked function ""
+ - leaked function "query_available_devices"
+ - leaked function "from_dlpack_capsule"
+ - leaked function "create_device_by_uri"
+ - leaked function "create_semaphore"
+ - leaked function "allocate_buffer"
+ - leaked function ""
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 30519
+gpu tenants (after): 2903622, python, 30486 MiB
+R6 window cell densepure_f200  finished 2026-09-14T00:52:23+08:00

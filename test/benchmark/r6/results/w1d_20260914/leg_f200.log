@@ -1,0 +1,22 @@
+===============================================================================
+R6 window cell leg_f200  (group=legacy side=leg type=1 fixture=fixture200 cap=600s)  started 2026-09-14T00:53:58+08:00
+window: w1d_20260914   result dir: test/benchmark/r6/results/w1d_20260914
+note: type 1: legacy CUDA end-to-end problem.evaluate(forest), fixture200, 25 evaluates (call 0 cold)
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 600s (SIGINT, SIGKILL after 30s) INSIDE the lock wrapper (/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/run_under_lock.py -> fcntl.flock /tmp/gpbench_critical.lock)
+env: PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils CUDA_VISIBLE_DEVICES=6 
+side: legacy CUDA engine (/tmp/evogp_legacy_bench) -- no ETL_*/EVOGP_* variable
+evogp: repo=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32 rev=4c33ec8 new_pythonpath=src legacy_root=/tmp/evogp_legacy_bench legacy_so=/tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so legacy_pythonpath=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils
+gpu (before): 6, NVIDIA RTX A6000, 15, 30519
+gpu tenants (before): 2903622, python, 30486 MiB
+cmd: /mnt/local-ssd/bchuang/evox/.venv/bin/python /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/run_under_lock.py timeout -s INT -k 30 600 env PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils CUDA_VISIBLE_DEVICES=6 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --fixture test/benchmark/fixtures/forest200_tree64_random.npz --eval-reps 25 --tag LEG_F200 --notes r6\ same-window\ campaign:\ window=w1d_20260914\ cell=leg_f200\ group=legacy\ side=leg\ type=1\ fixture=fixture200\ PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils --json-out test/benchmark/r6/results/w1d_20260914/leg_f200.json
+out: test/benchmark/r6/results/w1d_20260914/leg_f200.json
+--- run output ---
+[LEG_F200] harness=bench_gp.py side=old task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/tmp/evogp_legacy_bench/src/evogp/__init__.py commit=4c33ec86d509f657ed97855c7134ba78c8b5b415 etl=0.1.0 json_out=test/benchmark/r6/results/w1d_20260914/leg_f200.json
+[LEG_F200] side=old rep0/1: first 22.4ms, warm-median 0.6ms (25 calls)
+[LEG_F200] done side=old interrupted=False harness_wall_s=1.9 json_out=test/benchmark/r6/results/w1d_20260914/leg_f200.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 30519
+gpu tenants (after): 2903622, python, 30486 MiB
+R6 window cell leg_f200  finished 2026-09-14T00:54:02+08:00

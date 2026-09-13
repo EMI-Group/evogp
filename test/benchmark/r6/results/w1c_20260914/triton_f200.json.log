@@ -1,0 +1,8 @@
+[TRITON_F200] e2e: pop=200 max_tree_len=64 n_rows=64 input_len=2 output_len=1 fixture=test/benchmark/fixtures/forest200_tree64_random.npz
+[TRITON_F200] seam: evogp.tree.dense_engine.sr_fitness_dense -> triton_eval.sr_fitness_triton (EVOGP_EVAL_MODE=dense)
+[TRITON_F200] call 0 (cold, pays staging + JIT): 1289.912 ms
+[TRITON_F200] calls=25 cold=1289.912 ms median_warm=0.199 ms mean_warm=0.252 ms min_warm=0.176 ms wall=1.297 s
+[TRITON_F200] seam_calls=25 triton_runs=25 builds=1 cache_hits=24 data_uploads=1
+[TRITON_F200] wrote /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/results/w1c_20260914/triton_f200.json (+ log /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/results/w1c_20260914/triton_f200.json.log)
+[TRITON_F200] counter gate PASSED: triton_call_count=25/25 triton_runs=25/25 fallbacks=0
+[TRITON_F200] EXIT 0

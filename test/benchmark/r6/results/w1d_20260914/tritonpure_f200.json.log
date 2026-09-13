@@ -1,0 +1,15 @@
+[TRITONPURE_F200] pure: pop=200 max_tree_len=64 n_rows=64 invocations=100 warmup=10 reps=5 e2e_companion=11
+[TRITONPURE_F200] seam: evogp.tree.dense_engine.sr_fitness_dense -> triton_eval.sr_fitness_triton (EVOGP_EVAL_MODE=dense)
+[TRITONPURE_F200] constructed: source=dense_engine.prepare_dense pop=200 trace_len=64 block_n=64 num_warps=2 launches/call=1 compile=709.3 ms stage_upload=0.4 ms construct_total=709.7 ms
+[TRITONPURE_F200] used ops: ['*', '+', '-', '/', 'CONST', 'VAR'] (fallthrough {})
+[TRITONPURE_F200] block 0: 5.463 ms  per-invocation 0.0546 ms
+[TRITONPURE_F200] block 1: 5.475 ms  per-invocation 0.0548 ms
+[TRITONPURE_F200] block 2: 5.475 ms  per-invocation 0.0547 ms
+[TRITONPURE_F200] block 3: 5.472 ms  per-invocation 0.0547 ms
+[TRITONPURE_F200] block 4: 5.471 ms  per-invocation 0.0547 ms
+[TRITONPURE_F200] companion e2e: cold=17.012 ms median_warm=0.141 ms (+0.086 ms over the pure median)
+[TRITONPURE_F200] median_block=5.472 ms median_per_invocation=0.0547 ms min=0.0546 ms mean=0.0547 ms wall=0.769 s
+[TRITONPURE_F200] seam_calls=11 triton_runs=521 (expected 521) builds=1
+[TRITONPURE_F200] wrote /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/results/w1d_20260914/tritonpure_f200.json (+ log /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/results/w1d_20260914/tritonpure_f200.json.log)
+[TRITONPURE_F200] counter gate PASSED: triton_call_count=11/11 triton_runs=521/521 fallbacks=0
+[TRITONPURE_F200] EXIT 0

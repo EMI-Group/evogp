@@ -1,0 +1,92 @@
+===============================================================================
+R6 window cell dense_f64  (group=dense side=new type=1 fixture=fixture64 cap=900s)  started 2026-09-14T00:49:39+08:00
+window: w1c_20260914   result dir: test/benchmark/r6/results/w1c_20260914
+note: type 1: ETL dense-iree end-to-end problem.evaluate (EVOGP_EVAL_MODE=auto => dense), fixture64
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 900s (SIGINT, SIGKILL after 30s) INSIDE the lock wrapper (/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/run_under_lock.py -> fcntl.flock /tmp/gpbench_critical.lock)
+env: PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1
+side: ETL engine (src) -- etl: repo=/mnt/local-ssd/bchuang/etl rev=96df7da8f2ba39f52cf2f2b61888e67f70471bc9 file=/mnt/local-ssd/bchuang/etl/etl/__init__.py pythonpath=src
+evogp: repo=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32 rev=4c33ec8 new_pythonpath=src legacy_root=/tmp/evogp_legacy_bench legacy_so=/tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so legacy_pythonpath=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils
+gpu (before): 6, NVIDIA RTX A6000, 0, 30527
+gpu tenants (before): 2903622, python, 30486 MiB
+cmd: /mnt/local-ssd/bchuang/evox/.venv/bin/python /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/run_under_lock.py timeout -s INT -k 30 900 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --fixture test/goldens/forest_random.npz --eval-reps 25 --mem-guard-mb 8192 --tag DENSE_F64 --notes r6\ same-window\ campaign:\ window=w1c_20260914\ cell=dense_f64\ group=dense\ side=new\ type=1\ fixture=fixture64\ PYTHONPATH=src --json-out test/benchmark/r6/results/w1c_20260914/dense_f64.json
+out: test/benchmark/r6/results/w1c_20260914/dense_f64.json
+--- run output ---
+[DENSE_F64] harness=bench_gp.py side=new task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/src/evogp/__init__.py commit=4c33ec86d509f657ed97855c7134ba78c8b5b415 etl=0.1.0 json_out=test/benchmark/r6/results/w1c_20260914/dense_f64.json
+[DENSE_F64] side=new rep0/1: first 24935.0ms, warm-median 6.7ms (25 calls)
+[DENSE_F64] done side=new interrupted=False harness_wall_s=26.4 json_out=test/benchmark/r6/results/w1c_20260914/dense_f64.json
+nanobind: leaked 827 instances!
+ - leaked instance 0x7f5761646068 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f576160c4a8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f5761725508 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7f5761644328 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7f576160c7c8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f5761614208 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7f57615b7a18 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f5761644b88 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f576160c9f8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f576164caa8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7f57615b6258 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f57615b5588 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f57615b7018 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f576164d308 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7f5771aeb7e8 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f57726ee938 of type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked instance 0x7f5761645468 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f576164dfe8 of type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked instance 0x7f576164c788 of type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked instance 0x7f576164db88 of type "iree._runtime_libs._runtime.HalAllocator"
+ - ... skipped remainder
+nanobind: leaked 826 keep_alive records!
+nanobind: leaked 5 types!
+ - leaked type "iree._runtime_libs._runtime.HalBuffer"
+ - leaked type "iree._runtime_libs._runtime.MappedMemory"
+ - leaked type "iree._runtime_libs._runtime.HalDevice"
+ - leaked type "iree._runtime_libs._runtime.HalAllocator"
+ - leaked type "iree._runtime_libs._runtime.HalDriver"
+nanobind: leaked 39 functions!
+ - leaked function "allocate_host_staging_buffer_copy"
+ - leaked function ""
+ - leaked function "__iree_vm_cast__"
+ - leaked function "queue_dealloca"
+ - leaked function "trim"
+ - leaked function "create_dlpack_capsule"
+ - leaked function "queue_alloca"
+ - leaked function "query_available_devices"
+ - leaked function "begin_profiling"
+ - leaked function "__repr__"
+ - leaked function "from_dlpack_capsule"
+ - leaked function "fill_zero"
+ - leaked function "create_device_by_uri"
+ - leaked function ""
+ - leaked function "__eq__"
+ - leaked function "byte_length"
+ - leaked function "map"
+ - leaked function "create_semaphore"
+ - leaked function "flush_profiling"
+ - leaked function "memory_type"
+ - leaked function "allocate_buffer"
+ - leaked function "queue_copy"
+ - leaked function "create_default_device"
+ - leaked function "query_buffer_compatibility"
+ - leaked function "__repr__"
+ - leaked function "create_device"
+ - leaked function "allowed_usage"
+ - leaked function ""
+ - leaked function "end_profiling"
+ - leaked function "allocate_buffer_copy"
+ - leaked function ""
+ - leaked function "asarray"
+ - leaked function "query"
+ - leaked function "__iree_vm_type__"
+ - leaked function ""
+ - leaked function "create_view"
+ - leaked function ""
+ - leaked function "dump_device_info"
+ - leaked function "queue_execute"
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 9, 30525
+gpu tenants (after): 2903622, python, 30486 MiB
+R6 window cell dense_f64  finished 2026-09-14T00:50:09+08:00

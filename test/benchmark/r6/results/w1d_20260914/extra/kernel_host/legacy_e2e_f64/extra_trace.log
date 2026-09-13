@@ -1,0 +1,40 @@
+=== extra_trace.py target=legacy-e2e tag=EXTRA_LEGACY_E2E_F64 ===
+[EXTRA_LEGACY_E2E_F64] clean: 0.6319 ms/invocation (100 invocations)
+[EXTRA_LEGACY_E2E_F64] post-trace clean: 0.6137 ms/invocation
+[EXTRA_LEGACY_E2E_F64] kernels: 500 (5.000/invocation), kernel time 14.71 us/invocation, avg kernel 2.9414180000001036 us
+[EXTRA_LEGACY_E2E_F64] device total 15.18 us/invocation (runtime API 0.47 us), host residual 616.70 us/invocation
+[EXTRA_LEGACY_E2E_F64] leaf kernels: 500 (5.00/invocation), 14.71 us/invocation, avg 2.9414180000001036 us, leaf residual 617.18 us/invocation
+
+--- kineto key averages (sorted by device time) ---
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                            evogp_cuda::tree_SR_fitness         0.79%     487.170us        92.65%      57.406ms     574.056us     638.728us        84.15%     638.728us       6.387us           100  
+void treeGPRegressionFitnessKernel<false, true>(floa...         0.00%       0.000us         0.00%       0.000us       0.000us     470.631us        62.01%     470.631us       4.706us           100  
+averageFitnessValueKernel(float*, unsigned int, unsi...         0.00%       0.000us         0.00%       0.000us       0.000us     120.770us        15.91%     120.770us       1.208us           100  
+                                              aten::neg         1.66%       1.030ms         2.58%       1.599ms      15.995us     120.290us        15.85%     120.290us       1.203us           100  
+void at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us     120.290us        15.85%     120.290us       1.203us           100  
+                                        Memset (Device)         0.00%       0.000us         0.00%       0.000us       0.000us      47.327us         6.24%      47.327us       0.473us           100  
+                                               aten::to         4.00%       2.481ms         4.00%       2.481ms      12.403us       0.000us         0.00%       0.000us       0.000us           200  
+                                           aten::detach         0.33%     202.770us         0.73%     453.810us       2.269us       0.000us         0.00%       0.000us       0.000us           200  
+                                                 detach         0.41%     251.040us         0.41%     251.040us       1.255us       0.000us         0.00%       0.000us       0.000us           200  
+                                            aten::empty         0.87%     539.580us         0.87%     539.580us       5.396us       0.000us         0.00%       0.000us       0.000us           100  
+                             cudaGetDeviceProperties_v2        87.97%      54.505ms        87.97%      54.505ms     545.050us       0.000us         0.00%       0.000us       0.000us           100  
+                                        cudaMemsetAsync         0.94%     581.930us         0.94%     581.930us       5.819us       0.000us         0.00%       0.000us       0.000us           100  
+                                       cudaLaunchKernel         3.00%       1.861ms         3.00%       1.861ms       6.203us       0.000us         0.00%       0.000us       0.000us           300  
+                                  cudaDeviceSynchronize         0.03%      18.050us         0.03%      18.050us       9.025us       0.000us         0.00%       0.000us       0.000us             2  
+-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 61.958ms
+Self CUDA time total: 759.018us
+
+top device rows:
+       638.728 us  n=  100  evogp_cuda::tree_SR_fitness
+       470.631 us  n=  100  void treeGPRegressionFitnessKernel<false, true>(float const*, short const*, short const*, float const*, float 
+       120.770 us  n=  100  averageFitnessValueKernel(float*, unsigned int, unsigned int)
+       120.290 us  n=  100  aten::neg
+       120.290 us  n=  100  void at::native::vectorized_elementwise_kernel<4, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambd
+        47.327 us  n=  100  Memset (Device)
+
+table: test/benchmark/r6/results/w1d_20260914/extra/kernel_host/legacy_e2e_f64/kineto_key_averages.txt
+trace: test/benchmark/r6/results/w1d_20260914/extra/kernel_host/legacy_e2e_f64/kineto_trace.json.gz
+record: test/benchmark/r6/results/w1d_20260914/extra/kernel_host/legacy_e2e_f64/facts.json

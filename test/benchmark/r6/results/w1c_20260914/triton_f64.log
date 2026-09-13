@@ -1,0 +1,27 @@
+===============================================================================
+R6 window cell triton_f64  (group=triton side=triton type=1 fixture=fixture64 cap=900s)  started 2026-09-14T00:50:41+08:00
+window: w1c_20260914   result dir: test/benchmark/r6/results/w1c_20260914
+note: type 1: triton fused evaluator (dense-seam shadow), fixture64, 25 evaluates; driver CLI pinned by the round brief
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 900s (SIGINT, SIGKILL after 30s) INSIDE the lock wrapper (/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/run_under_lock.py -> fcntl.flock /tmp/gpbench_critical.lock)
+env: PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 TRITON_CACHE_DIR=/tmp/evogp_r6_triton_cache R6_WINDOW=w1c_20260914 R6_CELL_ID=triton_f64 CPATH=/tmp/triton_feas/py311hdr/usr/include/python3.11:/tmp/triton_feas/py311hdr/usr/include
+side: triton prototype -- driver=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/run_triton_eval64.py cache=/tmp/evogp_r6_triton_cache cpath=/tmp/triton_feas/py311hdr/usr/include/python3.11:/tmp/triton_feas/py311hdr/usr/include
+evogp: repo=/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32 rev=4c33ec8 new_pythonpath=src legacy_root=/tmp/evogp_legacy_bench legacy_so=/tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so legacy_pythonpath=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils
+gpu (before): 6, NVIDIA RTX A6000, 0, 30523
+gpu tenants (before): 2903622, python, 30486 MiB
+cmd: /mnt/local-ssd/bchuang/evox/.venv/bin/python /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/run_under_lock.py timeout -s INT -k 30 900 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 TRITON_CACHE_DIR=/tmp/evogp_r6_triton_cache R6_WINDOW=w1c_20260914 R6_CELL_ID=triton_f64 CPATH=/tmp/triton_feas/py311hdr/usr/include/python3.11:/tmp/triton_feas/py311hdr/usr/include /mnt/local-ssd/bchuang/evox/.venv/bin/python /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/run_triton_eval64.py --fixture test/goldens/forest_random.npz --reps 25 --tag TRITON_F64 --json-out test/benchmark/r6/results/w1c_20260914/triton_f64.json
+out: test/benchmark/r6/results/w1c_20260914/triton_f64.json
+--- run output ---
+[TRITON_F64] e2e: pop=64 max_tree_len=63 n_rows=64 input_len=2 output_len=1 fixture=test/goldens/forest_random.npz
+[TRITON_F64] seam: evogp.tree.dense_engine.sr_fitness_dense -> triton_eval.sr_fitness_triton (EVOGP_EVAL_MODE=dense)
+[TRITON_F64] call 0 (cold, pays staging + JIT): 1623.985 ms
+[TRITON_F64] calls=25 cold=1623.985 ms median_warm=0.186 ms mean_warm=0.238 ms min_warm=0.168 ms wall=1.630 s
+[TRITON_F64] seam_calls=25 triton_runs=25 builds=1 cache_hits=24 data_uploads=1
+[TRITON_F64] wrote /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/results/w1c_20260914/triton_f64.json (+ log /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/r6/results/w1c_20260914/triton_f64.json.log)
+[TRITON_F64] counter gate PASSED: triton_call_count=25/25 triton_runs=25/25 fallbacks=0
+[TRITON_F64] EXIT 0
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 30523
+gpu tenants (after): 2903622, python, 30486 MiB
+R6 window cell triton_f64  finished 2026-09-14T00:50:50+08:00

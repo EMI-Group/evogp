@@ -1,0 +1,26 @@
+=== extra_trace.py target=triton-pure tag=EXTRA_TRITON_PURE_F64 ===
+[EXTRA_TRITON_PURE_F64] triton: {"staging": "dense_engine.prepare_dense", "kernel": "sr_eval_kernel", "block_n": 64, "num_warps": 2, "launches_per_call": 1, "compile_ms": 714.6618328988552, "stage_upload_ms": 0.25828927755355835, "used_ops": ["*", "+", "-", "/", "CONST", "VAR"], "fallthrough_nodes": {}}
+[EXTRA_TRITON_PURE_F64] clean: 0.0562 ms/invocation (100 invocations)
+[EXTRA_TRITON_PURE_F64] post-trace clean: 0.0637 ms/invocation
+[EXTRA_TRITON_PURE_F64] kernels: 100 (1.000/invocation), kernel time 5.82 us/invocation, avg kernel 5.8246599999999855 us
+[EXTRA_TRITON_PURE_F64] device total 5.82 us/invocation (runtime API 0.00 us), host residual 50.38 us/invocation
+[EXTRA_TRITON_PURE_F64] leaf kernels: 100 (1.00/invocation), 5.82 us/invocation, avg 5.8246599999999855 us, leaf residual 50.38 us/invocation
+
+--- kineto key averages (sorted by device time) ---
+-------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                     Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+-------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+          _sr_eval_kernel         0.00%       0.000us         0.00%       0.000us       0.000us     582.466us       100.00%     582.466us       5.825us           100  
+              aten::empty        79.23%       2.751ms        79.23%       2.751ms      27.507us       0.000us         0.00%       0.000us       0.000us           100  
+           cuLaunchKernel        20.30%     704.818us        20.30%     704.818us       7.048us       0.000us         0.00%       0.000us       0.000us           100  
+    cudaDeviceSynchronize         0.47%      16.330us         0.47%      16.330us       8.165us       0.000us         0.00%       0.000us       0.000us             2  
+-------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 3.472ms
+Self CUDA time total: 582.466us
+
+top device rows:
+       582.466 us  n=  100  _sr_eval_kernel
+
+table: test/benchmark/r6/results/w1d_20260914/extra/kernel_host/triton_pure_f64/kineto_key_averages.txt
+trace: test/benchmark/r6/results/w1d_20260914/extra/kernel_host/triton_pure_f64/kineto_trace.json.gz
+record: test/benchmark/r6/results/w1d_20260914/extra/kernel_host/triton_pure_f64/facts.json

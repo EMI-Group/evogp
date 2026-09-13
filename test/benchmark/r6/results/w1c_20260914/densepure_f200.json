@@ -1,0 +1,229 @@
+{
+  "tag": "DENSEPURE_F200",
+  "side": "new",
+  "task": "eval-pure",
+  "eval_kind": "fixture",
+  "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/fixtures/forest200_tree64_random.npz",
+  "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/src/evogp/__init__.py",
+  "evogp_commit": "4c33ec86d509f657ed97855c7134ba78c8b5b415",
+  "etl_version": "0.1.0",
+  "problem": "W3 fixed fixture: Forest(input_len=2, output_len=1, pop_size=200, max_tree_len=64) rebuilt from test/benchmark/fixtures/forest200_tree64_random.npz[forest__node_value/_node_type/_subtree_size] via the class constructor + SymbolicRegression(datapoints=x[(64, 2)], labels=labels[(64, 1)])",
+  "config": {
+    "pop": 200,
+    "tree_len": 64,
+    "seed": 0,
+    "reps": 5,
+    "eval_reps": null,
+    "mode": "dense",
+    "pure_runner": "auto",
+    "invocations": 100,
+    "warmup": 10,
+    "e2e_companion": 11,
+    "backend": "iree",
+    "iree_device": 0,
+    "iree_opt_level": "O1",
+    "data_rows": null,
+    "mem_guard_mb": 8192,
+    "max_cold_builds": 400,
+    "allow_cold_builds": false,
+    "stage_probe": false,
+    "n_rows": 64
+  },
+  "env": {
+    "ETL_DISABLE_LOCATIONS": "1",
+    "EVOGP_EVAL_MODE": "dense",
+    "EVOGP_ETL_BACKEND": "iree",
+    "EVOGP_ETL_IREE_DEVICE": "0",
+    "EVOGP_ETL_IREE_OPT_LEVEL": "O1",
+    "CUDA_VISIBLE_DEVICES": "6"
+  },
+  "gpu": {
+    "cuda_visible_devices": "6",
+    "device_count": 1,
+    "name": "NVIDIA RTX A6000",
+    "total_memory_bytes": 51041271808,
+    "torch_version": "2.6.0+cu124",
+    "torch_cuda_version": "12.4",
+    "nvidia_smi_index": 6,
+    "nvidia_smi_used_mb_start": 30521,
+    "free_mb_start": 17892,
+    "peak_allocated_bytes": 105472,
+    "peak_reserved_bytes": 2097152,
+    "nvidia_smi_used_mb_end": 30832
+  },
+  "pure": {
+    "mode_requested": "dense",
+    "mode_resolved": "dense",
+    "runner_source": "frozen-api:build_dense_runner",
+    "backend": "iree",
+    "per_row": false,
+    "pop": 200,
+    "n_trees": 200,
+    "n_const_trees": 0,
+    "n_graph_calls_per_run": 1,
+    "n_graph_calls_source": "introspected",
+    "invocations": 100,
+    "warmup": 10,
+    "reps": 5,
+    "per_invocation_ms": [
+      1.6628789156675339,
+      1.380867250263691,
+      1.4281103387475014,
+      1.4112861454486847,
+      1.4525732770562172
+    ],
+    "block_ms": [
+      166.2878915667534,
+      138.0867250263691,
+      142.81103387475014,
+      141.12861454486847,
+      145.25732770562172
+    ],
+    "median_per_invocation_ms": 1.4281103387475014,
+    "min_per_invocation_ms": 1.380867250263691,
+    "mean_per_invocation_ms": 1.4671431854367256,
+    "per_graph_call_ms": 1.4281103387475014,
+    "per_tree_us": 7.140551693737507,
+    "per_population_evaluate_ms": 1.4281103387475014,
+    "conventions": "one invocation = one full-population forward on the fixed x; no readback/host assembly/key derivation",
+    "output_checksum": {
+      "sha256": "e77992ded140f01dabb130fac450284346eafd3027adf082ea12100d9299f322",
+      "n_blocks": 1,
+      "shapes": [
+        [
+          200,
+          64
+        ]
+      ],
+      "dtypes": [
+        "<f4"
+      ],
+      "total_elems": 12800,
+      "nan_count": 376,
+      "inf_count": 0,
+      "note": "one out-of-band capture_outputs() invocation after ALL timing (the reps and the e2e companion): an extra invocation plus a consumer-side host readback, never part of any timed number; sha256 frames one block per entry in order as b'block:<ndim>:<d0,d1,...>:<dtype.str>:<nbytes>:' + block.tobytes(order='C')"
+    }
+  },
+  "compile": {
+    "decode_plan_ms": null,
+    "build_ms": null,
+    "construct_total_ms": 12815.1901550591,
+    "cache_hits": 0,
+    "cache_misses": 1,
+    "path": "frozen"
+  },
+  "e2e_companion": {
+    "eval_reps": 11,
+    "per_call_ms": [
+      11880.925968289375,
+      12.672606855630875,
+      8.693937212228775,
+      10.17129048705101,
+      15.032850205898285,
+      10.748174041509628,
+      10.400254279375076,
+      10.585878044366837,
+      10.463904589414597,
+      9.099535644054413,
+      10.753076523542404
+    ],
+    "first_call_ms": 11880.925968289375,
+    "median_warm_ms": 10.524891316890717,
+    "note": "E2E minus pure = per-call decode+key derivation + readback + host assembly + fitness reduction (host-glue + readback overhead)"
+  },
+  "median_per_invocation_ms": 1.4281103387475014,
+  "wall_s": null,
+  "partial": false,
+  "projection": null,
+  "complete": true,
+  "per_rep": [
+    {
+      "rep": 0,
+      "construct_s": 12.81965359672904,
+      "wall_s": 13.006133235991001,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "dense",
+      "runner_source": "frozen-api:build_dense_runner",
+      "block_ms": 166.2878915667534,
+      "per_invocation_ms": 1.6628789156675339
+    },
+    {
+      "rep": 1,
+      "construct_s": null,
+      "wall_s": 0.13815214112401009,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "dense",
+      "runner_source": "frozen-api:build_dense_runner",
+      "block_ms": 138.0867250263691,
+      "per_invocation_ms": 1.380867250263691
+    },
+    {
+      "rep": 2,
+      "construct_s": null,
+      "wall_s": 0.142892487347126,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "dense",
+      "runner_source": "frozen-api:build_dense_runner",
+      "block_ms": 142.81103387475014,
+      "per_invocation_ms": 1.4281103387475014
+    },
+    {
+      "rep": 3,
+      "construct_s": null,
+      "wall_s": 0.14118437469005585,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "dense",
+      "runner_source": "frozen-api:build_dense_runner",
+      "block_ms": 141.12861454486847,
+      "per_invocation_ms": 1.4112861454486847
+    },
+    {
+      "rep": 4,
+      "construct_s": null,
+      "wall_s": 0.1453177034854889,
+      "partial": false,
+      "projection": null,
+      "complete": true,
+      "mode_resolved": "dense",
+      "runner_source": "frozen-api:build_dense_runner",
+      "block_ms": 145.25732770562172,
+      "per_invocation_ms": 1.4525732770562172
+    }
+  ],
+  "notes": "r6 same-window campaign: window=w1c_20260914 cell=densepure_f200 group=pure side=new type=2 fixture=fixture200 PYTHONPATH=src",
+  "started_at": "2026-09-14T00:51:56+08:00",
+  "finished_at": "2026-09-14T00:52:23+08:00",
+  "evogp_commit_error": null,
+  "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32",
+  "harness": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A32/test/benchmark/bench_gp.py",
+  "skipped": false,
+  "skip_reason": null,
+  "fds": {
+    "start": 38,
+    "after_cold": 90,
+    "end": 90
+  },
+  "nofile_rlimit": [
+    65536,
+    65536
+  ],
+  "stages": null,
+  "cold_builds": {
+    "enforced": true,
+    "limit": 400,
+    "allow_cold_builds": false,
+    "misses_start": 0,
+    "misses_last": 1,
+    "misses_max": 1,
+    "exceeded": false
+  },
+  "harness_wall_s": 26.461828861385584
+}
