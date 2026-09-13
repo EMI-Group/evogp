@@ -28,6 +28,10 @@ Exact commands for the six configs, the re-run and the checks are in `NOTES.md` 
 - GPU 7 is hardware-faulted (uncorrectable ECC) and kills every CUDA context — evidence in `results/logs/gpu7_ecc_evidence.txt`; the matrix ran on index 4 (snapshots in `gpu_snapshots.txt`).
 - `results/logs/*.log` were committed with `git add -f` because the repo `.gitignore` ignores `*.log`; keep that in mind when adding new logs.
 - The legacy engine's per-generation cost is dominated by host-side dispatch (~1.6 ms floor, ~7.5 ms extra with `is_show_details=True`), so numbers are only comparable within a quiet window; `NOTES.md` §4-§6 carry the caveats.
+- The legacy checkout is `git archive` of `b613503c3107db23222f69bfaad2a329639f28fe` ("Update CONTEXT.md for ./src/evogp/problem", 2026-09-11 — last revision before the kernel-removal rewrite).
+- Round-1 records come from `run_matrix.py` (this directory); the R2 and R3 legacy records are produced by the unified side-agnostic harness `../bench_gp.py` (R3 via `../r2/round3/run_all.sh`), whose `r2/round3/results/legacy/leg_c5r2.json` and `leg_fixture200_n64.json` hold the frozen 0.6323 / 0.6357 ms per-eval anchors quoted by the parent round reports.
+- The legacy engine's `evaluate` is one batched kernel launch: `SymbolicRegression.evaluate` (`execute_mode="auto"`, the default) → `Forest.SR_fitness` → a single `torch.ops.evogp_cuda.tree_SR_fitness` op call over the whole population; the kernels are built with `-use_fast_math -maxrregcount=32` (the fast-math origin of the 1e-4 golden tolerance).
+- `check_results.py` requires each JSON's file stem to equal its `tag` field — keep the driver fitness-anchor records named `C5`/`C5b` in `results/r2/`.
 - Timed regions are host-median-of-warm generations/calls; `wall_s` includes construction and the cold first step, and `is_show_details` is always False in the records (SPEC).
 ## See Also
 - `../SPEC.md` (frozen spec + config matrix), `../CONTEXT.md` (benchmark-area intent/status), `../new/` (sibling NEW-engine harness + results), `../bench_gp.py` (unified dual-checkout harness).
