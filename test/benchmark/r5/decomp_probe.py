@@ -72,13 +72,7 @@ def parse_args(argv=None):
     parser.add_argument("--no-controls", action="store_true", help="warm phase only")
     parser.add_argument("--cprofile", action="store_true", help="profile the loop instead of timing it")
     parser.add_argument("--cprofile-out", default=None, help="cProfile text table path")
-    parser.add_argument(
-        "--upload-micro",
-        type=int,
-        default=0,
-        metavar="K",
-        help="run K-iteration payload-upload micro-checks (both payload sizes) and exit",
-    )    parser.add_argument("--json-out", default=None)
+    parser.add_argument("--json-out", default=None)
     parser.add_argument("--log-out", default=None)
     parser.add_argument("--tag", default=None)
     return parser.parse_args(argv)
@@ -197,17 +191,8 @@ def main(argv=None):
     rows = []
     components = {}
 
-    if args.upload_micro:
-        payload = run_upload_micro(args, etl, out)
-        stamps = pl.identity_stamp(
-            etl, extra={"probe": PROBE, "tag": tag, "mode": "upload-micro"}
-        )
-        pl.write_json(args.json_out, {"probe": PROBE, "tag": tag, **payload, "stamp": stamps})
-        out.write(f"\nwrote {args.json_out}\n")
-        out.close()
-        return 0
-
-    if args.cprofile:        payload = run_cprofile(args, problem, forest, out)
+    if args.cprofile:
+        payload = run_cprofile(args, problem, forest, out)
         stamps = pl.identity_stamp(etl, extra={"probe": PROBE, "tag": tag, "mode": "cprofile"})
         pl.write_json(args.json_out, {"probe": PROBE, "tag": tag, **payload, "stamp": stamps})
         out.write(f"\nwrote {args.json_out}\n")
@@ -461,7 +446,9 @@ def build_case(args, out):
     return problem, forest, x, labels
 
 
-def run_cprofile(args, problem, forest, out):    import cProfile
+def run_cprofile(args, problem, forest, out):
+    """The same loop with NO instrumentation under cProfile (ranking only)."""
+    import cProfile
     import pstats
 
     import torch
