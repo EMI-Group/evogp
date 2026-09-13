@@ -18,7 +18,7 @@ Deliverables: `RCA.md` + evidence records + stdlib-only gate `check_r5.py` + pro
 ## Routing Table
 - `README.md` → protocol: Q1–Q8, method, run order, exact re-run commands, evidence map.
 - `RCA.md` → THE deliverable: same-window tables; per-call decomposition; ranked mechanisms (measured/inferred/unknown); falsification results; "what would close what" floors.
-- `window_probe.sh` → Q4 same-window anchors (legacy eval64 ×2 + dense-iree eval64 ×2 + dense-iree pure ×2, one serialized window).
+- `window_probe.sh` → the executed Q4 same-window runner (one process/cell, one flock/cell with `timeout` inside, GPU 6, per-cell log with `etl:` identity + co-tenant samples, committed `window_meta.txt`): `--group smoke|window|all` (3 pre-window smoke cells / the 9 window cells: legacy eval64 ×2 + dense-iree eval64 ×2 + dense-iree pure ×2 + `--stage-probe` bridge + legacy bracket + 87c7562 shadow bridge), `--only id1,id2`, `--result-dir DIR` (fresh `rerun_<n>/` for any re-run), `DEVIATION_NOTE=…` to stamp protocol notes. Evidence: `results/{smoke,q4_window,q4_window/rerun_1}/` + `results/q4_window/SUMMARY.md`.
 - `decomp_probe.py` → Q1/Q5/Q7/Q8 decomposition of one warm dense evaluate (monkeypatch timers over the dense call sites; cProfile cross-check; compile-cache counters).
 - `floor_probe.py` → Q6 floor matrix (staged-reuse / no-readback / no-upload / pure-only).
 - `ab_probe.py` → Q3 same-process engine-call vs frozen-runner A/B.
