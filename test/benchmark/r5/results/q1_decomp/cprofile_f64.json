@@ -1,0 +1,37 @@
+{
+  "probe": "r5/decomp_probe.py",
+  "tag": "forest_random",
+  "cprofile_text_written": "test/benchmark/r5/results/q1_decomp/cprofile_f64.txt",
+  "stamp": {
+    "when": "2026-09-13T20:57:43+0800",
+    "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67",
+    "evogp_commit": "48dd1bc25ec8bbb3a3319ce3b7b1013263e8bdc9",
+    "evogp_file": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/__init__.py",
+    "etl_repo": "/mnt/local-ssd/bchuang/etl",
+    "etl_repo_head": "96df7da8f2ba39f52cf2f2b61888e67f70471bc9",
+    "etl_repo_status": "<empty>",
+    "python": "/mnt/local-ssd/bchuang/evox/.venv/bin/python",
+    "python_version": "3.11.2",
+    "torch": "2.6.0+cu124",
+    "numpy": "2.4.6",
+    "cuda_visible_devices": "6",
+    "cuda_available": true,
+    "env_knobs": {
+      "ETL_DISABLE_LOCATIONS": "1",
+      "EVOGP_ETL_BACKEND": "iree",
+      "EVOGP_ETL_IREE_DEVICE": "0",
+      "EVOGP_ETL_IREE_OPT_LEVEL": "O1",
+      "EVOGP_EVAL_MODE": "auto"
+    },
+    "gpu": {
+      "index": "6",
+      "util_mem": "6, NVIDIA RTX A6000, 0, 30898",
+      "compute_apps": "2903622, python, 30486 MiB\n3180508, /mnt/local-ssd/bchuang/evox/.venv/bin/python, 308 MiB"
+    },
+    "etl_file": "/mnt/local-ssd/bchuang/etl/etl/__init__.py",
+    "etl_version": "0.1.0",
+    "probe": "r5/decomp_probe.py",
+    "tag": "forest_random",
+    "mode": "cprofile"
+  }
+}

@@ -1,0 +1,5 @@
+=== r5/minimal_loop.py (Q8: no harness, no probe) ===
+fixture: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/test/benchmark/fixtures/forest200_tree64_random.npz  pop=200 rows=64  reps=25
+etl    : /mnt/local-ssd/bchuang/etl/etl/__init__.py
+per-call ms: 12422.796 8.323 6.705 6.309 7.965 11.848 8.000 6.291 5.989 5.897 5.721 7.807 5.599 5.631 6.438 6.031 5.759 8.026 5.519 5.763 5.776 5.410 8.145 5.530 5.743
+first (cold): 12422.796 ms   warm median: 6.010 ms (min 5.410 / max 11.848)

@@ -152,13 +152,14 @@ process, never per call.
 `problem.evaluate(forest)` in a plain loop, no harness import, no probe, no monkeypatch, same
 one-sync-pair-per-call shape, ≥25 calls, per-call ms printed and JSON-recorded.
 
-**Not executed in this phase** (turn budget): `results/q8_minimal/minimal_f64.json|log` and
-`minimal_f200.json|log` are not written yet, and the cProfile cross-check
-(`results/q1_decomp/cprofile_f64.txt`) is not written yet. Evidence gathered *so far* pointing
-the same way: this decomposition's **uninstrumented control** (no bench harness, but inside the
-probe process) is 7.22 ms (f64) / 6.95 ms (f200), inside the instrumented run's own band, and
-the in-process totals sit in the Q4 window band's upper half rather than below it — no sign of
-harness inflation. The Q8 verdict stays **open** until `minimal_loop.py` runs.
+**Executed** (`results/q8_minimal/`, one locked process per fixture, 2026-09-13 20:58 HKT): warm
+median **6.117 ms (f64, min 5.651 / max 9.310)** and **6.010 ms (f200, min 5.410 / max 11.848)**,
+first call 12.41 s / 12.42 s (the cold compile). Both medians sit **inside** the Q4 same-window
+band (5.3823 / 5.7912 ms, control re-run +26.9 %) and **below** this decomposition's own in-process
+totals (7.34 / 6.62 ms), which is the same ordering the probe's uninstrumented control showed
+(7.22 / 6.95 ms). **The harness-artifact hypothesis is therefore falsified**: with no
+`bench_gp.py`, no probe and no monkeypatch, the same `problem.evaluate(forest)` route costs the
+same ~5.4–6.9 ms; the cost is inside `problem.evaluate` itself (see the update section below).
 
 ## Exact commands (each its own locked invocation, repo root, project venv)
 
@@ -170,13 +171,10 @@ R5=test/benchmark/r5
 flock -w 7200 /tmp/gpbench_critical.lock bash -c 'ulimit -n 65536; timeout -s INT -k 30 900 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1 '"$PY"' '"$R5"'/decomp_probe.py --fixture test/goldens/forest_random.npz --eval-reps 25 --sync-reps 5 --plain-reps 5 --cold-reps 1 --tag decomp_f64 --json-out '"$R5"'/results/q1_decomp/decomp_f64.json --log-out '"$R5"'/results/q1_decomp/decomp_f64.log'
 # ... same with --fixture test/benchmark/fixtures/forest200_tree64_random.npz --tag decomp_f200 (done)
 
-# still to run:
-#   ... decomp_probe.py --fixture test/goldens/forest_random.npz --cprofile --eval-reps 25 \
-#        --json-out $R5/results/q1_decomp/cprofile_f64.json --cprofile-out $R5/results/q1_decomp/cprofile_f64.txt
-#   ... minimal_loop.py --fixture test/goldens/forest_random.npz --reps 25 \
-#        --json-out $R5/results/q8_minimal/minimal_f64.json --log-out $R5/results/q8_minimal/minimal_f64.log
-#   ... minimal_loop.py --fixture test/benchmark/fixtures/forest200_tree64_random.npz --reps 25 \
-#        --json-out $R5/results/q8_minimal/minimal_f200.json --log-out $R5/results/q8_minimal/minimal_f200.log
+# Phase-2 leftovers, all three run 2026-09-13 20:57-20:58 (same lock/env pattern as above):
+flock -w 7200 /tmp/gpbench_critical.lock bash -c 'ulimit -n 65536; timeout -s INT -k 30 900 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1 '"$PY"' '"$R5"'/decomp_probe.py --fixture test/goldens/forest_random.npz --cprofile --eval-reps 25 --json-out '"$R5"'/results/q1_decomp/cprofile_f64.json --cprofile-out '"$R5"'/results/q1_decomp/cprofile_f64.txt'
+flock -w 7200 /tmp/gpbench_critical.lock bash -c 'ulimit -n 65536; timeout -s INT -k 30 900 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1 '"$PY"' '"$R5"'/minimal_loop.py --fixture test/goldens/forest_random.npz --reps 25 --json-out '"$R5"'/results/q8_minimal/minimal_f64.json --log-out '"$R5"'/results/q8_minimal/minimal_f64.log'
+flock -w 7200 /tmp/gpbench_critical.lock bash -c 'ulimit -n 65536; timeout -s INT -k 30 900 env PYTHONPATH=src CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1 '"$PY"' '"$R5"'/minimal_loop.py --fixture test/benchmark/fixtures/forest200_tree64_random.npz --reps 25 --json-out '"$R5"'/results/q8_minimal/minimal_f200.json --log-out '"$R5"'/results/q8_minimal/minimal_f200.log'
 ```
 
 ## Records
@@ -188,6 +186,8 @@ flock -w 7200 /tmp/gpbench_critical.lock bash -c 'ulimit -n 65536; timeout -s IN
 | `probe_lib.py` | reusable helpers (exclusive `Profiler`, `patch_attr`, `EtlProxy`, `patch_etl_tensor_to`, `install_dense_wraps`, `build_eval_case`, `identity_stamp`) for the Q6/Q3 probes |
 | `decomp_probe.py` | the Q1/Q5/Q7 probe (`--cprofile` mode included) |
 | `minimal_loop.py` | the Q8 control (no harness, no probe) |
+| `results/q1_decomp/cprofile_f64.json` / `cprofile_f64.txt` | the cProfile cross-check (25 warm calls, instrumentation OFF) |
+| `results/q8_minimal/minimal_f64.json` / `.log`, `minimal_f200.json` / `.log` | the Q8 minimal-loop control, both fixtures (plus `results/q8_minimal/SUMMARY.md`) |
 
 ## Deviations / limits
 
@@ -205,3 +205,63 @@ flock -w 7200 /tmp/gpbench_critical.lock bash -c 'ulimit -n 65536; timeout -s IN
 * No `src/evogp` or `etl` change was needed anywhere in this phase (no NEEDS-PARENT-ACTION).
 * Cleanup: all probe processes exited 0 (IREE's `nanobind: leaked ...` chatter at exit is the
   known stock-ETL teardown noise, not a failure); no GPU process was left behind by this phase.
+
+---
+
+# Update — Q8 + cProfile completed (2026-09-13 20:57–20:58 HKT, GPU 6)
+
+The two Phase-2 leftovers committed but not run in the phase above are now recorded. Both ran as
+their own locked invocation (one process each, `flock -w 7200 /tmp/gpbench_critical.lock` with
+`timeout -s INT -k 30 900` inside, `ulimit -n 65536`, `CUDA_VISIBLE_DEVICES=6`,
+`ETL_DISABLE_LOCATIONS=1`, `PYTHONPATH=src`, repo-root cwd, project venv, the same
+`EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1`
+route) against ETL `/mnt/local-ssd/bchuang/etl` @ `96df7da8f2ba39f52cf2f2b61888e67f70471bc9` (stamped
+in both records); evogp `48dd1bc` (r5 files only). Command lines are in the "Exact commands" block
+above; a short record-level write-up is `results/q8_minimal/SUMMARY.md`.
+
+## Q8 minimal loop — verdict: the harness-artifact hypothesis is **falsified**
+
+| cell | warm median | min / max | first call (cold compile) | vs Q4 same-window band | vs this decomp's in-process total |
+|---|---|---|---|---|---|
+| `minimal_f64` (64 trees) | **6.117 ms** | 5.651 / 9.310 | 12411.901 ms | inside 5.3823 (window) – 6.9 (bracket) | below 7.3378 ms |
+| `minimal_f200` (200 trees) | **6.010 ms** | 5.410 / 11.848 | 12422.796 ms | inside 5.7912 – 6.9 | below 6.6167 ms |
+
+No `bench_gp.py`, no probe, no monkeypatch, the same `Forest`+`SymbolicRegression` wiring, and the
+same one-`torch.cuda.synchronize()`-pair-per-call shape: the route costs the same ~6 ms, i.e. the
+whole cost is inside `problem.evaluate(forest)`. The marginal 4–10 ms outliers in the tails are the
+shared box's co-tenant drift (the Q4 window saw the same shape), not an artifact of harness bookkeeping.
+
+## cProfile cross-check (`cprofile_f64.txt`) — ranking only
+
+Zero instrumentation, 25 warm calls, one cold call outside the profile:
+`48201 function calls in 0.190 s` ⇒ **7.61 ms/call**, i.e. the same figure the probe's own total
+reported in that hour (7.34 ms); cProfile's ~4 % inflation is well inside the drift, but cProfile is
+**ranking-only** — every absolute here is distorted by the profiler's per-call hook, and it cannot
+see GPU time at all.
+
+Top-5 by **tottime** (self time) and the matching cumulative figures:
+
+| rank | function | ncalls | tottime | cumtime | per call |
+|---|---|---|---|---|---|
+| 1 | `etl/backends/adapters/iree.py:1655(_wait_copy_semaphore)` | 175 (7/call) | 0.046 s | 0.046 s | 1.84 ms |
+| 2 | `iree/runtime/function.py:146(_invoke)` | 25 (1/call) | 0.045 s | 0.045 s | 1.80 ms |
+| 3 | `etl/backends/adapters/iree.py:1679(_staged_input)` | 250 (10/call) | 0.020 s | 0.072 s | 2.88 ms cum |
+| 4 | `dense_engine.py:932(_decode_columns)` | 25 | 0.008 s | 0.016 s | 0.64 ms cum |
+| 5 | `dense_engine.py:1924(sr_fitness_dense)` | 25 | 0.006 s | 0.185 s | 7.40 ms cum (the root) |
+
+Agreement with the timer split (same call sites, same hour):
+
+| path | cProfile cum / 25 calls | timer bucket (medians) | verdict |
+|---|---|---|---|
+| payload build+upload (`dense_engine:1734(payload)` = `etl.core.tensor.py:364(to)` = `iree.py:2377(upload_tensor)`) | 0.086 s ⇒ **3.44 ms** | `etl_tensor_to_payload` **3.51 ms** | agrees (upload = #1 host cost) |
+| `iree.py:1531(run)` (inside `etl.pipeline:1678(run)`) | 0.049 s ⇒ **1.96 ms** | `etl_run` **2.13 ms** | agrees (#2) |
+| `_decode_columns` (inside `prepare_dense`) | 0.016 s ⇒ **0.64 ms** | `prepare_dense_self` **0.70 ms** | agrees (#3) |
+| loss readback (`array_interop.py:153(_copy_to_host)`) | 0.003 s ⇒ 0.12 ms | `etl_tensor_to_to_host` **0.11 ms** | agrees (not top-3) |
+
+The one thing cProfile adds beyond the timer split is the *shape* of the two large buckets: the
+upload bucket is not a memory copy — it is `_staged_input` (10 calls/call) blocking in
+`_wait_copy_semaphore` (7 waits/call, **1.84 ms/call**, the single largest tottime in the process),
+and the `etl.run` bucket is dominated by the raw `iree.runtime.function.__call__/_invoke`
+(**1.80 ms/call**) rather than by any ETL-side Python bookkeeping. Both facts are upstream-ETL
+plumbing, i.e. they are the host-side price of staging/launching the compiled dense graph, and they
+are the Q2 GPU-mechanism question's host mirror.

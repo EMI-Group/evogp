@@ -1,0 +1,61 @@
+{
+  "probe": "r5/minimal_loop.py",
+  "config": {
+    "fixture": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/test/benchmark/fixtures/forest200_tree64_random.npz",
+    "reps": 25,
+    "pop_size": 200,
+    "data_rows": 64,
+    "call": "problem.evaluate(forest), one torch.cuda.synchronize() pair per call"
+  },
+  "per_call_ms": [
+    12422.795739024878,
+    8.323118090629578,
+    6.704565137624741,
+    6.308663636445999,
+    7.965385913848877,
+    11.847738176584244,
+    8.000180125236511,
+    6.290506571531296,
+    5.989052355289459,
+    5.896855145692825,
+    5.7210661470890045,
+    7.806561887264252,
+    5.599133670330048,
+    5.631037056446075,
+    6.438322365283966,
+    6.030723452568054,
+    5.758538842201233,
+    8.025534451007843,
+    5.518976598978043,
+    5.762796849012375,
+    5.775894969701767,
+    5.409818142652512,
+    8.144538849592209,
+    5.5301859974861145,
+    5.742743611335754
+  ],
+  "first_call_ms": 12422.795739024878,
+  "median_warm_ms": 6.009887903928757,
+  "min_warm_ms": 5.409818142652512,
+  "max_warm_ms": 11.847738176584244,
+  "etl_file": "/mnt/local-ssd/bchuang/etl/etl/__init__.py",
+  "stamp": {
+    "when": "2026-09-13T20:58:33+0800",
+    "cwd": "/mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67",
+    "evogp_commit": "48dd1bc25ec8bbb3a3319ce3b7b1013263e8bdc9",
+    "etl_repo_head": "96df7da8f2ba39f52cf2f2b61888e67f70471bc9",
+    "python": "/mnt/local-ssd/bchuang/evox/.venv/bin/python",
+    "torch": "2.6.0+cu124",
+    "numpy": "2.4.6",
+    "cuda_visible_devices": "6",
+    "env_knobs": {
+      "ETL_DISABLE_LOCATIONS": "1",
+      "EVOGP_ETL_BACKEND": "iree",
+      "EVOGP_ETL_IREE_DEVICE": "0",
+      "EVOGP_ETL_IREE_OPT_LEVEL": "O1",
+      "EVOGP_EVAL_MODE": "auto"
+    },
+    "gpu": "6, NVIDIA RTX A6000, 0, 30894",
+    "gpu_tenants": "2903622, python, 30486 MiB\n3180937, /mnt/local-ssd/bchuang/evox/.venv/bin/python, 308 MiB"
+  }
+}

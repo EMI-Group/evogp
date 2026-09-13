@@ -1,0 +1,100 @@
+
+=== cProfile top-40 by tottime (25 warm calls, instrumentation OFF) ===
+         48201 function calls (47851 primitive calls) in 0.190 seconds
+
+   Ordered by: internal time
+   List reduced from 231 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      175    0.046    0.000    0.046    0.000 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:1655(_wait_copy_semaphore)
+       25    0.045    0.002    0.045    0.002 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/iree/runtime/function.py:146(_invoke)
+      250    0.020    0.000    0.072    0.000 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:1679(_staged_input)
+       25    0.008    0.000    0.016    0.001 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:932(_decode_columns)
+       25    0.006    0.000    0.185    0.007 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1924(sr_fitness_dense)
+      525    0.003    0.000    0.003    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+      125    0.003    0.000    0.003    0.000 {method 'cpu' of 'torch._C.TensorBase' objects}
+       25    0.002    0.000    0.003    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/iree/runtime/array_interop.py:153(_copy_to_host)
+      250    0.002    0.000    0.081    0.000 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:2377(upload_tensor)
+       75    0.002    0.000    0.004    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/numpy/lib/_shape_base_impl.py:62(take_along_axis)
+       25    0.002    0.000    0.147    0.006 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1784(run_loss_plan)
+      100    0.002    0.000    0.002    0.000 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1027(<genexpr>)
+       25    0.002    0.000    0.022    0.001 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:824(prepare_dense)
+       75    0.001    0.000    0.001    0.000 {method 'to' of 'torch._C.TensorBase' objects}
+      800    0.001    0.000    0.002    0.000 <frozen os>:674(__getitem__)
+     9900    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+   275/25    0.001    0.000    0.002    0.000 /mnt/local-ssd/bchuang/etl/etl/pipeline.py:606(_fast_structure_walk)
+       25    0.001    0.000    0.001    0.000 {built-in method _pickle.dumps}
+      550    0.001    0.000    0.002    0.000 /mnt/local-ssd/bchuang/etl/etl/core/tensor.py:266(__init__)
+      275    0.001    0.000    0.085    0.000 /mnt/local-ssd/bchuang/etl/etl/core/tensor.py:364(to)
+       25    0.001    0.000    0.005    0.000 /mnt/local-ssd/bchuang/etl/etl/pipeline.py:1449(_prepare_flat_inputs)
+      250    0.001    0.000    0.003    0.000 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:627(_runtime_args_from_env)
+      250    0.001    0.000    0.086    0.000 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1734(payload)
+      250    0.001    0.000    0.003    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/numpy/_core/fromnumeric.py:66(_wrapreduction)
+      625    0.001    0.000    0.002    0.000 <string>:2(__init__)
+       25    0.001    0.000    0.049    0.002 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:1531(run)
+      800    0.001    0.000    0.003    0.000 <frozen _collections_abc>:771(get)
+      350    0.001    0.000    0.001    0.000 {method 'astype' of 'numpy.ndarray' objects}
+       25    0.001    0.000    0.188    0.008 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/problem/symbolic_regression.py:65(evaluate)
+      625    0.001    0.000    0.001    0.000 /mnt/local-ssd/bchuang/etl/etl/core/device.py:50(__post_init__)
+     1025    0.001    0.000    0.001    0.000 <string>:2(__eq__)
+      175    0.001    0.000    0.001    0.000 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1600(_prep_column)
+       25    0.001    0.000    0.025    0.001 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1373(plan_dense)
+      275    0.001    0.000    0.002    0.000 /mnt/local-ssd/bchuang/etl/etl/pipeline_options.py:141(apply_env_options)
+      800    0.001    0.000    0.001    0.000 <frozen os>:756(encode)
+       75    0.001    0.000    0.001    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/numpy/lib/_shape_base_impl.py:35(_make_along_axis_idx)
+       50    0.001    0.000    0.142    0.003 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1661(_iter_plan_chunks)
+      775    0.001    0.000    0.001    0.000 /mnt/local-ssd/bchuang/etl/etl/core/tensor.py:328(dtype)
+      625    0.001    0.000    0.001    0.000 {built-in method numpy.ascontiguousarray}
+      275    0.001    0.000    0.001    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/iree/runtime/array_interop.py:191(shape)
+
+
+
+=== cProfile top-40 by cumtime (25 warm calls, instrumentation OFF) ===
+         48201 function calls (47851 primitive calls) in 0.190 seconds
+
+   Ordered by: cumulative time
+   List reduced from 231 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       25    0.001    0.000    0.188    0.008 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/problem/symbolic_regression.py:65(evaluate)
+       25    0.000    0.000    0.187    0.007 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/forest.py:290(SR_fitness)
+       25    0.006    0.000    0.185    0.007 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1924(sr_fitness_dense)
+       25    0.002    0.000    0.147    0.006 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1784(run_loss_plan)
+       50    0.001    0.000    0.142    0.003 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1661(_iter_plan_chunks)
+      250    0.001    0.000    0.086    0.000 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1734(payload)
+      275    0.001    0.000    0.085    0.000 /mnt/local-ssd/bchuang/etl/etl/core/tensor.py:364(to)
+      250    0.002    0.000    0.081    0.000 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:2377(upload_tensor)
+      200    0.000    0.000    0.072    0.000 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1750(<genexpr>)
+      250    0.020    0.000    0.072    0.000 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:1679(_staged_input)
+       25    0.000    0.000    0.055    0.002 /mnt/local-ssd/bchuang/etl/etl/pipeline.py:1678(run)
+       25    0.001    0.000    0.049    0.002 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:1531(run)
+      175    0.046    0.000    0.046    0.000 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:1655(_wait_copy_semaphore)
+       25    0.000    0.000    0.046    0.002 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/iree/runtime/function.py:116(__call__)
+       25    0.045    0.002    0.045    0.002 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/iree/runtime/function.py:146(_invoke)
+       25    0.001    0.000    0.025    0.001 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1373(plan_dense)
+       25    0.002    0.000    0.022    0.001 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:824(prepare_dense)
+       25    0.008    0.000    0.016    0.001 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:932(_decode_columns)
+       25    0.001    0.000    0.005    0.000 /mnt/local-ssd/bchuang/etl/etl/pipeline.py:1449(_prepare_flat_inputs)
+      125    0.001    0.000    0.004    0.000 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/etl_engine.py:1178(_as_numpy)
+      250    0.000    0.000    0.004    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/numpy/_core/fromnumeric.py:3287(prod)
+       75    0.002    0.000    0.004    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/numpy/lib/_shape_base_impl.py:62(take_along_axis)
+      250    0.001    0.000    0.003    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/numpy/_core/fromnumeric.py:66(_wrapreduction)
+      800    0.001    0.000    0.003    0.000 <frozen _collections_abc>:771(get)
+       25    0.000    0.000    0.003    0.000 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1654(_to_host)
+       25    0.000    0.000    0.003    0.000 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/dense_engine.py:1522(build_dense)
+      525    0.003    0.000    0.003    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       25    0.000    0.000    0.003    0.000 /mnt/local-ssd/bchuang/etl/etl/core/tensor.py:442(_host_copy)
+       25    0.000    0.000    0.003    0.000 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:2352(to_host)
+      250    0.001    0.000    0.003    0.000 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:627(_runtime_args_from_env)
+       25    0.000    0.000    0.003    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/iree/runtime/array_interop.py:109(to_host)
+       25    0.000    0.000    0.003    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/iree/runtime/array_interop.py:127(_transfer_to_host)
+       25    0.002    0.000    0.003    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/iree/runtime/array_interop.py:153(_copy_to_host)
+      125    0.003    0.000    0.003    0.000 {method 'cpu' of 'torch._C.TensorBase' objects}
+      800    0.001    0.000    0.002    0.000 <frozen os>:674(__getitem__)
+       25    0.000    0.000    0.002    0.000 /mnt/local-ssd/bchuang/etl/etl/build_cache.py:471(build_cached)
+      550    0.001    0.000    0.002    0.000 /mnt/local-ssd/bchuang/etl/etl/core/tensor.py:266(__init__)
+      100    0.001    0.000    0.002    0.000 /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A67/src/evogp/tree/etl_engine.py:1033(_resolve_backend)
+       50    0.000    0.000    0.002    0.000 /mnt/local-ssd/bchuang/evox/.venv/lib/python3.11/site-packages/torch/cuda/__init__.py:975(synchronize)
+      275    0.001    0.000    0.002    0.000 /mnt/local-ssd/bchuang/etl/etl/backends/adapters/iree.py:2320(__init__)
+
+
