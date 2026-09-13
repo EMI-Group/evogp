@@ -10,8 +10,10 @@ Deliverables: `RCA.md` + evidence records + stdlib-only gate `check_r5.py` + pro
 ## Status
 - Round running; parent recon complete (env facts below); unfinished questions get marked open in `RCA.md` as phases land.
 - Phase plan: P0 env freeze + Q4 window (first recorded phase) → Q1/Q5/Q7/Q8 decomposition → Q2 GPU mechanism → Q6 floors → Q3 A/B → RCA write-up + check_r5.py.
-- In flight: Phase 0 + Q4 — env-freeze files, the window cells (leg f64/f200, dense-iree eval64 f64/f200, pure f64/f200, +stage-probe bridge, legacy drift bracket, optional 87c7562 shadow bridge) and the six-arm agreement pre-flight into `results/backend_agreement/`.
-- Open: Q1–Q3, Q5–Q8 analyses; RCA.md / README.md / check_r5.py pending.
+- Complete: Phase 0 — `results/env_probe.txt` (evogp commit, ETL `file`/HEAD/clean status, venv+torch, driver, nsys/ncu, lock/rlimit/env), `results/tool_recon/` (nsys import failure log + README), `window_probe.sh` (the single runner: 3 smoke cells + 9 window cells + the re-run control).
+- Complete: Q4 same-window window (2026-09-13 20:29–20:41, GPU 6) — `results/smoke/`, `results/q4_window/` (9/9 cells exit 0 + committed `window_meta.txt` + `SUMMARY.md` + `rerun_1/` post-window control), `results/backend_agreement/` (six-arm pre-flight re-run, checker PASS 30 checks / 0 failures, PASS-with-note).
+  Headline (same window, warm medians): legacy 0.6461 / 0.6372 ms (64 / 200 trees), dense-iree e2e 5.3823 / 5.7912 ms, pure forward 1.2142 / 1.4612 ms ⇒ **new/legacy 8.33× / 9.09×**, pure/legacy 1.88× / 2.29×, pure = 23–25 % of the e2e call; r4's cross-window 10.54× / 9.52× lies between the window pair and the control pair (11.04×), and the pure `output_checksum.sha256` is bit-equal to the r4 after-records. The plain e2e cell repeats to only +26.9 % while the legacy anchor repeats to −4.2 % and the probe cell to −0.7 % ⇒ the honest gap statement is **≈8–11×**, and the `--stage-probe` tax is nil (`probe_span − total_ms` = +0.028 ms/call; the window's +25.9 % was drift). The drift bracket's +177.5 % is a co-tenant contention event (90 % utilisation sample), not protocol drift.
+- Open: Q1–Q3, Q5–Q8 analyses; `RCA.md` / `README.md` / `check_r5.py` pending. Q2 still needs `--data-rows` scaling, compile-side dispatch dumps and the single kineto retry (kernel-level profiling unavailable, see `results/tool_recon/README.md`).
 
 ## Routing Table
 - `README.md` → protocol: Q1–Q8, method, run order, exact re-run commands, evidence map.
