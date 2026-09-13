@@ -1,0 +1,45 @@
+# test/benchmark/r5/results/backend_agreement/check_agreement_r4.out.txt -- R5 Q4 agreement gate verdict (stdlib checker output, verbatim)
+# record dir: test/benchmark/r5/results/backend_agreement   (six arms re-run in the R5 session; runner stdout in run_agreement_r4.stdout.txt)
+# command: python3 test/benchmark/r4/check_agreement_r4.py --agree-dir test/benchmark/r5/results/backend_agreement   (read-only r4 tooling)
+# generated: 2026-09-13T20:38:16+08:00   cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A65   python3: Python 3.11.2
+#
+# (lines below are the checker's own output)
+===================================================================
+check_agreement_r4.py -- R4 backend-agreement gate (numpy vs iree[auto] vs iree[spec])
+  agreement dir : test/benchmark/r5/results/backend_agreement
+  fixtures      : test/goldens/forest_random.npz, test/benchmark/fixtures/forest200_tree64_random.npz (relative to the repo root)
+  primary gate  : identical values_sha256 across the three roles
+  fallback gate : every pair within np.allclose(rtol=0.0001, atol=0.0001, equal_nan=True)
+
+== fixture64  (test/goldens/forest_random.npz, pop 64) ==
+  fixture sha256: 0bfb0bbf48cd65832b2c024480bc572de5121675946d3611a2c7a5b234ff9ca0
+role       backend  values_sha256   count   nan   inf npy==json fixture_sha256==npz 
+numpy      numpy    2e5c0fa1fdbe…      64     3     0 ok        ok                  
+iree       iree     fbe52b281581…      64     3     0 ok        ok                  
+iree_spec  iree     2e5c0fa1fdbe…      64     3     0 ok        ok                  
+gate: hashes differ -> fallback comparison (np.allclose rtol=0.0001, atol=0.0001, equal_nan=True)
+  numpy vs iree       within 1e-4  max|diff|=7.629e-06  max rel diff=1.062e-07
+  numpy vs iree_spec  within 1e-4  max|diff|=0  max rel diff=0
+  iree vs iree_spec  within 1e-4  max|diff|=7.629e-06  max rel diff=1.062e-07
+  note: the roles are NOT bit-identical (2e5c0fa1fdbe…, fbe52b281581…, 2e5c0fa1fdbe…) but every pair is within rtol=0.0001/atol=0.0001 -- quotable with this deviation recorded
+
+== fixture200  (test/benchmark/fixtures/forest200_tree64_random.npz, pop 200) ==
+  fixture sha256: 6789ef61ecf8898b9b2a00774ee655e20b0b5be7c72eb861afc8d6b8799741b9
+role       backend  values_sha256   count   nan   inf npy==json fixture_sha256==npz 
+numpy      numpy    16d5bbe98481…     200    12     0 ok        ok                  
+iree       iree     74a46ed4bf75…     200    12     0 ok        ok                  
+iree_spec  iree     16d5bbe98481…     200    12     0 ok        ok                  
+gate: hashes differ -> fallback comparison (np.allclose rtol=0.0001, atol=0.0001, equal_nan=True)
+  numpy vs iree       within 1e-4  max|diff|=0.03125  max rel diff=1.806e-07
+  numpy vs iree_spec  within 1e-4  max|diff|=0  max rel diff=0
+  iree vs iree_spec  within 1e-4  max|diff|=0.03125  max rel diff=1.806e-07
+  note: the roles are NOT bit-identical (16d5bbe98481…, 74a46ed4bf75…, 16d5bbe98481…) but every pair is within rtol=0.0001/atol=0.0001 -- quotable with this deviation recorded
+
+== verdict ==
+  fixture64    PASS-with-note
+  fixture200   PASS-with-note
+
+gate: PASS  (30 check(s), 0 failure(s))
+  every role pair is within the recorded tolerance (PASS-with-note): R4 IREE timings are quotable, with the noted deviation.
+===================================================================
+# checker finished: 2026-09-13T20:38:45+08:00

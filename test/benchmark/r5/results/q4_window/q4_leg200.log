@@ -1,0 +1,19 @@
+===============================================================================
+R5 window cell q4_leg200  (side=leg group=window cap=600s)  started 2026-09-13T20:30:59+08:00
+note: Q4 legacy end-to-end anchor, 200-tree fixture, 25 evaluates
+cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A65   py: /mnt/local-ssd/bchuang/evox/.venv/bin/python
+timeout: 600s (SIGINT, SIGKILL after 30s) INSIDE flock -w 7200 /tmp/gpbench_critical.lock
+env: PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 
+etl: repo=/mnt/local-ssd/bchuang/etl rev=96df7da8f2ba39f52cf2f2b61888e67f70471bc9 file=/mnt/local-ssd/bchuang/etl/etl/__init__.py
+gpu (before): 6, NVIDIA RTX A6000, 0, 30617
+gpu tenants (before): 2903622, python, 30486 MiB
+cmd: timeout -s INT -k 30 600 env PYTHONPATH=/tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils CUDA_VISIBLE_DEVICES=6 ETL_DISABLE_LOCATIONS=1 /mnt/local-ssd/bchuang/evox/.venv/bin/python test/benchmark/bench_gp.py --task eval64 --fixture /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A65/test/benchmark/fixtures/forest200_tree64_random.npz --eval-reps 25 --tag Q4_LEG200 --json-out test/benchmark/r5/results/q4_window/q4_leg200.json
+json: test/benchmark/r5/results/q4_window/q4_leg200.json
+--- run output ---
+[Q4_LEG200] harness=bench_gp.py side=old task=eval64 pop=None gens=None tree_len=None seed=0 reps=1 eval_reps=25 ETL_DISABLE_LOCATIONS=1 EVOGP_ETL_BACKEND=None CUDA_VISIBLE_DEVICES=6 gpu=NVIDIA RTX A6000 evogp=/tmp/evogp_legacy_bench/src/evogp/__init__.py commit=3f79356f59711b34079bce9f2880714f7f423668 etl=0.1.0 json_out=test/benchmark/r5/results/q4_window/q4_leg200.json
+[Q4_LEG200] side=old rep0/1: first 22.8ms, warm-median 0.6ms (25 calls)
+[Q4_LEG200] done side=old interrupted=False harness_wall_s=2.0 json_out=test/benchmark/r5/results/q4_window/q4_leg200.json
+--- run output end ---
+exit code: 0 (OK)
+gpu (after): 6, NVIDIA RTX A6000, 0, 30617
+R5 window cell q4_leg200  finished 2026-09-13T20:31:04+08:00
