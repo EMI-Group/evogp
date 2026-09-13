@@ -533,9 +533,8 @@ worker sessions interleaved through the shared lock.
    `dynamic`-alias and gate changes, and fold the result into `../REPORT.md` (Round-4 verdict) plus
    `../CONTEXT.md` / `../README.md`. — **The tables are done** (§C.2, §C.3, §D.2, verdict above);
    `dynamic` is noted as the dense alias on the E2E side and the gates are recorded with fresh outputs.
-   **Folding into the parent-level documents (`../REPORT.md`, `../CONTEXT.md`, `../README.md`) is still
-   open and belongs to the parent node, not to R4** — this node's four documents are current as of this
-   round.
+   **Folded into the parent-level documents (`../REPORT.md` Round-4 section, `../CONTEXT.md`,
+   `../README.md`)** — this node's four documents are current as of this round.
 6. **Keep the before-records immutable** — no reruns, no edits, no re-derivation. — **HONOURED**: no file
    under `results/` was touched (both manifests gate green over the same bytes), and the after-records live
    in separate directories (`results/after/`, `results/backend_agreement_after/`) with the same

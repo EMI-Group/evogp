@@ -525,5 +525,5 @@ $PY test/benchmark/r4/check_agreement_r4.py --agree-dir test/benchmark/r4/result
 #   -> PASS-with-note on both fixtures; gate: PASS (30 check(s), 0 failure(s))
 ```
 
-Folding these numbers into the parent-level documents (`../REPORT.md` Round-4 verdict, `../CONTEXT.md`,
-`../README.md`) belongs to the parent node, not to R4.
+These numbers are folded into the parent-level documents (`../REPORT.md` Round-4 section, `../CONTEXT.md`,
+`../README.md`).

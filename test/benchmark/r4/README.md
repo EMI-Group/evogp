@@ -29,8 +29,8 @@ equivalence run showing the two constructors are bit-identical.  Gates:
 328 checks / 0 failures; `check_agreement_r4.py --agree-dir results/backend_agreement_after` →
 PASS-with-note (30 checks / 0 failures).  **The analysis of record is [`SUMMARY.md`](SUMMARY.md)**; the
 records are in [`results/`](results/) (before) and [`results/after/`](results/after/) (after), and the
-operator log in [`RUNLOG.md`](RUNLOG.md).  Folding the after numbers into `../REPORT.md` /
-`../CONTEXT.md` / `../README.md` is the parent node's job, not this directory's.
+operator log in [`RUNLOG.md`](RUNLOG.md).  The after numbers are folded into `../REPORT.md`
+(Round-4 section) / `../CONTEXT.md` / `../README.md`.
 
 ## The after-round in one screen
 
