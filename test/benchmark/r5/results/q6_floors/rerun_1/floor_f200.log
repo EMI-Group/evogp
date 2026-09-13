@@ -1,0 +1,142 @@
+=== r5/floor_probe.py: tag=floor_f200 ===
+fixture      : /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A68/test/benchmark/fixtures/forest200_tree64_random.npz
+route        : backend=iree eval_mode=auto should_use_dense(200)=True
+case         : Forest(pop=200, max_tree_len=64, input_len=2, output_len=1) + SymbolicRegression(datapoints=xtorch.Size([64, 2]), labels=labelstorch.Size([64, 1]))
+etl          : /mnt/local-ssd/bchuang/etl/etl/__init__.py
+wrapped      : outer_evaluate, forest_sr_self, policy_should_use_dense, sr_fitness_dense_self, input_to_numpy_self, as_numpy_d2h, plan_dense_self, prepare_dense_self, build_dense_build_cached, run_loss_plan_self, prep_column, to_host_self
+missing      : none
+cache        : hits=0 misses=0 size=0
+
+-- prelude (not an arm): one problem.evaluate + sync = 13256.868 ms, fitness sha256 cb37e64a911720bb... --
+
+-- M0: full problem.evaluate(forest) --
+M0     5.0725 ms warm median (min 4.8598 / max 7.4177, 24 warm calls, first 7.363)
+      removes: -
+      counts: as_numpy_d2h=5, build_dense_build_cached=1, etl_from_numpy=10, etl_run=1, etl_tensor_to_payload=10, etl_tensor_to_to_host=1, forest_sr_self=1, input_to_numpy_self=1, outer_evaluate=1, plan_dense_self=1, policy_should_use_dense=1, prep_column=7, prepare_dense_self=1, run_loss_plan_self=1
+      fitness sha256: cb37e64a911720bb...  matches M0: True
+
+-- M1: + memoized plan_dense (decode/unique/plan) --
+M1     4.6831 ms warm median (min 4.1864 / max 8.2268, 24 warm calls, first 5.108)
+      removes: plan_dense (decode + unique + plan construction)
+      counts: as_numpy_d2h=2, build_dense_build_cached=1, etl_from_numpy=10, etl_run=1, etl_tensor_to_payload=10, etl_tensor_to_to_host=1, forest_sr_self=1, input_to_numpy_self=1, outer_evaluate=1, policy_should_use_dense=1, prep_column=7, run_loss_plan_self=1, sr_fitness_dense_self=1, to_host_self=1
+      fitness sha256: cb37e64a911720bb...  matches M0: True
+
+-- M2: + memoized _prep_column (node-column host prep) --
+M2     4.6891 ms warm median (min 4.5859 / max 7.0148, 24 warm calls, first 7.062)
+      removes: _prep_column x7
+      counts: as_numpy_d2h=2, build_dense_build_cached=1, etl_from_numpy=10, etl_run=1, etl_tensor_to_payload=10, etl_tensor_to_to_host=1, forest_sr_self=1, input_to_numpy_self=1, outer_evaluate=1, policy_should_use_dense=1, run_loss_plan_self=1, sr_fitness_dense_self=1, to_host_self=1
+      fitness sha256: cb37e64a911720bb...  matches M0: True
+
+-- M3: + pre-staged payloads (no per-call uploads/semaphores) --
+M3     2.8064 ms warm median (min 2.7056 / max 3.3333, 24 warm calls, first 4.357)
+      removes: etl.from_numpy + Tensor.to(device) for all 10 payloads (uploads + copy semaphores)
+      counts: as_numpy_d2h=2, build_dense_build_cached=1, etl_run=1, etl_tensor_to_to_host=1, forest_sr_self=1, input_to_numpy_self=1, outer_evaluate=1, policy_should_use_dense=1, run_loss_plan_self=1, sr_fitness_dense_self=1, to_host_self=1
+      fitness sha256: cb37e64a911720bb...  matches M0: True
+
+-- M4: M3 without readback + host assembly (stop after etl.run) --
+M4     2.9185 ms warm median (min 2.5995 / max 3.2467, 24 warm calls, first 2.860)
+      removes: _to_host D2H + run_loss_plan host assembly + fitness H2D
+      counts: as_numpy_d2h=2, build_dense_build_cached=1, etl_run=1, input_to_numpy_self=1
+      fitness sha256: cb37e64a911720bb...  matches M0: True
+
+-- M4V: M4 on the VALUE artifact (the frozen pure runner's graph) --
+      value artifact: variant=value trace_len=64 plan+build+warm-up 11986.0 ms payloads staged=8
+M4V    3.0286 ms warm median (min 2.9131 / max 3.8175, 24 warm calls, first 3.575)
+      removes: the loss variant + the labels/keep payloads
+      counts: as_numpy_d2h=1, build_dense_build_cached=1, etl_run=1, input_to_numpy_self=1
+
+-- M5: frozen build_dense_runner(forest, x).run() --
+      runner built in 8.9 ms; artifact identity (runner.executable is the M4V artifact): True
+M5     2.4497 ms warm median (min 2.0122 / max 3.0752, 24 warm calls, first 2.829)
+      removes: plan_dense memo lookup + build_dense cache prologue + _resolve_backend + x/labels host copies
+      counts: etl_run=1
+
+-- M0R: M0 again, all patches restored (drift bracket) --
+M0R    8.4176 ms warm median (min 6.1131 / max 12.8455, 24 warm calls, first 12.139)
+      removes: -
+      counts: as_numpy_d2h=5, build_dense_build_cached=1, etl_from_numpy=10, etl_run=1, etl_tensor_to_payload=10, etl_tensor_to_to_host=1, forest_sr_self=1, input_to_numpy_self=1, outer_evaluate=1, plan_dense_self=1, policy_should_use_dense=1, prep_column=7, prepare_dense_self=1, run_loss_plan_self=1
+      fitness sha256: cb37e64a911720bb...  matches M0: True
+
+-- M3R: M3 again (drift bracket) --
+M3R    2.8337 ms warm median (min 2.7479 / max 3.2336, 24 warm calls, first 4.955)
+      removes: -
+      counts: as_numpy_d2h=2, build_dense_build_cached=1, etl_run=1, etl_tensor_to_to_host=1, forest_sr_self=1, input_to_numpy_self=1, outer_evaluate=1, policy_should_use_dense=1, run_loss_plan_self=1, sr_fitness_dense_self=1, to_host_self=1
+      fitness sha256: cb37e64a911720bb...  matches M0: True
+
+-- M0P: M0 with the instrumentation inert (probe overhead) --
+M0P    5.9865 ms warm median (min 5.8123 / max 8.2901, 4 warm calls, first 6.142)
+      removes: -
+      counts: 
+      fitness sha256: cb37e64a911720bb...  matches M0: True
+
+=== arm table (harness-shaped warm median, call 0 excluded) ===
+arm    median_ms       min       max      first  removes
+M0        5.0725    4.8598    7.4177      7.363  -
+M1        4.6831    4.1864    8.2268      5.108  plan_dense (decode + unique + plan construction)
+M2        4.6891    4.5859    7.0148      7.062  _prep_column x7
+M3        2.8064    2.7056    3.3333      4.357  etl.from_numpy + Tensor.to(device) for all 10 payloads (uploads + copy semaphores)
+M4        2.9185    2.5995    3.2467      2.860  _to_host D2H + run_loss_plan host assembly + fitness H2D
+M4V       3.0286    2.9131    3.8175      3.575  the loss variant + the labels/keep payloads
+M5        2.4497    2.0122    3.0752      2.829  plan_dense memo lookup + build_dense cache prologue + _resolve_backend + x/labels host copies
+M0R       8.4176    6.1131   12.8455     12.139  -
+M3R       2.8337    2.7479    3.2336      4.955  -
+M0P       5.9865    5.8123    8.2901      6.142  -
+
+=== per-step deltas vs the Q1 timer attribution ===
+step       delta_ms   q1_pred   ratio  removes
+M0-M1        0.3895     1.562    0.25  plan_dense: decode + np.unique + plan build
+M1-M2       -0.0060     0.035   -0.17  _prep_column x7 (node-column host prep)
+M2-M3        1.8827     1.566    1.20  payload uploads: etl.from_numpy + .to(device) x10
+M3-M4       -0.1120     0.745   -0.15  readback D2H + run_loss_plan assembly + fitness H2D
+M4-M4V      -0.1102       n/a     n/a  loss variant -> value variant (graph + labels/keep payloads)
+M4V-M5       0.5789     0.137    4.23  engine per-call prologue (plan memo hit + build_dense + x host copy)
+
+M0 - M5 = 2.6228 ms over the sum of the steps (2.6228 ms)
+=== floors ===
+  M0 full evaluate                            5.0725 ms
+  M3 'host glue removed'                      2.8064 ms
+  M4 'host glue + readback removed'           2.9185 ms
+  M4V value variant, no readback              3.0286 ms
+  M5 'pure only' (frozen runner.run())        2.4497 ms
+
+=== drift / overhead controls ===
+  M0_repeat_delta_pct          +65.95 %
+  M3_repeat_delta_pct          +0.97 %
+  M0_plain_overhead_pct        -15.27 %
+
+=== fitness equivalence (M0..M4 must agree) ===
+  M0   sha256 cb37e64a911720bbe5a920a9...  matches M0: True
+  M1   sha256 cb37e64a911720bbe5a920a9...  matches M0: True
+  M2   sha256 cb37e64a911720bbe5a920a9...  matches M0: True
+  M3   sha256 cb37e64a911720bbe5a920a9...  matches M0: True
+  M4   sha256 cb37e64a911720bbe5a920a9...  matches M0: True
+  M4V  (no fitness: forward-only floor, result dropped)
+  M5   (no fitness: forward-only floor, result dropped)
+  M0R  sha256 cb37e64a911720bbe5a920a9...  matches M0: True
+  M3R  sha256 cb37e64a911720bbe5a920a9...  matches M0: True
+  M0P  sha256 cb37e64a911720bbe5a920a9...  matches M0: True
+
+-- upload micro-probe (fresh etl.from_numpy(...).to(device) per payload) --
+   column:opcode shape=[64, 200] bytes=51200
+   column:func_id shape=[64, 200] bytes=51200
+   column:const_value shape=[64, 200] bytes=51200
+   column:var_index shape=[64, 200] bytes=51200
+   column:child1 shape=[64, 200] bytes=51200
+   column:child2 shape=[64, 200] bytes=51200
+   column:child3 shape=[64, 200] bytes=51200
+   x            shape=[64, 2] bytes=512
+   labels       shape=[64, 1] bytes=256
+   keep         shape=[1, 64] bytes=256
+   batch-of-10 median 1.3310 ms (min 1.2924 / max 3.4889, 20 reps)
+   isolated column:opcode median 0.1709 ms  (0.0033 us/KB)
+   isolated column:func_id median 0.1568 ms  (0.0031 us/KB)
+   isolated column:const_value median 0.1555 ms  (0.0030 us/KB)
+   isolated column:var_index median 0.1566 ms  (0.0031 us/KB)
+   isolated column:child1 median 0.1558 ms  (0.0030 us/KB)
+   isolated column:child2 median 0.1558 ms  (0.0030 us/KB)
+   isolated column:child3 median 0.1560 ms  (0.0030 us/KB)
+   isolated x            median 0.1570 ms  (0.3066 us/KB)
+   isolated labels       median 0.1432 ms  (0.5594 us/KB)
+   isolated keep         median 0.1429 ms  (0.5582 us/KB)
+
+record: test/benchmark/r5/results/q6_floors/rerun_1/floor_f200.json
