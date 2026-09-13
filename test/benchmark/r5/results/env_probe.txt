@@ -1,0 +1,79 @@
+# test/benchmark/r5/results/env_probe.txt -- R5 Phase 0 environment freeze (no GPU work)
+# generated: 2026-09-13T20:28:13+08:00
+# host: bmi-9   user: bchuang   cwd: /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A65
+
+## evogp checkout (the source under measurement)
+evogp_repo_root = /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A65
+evogp_commit    = d23718a52a8fdf0d12bf952472a637f233cca4f2
+evogp_branch    = evogit-agent-T1-A65
+evogp_describe  = d23718a
+evogp_status_short:
+  ?? test/benchmark/r5/.gitignore
+  ?? test/benchmark/r5/results/
+  (end -- the only entries are the R5 deliverables themselves being written by this phase; no tracked
+   file in the checkout is modified, i.e. the measured source tree is unmodified upstream code.)
+evogp_file (as the harness records it) = /mnt/local-ssd/bchuang/evogp/.genesis/workers/worker_T1_A65/src/evogp/__init__.py
+
+## ETL (the evaluation engine dependency; READ-ONLY foreign repo)
+etl_repo        = /mnt/local-ssd/bchuang/etl
+etl_rev         = 96df7da8f2ba39f52cf2f2b61888e67f70471bc9
+etl_branch      = main
+etl_status_short:
+  (end -- empty means clean working tree at round start)
+etl_file        = /mnt/local-ssd/bchuang/etl/etl/__init__.py
+etl_version     = 0.1.0
+etl_spec        = /mnt/local-ssd/bchuang/etl/etl/__init__.py
+note            = the venv imports etl through its PEP-660 editable finder of the foreign checkout above;
+                  the editable install, NOT a src/ copy, is the round's primary measurement identity.
+
+## interpreter / torch (project venv)
+python          = 3.11.2
+python_bin      = /mnt/local-ssd/bchuang/evox/.venv/bin/python
+torch           = 2.6.0+cu124
+torch_cuda      = 12.4
+cuda_available  = True device_count = 8
+device_names    = ['NVIDIA RTX A6000', 'NVIDIA RTX A6000', 'NVIDIA RTX A6000', 'NVIDIA RTX A6000', 'NVIDIA RTX A6000', 'NVIDIA RTX A6000', 'NVIDIA RTX A6000', 'NVIDIA RTX A6000']
+
+## host driver / GPUs
+driver_version  = 535.247.01
+gpu_index,name,util.gpu,memory.used (MiB):
+  0, NVIDIA RTX A6000, 0, 30541, 49140
+  1, NVIDIA RTX A6000, 96, 19999, 49140
+  2, NVIDIA RTX A6000, 0, 4525, 49140
+  3, NVIDIA RTX A6000, 0, 30629, 49140
+  4, NVIDIA RTX A6000, 0, 2935, 49140
+  5, NVIDIA RTX A6000, 0, 267, 49140
+  6, NVIDIA RTX A6000, 0, 30493, 49140
+  7, NVIDIA RTX A6000, 0, 1, 46068
+gpu6_sample     = 6, NVIDIA RTX A6000, 0, 30493, 49140
+gpu7            = present but hardware-ECC-faulty: NEVER used by any R5 cell
+
+## profilers (see results/tool_recon/README.md)
+nsys            = NVIDIA Nsight Systems version 2022.4.2.1-df9881f
+nsys_importer   = /usr/lib/nsight-systems/host-linux-x64/QdstrmImporter
+ncu             = Version 2022.3.0.0 (build 31729285) (public-release)
+state           = nsys collection OK but QDSTRM import/analysis FAILS (Unknown runtime API function index: 440);
+                  ncu refuses to profile ('API call is not supported in the installed CUDA driver') =>
+                  kernel-level profiling is UNAVAILABLE this round.
+
+## benchmark environment knobs (round defaults)
+CUDA_VISIBLE_DEVICES (shell default) = <unset>  -> R5 cells pin CUDA_VISIBLE_DEVICES=6 explicitly
+lock            = /tmp/gpbench_critical.lock   (exactly one 'flock -w 7200' per invocation, never nested)
+rlimit_nofile   = 65536 (soft == hard == 65536 in a fresh shell; cells still re-raise before IREE)
+ETL_DISABLE_LOCATIONS = 1 (set by every R5 cell; ~4x faster ETL tracing, not part of the ETL compile-cache key)
+primary new-side env  = PYTHONPATH=src EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 EVOGP_ETL_IREE_OPT_LEVEL=O1
+
+## auxiliary checkouts (read-only, /tmp-scoped)
+legacy_checkout = /tmp/evogp_legacy_bench  (b613503 pre-rewrite build)
+  present: yes
+  legacy .so    = /tmp/evogp_legacy_bench/src/evogp/evogp_cuda.cpython-311-x86_64-linux-gnu.so
+  legacy PYTHONPATH = /tmp/evogp_legacy_bench/src:/tmp/evogp_t1a263/siteutils (present)
+  legacy checkout git HEAD = <not a git checkout>
+etl_shadow_87c7562 = /tmp/evogp_etl_patched_87c7562 (present) -- optional bridge cell only
+
+## fixtures
+test/goldens/forest_random.npz  sha256=0bfb0bbf48cd65832b2c024480bc572de5121675946d3611a2c7a5b234ff9ca0
+test/benchmark/fixtures/forest200_tree64_random.npz  sha256=6789ef61ecf8898b9b2a00774ee655e20b0b5be7c72eb861afc8d6b8799741b9
+
+## /tmp capacity (records are written into the repo, not /tmp)
+  /dev/nvme0n1p2  458G  419G   16G  97% /

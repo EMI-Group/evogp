@@ -1,0 +1,28 @@
+Processing [0%                                                                 ]Processing [1%                                                                 ]Processing [2%                                                                 ]Processing [==============26%                                                  ]Processing [===============================51%                                 ]Processing [=================================54%                               ]Processing [===================================57%                             ]Processing [==============================================74%                  ]Processing [==========================================================92%      ]Processing [============================================================95%    ]Processing [==============================================================98%  ]Processing [===============================================================99% ]Processing [===============================================================100%]
+
+**** Analysis failed with:
+Status: TargetProfilingFailed
+Props {
+  Items {
+    Type: DeviceId
+    Value: "Local (CLI)"
+  }
+}
+Error {
+  Type: RuntimeError
+  SubError {
+    Type: ProcessEventsError
+    Props {
+      Items {
+        Type: ErrorText
+        Value: "/build/agent/work/323cb361ab84164c/QuadD/Host/Analysis/Modules/TraceProcessEvent.cpp(45): Throw in function const string& {anonymous}::GetCudaCallbackName(bool, uint32_t, const QuadDAnalysis::MoreInjection&)\nDynamic exception type: boost::wrapexcept<QuadDCommon::InvalidArgumentException>\nstd::exception::what: InvalidArgumentException\n[QuadDCommon::tag_message*] = Unknown runtime API function index: 440\n"
+      }
+    }
+  }
+}
+
+
+**** Errors occurred while processing the raw events. ****
+**** Please see the Diagnostics Summary page after opening the report file in GUI. ****
+
+Saved report file to "/tmp/evogp_r5recon/dummy3.nsys-rep"
