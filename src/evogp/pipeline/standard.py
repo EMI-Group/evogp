@@ -93,8 +93,8 @@ class StandardPipeline(BasePipeline):
         ]
 
         max_f, min_f, mean_f, std_f = (
-            max(valid_fitness),
-            min(valid_fitness),
+            torch.max(valid_fitness),
+            torch.min(valid_fitness),
             torch.mean(valid_fitness),
             torch.std(valid_fitness),
         )
