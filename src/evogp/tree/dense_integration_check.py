@@ -28,9 +28,12 @@ Stages
               masks exact, finite values within rtol/atol 1e-4, with the
               non-bit-exact finite count reported.  The returned tensors are
               contract-checked (fresh, contiguous, no grad, float32; the SR loss is
-              writable) and the ``auto`` policy on numpy is verified to stay on the
-              specialized path (one compile per tree instead of one for the
-              population).
+              writable) and the ``auto`` policy with an explicit ``numpy`` backend is
+              verified to stay on the specialized path (one compile per tree instead
+              of one for the population), while the DEFAULT route (no explicit
+              backend) is checked against the pinned device probe: dense+``iree``
+              from ``EVOGP_DENSE_AUTO_MIN_POP`` (64) up on a device box,
+              specialized+``numpy`` below it and on a box with no device.
 ``fallback``  an ``output_len=2`` population with OUT_NODE-tagged function nodes:
               ``evaluate_dense`` must signal ``DenseUnsupported``, the public calls
               must fall back silently and produce exactly the specialized result
@@ -172,12 +175,15 @@ def check_writable(name: str, tensor: torch.Tensor, recompute, report: Report) -
 
 
 def set_mode(mode: str, backend: Optional[str] = None) -> None:
-    """Flip the master switch (and optionally the engine backend) in-process."""
+    """Flip the master switch (and the engine backend) in-process.
+
+    The backend is always NAMED (``numpy`` when the stage does not say otherwise):
+    a forced ``dense`` leg without an explicit backend would go to the device
+    backend on a GPU box under the default route policy, which is not what the
+    numpy parity stages measure.
+    """
     os.environ["EVOGP_EVAL_MODE"] = mode
-    if backend is None:
-        os.environ.pop("EVOGP_EVOXC_BACKEND", None)
-    else:
-        os.environ["EVOGP_EVOXC_BACKEND"] = backend
+    os.environ["EVOGP_EVOXC_BACKEND"] = "numpy" if backend is None else backend
 
 
 # ---------------------------------------------------------------------------
@@ -446,7 +452,7 @@ def stage_numpy(args, report: Report) -> None:
     for label, forest, tree_indices in populations:
         _parity_case(forest, label, report, tree_indices=tree_indices)
 
-    # -- the `auto` policy on numpy must stay on the specialized path ----------
+    # -- the `auto` policy with an EXPLICIT numpy backend must stay specialized --
     print("-- auto policy check (numpy) --")
     forest = random_population(21, 12, 16, 3, 0.4, FUNCS_NAMES, 3)
     inputs = torch.randn(6, forest.input_len, device=_DEVICE)
@@ -487,22 +493,65 @@ def stage_numpy(args, report: Report) -> None:
         D.should_use_dense(forest.pop_size) is False
         and D.should_use_dense(forest.pop_size, eval_mode="dense") is True
         and D.should_use_dense(forest.pop_size, eval_mode="specialized") is False
-        and D.should_use_dense(16, eval_mode="auto", backend="iree") is True
-        and D.should_use_dense(15, eval_mode="auto", backend="iree") is False
+        and D.should_use_dense(64, eval_mode="auto", backend="iree") is True
+        and D.should_use_dense(63, eval_mode="auto", backend="iree") is False
         and D.should_use_dense(10**4, eval_mode="auto", backend="numpy") is False,
         "auto+numpy=False (even at P=1e4), dense=True, specialized=False, "
-        "auto+iree: P=16 -> True, P=15 -> False",
+        "auto+iree: P=64 -> True, P=63 -> False",
     )
     report.add(
         "should_use_dense() auto rows gate (iree)",
-        D.should_use_dense(16, backend="iree", rows=2048) is True
-        and D.should_use_dense(16, backend="iree", rows=2049) is False
-        and D.should_use_dense(16, backend="iree", rows=None) is True
-        and D.should_use_dense(15, backend="iree", rows=64) is False
-        and D.should_use_dense(16, backend="iree", rows=10**6, eval_mode="dense") is True,
+        D.should_use_dense(64, backend="iree", rows=2048) is True
+        and D.should_use_dense(64, backend="iree", rows=2049) is False
+        and D.should_use_dense(64, backend="iree", rows=None) is True
+        and D.should_use_dense(63, backend="iree", rows=64) is False
+        and D.should_use_dense(64, backend="iree", rows=10**6, eval_mode="dense") is True,
         f"auto+iree: 2048 rows -> True, 2049 -> False (EVOGP_DENSE_AUTO_MAX_ROWS="
         f"{D.resolve_auto_max_rows()}), rows=None (per_row=True) -> True, "
-        "P=15 -> False; explicit dense (rows=1e6) -> True, never gated",
+        "P=63 -> False; explicit dense (rows=1e6) -> True, never gated",
+    )
+    # -- the DEFAULT route policy (no EVOGP_EVOXC_BACKEND): dense+iree from 64 up
+    #    on a device box, specialized+numpy below -- pinned so the box does not
+    #    decide what this check asserts.
+    previous_probe = getattr(D, "_DEVICE_AVAILABLE", None)
+    previous_backend = os.environ.pop("EVOGP_EVOXC_BACKEND", None)
+    previous_mode = os.environ.pop("EVOGP_EVAL_MODE", None)
+    try:
+        D._DEVICE_AVAILABLE = True
+        device_route = D.resolve_route(64)
+        below_route = D.resolve_route(63)
+        tree_route = D.resolve_route(1)
+        D._DEVICE_AVAILABLE = False
+        cpu_route = D.resolve_route(64)
+    finally:
+        D._DEVICE_AVAILABLE = previous_probe
+        if previous_backend is not None:
+            os.environ["EVOGP_EVOXC_BACKEND"] = previous_backend
+        if previous_mode is not None:
+            os.environ["EVOGP_EVAL_MODE"] = previous_mode
+    report.add(
+        "default route (no explicit backend): dense+iree from 64 up on a device box",
+        device_route.use_dense is True
+        and device_route.backend == "iree"
+        and device_route.fallback_backend == "numpy",
+        f"resolve_route(64) -> dense={device_route.use_dense} "
+        f"backend={device_route.backend} fallback={device_route.fallback_backend}",
+    )
+    report.add(
+        "default route below the threshold: specialized+numpy (Tree included)",
+        below_route.use_dense is False
+        and below_route.backend == "numpy"
+        and tree_route.use_dense is False
+        and tree_route.backend == "numpy",
+        f"resolve_route(63) -> dense={below_route.use_dense} "
+        f"backend={below_route.backend}; resolve_route(1) -> "
+        f"dense={tree_route.use_dense} backend={tree_route.backend}",
+    )
+    report.add(
+        "default route with no device: specialized+numpy at every pop_size",
+        cpu_route.use_dense is False and cpu_route.backend == "numpy",
+        f"resolve_route(64) with no device -> dense={cpu_route.use_dense} "
+        f"backend={cpu_route.backend}",
     )
 
     # -- the combined multi-output container forwards through Forest ------------
@@ -645,8 +694,9 @@ def stage_fallback(args, report: Report) -> None:
 
 
 def stage_iree(args, report: Report) -> None:
-    print("== stage iree: auto policy on the CUDA HAL (P=32, N=32) ==")
-    pop, input_len, num_data = 32, 3, 32
+    print("== stage iree: auto policy on the CUDA HAL (P=64, N=32) ==")
+    # P=64 is the default route policy's dense threshold (EVOGP_DENSE_AUTO_MIN_POP)
+    pop, input_len, num_data = D.DEFAULT_AUTO_MIN_POP, 3, 32
     forest = random_population(99, pop, 16, input_len, 0.5, FUNCS_NAMES, 3)
     torch.manual_seed(4321)
     inputs = torch.randn(num_data, input_len, device=_DEVICE)
@@ -662,7 +712,7 @@ def stage_iree(args, report: Report) -> None:
         os.environ["EVOGP_EVOXC_DEVICE"] = str(args.gpu)
     policy = D.should_use_dense(pop)
     report.add(
-        "auto+iree selects dense for P=32",
+        f"auto+iree selects dense for P={pop} (the route policy threshold)",
         policy is True,
         f"backend={D.resolve_backend_name()} should_use_dense={policy}",
     )

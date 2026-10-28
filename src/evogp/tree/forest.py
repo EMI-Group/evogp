@@ -107,13 +107,15 @@ class Forest:
             self.input_len,
         ), f"x shape should be ({self.pop_size}, {self.input_len}), but got {x.shape}"
 
-        # EVOGP_EVAL_MODE decides whether the whole population is evaluated by ONE
-        # dense evoxc graph (dense_engine) or per tree structure (evoxc_engine); see
-        # dense_engine's module docstring for the policy.  A population the dense
-        # evaluator cannot handle raises DenseUnsupported and is evaluated by the
-        # specialized path below, unchanged (the fallback is deliberate and only
-        # covers that one exception type).
-        if dense_engine.should_use_dense(self.pop_size):
+        # The route policy (``dense_engine.resolve_route``) decides whether the whole
+        # population is evaluated by ONE dense evoxc graph or per tree structure, and
+        # on which backend; see dense_engine's module docstring for the policy.  A
+        # population the dense evaluator cannot handle raises DenseUnsupported and is
+        # evaluated by the specialized path below, on the route's fallback backend
+        # (the fallback is deliberate and only covers that one exception type).
+        route = dense_engine.resolve_route(self.pop_size)
+        backend = route.backend
+        if route.use_dense:
             try:
                 return dense_engine.evaluate_dense(
                     self.batch_node_value,
@@ -123,9 +125,10 @@ class Forest:
                     self.output_len,
                     x,
                     per_row=True,
+                    backend=backend,
                 )
             except dense_engine.DenseUnsupported:
-                pass
+                backend = route.fallback_backend
 
         pop = evoxc_engine.decode_population(
             self.batch_node_value,
@@ -134,7 +137,7 @@ class Forest:
             self.input_len,
             self.output_len,
         )
-        return evoxc_engine.evaluate(pop, x, per_row=True)
+        return evoxc_engine.evaluate(pop, x, per_row=True, backend=backend)
 
     # (batch_size, input_len) -> (pop_size, batch_size, output_len)
     def batch_forward(self, x: Tensor) -> Tensor:
@@ -144,8 +147,10 @@ class Forest:
             x.shape[1] == self.input_len
         ), f"x shape[1] should be {self.input_len}, but got {x.shape[1]}"
 
-        # Dense attempt / fallback as in ``forward`` (per_row=False here).
-        if dense_engine.should_use_dense(self.pop_size):
+        # Route decision / fallback as in ``forward`` (per_row=False here).
+        route = dense_engine.resolve_route(self.pop_size)
+        backend = route.backend
+        if route.use_dense:
             try:
                 return dense_engine.evaluate_dense(
                     self.batch_node_value,
@@ -155,9 +160,10 @@ class Forest:
                     self.output_len,
                     x,
                     per_row=False,
+                    backend=backend,
                 )
             except dense_engine.DenseUnsupported:
-                pass
+                backend = route.fallback_backend
 
         pop = evoxc_engine.decode_population(
             self.batch_node_value,
@@ -166,7 +172,7 @@ class Forest:
             self.input_len,
             self.output_len,
         )
-        return evoxc_engine.evaluate(pop, x, per_row=False)
+        return evoxc_engine.evaluate(pop, x, per_row=False, backend=backend)
 
     def mutate(self, replace_pos: Tensor, new_sub_forest: "Forest") -> "Forest":
         """
@@ -332,10 +338,12 @@ class Forest:
             "auto",
         ], f"execute_mode should be one of ['torch', 'hybrid parallel', 'data parallel', 'tree parallel', 'auto'], but got {execute_mode}"
 
-        # Dense attempt / fallback as in ``forward``: the loss is computed from the
+        # Route decision / fallback as in ``forward``: the loss is computed from the
         # dense prediction with the very same torch reduction, so the returned
         # tensor is fresh, writable and positive (the caller negates it).
-        if dense_engine.should_use_dense(self.pop_size):
+        route = dense_engine.resolve_route(self.pop_size)
+        backend = route.backend
+        if route.use_dense:
             try:
                 return dense_engine.sr_fitness_dense(
                     self.batch_node_value,
@@ -346,9 +354,10 @@ class Forest:
                     inputs,
                     labels,
                     use_MSE=use_MSE,
+                    backend=backend,
                 )
             except dense_engine.DenseUnsupported:
-                pass
+                backend = route.fallback_backend
 
         pop = evoxc_engine.decode_population(
             self.batch_node_value,
@@ -358,7 +367,7 @@ class Forest:
             self.output_len,
         )
 
-        return evoxc_engine.sr_fitness(pop, inputs, labels, use_MSE=use_MSE)
+        return evoxc_engine.sr_fitness(pop, inputs, labels, use_MSE=use_MSE, backend=backend)
 
     def __getitem__(self, index):
         if isinstance(index, int) or (hasattr(index, "shape") and index.shape == ()):

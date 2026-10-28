@@ -1819,12 +1819,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not torch.cuda.is_available():
         print("[error] the public API relocates to 'cuda'; no GPU is visible")
         return 2
+    # The backend is always NAMED, including the numpy one: the battery's forced
+    # ``dense`` legs go through ``Forest.forward`` / ``Forest.SR_fitness``, and
+    # without an explicit backend the default route policy would send them to the
+    # device backend on a GPU box -- not what the numpy bit-exactness checks mean.
+    os.environ["EVOGP_EVOXC_BACKEND"] = args.backend
     if args.backend == "iree":
-        # resolve the backend through the engine so the environment matches
-        os.environ["EVOGP_EVOXC_BACKEND"] = "iree"
         os.environ["EVOGP_EVOXC_DEVICE"] = str(args.gpu)
-    else:
-        os.environ.pop("EVOGP_EVOXC_BACKEND", None)
 
     args.max_tree_len = int(D.resolve_auto_min_pop(args.max_tree_len)) if False else args.max_tree_len
     report = Report(strict_bits=args.strict_bits)

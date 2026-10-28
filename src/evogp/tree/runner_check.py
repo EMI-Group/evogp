@@ -1123,7 +1123,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if name not in _STAGES:
             print(f"unknown stage {name!r}: expected one of {list(_STAGES)}")
             return 2
-    args.backend_env = None if not iree else "iree"
+    # The engine backend is always NAMED for the builders (``set_mode`` writes it
+    # explicitly so a forced ``dense`` leg cannot fall through to the device route
+    # on a GPU box); ``_backend`` still treats ``"numpy"`` as the default (unset).
+    args.backend_env = args.backend
     if args.pop is None:
         args.pop = 4 if iree else 8
     if args.rows is None:

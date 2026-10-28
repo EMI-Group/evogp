@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import cProfile
+import os
 import pstats
 import statistics
 import sys
@@ -79,6 +80,11 @@ def main() -> int:
     parser.add_argument("--top", type=int, default=25)
     parser.add_argument("--json-out", default=None)
     args = parser.parse_args()
+
+    # This probe times the SPECIALIZED route only, so pin it unless the caller
+    # asked for another mode explicitly: the default route policy would otherwise
+    # pick the dense iree graph for populations of 64 and up on a device box.
+    os.environ.setdefault("EVOGP_EVAL_MODE", "specialized")
 
     from evogp.tree import Forest, evoxc_engine
 

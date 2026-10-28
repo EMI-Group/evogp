@@ -75,10 +75,14 @@ class Tree:
             x.shape[1] == self.input_len
         ), f"x shape should be {self.input_len}, but got {x.shape[1]}"
 
-        # EVOGP_EVAL_MODE decides between the dense (one graph for the whole
-        # population) and the specialized (one graph per tree) engine; a single
-        # tree is a population of one, and DenseUnsupported falls back below.
-        if dense_engine.should_use_dense(1):
+        # The route policy decides between the dense (one graph for the whole
+        # population) and the specialized (one graph per tree) engine, and on which
+        # backend; a single tree is a population of one, so under the default ``auto``
+        # route it never starts a per-tree iree compile.  DenseUnsupported falls back
+        # below on the route's fallback backend.
+        route = dense_engine.resolve_route(1)
+        backend = route.backend
+        if route.use_dense:
             try:
                 res = dense_engine.evaluate_dense(
                     self.node_value.unsqueeze(0),
@@ -88,10 +92,11 @@ class Tree:
                     self.output_len,
                     x,
                     per_row=is_expand_input,
+                    backend=backend,
                 )
                 return res[0]
             except dense_engine.DenseUnsupported:
-                pass
+                backend = route.fallback_backend
 
         pop = evoxc_engine.decode_population(
             self.node_value.unsqueeze(0),
@@ -104,7 +109,7 @@ class Tree:
         # A 1-D input is the single tree evaluated on one row (per_row); an
         # explicit 2-D input evaluates the tree on every row of the batch.  The
         # population axis (always 1 here) is dropped from the result either way.
-        res = evoxc_engine.evaluate(pop, x, per_row=is_expand_input)
+        res = evoxc_engine.evaluate(pop, x, per_row=is_expand_input, backend=backend)
 
         return res[0]
 
@@ -140,9 +145,11 @@ class Tree:
             self.output_len,
         ), f"outputs shape should be ({batch_size}, {self.output_len}), but got {labels.shape}"
 
-        # Dense attempt / fallback as in ``forward`` (the population is this one
+        # Route decision / fallback as in ``forward`` (the population is this one
         # tree, i.e. pop_size == 1).
-        if dense_engine.should_use_dense(1):
+        route = dense_engine.resolve_route(1)
+        backend = route.backend
+        if route.use_dense:
             try:
                 return dense_engine.sr_fitness_dense(
                     self.node_value[None, :],
@@ -153,9 +160,10 @@ class Tree:
                     inputs,
                     labels,
                     use_MSE=use_MSE,
+                    backend=backend,
                 )
             except dense_engine.DenseUnsupported:
-                pass
+                backend = route.fallback_backend
 
         pop = evoxc_engine.decode_population(
             self.node_value[None, :],
@@ -165,7 +173,9 @@ class Tree:
             self.output_len,
         )
 
-        return evoxc_engine.sr_fitness(pop, inputs, labels, use_MSE=use_MSE)
+        return evoxc_engine.sr_fitness(
+            pop, inputs, labels, use_MSE=use_MSE, backend=backend
+        )
 
     def to_forest(self):
         from .forest import Forest

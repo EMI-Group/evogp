@@ -47,13 +47,18 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
 ``evoxc_engine._resolve_backend``), case-insensitive, default ``auto``:
 
 ``auto`` (default)
-    the measured policy, implemented once in :func:`should_use_dense` (plus the
-    rows half in :func:`auto_rows_decline`): on the ``numpy`` backend the
-    specialized engine wins at every measured ``pop_size`` (dense measured
-    0.006-0.91x there), so dense is not used; on the ``iree`` backend dense is
-    used when the population is dense-supported *and*
+    the measured policy, implemented once in :func:`resolve_route` (the rows half
+    in :func:`auto_rows_decline`), which also decides the BACKEND per call: with
+    no explicit backend (neither ``EVOGP_EVOXC_BACKEND`` nor ``backend=``) and a
+    GPU usable from torch, ``auto`` runs the DENSE route on ``iree`` from
     ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP`` (default
-    :data:`DEFAULT_AUTO_MIN_POP` = 16) *and*, on ``per_row=False`` calls,
+    :data:`DEFAULT_AUTO_MIN_POP` = 64) up and the SPECIALIZED route on ``numpy``
+    below it -- and on numpy for every dense decline/fallback
+    (:class:`DenseUnsupported` included), because a per-tree iree compile
+    (271-284 ms/tree) can never amortize.  On a box with no device, and with an
+    explicit backend, the historical rule is unchanged: dense iff the resolved
+    backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
+    *and*, on ``per_row=False`` calls,
     ``rows <= EVOGP_DENSE_AUTO_MAX_ROWS`` (default
     :data:`DEFAULT_AUTO_MAX_ROWS` = 2048).  The wired call sites pass ``pop_size``
     only, so the rows half of the rule is enforced inside
@@ -61,20 +66,26 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
     (:func:`sr_fitness_dense` goes through it too); ``per_row=True`` (one row per
     tree) and an explicit ``EVOGP_EVAL_MODE=dense`` are never gated, and a
     decline surfaces as the usual :class:`DenseUnsupported` fallback.
-    Rationale: the dense path pays ONE compile for the whole population (≈13.9 s
-    at ``L=32``, ≈31.6 s at the default cap ``L=64``) against ~0.5 s *per distinct
-    structure* for the specialized path, so the compile-term crossover is only
-    ~25-35 trees at ``L=32`` (≈45-60 at ``L=64``; hence the flat
-    ``pop_size`` gate), while warm dense is 1.3-3.2x faster at small ``N`` where
-    both sides are measured directly and 1.18x *slower* at ``P=16/N=10000`` --
-    its cost grows with the data-row count while the specialized engine's is
-    rows-flat (1.24-1.94 ms/tree from N=64 to N=10000) -- hence the rows ceiling,
-    ~2x below the tightest measured crossover (~3.4-6.8k rows at ``P=16``).
+    Rationale: the dense path pays ONE compile for the whole population (3.1-3.4 s
+    at ``L=32``, 6.1 s at the default cap ``L=64``) against 271-284 ms *per
+    distinct structure* on iree, so the warm per-call win (0.5 ms at ``P=16``,
+    ~7 ms at ``P=64``, ~34 ms at ``P=256``, ~141 ms at ``P=1000``) pays that
+    compile back after ~6300/460/95/23 calls -- hence the ``pop_size`` gate at the
+    population where a GP run is a few hundred generations in (lower
+    ``EVOGP_DENSE_AUTO_MIN_POP`` to 16 for a very long run), while warm dense is
+    1.3-3.2x faster at small ``N`` where both sides are measured directly and
+    1.18x *slower* at ``P=16/N=10000`` -- its cost grows with the data-row count
+    while the specialized engine's is rows-flat (1.24-1.94 ms/tree from N=64 to
+    N=10000) -- hence the rows ceiling, ~2x below the tightest measured crossover
+    (~3.4-6.8k rows at ``P=16``).
 ``dense``
     always attempt the dense path (still falling back on
-    :class:`DenseUnsupported`).
+    :class:`DenseUnsupported`); with no explicit backend it uses the device
+    backend on a device box (a user forcing dense wants the fast dense route) and
+    ``numpy`` elsewhere.
 ``specialized``
-    never use dense; the specialized engine only.
+    never use dense; the specialized engine only, on the explicitly named (or
+    engine-default) backend.
 
 Any other value raises ``ValueError`` naming the variable.  The dense-specific
 knobs below stay as they are.
@@ -158,8 +169,10 @@ Environment knobs
 =============================== =========== ==================================
 ``EVOGP_EVAL_MODE``             auto        ``dense`` / ``specialized`` / ``auto``
                                             (the master switch above)
-``EVOGP_DENSE_AUTO_MIN_POP``    16          the ``auto`` policy's pop-size
-                                            threshold on the iree backend
+``EVOGP_DENSE_AUTO_MIN_POP``    64          the ``auto`` policy's pop-size
+                                            threshold (dense+iree from here up
+                                            on a device box, specialized+numpy
+                                            below it)
 ``EVOGP_DENSE_AUTO_MAX_ROWS``  2048        rows ceiling of the ``auto``
                                             policy on ``per_row=False`` calls;
                                             a decline -> ``DenseUnsupported``
@@ -284,19 +297,23 @@ Run: repo root, ``PYTHONPATH=src EVOXC_DISABLE_LOCATIONS=1``, venv
 7. **Consequence for the integration policy** (this is what ``auto`` encodes).
    The dense path is a *shape-signature-specialized, one-compile-per-population*
    strategy whose realistic home is iree (or a future batched-kernel backend);
-   its worst enemy is the per-position candidate chain.  So ``auto`` never uses
-   it on numpy and uses it on iree only when the population is dense-supported,
-   ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP`` (16) and, on ``per_row=False`` calls,
+   its worst enemy is the per-position candidate chain.  So ``auto`` uses it on
+   iree only when the population is dense-supported,
+   ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP`` (64 since the pruned chain made the
+   per-call win large; the pre-prune crossover was ~25-35 trees for the compile
+   term) and, on ``per_row=False`` calls,
    ``rows <= EVOGP_DENSE_AUTO_MAX_ROWS`` (2048, enforced inside
    :func:`evaluate_dense`; ``per_row=True`` and an explicit ``dense`` are never
-   gated; a decline is the usual :class:`DenseUnsupported` fallback).  Firm-up
-   crossovers: ~25-35 trees for the compile term, ~3.4-6.8k rows warm at
-   ``P=16`` (dense 1.18x slower at ``P=16/N=10000``).  The cheapest large win
-   identified but not implemented: pass the population's *used function id set*
-   (or its descriptor's ``using_funcs``) as a static cfg entry and emit only those
-   candidates — roughly a 3× op-count cut, paid for by recompiles only when the
-   used-id set changes (it saturates quickly in a GP run).  That would move the
-   iree crossover down and is the first follow-up if a validation round needs it.
+   gated; a decline is the usual :class:`DenseUnsupported` fallback), and it never
+   selects the numpy backend for the dense route on its own.
+   Firm-up crossovers: ~3.4-6.8k rows warm at ``P=16`` (dense 1.18x slower at
+   ``P=16/N=10000``).  The cheapest large win identified: pass the population's
+   *used function id set* (or its descriptor's ``using_funcs``) as a static cfg
+   entry and emit only those candidates — roughly a 3× op-count cut, paid for by
+   recompiles only when the used-id set changes (it saturates quickly in a GP
+   run).  That moved the iree crossover down and is the ``EVOGP_DENSE_PRUNE``
+   default; the compile numbers quoted in this module are the full-chain ones
+   unless stated otherwise.
 
 Benchmark-support runner (not part of the public route)
 -------------------------------------------------------
@@ -326,6 +343,7 @@ import evoxc
 
 from .utils import NType
 from .evoxc_engine import (  # private but deliberately reused: parity by construction
+    BACKEND_ENV,
     CACHE,
     _CPU,
     _as_numpy,
@@ -367,6 +385,7 @@ __all__ = [
     "OP_TFUNC",
     "OP_UFUNC",
     "OP_VAR",
+    "Route",
     "UPDATE_MODES",
     "UPDATE_MODE_ENV",
     "auto_rows_decline",
@@ -374,6 +393,7 @@ __all__ = [
     "build_dense_runner",
     "dense_peak_bytes",
     "describe_plan",
+    "device_available",
     "evaluate_dense",
     "plan_dense",
     "prepare_dense",
@@ -382,6 +402,7 @@ __all__ = [
     "resolve_backend_name",
     "resolve_eval_mode",
     "resolve_prune",
+    "resolve_route",
     "should_use_dense",
     "sr_fitness_dense",
 ]
@@ -391,15 +412,16 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 #: Master switch (``EVOGP_EVAL_MODE``): ``dense`` / ``specialized`` / ``auto``.
-#: The ONE policy knob; :func:`resolve_eval_mode` / :func:`should_use_dense`
-#: read it per call, exactly like ``evoxc_engine._resolve_backend`` reads the
-#: backend variable.
+#: The ONE policy knob; :func:`resolve_eval_mode` / :func:`resolve_route` read it
+#: per call, exactly like ``evoxc_engine._resolve_backend`` reads the backend
+#: variable.
 EVAL_MODE_ENV = "EVOGP_EVAL_MODE"
-#: Population-size threshold of the ``auto`` policy on a non-numpy backend
-#: (``EVOGP_DENSE_AUTO_MIN_POP``) -- see :func:`should_use_dense`.
+#: Population-size threshold of the ``auto`` policy
+#: (``EVOGP_DENSE_AUTO_MIN_POP``): dense+iree from here up on a device box,
+#: specialized+numpy below it -- see :func:`resolve_route`.
 AUTO_MIN_POP_ENV = "EVOGP_DENSE_AUTO_MIN_POP"
-#: Data-row ceiling of the ``auto`` policy on a non-numpy backend
-#: (``EVOGP_DENSE_AUTO_MAX_ROWS``) for ``per_row=False`` calls: dense cost grows
+#: Data-row ceiling of the ``auto`` policy (``EVOGP_DENSE_AUTO_MAX_ROWS``) for
+#: ``per_row=False`` calls: dense cost grows
 #: with ``rows`` while the specialized cost is rows-flat, so above the crossover
 #: dense loses at any population -- see :func:`auto_rows_decline`.
 AUTO_MAX_ROWS_ENV = "EVOGP_DENSE_AUTO_MAX_ROWS"
@@ -437,9 +459,14 @@ VALUE_VARIANT = "value"
 LOSS_VARIANT = "loss"
 PLAN_VARIANTS = (VALUE_VARIANT, LOSS_VARIANT)
 
-#: Crossover measured on iree (specialized's ~0.9 s *per tree* against one dense
-#: compile): ~``P = 10-20`` at small ``L``.  Rounded up; env-overridable.
-DEFAULT_AUTO_MIN_POP = 16
+#: Pop-size threshold of the ``auto`` policy, measured on the current pruned
+#: dense chain (one dense compile at ``L=32`` on iree is 3.1-3.4 s / 6.1 s at
+#: ``L=64``): the warm per-call win of dense+iree over specialized+numpy is
+#: 0.5 ms at ``P=16``, ~7 ms at ``P=64``, ~34 ms at ``P=256`` and ~141 ms at
+#: ``P=1000``, i.e. the compile is paid back after ~6300 / ~460 / ~95 / ~23
+#: calls.  64 is the population where a GP run is a few hundred generations in;
+#: lower it to 16 (``EVOGP_DENSE_AUTO_MIN_POP=16``) for a very long run.
+DEFAULT_AUTO_MIN_POP = 64
 #: Rows crossover measured on iree (RTX A6000, ``L=32``) for the smallest
 #: population the ``auto`` policy admits: dense is 1.49x / 1.30x faster than the
 #: specialized engine at P=16 with 64 / 1024 rows and 1.18x *slower* at 10000
@@ -603,6 +630,29 @@ def resolve_auto_max_rows(value: Optional[int] = None) -> int:
     return maximum
 
 
+def _rows_decline_reason(
+    rows: Optional[int], *, mode: str, auto_max_rows: Optional[int]
+) -> Optional[str]:
+    """The rows rule itself: why ``auto`` declines dense at ``rows`` (else ``None``).
+
+    Private single source of the half-rule; :func:`auto_rows_decline` (public, mode
+    resolved from ``eval_mode``) and :func:`resolve_route` (which already has the
+    resolved mode) both go through it, so the threshold exists once.
+    """
+    if rows is None or mode != "auto":
+        return None
+    maximum = resolve_auto_max_rows(auto_max_rows)
+    if int(rows) <= maximum:
+        return None
+    return (
+        f"auto policy: {int(rows)} data rows exceed {AUTO_MAX_ROWS_ENV}={maximum}; "
+        "the dense graph is rows-linear while the specialized engine is rows-flat "
+        "(dense measured 1.18x slower at P=16/N=10000 on iree, see "
+        "dense_bench_results.json / dense_bench_findings.md). "
+        "Set EVOGP_EVAL_MODE=dense to force it."
+    )
+
+
 def auto_rows_decline(
     rows: Optional[int],
     *,
@@ -618,17 +668,153 @@ def auto_rows_decline(
     always wins -- the user's opt-in is not second-guessed, the same way an
     explicit ``specialized`` is never overridden.
     """
-    if rows is None or resolve_eval_mode(eval_mode) != "auto":
-        return None
-    maximum = resolve_auto_max_rows(auto_max_rows)
-    if int(rows) <= maximum:
-        return None
-    return (
-        f"auto policy: {int(rows)} data rows exceed {AUTO_MAX_ROWS_ENV}={maximum}; "
-        "the dense graph is rows-linear while the specialized engine is rows-flat "
-        "(dense measured 1.18x slower at P=16/N=10000 on iree, see "
-        "dense_bench_results.json / dense_bench_findings.md). "
-        "Set EVOGP_EVAL_MODE=dense to force it."
+    return _rows_decline_reason(
+        rows, mode=resolve_eval_mode(eval_mode), auto_max_rows=auto_max_rows
+    )
+
+
+#: Memo of the route policy's device probe (a ``torch.cuda.is_available()``-style
+#: check, which is also True on ROCm).  ``None`` = not probed yet; the probe runs at
+#: most once per process, is monkeypatchable and is never reached when a backend was
+#: named explicitly -- ``EVOGP_EVOXC_BACKEND=numpy`` therefore forces the pure-CPU
+#: route with no probe side effects at all.
+_DEVICE_AVAILABLE: Optional[bool] = None
+
+
+def device_available() -> bool:
+    """Whether the route policy may pick a device backend (memoized probe)."""
+    global _DEVICE_AVAILABLE
+    if _DEVICE_AVAILABLE is None:
+        _DEVICE_AVAILABLE = bool(torch.cuda.is_available())
+    return _DEVICE_AVAILABLE
+
+
+@dataclass(frozen=True)
+class Route:
+    """The route policy's decision for one call.
+
+    ``backend`` is always a concrete backend NAME (``"numpy"`` / ``"iree"``) that
+    the call site passes explicitly to :func:`evaluate_dense` /
+    :func:`sr_fitness_dense` (when ``use_dense``) or to
+    :func:`evoxc_engine.evaluate` / :func:`evoxc_engine.sr_fitness` (``backend``,
+    or ``fallback_backend`` after a :class:`DenseUnsupported`), so the route -- not
+    an ambient environment variable -- decides where a call runs.
+    """
+
+    use_dense: bool
+    backend: str
+    fallback_backend: str
+    reason: str = ""
+
+
+def resolve_route(
+    pop_size: int,
+    *,
+    rows: Optional[int] = None,
+    backend: Optional[str] = None,
+    iree_device_index: Optional[int] = None,
+    eval_mode: Optional[str] = None,
+    auto_min_pop: Optional[int] = None,
+    auto_max_rows: Optional[int] = None,
+) -> Route:
+    """The ONE route policy: dense or specialized, and on which backend.
+
+    Every wired call site (:meth:`evogp.tree.Forest.forward` /
+    ``Forest.batch_forward`` / ``Forest.SR_fitness``, :meth:`evogp.tree.Tree.forward`
+    / ``Tree.SR_fitness``) asks this, so the policy exists exactly once;
+    :func:`should_use_dense` is the boolean view of the same decision.
+    ``pop_size`` is the population about to be evaluated (``1`` for a ``Tree``).
+
+    Precedence: an explicitly provided backend (the ``backend=`` argument or a
+    non-empty ``EVOGP_EVOXC_BACKEND``) first, then ``EVOGP_EVAL_MODE``, then the
+    device probe.
+
+    * ``specialized`` -> never dense, on the explicitly named backend or the
+      engine's own default (``numpy``).
+    * ``dense`` -> always attempt dense; with no explicit backend it uses the
+      device backend on a device box (a user forcing dense wants the fast dense
+      route) and ``numpy`` elsewhere.
+    * ``auto`` with an explicit backend -> the historical rule: dense iff that
+      backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
+      *and* ``rows`` (when given) is inside ``EVOGP_DENSE_AUTO_MAX_ROWS``.
+    * ``auto`` without an explicit backend -> the policy owns the backend: dense on
+      ``iree`` from ``EVOGP_DENSE_AUTO_MIN_POP`` (64) up when a device is
+      available, and ``numpy`` for the specialized route -- below the threshold,
+      with no device, and after a :class:`DenseUnsupported` (a per-tree iree
+      compile costs 271-284 ms/tree and can never amortize).
+    """
+    mode = resolve_eval_mode(eval_mode)
+    explicit = str(backend).strip() if backend else os.environ.get(BACKEND_ENV, "").strip()
+
+    if mode == "specialized":
+        name = resolve_backend_name(backend, iree_device_index)
+        return Route(False, name, name, "EVOGP_EVAL_MODE=specialized: specialized engine only")
+
+    if mode == "dense":
+        name = (
+            resolve_backend_name(backend, iree_device_index)
+            if explicit
+            else ("iree" if device_available() else "numpy")
+        )
+        return Route(
+            True,
+            name,
+            name,
+            "EVOGP_EVAL_MODE=dense: always attempt the dense evaluator"
+            + ("" if explicit else " (device backend when a device is available)"),
+        )
+
+    minimum = resolve_auto_min_pop(auto_min_pop)
+    decline = _rows_decline_reason(rows, mode=mode, auto_max_rows=auto_max_rows)
+    if explicit:
+        # An explicit backend keeps the historical auto rule exactly.
+        name = resolve_backend_name(backend, iree_device_index)
+        if decline:
+            return Route(False, name, name, decline)
+        if name == "numpy":
+            return Route(
+                False, name, name, "auto policy: explicit numpy backend -> specialized"
+            )
+        if int(pop_size) < minimum:
+            return Route(
+                False,
+                name,
+                name,
+                f"auto policy: pop_size={int(pop_size)} < {minimum} "
+                f"({AUTO_MIN_POP_ENV}) -> specialized",
+            )
+        return Route(
+            True,
+            name,
+            name,
+            f"auto policy: explicit {name!r} backend and pop_size={int(pop_size)} "
+            f">= {minimum} ({AUTO_MIN_POP_ENV}) -> dense",
+        )
+    # No explicit backend: the policy picks the backend too.
+    if not device_available():
+        return Route(
+            False,
+            "numpy",
+            "numpy",
+            "auto policy: no CUDA/HIP device usable from torch -> specialized on numpy",
+        )
+    if decline:
+        return Route(False, "numpy", "numpy", decline)
+    if int(pop_size) >= minimum:
+        return Route(
+            True,
+            "iree",
+            "numpy",
+            f"auto policy: device available and pop_size={int(pop_size)} >= "
+            f"{minimum} ({AUTO_MIN_POP_ENV}) -> dense on iree "
+            "(specialized fallback on numpy)",
+        )
+    return Route(
+        False,
+        "numpy",
+        "numpy",
+        f"auto policy: pop_size={int(pop_size)} < {minimum} ({AUTO_MIN_POP_ENV}) "
+        "-> specialized on numpy (a per-tree iree compile cannot amortize there)",
     )
 
 
@@ -644,38 +830,21 @@ def should_use_dense(
 ) -> bool:
     """The ONE policy decision: try the dense evaluator for this population?
 
-    Every wired call site (:meth:`evogp.tree.Forest.forward` /
-    ``Forest.batch_forward`` / ``Forest.SR_fitness``, :meth:`evogp.tree.Tree.forward`
-    / ``Tree.SR_fitness``) asks this, so the policy exists exactly once.
+    The boolean view of :func:`resolve_route` (it delegates, so the rule exists
+    exactly once): ``True`` means the call site attempts the dense evaluator with
+    ``resolve_route(...).backend`` and, on :class:`DenseUnsupported`, continues on
+    the specialized engine with ``resolve_route(...).fallback_backend``.
     ``pop_size`` is the population about to be evaluated (``1`` for a ``Tree``).
-
-    * ``EVOGP_EVAL_MODE=specialized`` -> always ``False`` (never use dense).
-    * ``EVOGP_EVAL_MODE=dense`` -> always ``True``; whether the population can be
-      handled densely at all is answered by :func:`evaluate_dense` /
-      :func:`sr_fitness_dense` raising :class:`DenseUnsupported`, after which the
-      call site falls back.
-    * ``auto`` (default) -- the policy below: dense only on a non-numpy backend,
-      only from :data:`DEFAULT_AUTO_MIN_POP` (16) individuals up (on numpy dense
-      measured 0.01-0.17x *slower* than the specialized path at every size, while
-      on iree it pays one compile for the whole population against the
-      specialized path's ~0.9 s of compile *per tree*; measured crossover ~
-      ``P = 10-20`` at small ``L``), and -- when the caller knows the data-row
-      count and passes ``rows`` -- only up to :data:`DEFAULT_AUTO_MAX_ROWS`
-      (:func:`auto_rows_decline`).  The wired call sites call this with
-      ``pop_size`` only, so the rows half of the rule is enforced by
-      :func:`evaluate_dense` (which :func:`sr_fitness_dense` goes through), which
-      raises :class:`DenseUnsupported` in exactly the same cases.
     """
-    mode = resolve_eval_mode(eval_mode)
-    if mode == "specialized":
-        return False
-    if mode == "dense":
-        return True
-    if auto_rows_decline(rows, eval_mode=mode, auto_max_rows=auto_max_rows):
-        return False
-    return resolve_backend_name(backend, iree_device_index) != "numpy" and int(
-        pop_size
-    ) >= resolve_auto_min_pop(auto_min_pop)
+    return resolve_route(
+        pop_size,
+        rows=rows,
+        backend=backend,
+        iree_device_index=iree_device_index,
+        eval_mode=eval_mode,
+        auto_min_pop=auto_min_pop,
+        auto_max_rows=auto_max_rows,
+    ).use_dense
 
 
 def resolve_update_mode(value: Optional[str], backend_name: Optional[str]) -> str:

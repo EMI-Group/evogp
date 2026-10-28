@@ -38,10 +38,15 @@ outcomes).  Like the battery, this module
 * never asserts wall-clock time (engine timing belongs in the standalone
   ``perf_probe.py``), and keeps its one compiled graph small
   (pop 8 x 8 rows x L 16, numpy backend, milliseconds to build);
-* is hermetic: the three knobs it depends on are cleared per test by the autouse
-  fixture below, every scenario resets the process-global once-per-process flag
-  through ``monkeypatch``, and warnings are captured inside
+* is hermetic: the knobs it depends on are cleared per test by the autouse
+  fixture below, the route policy's device probe is pinned there too, every
+  scenario resets the process-global once-per-process flag through
+  ``monkeypatch``, and warnings are captured inside
   ``warnings.catch_warnings`` so nothing leaks into the suite summary;
+* leaves the ROUTE policy (dense vs specialized and the backend it picks:
+  ``resolve_route`` / ``device_available``, the device-vs-CPU branches and the
+  explicit-backend precedence) to ``test_route_policy.py``, and asks the policy
+  here only through explicit ``backend=`` / ``eval_mode=`` arguments.
 * works under ``EVOGP_EVAL_MODE=dense`` (and any other forced mode), because every
   policy entry point here is called with an explicit argument.
 """
@@ -96,9 +101,13 @@ def hermetic_knobs(monkeypatch):
 
     The knobs read here (the eval-mode master switch, the trace cap, the ``auto``
     policy thresholds and the engine backend) are cleared, so "the default is
-    ``auto``" / "the default cap is 64" / "the default backend is numpy" mean the
-    same thing on a box that exports them.  Each test then sets what it needs on
-    the same ``monkeypatch`` and pytest restores the ambient values at teardown.
+    ``auto``" / "the default cap is 64" / "no backend was named explicitly" mean the
+    same thing on a box that exports them.  The route policy's device probe is
+    pinned to "a device is available" (the interesting branch of the
+    ``auto`` policy), so no assertion here depends on the box the suite runs on --
+    a CPU-box scenario is a test of its own in ``test_route_policy.py``.  Each test
+    then sets what it needs on the same ``monkeypatch`` and pytest restores the
+    ambient values at teardown.
     """
     for name in (
         dense.EVAL_MODE_ENV,
@@ -108,6 +117,7 @@ def hermetic_knobs(monkeypatch):
         EVOXC_BACKEND_ENV,
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(dense, "_DEVICE_AVAILABLE", True)
 
 
 # --------------------------------------------------------------------------- #
@@ -371,7 +381,7 @@ def test_dynamic_alias_targets_dense_in_the_policy():
 
 def test_auto_rows_rule_keeps_its_measured_thresholds():
     """Only ``auto`` is gated, and only above the inclusive ``AUTO_MAX_ROWS`` ceiling."""
-    assert dense.DEFAULT_AUTO_MIN_POP == 16
+    assert dense.DEFAULT_AUTO_MIN_POP == 64
     assert dense.DEFAULT_AUTO_MAX_ROWS == 2048
     assert dense.resolve_auto_min_pop() == dense.DEFAULT_AUTO_MIN_POP
     assert dense.resolve_auto_max_rows() == dense.DEFAULT_AUTO_MAX_ROWS
@@ -404,6 +414,7 @@ def test_auto_rows_rule_keeps_its_measured_thresholds():
         )
         is False
     )
+
 
 
 # --------------------------------------------------------------------------- #
