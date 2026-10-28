@@ -1,5 +1,9 @@
 # evoxc benchmark summary: baseline
 
+> **Scope of this file.** This is the rendered report of the earlier *baseline* round, produced by `summarize.py` from `results/baseline/` (130 records); it is kept as that round's record, not as the current number set.
+> The current numbers are in [`FINAL.md`](FINAL.md), which reports `results/final/after/` (HEAD) against `results/final/before/` (snapshot `530518e`); the plain-text renders of those three passes are `results/final/RENDERED.md`.
+> The `evoxc-auto` columns below are the **specialized** route: the baseline `auto` policy never selected dense (every baseline record has `would_use_dense: false`), while today's `auto` resolves to dense+iree from `pop >= 64`.
+
 Source: `test/benchmark/evoxc/results/baseline` — **130 records**, 20 cells x 7 arms.
 
 The campaign ran **130 configs** sequenced one at a time (`one_process_per_config: True`, `sequential: True`): every (cell, arm) pair gets its own process, so each record pays its own cold compile and inherits no other arm's compile cache.  Elapsed **2461.2 s**, failures **0**.
