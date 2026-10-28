@@ -7,12 +7,12 @@ which the evaluator was written, and the name is kept because the adversarial
 battery imports this module's tree builders) and is meant to be run by hand.
 
     # numpy (CPU) parity battery + measurements
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 \
+    PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 \
         /mnt/local-ssd/bchuang/evox/.venv/bin/python \
         src/evogp/tree/dense_spike_check.py --backend numpy --quick
 
-    # iree-cuda (GPU 3) parity + compile/run numbers (keep it short)
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=3 \
+    # iree-rocm (GPU 3) parity + compile/run numbers (keep it short)
+    PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=3 \
         /mnt/local-ssd/bchuang/evox/.venv/bin/python \
         src/evogp/tree/dense_spike_check.py --backend iree --quick
 
@@ -26,7 +26,7 @@ L in {8,16} so an iree run stays inside a short GPU budget).  Exit code 0 =
 every parity case passed, 1 = at least one mismatch, 2 = a hard error while
 building/running a case.
 
-An iree session must stay under the etl/iree executable-leak budget (~25
+An iree session must stay under the evoxc/iree executable-leak budget (~25
 compiled executables per process segfault the interpreter, see
 ``dense_engine``'s iree-robustness note): the heavy per_row cases
 (``function_sweep`` = 1200 trees, ``random_populations`` = 84 trees, ``shapes``
@@ -58,7 +58,7 @@ What it does
    rtol/atol 1e-4, and non-bit-exact finite values are reported explicitly
    (bit-exactness is the goal, not the requirement).
    Also checks the public shape/dtype/contiguity/requires_grad/writability
-   contracts and the compile-cache behaviour (``etl_engine.cache_stats()``
+   contracts and the compile-cache behaviour (``evoxc_engine.cache_stats()``
    deltas): re-evaluating the same population never rebuilds, and a different
    population of the same shape rebuilds exactly when its used function-id set
    differs -- the ``EVOGP_DENSE_PRUNE`` granularity (``DENSE_EVAL.md`` item 9.1).
@@ -67,7 +67,7 @@ What it does
    scaling curve (trace/lower/compile/load ms, graph op count, warm run ms) and
    the IREE compile/run numbers.  All timings are medians of ``--repeats``
    warm invocations after one warm-up; the dense cold build uses a private
-   ``etl.CompileCache`` so the shared cache is not polluted.
+   ``evoxc.CompileCache`` so the shared cache is not polluted.
 3. **IREE experiments** -- with ``--backend iree``: (a) repeated-invoke stability
    of the ``scatter`` write mode on an in-graph-constructed buffer (~100
    invokes, needs ``EVOGP_DENSE_ALLOW_UNSAFE_SCATTER=1``) and (b) whether the
@@ -94,11 +94,11 @@ _SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
-import etl  # noqa: E402  (after the sys.path bootstrap)
+import evoxc  # noqa: E402  (after the sys.path bootstrap)
 
 from evogp.tree import Forest, GenerateDescriptor  # noqa: E402
 from evogp.tree import dense_engine as D  # noqa: E402
-from evogp.tree import etl_engine as E  # noqa: E402
+from evogp.tree import evoxc_engine as E  # noqa: E402
 from evogp.tree.utils import FUNCS_NAMES, Func, NType  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -438,25 +438,34 @@ def case_random_populations(args, report, results: Dict[str, Any]) -> bool:
 
 
 class _count_uploads:
-    """Count ``etl.from_numpy`` calls (the engine's host->device uploads)."""
+    """Count host->device uploads (``evoxc.core.Tensor.to`` to a non-cpu device).
+
+    ``evoxc.from_numpy`` is a ZERO-COPY host wrap (it builds a
+    ``evoxc.core.Tensor`` around the numpy array and transfers nothing), so it
+    cannot count uploads any more: the real host->device copy is
+    ``evoxc.core.Tensor.to(device)``.  Only transfers whose TARGET device kind
+    is not ``"cpu"`` are counted, so the engine's two-hop readback
+    (``result.to(cpu).numpy()``) is not mistaken for an upload.
+    """
 
     def __init__(self) -> None:
         self.count = 0
         self._original: Any = None
 
     def __enter__(self) -> "_count_uploads":
-        self._original = E.etl.from_numpy
+        self._original = E.evoxc.core.Tensor.to
         original = self._original
 
-        def counting(array: Any) -> Any:
-            self.count += 1
-            return original(array)
+        def counting(tensor: Any, device: Any) -> Any:
+            if getattr(device, "kind", "cpu") != "cpu":
+                self.count += 1
+            return original(tensor, device)
 
-        E.etl.from_numpy = counting
+        E.evoxc.core.Tensor.to = counting
         return self
 
     def __exit__(self, *exc: Any) -> bool:
-        E.etl.from_numpy = self._original
+        E.evoxc.core.Tensor.to = self._original
         return False
 
 
@@ -962,21 +971,21 @@ def measure_l_scaling(args, results: Dict[str, Any]) -> None:
         )
         stage: Dict[str, float] = {}
         t0 = time.perf_counter()
-        graph = etl.trace(D._dense_step, *plan.specs)
+        graph = evoxc.trace(D._dense_step, *plan.specs)
         stage["trace_ms"] = (time.perf_counter() - t0) * 1e3
         ops = len(list(graph.module.main.entry_block.ops))
         t0 = time.perf_counter()
-        lowered = etl.lower(graph, backend=backend_name, **options)
+        lowered = evoxc.lower(graph, backend=backend_name, **options)
         stage["lower_ms"] = (time.perf_counter() - t0) * 1e3
         t0 = time.perf_counter()
-        artifact = etl.compile(lowered, backend=backend_name, **options)
+        artifact = evoxc.compile(lowered, backend=backend_name, **options)
         stage["compile_ms"] = (time.perf_counter() - t0) * 1e3
         t0 = time.perf_counter()
-        executable = etl.load(artifact, backend=backend_name, device=device)
+        executable = evoxc.load(artifact, backend=backend_name, device=device)
         stage["load_ms"] = (time.perf_counter() - t0) * 1e3
-        cache = etl.CompileCache(maxsize=4)
+        cache = evoxc.CompileCache(maxsize=4)
         t0 = time.perf_counter()
-        etl.build_cached(
+        evoxc.build_cached(
             D._dense_step, *plan.specs, backend=backend_name, device=device,
             cache=cache, **options,
         )
@@ -1047,9 +1056,9 @@ def measure_crossover(args, results: Dict[str, Any]) -> None:
                 budget_mb=args.budget_mb,
             )
             dense_prep_ms = (time.perf_counter() - t0) * 1e3
-            cache = etl.CompileCache(maxsize=4)
+            cache = evoxc.CompileCache(maxsize=4)
             t0 = time.perf_counter()
-            executable = etl.build_cached(
+            executable = evoxc.build_cached(
                 D._dense_step, *plan.specs, backend=backend_name, device=device,
                 cache=cache, **options,
             )
@@ -1092,7 +1101,7 @@ def measure_crossover(args, results: Dict[str, Any]) -> None:
 
 def measure_iree(args, results: Dict[str, Any]) -> None:
     """IREE compile/run economics plus repeated-invoke scatter stability."""
-    print("\n== iree-cuda economics ==")
+    print("\n== iree-rocm economics ==")
     backend_name, device, options = E._resolve_backend("iree", args.gpu)
     for L in (8, 16) if args.quick else (8, 16, 32):
         values, types, sizes = _chain_population(L, pop=4)
@@ -1102,9 +1111,9 @@ def measure_iree(args, results: Dict[str, Any]) -> None:
                 values, types, sizes, 2, 1, 64, per_row=False, backend="iree",
                 max_tree_len=L, update_mode=mode, budget_mb=args.budget_mb,
             )
-            cache = etl.CompileCache(maxsize=4)
+            cache = evoxc.CompileCache(maxsize=4)
             t0 = time.perf_counter()
-            executable = etl.build_cached(
+            executable = evoxc.build_cached(
                 D._dense_step, *plan.specs, backend=backend_name, device=device,
                 cache=cache, **options,
             )
@@ -1140,19 +1149,19 @@ def measure_iree(args, results: Dict[str, Any]) -> None:
         values, types, sizes, 2, 1, 32, per_row=False, backend="iree",
         max_tree_len=16, update_mode="scatter",
     )
-    cache = etl.CompileCache(maxsize=4)
-    executable = etl.build_cached(
+    cache = evoxc.CompileCache(maxsize=4)
+    executable = evoxc.build_cached(
         D._dense_step, *plan.specs, backend=backend_name, device=device,
         cache=cache, **options,
     )
     def one():
         columns = D._prep_columns(plan.prep, 0, plan.p_chunk)
-        args_in = tuple(etl.from_numpy(a).to(device) for a in columns) + (
-            etl.from_numpy(x).to(device),
+        args_in = tuple(evoxc.from_numpy(a).to(device) for a in columns) + (
+            evoxc.from_numpy(x).to(device),
             plan.cfg,
         )
         with E._quiet():
-            out = etl.run(executable, *args_in)
+            out = evoxc.run(executable, *args_in)
         return np.asarray(out.to(E._CPU).numpy(), dtype=np.float32)
 
     first = one()
@@ -1163,7 +1172,7 @@ def measure_iree(args, results: Dict[str, Any]) -> None:
         values, types, sizes, 2, 1, 32, per_row=False, backend="iree",
         max_tree_len=16, update_mode="grow",
     )
-    growth = etl.build_cached(
+    growth = evoxc.build_cached(
         D._dense_step, *grow_plan.specs, backend=backend_name, device=device,
         cache=cache, **options,
     )
@@ -1238,16 +1247,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.only and not any(_wanted(args, name) for name in CASE_NAMES):
         print(f"[warn] --only {args.only} matched no case: {list(CASE_NAMES)}")
         return 2
-    if os.environ.get("ETL_DISABLE_LOCATIONS", "").strip() not in ("1", "true"):
+    if os.environ.get("EVOXC_DISABLE_LOCATIONS", "").strip() not in ("1", "true"):
         print(
-            "[warn] ETL_DISABLE_LOCATIONS=1 is not set: tracing will be ~4x slower"
+            "[warn] EVOXC_DISABLE_LOCATIONS=1 is not set: tracing will be ~4x slower"
         )
     report: Dict[str, Any] = {
         "backend": args.backend,
         "mode": args.mode,
         "quick": args.quick,
         "full": args.full,
-        "etl_disable_locations": os.environ.get("ETL_DISABLE_LOCATIONS", ""),
+        "evoxc_disable_locations": os.environ.get("EVOXC_DISABLE_LOCATIONS", ""),
         "cases": [],
     }
     results: Dict[str, Any] = {}

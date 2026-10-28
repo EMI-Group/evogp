@@ -4,7 +4,7 @@ Runnable script, deliberately NOT a pytest module (no ``test_`` prefix, no pytes
 import): it measures the dense one-graph evaluator
 (:mod:`evogp.tree.dense_engine`, wired into the public API behind
 ``EVOGP_EVAL_MODE``) against the specialized per-structure engine
-(:mod:`evogp.tree.etl_engine`) **through the public API only**
+(:mod:`evogp.tree.evoxc_engine`) **through the public API only**
 (``Forest.SR_fitness``, CUDA tensors), for a grid of ``pop_size`` x data rows, on
 the ``numpy`` and ``iree`` backends.
 
@@ -18,9 +18,9 @@ What one case measures
 
 ``dense`` (public API)
     ``EVOGP_EVAL_MODE=dense`` + ``Forest.SR_fitness(inputs, labels)``.
-    *cold* = one call after ``etl_engine.clear_cache()`` (that call pays the one
+    *cold* = one call after ``evoxc_engine.clear_cache()`` (that call pays the one
     dense compile); *warm* = median of ``--repeats`` calls after ``--warmup``
-    warm-ups (all cache hits).  ``etl_engine.cache_stats()`` deltas confirm the
+    warm-ups (all cache hits).  ``evoxc_engine.cache_stats()`` deltas confirm the
     cold call built exactly one executable.
 
 ``specialized`` (public API)
@@ -79,14 +79,14 @@ Commands (repo root as CWD; the venv has torch, ``python`` on PATH does not)
 ::
 
     VENV=/mnt/local-ssd/bchuang/evox/.venv/bin/python
-    export PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=4
+    export PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=4
 
     # numpy (CPU interpreter) -- all 9 configs, verified, merged JSON
     $VENV src/evogp/tree/dense_bench.py --backend numpy \
         --pops 64,200,1000 --rows 64,1024,10000 \
         --json src/evogp/tree/dense_bench_results.json
 
-    # iree-cuda -- ONE row count per process; ~13 (anchor) + ~11 (sample) builds
+    # iree-rocm -- ONE row count per process; ~13 (anchor) + ~11 (sample) builds
     $VENV src/evogp/tree/dense_bench.py --backend iree --smi-index 4 \
         --pops 64,200,1000 --rows 64,1024 --stage dense \
         --json src/evogp/tree/dense_bench_results.json
@@ -170,7 +170,7 @@ if _SRC not in sys.path:  # allow `python src/evogp/tree/dense_bench.py` without
 
 from evogp.tree import Forest, GenerateDescriptor  # noqa: E402
 from evogp.tree import dense_engine as D  # noqa: E402
-from evogp.tree import etl_engine as E  # noqa: E402
+from evogp.tree import evoxc_engine as E  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # comparison + formatting helpers (small and local: the spike scripts are owned
@@ -371,7 +371,7 @@ class SmiSampler(threading.Thread):
 def _apply(mode: str, backend: str) -> None:
     """Set the two documented env switches (both are read per call)."""
     os.environ["EVOGP_EVAL_MODE"] = mode
-    os.environ["EVOGP_ETL_BACKEND"] = backend
+    os.environ["EVOGP_EVOXC_BACKEND"] = backend
 
 
 def _sr_fitness(
@@ -527,12 +527,12 @@ class Bench:
             key: os.environ.get(key)
             for key in (
                 "EVOGP_EVAL_MODE",
-                "EVOGP_ETL_BACKEND",
+                "EVOGP_EVOXC_BACKEND",
                 "EVOGP_DENSE_MAX_TREE_LEN",
                 "EVOGP_DENSE_BUDGET_MB",
                 "EVOGP_DENSE_UPDATE_MODE",
-                "EVOGP_ETL_IREE_OPT_LEVEL",
-                "ETL_DISABLE_LOCATIONS",
+                "EVOGP_EVOXC_OPT_LEVEL",
+                "EVOXC_DISABLE_LOCATIONS",
                 "CUDA_VISIBLE_DEVICES",
             )
         }
@@ -1874,7 +1874,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not torch.cuda.is_available():
         print("ERROR: this harness needs a CUDA-visible device (the API is CUDA-bound)")
         return 2
-    os.environ.setdefault("EVOGP_ETL_IREE_DEVICE", "0")
+    os.environ.setdefault("EVOGP_EVOXC_DEVICE", "0")
     os.environ.setdefault("EVOGP_DENSE_MAX_TREE_LEN", str(args.max_tree_len))
     os.environ["EVOGP_DENSE_BUDGET_MB"] = str(args.budget_mb)
     os.environ["EVOGP_DENSE_UPDATE_MODE"] = args.update_mode
