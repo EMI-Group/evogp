@@ -16,10 +16,10 @@ run takes roughly 30 s on the reference box (RTX A6000 host, ETL ``"numpy"`` bac
 -0.1720 at generation 100, with the first improvement around generation 43.
 
 Most of that cost is *tracing*, not evaluating: ETL attaches a call-site ``Location`` to
-every op unless ``ETL_DISABLE_LOCATIONS=1`` is set, which is its documented speed knob for
+every op unless ``EVOXC_DISABLE_LOCATIONS=1`` is set, which is its documented speed knob for
 tracing-heavy runs (locations are debug metadata -- they do not change the computed
 fitness; the trajectory above is identical either way). This script sets the knob by
-default; export ``ETL_DISABLE_LOCATIONS=0`` to keep the capture enabled (~380 s per run).
+default; export ``EVOXC_DISABLE_LOCATIONS=0`` to keep the capture enabled (~380 s per run).
 
 Scale the validation up (or down) by editing ``pop_size`` / ``generation_limit`` /
 ``max_tree_len`` below, or with the ``EVOGP_SR_POP`` / ``EVOGP_SR_GENS`` /
@@ -34,7 +34,7 @@ import os
 # ETL's per-op call-site capture dominates the cold build of every tree structure, so it
 # is switched off here unless the caller explicitly asks for it (ETL checks for the value
 # "1"; setting it to "0" keeps the capture on).
-os.environ.setdefault("ETL_DISABLE_LOCATIONS", "1")
+os.environ.setdefault("EVOXC_DISABLE_LOCATIONS", "1")
 
 import torch
 
