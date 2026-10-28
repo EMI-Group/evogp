@@ -342,7 +342,7 @@ def reference_rows(forest: Forest, x: Any, *, per_row: bool, backend: str) -> to
 
 
 def raw_to_host(raw: Any, backend: str) -> np.ndarray:
-    """Host copy of one raw ETL result -- done by the CHECK, never by the runner."""
+    """Host copy of one raw evoxc result -- done by the CHECK, never by the runner."""
     array = raw.numpy() if backend == "numpy" else raw.to(E._CPU).numpy()
     return np.asarray(array, dtype=np.float32)
 
@@ -695,7 +695,7 @@ def stage_dense(args: Any, report: Report, results: Dict[str, Any]) -> None:
 def _assemble_specialized(runner: Any, raws: Sequence[Any], backend: str) -> np.ndarray:
     """Host ``(P, N, out)`` / ``(P, out)`` rows from the runner's raw results.
 
-    The constant trees have no ETL result (``None``): their rows come from the
+    The constant trees have no evoxc result (``None``): their rows come from the
     broadcast ``.constant_rows`` the build staged.
     """
     pop, n_rows, out_len = runner.pop_size, runner.n_rows, runner.output_len
