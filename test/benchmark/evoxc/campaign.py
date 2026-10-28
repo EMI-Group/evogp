@@ -48,6 +48,28 @@ import common  # noqa: E402
 GPU_MARKERS = ("evogp-venv", "/evoxc/", "import torch", "evogp", "bench", "pytest")
 
 
+def self_pids() -> set:
+    """This driver plus its whole ancestor chain (the driver itself imports torch).
+
+    ``common.env_block`` reads ``torch.__version__`` and the device properties, so
+    the driver legitimately holds a HIP context and shows up in the KFD process
+    list; that is the guard's own footprint, not contamination.
+    """
+    pids = set()
+    pid = os.getpid()
+    for _ in range(64):
+        if pid <= 1 or pid in pids:
+            break
+        pids.add(pid)
+        try:
+            with open(f"/proc/{pid}/stat", "r") as handle:
+                stat = handle.read()
+            pid = int(stat.rsplit(")", 1)[1].split()[1])
+        except Exception:  # noqa: BLE001
+            break
+    return pids
+
+
 def foreign_python() -> List[str]:
     """GPU-capable python processes other than this driver and its own shell."""
     try:
@@ -56,7 +78,7 @@ def foreign_python() -> List[str]:
         ).stdout
     except Exception:  # noqa: BLE001 - no pgrep -> cannot check, say so
         return ["pgrep-unavailable"]
-    mine = {os.getpid(), os.getppid()}
+    mine = self_pids()
     rows = []
     for line in out.splitlines():
         parts = line.split(None, 1)
@@ -83,12 +105,20 @@ def gpu_compute_pids() -> Dict[str, Any]:
         return {"error": repr(exc)}
     if "No KFD PIDs" in out or "No processes" in out:
         return {"pids": [], "idle": True}
-    pids = []
+    mine = self_pids()
+    pids, own = [], []
     for line in out.splitlines():
         for token in line.replace("|", " ").split():
-            if token.isdigit() and int(token) > 100 and int(token) not in pids:
-                pids.append(int(token))
-    return {"pids": pids, "idle": not pids, "raw_lines": [ln for ln in out.splitlines() if ln.strip()][:20]}
+            if token.isdigit() and int(token) > 100:
+                target = own if int(token) in mine else pids
+                if int(token) not in target:
+                    target.append(int(token))
+    return {
+        "pids": pids,
+        "own_pids": own,
+        "idle": not pids,
+        "raw_lines": [ln for ln in out.splitlines() if ln.strip()][:20],
+    }
 
 
 def gpu_use() -> Dict[str, Any]:
