@@ -1,4 +1,4 @@
-"""End-to-end symbolic-regression smoke test for the ETL-based EvoGP engine.
+"""End-to-end symbolic-regression smoke test for the evoxc-based EvoGP engine.
 
 Purpose
 -------
@@ -54,7 +54,7 @@ except Exception as exc:  # pragma: no cover - depends on the environment
 
 requires_library = pytest.mark.skipif(
     _IMPORT_ERROR is not None,
-    reason=f"evogp is not importable yet ({_IMPORT_ERROR!r}) -- the ETL engine / "
+    reason=f"evogp is not importable yet ({_IMPORT_ERROR!r}) -- the evoxc engine / "
     "plain-torch operators are expected here; run the suite again after they are merged.",
 )
 

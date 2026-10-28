@@ -30,7 +30,7 @@ import random
 import pytest
 import torch
 
-try:  # the tree layer is importable only once the ETL-based engine is in place
+try:  # the tree layer is importable only once the evoxc-based engine is in place
     from evogp.tree import Forest, GenerateDescriptor, NType
     _IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - only in pre-merge worktrees
@@ -42,7 +42,7 @@ except Exception as exc:  # pragma: no cover - only in pre-merge worktrees
 def _require_engine():
     if _IMPORT_ERROR is not None:
         pytest.fail(
-            "evogp.tree is not importable (the ETL-based engine is not present in this "
+            "evogp.tree is not importable (the evoxc-based engine is not present in this "
             f"worktree yet): {_IMPORT_ERROR!r}"
         )
 
