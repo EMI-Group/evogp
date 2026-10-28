@@ -1,9 +1,9 @@
-"""ETL-backed evaluation & fitness engine for ``evogp.tree`` (the "true jit").
+"""evoxc-backed evaluation & fitness engine for ``evogp.tree`` (the "true jit").
 
 This module is the evaluation/fitness half of the replacement for the five
 custom CUDA ops of the legacy compiled extension.  It reproduces the semantics
 of the old ``tree_evaluate`` / ``tree_SR_fitness`` kernels (``cuda/forward.cu``,
-distilled into :mod:`evogp.tree.ENGINE_SPEC`) with a *per-tree just-in-time* ETL
+distilled into :mod:`evogp.tree.ENGINE_SPEC`) with a *per-tree just-in-time* evoxc
 graph:
 
 1. :func:`decode_population` walks the population tensors **host-side** and
@@ -11,18 +11,18 @@ graph:
    token stream, with constant subtrees already folded).  All validation and
    all constant folding happens here; no GPU work, no compilation.
 2. :func:`evaluate` / :func:`sr_fitness` specialize that program into a fresh
-   ETL graph through :func:`etl.build_cached` (trace -> lower -> compile ->
-   load, memoized in one shared :class:`etl.CompileCache`), then run it.
+   evoxc graph through :func:`evoxc.build_cached` (trace -> lower -> compile ->
+   load, memoized in one shared :class:`evoxc.CompileCache`), then run it.
 3. Compiled executables are cached per *(tree structure, input shape)* pair, so
    re-evaluating the same structure (elite trees, repeated rows, the same
    population next generation) is a pure cache hit; a bounded value-keyed
    in-process memo in front of it skips ``build_cached``'s own per-call key
    derivation (see "Per-tree executable memo" below).
-The step function ``_eval_step`` is the ONLY ``@etl.defn`` in this module and
+The step function ``_eval_step`` is the ONLY ``@evoxc.defn`` in this module and
 lives at module level so its ``id(fn)`` -- part of the ``build_cached`` key --
 is stable for the lifetime of the process.  There is no in-graph recursion:
 the trace-time walker is a plain Python reverse-prefix stack walk (the same
-operand discipline as ``_treeGPEvalByStack``) and emits ordinary ETL ops.
+operand discipline as ``_treeGPEvalByStack``) and emits ordinary evoxc ops.
 
 Public API (frozen; the wiring round in ``tree.py`` / ``forest.py`` depends on
 exactly these names) -- see each docstring for the exact contract::
@@ -42,7 +42,7 @@ Benchmark-support runner (not part of the public route)
 :func:`build_specialized_runner` / :class:`SpecializedRunner` expose the SAME
 engine as a build-once / run-many object for benchmarking harnesses: the build
 phase decodes the population and resolves every per-tree executable, ``.run()``
-executes only the compiled forward pass (one ``etl.run`` per non-constant tree,
+executes only the compiled forward pass (one ``evoxc.run`` per non-constant tree,
 staged per-tree inputs, raw results, no readback and no cache lookup at all).
 It changes nothing about ``evaluate`` / ``sr_fitness``, is called by nothing in
 the library and is documented -- with the dense twin,
@@ -50,25 +50,31 @@ the library and is documented -- with the dense twin,
 
 Backend & device policy
 -----------------------
-* Default backend: ``"numpy"`` (ETL's reference interpreter, **cpu**).
+* Default backend: ``"numpy"`` (evoxc's reference interpreter, **cpu**).
   Round-2 measurements make this the only sane default: a numpy executable is
   built in ~1-3 ms and runs in ~0.02-0.2 ms per tree, while an IREE executable
   costs ~0.4-0.6 s to compile and ~2.4-3.6 ms per run (see the round-2 report
   for the numbers).  ``"numpy"`` needs no GPU at all.
-* Opt-in IREE: ``backend="iree"`` (or ``EVOGP_ETL_BACKEND=iree``) plus a device
-  index (``iree_device_index=`` / ``EVOGP_ETL_IREE_DEVICE``, default 0).  IREE
-  runs on the CUDA HAL only: ``etl.core.Device("cuda", index)`` (ETL maps the
-  index to IREE's 1-based ``device_id``, i.e. it is the *visible* CUDA device),
-  ``target_backends=["cuda"]`` and ``opt_level`` ``"O0"``/``"O1"``
-  (``EVOGP_ETL_IREE_OPT_LEVEL``, default ``"O1"``).  Device tensors are moved
-  host->device explicitly (``Tensor.to``) and results back with ``.to(cpu)``,
-  exactly as ETL's device contract requires; the host->device copy of ``x``
-  happens ONCE per :func:`evaluate` call and is reused for every tree.
-* Backend, device and options are always passed to ``build_cached``
-  explicitly, so ambient ``ETL_BACKEND`` / ``ETL_DEVICE`` /
-  ``ETL_TARGET_BACKENDS`` cannot change what this module does; they do
-  participate in the cache key, together with the input shape, so numpy and
-  IREE executables coexist in the cache.
+* Opt-in IREE: ``backend="iree"`` (or ``EVOGP_EVOXC_BACKEND=iree``) plus a device
+  index (``iree_device_index=`` / ``EVOGP_EVOXC_DEVICE``, default 0).  IREE
+  runs on the GPU HAL: ``evoxc.core.Device(kind, index)`` with the kind read
+  from the installed torch build (``"rocm"`` on a ROCm/HIP build, else
+  ``"cuda"`` -- see :func:`_gpu_device_kind`; evoxc maps the index to IREE's
+  1-based ``device_id``, i.e. it is the *visible* device) and ``opt_level``
+  ``"O0"``/``"O1"`` (``EVOGP_EVOXC_OPT_LEVEL``, default ``"O1"``).
+  ``target_backends`` is not passed: ``build_cached`` infers it from the
+  resolved device kind.  Device tensors are moved host->device explicitly
+  (``Tensor.to``) and results back with ``.to(cpu)``, exactly as evoxc's device
+  contract requires; the host->device copy of ``x`` happens ONCE per
+  :func:`evaluate` call and is reused for every tree.
+* Backend and device are always passed to ``build_cached``
+  explicitly, so ambient ``EVOXC_BACKEND`` / ``EVOXC_DEVICE`` cannot change what
+  this module does; they do participate in the cache key, together with the
+  input shape, so numpy and IREE executables coexist in the cache.
+  ``target_backends`` is left to ``build_cached``'s inference from the resolved
+  device, so an ambient ``EVOXC_TARGET_BACKENDS`` is the caller's own
+  process-env compile knob (like ``EVOXC_OPT_LEVEL``, which evoxc does not key
+  either) -- see the memo section below.
 * The population/input tensors may live on any torch device (they are read
   back with ``.cpu()``) and the result is returned on the input's device unless
   ``out_device`` says otherwise.
@@ -76,18 +82,18 @@ Backend & device policy
   ``inputs`` and ``labels`` to host once, reduces the host rows its own
   evaluation produced -- with numpy, in place, in float32 (torch's CPU ops on
   that tensor open an intra-op thread pool that then starves the
-  single-threaded ETL/numpy interpreter; see the function docstring) -- and
+  single-threaded evoxc/numpy interpreter; see the function docstring) -- and
   moves only the ``(pop_size,)`` loss to the input device.  :func:`evaluate`
   keeps returning its full ``(pop_size, N, output_len)`` tensor on the input
   device as documented above.
 
 Cache sizing
 ------------
-One module-level :data:`CACHE` (``etl.CompileCache``) is shared by every call.
+One module-level :data:`CACHE` (``evoxc.CompileCache``) is shared by every call.
 Every distinct *(tree structure, input shape, backend, device, options)* pair
 is one LRU entry, so a full-population fitness pass needs up to ``pop_size``
 entries **per input shape**: size the cache at ``>= pop_size + headroom``
-(default :data:`DEFAULT_CACHE_SIZE` = 4096, env ``EVOGP_ETL_CACHE_SIZE``).
+(default :data:`DEFAULT_CACHE_SIZE` = 4096, env ``EVOGP_EVOXC_CACHE_SIZE``).
 Each entry pins a fully loaded ``Executable`` (graph + lowered program +
 signature + static program) -- measured (tracemalloc, released by
   ``clear_cache``) ~270 KiB for a 30-node tree and ~478 KiB for a 60-node
@@ -96,22 +102,22 @@ only costs memory, never correctness.  Eviction is plain LRU: one-off probes
 with unusual shapes (e.g. every ``N`` in ``per_row=False``) can push out hot
 entries.  :func:`cache_stats` / :func:`clear_cache` expose and reset the table.
 The cache is **in-memory only** -- no artifact is written to disk and nothing
-is shared across processes (documented ETL limitation).
+is shared across processes (documented evoxc limitation).
 
 Per-tree executable memo (in-process front table)
 -------------------------------------------------
 ``build_cached`` is a memoized build, but its HIT path still re-derives the
 cache key on every call (program re-encode + sha256 -- replayed from the
-ETL-side content-fingerprint memo when the program content repeats, so a
+evoxc-side content-fingerprint memo when the program content repeats, so a
 program that is new or has fallen out of that memo pays the full walk):
-measured (while the ETL fast path was still one-slot, i.e. every DIFFERENT
+measured (while the evoxc fast path was still one-slot, i.e. every DIFFERENT
 program paid the walk) 160-207 us per tree on the two probe fixtures
 (30-63-node trees) when consecutive lookups carry DIFFERENT programs
 -- which is exactly the per-tree loop's access pattern, and the population's
 store of distinct programs is what keeps the derivation full -- against
 2.4-2.8 us per tree for a plain value-keyed dict lookup doing the same work
 (see ``warm_path_findings.md`` section 11; the battery is
-``executable_memo_check.py``).  The ETL side has since cut both ends of that
+``executable_memo_check.py``).  The evoxc side has since cut both ends of that
 per-call cost (the fingerprint memo above, plus a run-path static-validation
 fast path), so what this table buys now is a cheaper lookup, not an escape
 from the key walk: ~2.4-2.8 us against a ~17-25 us ``build_cached`` hit.  The
@@ -123,7 +129,7 @@ the ``program`` value, ``n_rows``, ``input_len``, the backend name, the device
 and the canonicalized options.  A repeated lookup for the same
 *(structure, shape, backend, device, options)* returns the very ``Executable``
 :data:`CACHE` holds (identity, as on a ``build_cached`` hit) without touching
-ETL at all, and only a memo miss constructs the ``TensorSpec`` and re-derives
+evoxc at all, and only a memo miss constructs the ``TensorSpec`` and re-derives
 ``build_cached``'s own key.  The key is value-typed, so a re-decoded elite tree
 hits.
 
@@ -131,38 +137,36 @@ Consequences: (a) ``CACHE.hits`` no longer counts repeated ``_executable``
 lookups -- :func:`cache_stats` reports the front table as ``memo_hits`` /
 ``memo_misses`` / ``memo_entries`` / ``memo_maxsize`` (memo misses are the
 lookups that went on to ``build_cached``, so they still land in ``CACHE``'s
-counters); (b) :func:`clear_cache` resets both tables in lockstep (the ETL
+counters); (b) :func:`clear_cache` resets both tables in lockstep (the evoxc
 documented "clear the cache after changing a process-env compile knob" advice
 therefore holds unchanged); (c) the memo holds a strong reference to its keys
 and values, so it can pin up to ``maxsize`` executables that ``CACHE`` has
 already evicted -- bounded by design and the only cost of the front table;
-(d) ambient ``ETL_TARGET_BACKENDS`` is the one env knob that still enters
-``build_cached``'s key for the numpy path (``_resolve_backend_device`` adds it
-when no explicit ``target_backends`` is passed) and is deliberately NOT part of
-the memo key: the numpy backend documents the option as accepted-and-ignored
-and the module always passes backend/device/``target_backends`` itself, so it
-cannot change what this module computes (see :func:`_executable_key`).
+(d) ambient ``EVOXC_TARGET_BACKENDS`` is the one env knob that still enters
+``build_cached``'s key (``_resolve_backend_device`` adds it when no explicit
+``target_backends`` is passed) and is deliberately NOT part of the memo key:
+on the numpy path the backend documents the option as accepted-and-ignored, and
+on the iree path the value is a process-env compile knob of the caller's (evoxc
+does not key ``EVOXC_OPT_LEVEL`` either), so changing it mid-process needs the
+same ``clear_cache`` discipline as those knobs (see :func:`_executable_key`).
 
-ADOPTION POINT: the memo is a deliberate stopgap for the ETL-side ``etl.jit`` /
-pre-bound-runner machinery, which has since landed (``etl.jit`` ->
-``JitFunction`` / ``BoundJit``, exported from ``etl/__init__.py``; ETL branch
-``evogit-agent-T1-A160``, on top of the ``main`` checkout installed here) --
-a pre-bound runner keeps the bound statics out of the per-call key derivation
-and the run boundary now validates them through the per-executable
-content-fingerprint fast path instead of an O(#tokens) per-leaf walk.
-Adopting it still means deleting :data:`_EXECUTABLE_MEMO` (and the ``memo_*``
-counters in :func:`cache_stats`); nothing else in the engine depends on it, and
-the swap is deliberately NOT made here.
+The memo stays because evoxc offers no pre-bound runner: ``evoxc.run``
+re-derives nothing but still re-passes the static program by value and
+re-validates it on every call, and ``build_cached`` re-derives its key per call
+(replayed from the evoxc-side content-fingerprint memo when the program content
+repeats).  A value-keyed table in front of ``build_cached`` is therefore the
+only way to skip that per-call key derivation, and this engine keeps one;
+nothing else in the engine depends on it.
 
-Speed knob: ``ETL_DISABLE_LOCATIONS=1``
---------------------------------------
+Speed knob: ``EVOXC_DISABLE_LOCATIONS=1``
+-----------------------------------------
 Tracing attaches a source ``ir.Location`` to every op unless the environment
-variable ``ETL_DISABLE_LOCATIONS=1`` is set.  Setting it speeds tracing up by
-roughly 4x on this workload (54 trees, mean 18 nodes: 1384 ms -> 346 ms; ETL's
+variable ``EVOXC_DISABLE_LOCATIONS=1`` is set.  Setting it speeds tracing up by
+roughly 4x on this workload (54 trees, mean 18 nodes: 1384 ms -> 346 ms; evoxc's
 own micro-benchmarks measure 13-30x) at the cost of losing per-op locations in
 tracebacks; it is *not* part of the cache key, so changing it mid-process
 affects only later compilations.  Recommended for production runs.  This
-module does not set it (ETL env knobs are the caller's / operator's choice);
+module does not set it (evoxc env knobs are the caller's / operator's choice);
 export it *before* the first decode/evaluate for the full win.  The round-2
 measurements were taken with it set.
 
@@ -201,12 +205,12 @@ Documented deviations from the old kernels
   both ``pow`` cases and last-bit-different sin/cos (asserted explicitly in
   the round-2 differential tests).
 * ``sinh`` / ``cosh`` are composed as ``(exp(x) -+ exp(-x)) * 0.5`` because
-  ETL has no ``sinh``/``cosh`` primitive.  Equivalent to the kernel's
+  evoxc has no ``sinh``/``cosh`` primitive.  Equivalent to the kernel's
   ``sinhf``/``coshf`` up to float32 rounding; for ``|x| < ~1e-4`` the
   subtraction cancels catastrophically (relative error can be large, absolute
   error stays < 1e-7).
 * ``copysign`` (``loose_div`` / ``loose_inv``) is composed as
-  ``select(1 / x < 0, -DELTA, DELTA)`` because ETL has no ``copysign``; the
+  ``select(1 / x < 0, -DELTA, DELTA)`` because evoxc has no ``copysign``; the
   reciprocal sign test is the composition that matches ``copysignf`` for
   ``x == -0.0`` too (the result differs from the kernel only for an *input*
   NaN, which the ``|x| <= DELTA`` guard never sends here).
@@ -227,7 +231,7 @@ Limitations
 * One compiled program per tree *structure*: a fresh random population is a
   cache miss per individual (that is the price of specialization).  Structurally
   identical trees -- and any tree re-evaluated with the same shape -- hit.
-* Python-side per-tree work (one ``etl.run`` per tree for the numpy backend)
+* Python-side per-tree work (one ``evoxc.run`` per tree for the numpy backend)
   dominates; the engine is meant to be correct and re-usable, not yet fast.
 * The opt-in IREE backend is wired and runs, but was NOT validated numerically
   for every shape: 30-node/N=1 and 60-node/N=100 trees matched numpy
@@ -253,8 +257,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import numpy as np
 import torch
 
-import etl
-from etl.build_cache import CompileCache, build_cached
+import evoxc
+from evoxc.build_cache import CompileCache, build_cached
 
 from .utils import Func, NType
 
@@ -276,19 +280,21 @@ __all__ = [
 # configuration (env read lazily at call time; see the module docstring)
 # ---------------------------------------------------------------------------
 
-CACHE_SIZE_ENV = "EVOGP_ETL_CACHE_SIZE"
-BACKEND_ENV = "EVOGP_ETL_BACKEND"
-IREE_DEVICE_ENV = "EVOGP_ETL_IREE_DEVICE"
-IREE_OPT_LEVEL_ENV = "EVOGP_ETL_IREE_OPT_LEVEL"
+CACHE_SIZE_ENV = "EVOGP_EVOXC_CACHE_SIZE"
+BACKEND_ENV = "EVOGP_EVOXC_BACKEND"
+IREE_DEVICE_ENV = "EVOGP_EVOXC_DEVICE"
+IREE_OPT_LEVEL_ENV = "EVOGP_EVOXC_OPT_LEVEL"
 
 #: Default ``maxsize`` of :data:`CACHE` (>= pop_size + headroom).
 DEFAULT_CACHE_SIZE = 4096
 
 #: Backends this engine is measured/documented for.  ``"numpy"`` is the default
-#: (cpu, no GPU needed); ``"iree"`` is the opt-in CUDA-HAL jit backend.
+#: (cpu, no GPU needed); ``"iree"`` is the opt-in GPU-HAL jit backend (CUDA or
+#: ROCm, whichever the installed torch build targets -- see
+#: :func:`_gpu_device_kind`).
 SUPPORTED_BACKENDS = ("numpy", "iree")
 
-_CPU = etl.core.Device("cpu", 0)
+_CPU = evoxc.core.Device("cpu", 0)
 
 
 def _quiet() -> Any:
@@ -331,9 +337,9 @@ CACHE = CompileCache(maxsize=_default_cache_size())
 class _ExecutableMemo(OrderedDict):
     """Bounded LRU ``key -> Executable`` memo in front of :data:`CACHE`.
 
-    ``etl.build_cached`` memoizes the build, but its hit path re-derives the
+    ``evoxc.build_cached`` memoizes the build, but its hit path re-derives the
     cache key on every call (program re-encode + sha256, replayed from the
-    ETL-side content-fingerprint memo when the program content repeats); this
+    evoxc-side content-fingerprint memo when the program content repeats); this
     table is the plain dict lookup that skips it (see the module docstring's
     "Per-tree executable memo" section for the measurements and the full
     contract).
@@ -341,7 +347,7 @@ class _ExecutableMemo(OrderedDict):
     * A hit returns the very ``Executable`` object :data:`CACHE` holds
       (``build_cached`` returns identity on a hit, and an executable is
       immutable and stateless -- the static program is re-passed by value at
-      every ``etl.run``), so the memo can never serve a different executable
+      every ``evoxc.run``), so the memo can never serve a different executable
       than ``build_cached`` would for the same key.
     * ``maxsize`` bounds the table (plain LRU via :meth:`popitem`); it is set to
       :data:`CACHE`'s ``maxsize`` so both tables cover the same working set.
@@ -404,7 +410,7 @@ _EXECUTABLE_MEMO = _ExecutableMemo(CACHE.maxsize)
 def cache_stats() -> Dict[str, int]:
     """Snapshot of the shared :data:`CACHE` and the executable front memo.
 
-    ``hits``/``misses``/``entries``/``maxsize`` describe the ``etl.CompileCache``
+    ``hits``/``misses``/``entries``/``maxsize`` describe the ``evoxc.CompileCache``
     (the compile table); ``memo_*`` describe :data:`_EXECUTABLE_MEMO`, the
     in-process value-keyed table in front of it: ``memo_hits`` are lookups
     served without touching the compile cache at all, ``memo_misses`` are the
@@ -431,7 +437,7 @@ def clear_cache() -> None:
 
     Both tables are reset: the :data:`CACHE` compile cache and the
     :data:`_EXECUTABLE_MEMO` front table, in lockstep (see the module docstring:
-    that is what makes ETL's "clear the cache after changing a process-env
+    that is what makes evoxc's "clear the cache after changing a process-env
     compile knob" advice hold for the memo too).
     """
     CACHE.clear()
@@ -451,7 +457,7 @@ def clear_cache() -> None:
 #                                          when the node is not tagged
 #
 # Everything is an ``int``: it encodes into the ``build_cached`` key, compares
-# by value at the ``etl.run`` boundary (NaN payloads would break ``==``) and is
+# by value at the ``evoxc.run`` boundary (NaN payloads would break ``==``) and is
 # immune to float formatting.  ``K_UFUNC/3/4`` mirror ``NType`` so the arity is
 # simply ``kind - 1``.
 
@@ -530,7 +536,7 @@ def _require_population(population: Any) -> Population:
     if not isinstance(population, Population):
         raise TypeError(
             "expected the Population returned by "
-            "evogp.tree.etl_engine.decode_population, got "
+            "evogp.tree.evoxc_engine.decode_population, got "
             f"{type(population).__name__}"
         )
     return population
@@ -548,7 +554,7 @@ _ONE = np.float32(1.0)
 _NEG_ONE = np.float32(-1.0)
 _HALF = np.float32(0.5)
 #: ``sinh`` is evaluated as ``x`` below this magnitude: ``sinh`` is not available
-#: in the ETL op set, and for ``|x| < 1e-4`` the correctly rounded float32 result
+#: in the evoxc op set, and for ``|x| < 1e-4`` the correctly rounded float32 result
 #: of ``sinh(x)`` is bit-exactly ``x`` (see ``_emit_unary``).
 _SINH_LINEAR_BELOW = np.float32(1e-4)
 _NaN = np.float32("nan")
@@ -562,7 +568,7 @@ def _f32(value: Any) -> np.float32:
 
     Applied to the float64 intermediate of every software transcendental, this
     is the correctly rounded float32 result of the operation -- the same value
-    the ETL graph emits for a non-constant operand (see the comment above
+    the evoxc graph emits for a non-constant operand (see the comment above
     ``_F64_DTYPE``).  Arithmetic and ``sqrt``/``1/x`` stay float32 on purpose:
     IEEE 754 defines them as correctly rounded already.
     """
@@ -582,7 +588,7 @@ def _fold_unary(func_id: int, a: np.float32) -> np.float32:
         return _f32(np.cos(_f64(a)))
     if func_id == Func.TAN:
         return _f32(np.tan(_f64(a)))
-    if func_id == Func.SINH:  # composed: ETL has no sinh (see _emit_unary)
+    if func_id == Func.SINH:  # composed: evoxc has no sinh (see _emit_unary)
         if np.abs(a) < _SINH_LINEAR_BELOW:
             return _f32(a)  # CR float32 of sinh is x; keeps sinh(-0.0) == -0.0
         return _f32(
@@ -662,22 +668,22 @@ def _fold_ternary(a: np.float32, b: np.float32, c: np.float32) -> np.float32:
 
 
 def _trace_const(value: np.float32) -> Any:
-    """0-d float32 constant operand (ETL rejects numpy scalars as operands)."""
-    return etl.constant(
-        etl.core.tensor(np.asarray(np.float32(value), dtype=np.float32))
+    """0-d float32 constant operand (evoxc rejects numpy scalars as operands)."""
+    return evoxc.constant(
+        evoxc.core.tensor(np.asarray(np.float32(value), dtype=np.float32))
     )
 
 
 def _trace_const_col(n_rows: int, value: np.float32) -> Any:
     """``(n_rows, 1)`` float32 constant (for output assembly)."""
-    return etl.constant(
-        etl.core.tensor(np.full((n_rows, 1), np.float32(value), dtype=np.float32))
+    return evoxc.constant(
+        evoxc.core.tensor(np.full((n_rows, 1), np.float32(value), dtype=np.float32))
     )
 
 
 def _operand(value: Any) -> Any:
     """A symbolic value passes through; a folded constant becomes a 0-d const."""
-    if isinstance(value, etl.SymbolicTensor):
+    if isinstance(value, evoxc.SymbolicTensor):
         return value
     return _trace_const(value)
 
@@ -714,22 +720,22 @@ _F64_DTYPE = np.float64
 
 
 def _copysign_delta(value: Any) -> Any:
-    """``copysign(DELTA, x)`` for a symbolic ``x`` -- ETL has no ``copysign``.
+    """``copysign(DELTA, x)`` for a symbolic ``x`` -- evoxc has no ``copysign``.
 
     The sign of ``x`` is read as the sign of ``1 / x``, which is the only
     composition that gets ``x == -0.0`` right (all other sign tests -- ``x <
     0``, ``sign(x) < 0`` -- answer "+" for negative zero, while ``copysignf``
     answers "-").  This is reached only for ``|x| <= DELTA`` inputs.
     """
-    negative = etl.less(
-        etl.divide(_trace_const(_ONE), value), _trace_const(_ZERO)
+    negative = evoxc.less(
+        evoxc.divide(_trace_const(_ONE), value), _trace_const(_ZERO)
     )
-    return etl.select(negative, _trace_const(_NEG_DELTA), _trace_const(_DELTA))
+    return evoxc.select(negative, _trace_const(_NEG_DELTA), _trace_const(_DELTA))
 
 
 def _to_f64(value: Any) -> Any:
     """Widen a float32 operand to float64 (intermediate of a CR op)."""
-    return etl.cast(value, etl.float64)
+    return evoxc.cast(value, evoxc.float64)
 
 
 def _round32(value: Any) -> Any:
@@ -738,13 +744,13 @@ def _round32(value: Any) -> Any:
     The cast is ``astype``-style (round to nearest, ties to even) and preserves
     NaN / ``+-inf``, so the engine's NaN/inf placement is untouched.
     """
-    return etl.cast(value, etl.float32)
+    return evoxc.cast(value, evoxc.float32)
 
 
 def _trace_const_f64(value: Any) -> Any:
     """0-d float64 constant operand (the ``* 0.5`` of the sinh/cosh composition)."""
-    return etl.constant(
-        etl.core.tensor(np.asarray(np.float64(value), dtype=np.float64))
+    return evoxc.constant(
+        evoxc.core.tensor(np.asarray(np.float64(value), dtype=np.float64))
     )
 
 
@@ -756,15 +762,15 @@ def _emit_unary(func_id: int, a: Any) -> Any:
     correctly rounded in float32 -- see the comment above ``_F64_DTYPE``.  The
     hardware-exact ops (``neg``/``abs``/``sqrt``/``1/x``) stay float32.
     """
-    if not isinstance(a, etl.SymbolicTensor):
+    if not isinstance(a, evoxc.SymbolicTensor):
         return _fold_unary(func_id, a)
     if func_id == Func.SIN:
-        return _round32(etl.sin(_to_f64(a)))
+        return _round32(evoxc.sin(_to_f64(a)))
     if func_id == Func.COS:
-        return _round32(etl.cos(_to_f64(a)))
+        return _round32(evoxc.cos(_to_f64(a)))
     if func_id == Func.TAN:
-        return _round32(etl.tan(_to_f64(a)))
-    if func_id == Func.SINH:  # composed: ETL has no sinh
+        return _round32(evoxc.tan(_to_f64(a)))
+    if func_id == Func.SINH:  # composed: evoxc has no sinh
         # The composition ``(exp(x) - exp(-x)) / 2`` cannot keep the sign of
         # zero (``exp(-0.0) == exp(0.0) == 1`` gives ``+0.0``) and loses
         # relative accuracy for tiny ``|x|`` -- both are observable through the
@@ -775,129 +781,129 @@ def _emit_unary(func_id: int, a: Any) -> Any:
         # ``_fold_unary`` does for a constant operand.
         w = _to_f64(a)
         composed = _round32(
-            etl.multiply(
-                etl.subtract(etl.exp(w), etl.exp(etl.negate(w))),
+            evoxc.multiply(
+                evoxc.subtract(evoxc.exp(w), evoxc.exp(evoxc.negate(w))),
                 _trace_const_f64(_HALF),
             )
         )
-        return etl.select(
-            etl.less(etl.abs(a), _trace_const(_SINH_LINEAR_BELOW)), a, composed
+        return evoxc.select(
+            evoxc.less(evoxc.abs(a), _trace_const(_SINH_LINEAR_BELOW)), a, composed
         )
-    if func_id == Func.COSH:  # composed: ETL has no cosh
+    if func_id == Func.COSH:  # composed: evoxc has no cosh
         w = _to_f64(a)
         return _round32(
-            etl.multiply(
-                etl.add(etl.exp(w), etl.exp(etl.negate(w))),
+            evoxc.multiply(
+                evoxc.add(evoxc.exp(w), evoxc.exp(evoxc.negate(w))),
                 _trace_const_f64(_HALF),
             )
         )
     if func_id == Func.TANH:
-        return _round32(etl.tanh(_to_f64(a)))
+        return _round32(evoxc.tanh(_to_f64(a)))
     if func_id == Func.LOG:
-        return _round32(etl.log(_to_f64(a)))
+        return _round32(evoxc.log(_to_f64(a)))
     if func_id == Func.LOOSE_LOG:
-        return etl.select(
-            etl.equal(a, _trace_const(_ZERO)),
+        return evoxc.select(
+            evoxc.equal(a, _trace_const(_ZERO)),
             _trace_const(_NEG_MAX_VAL),
-            _round32(etl.log(etl.abs(_to_f64(a)))),
+            _round32(evoxc.log(evoxc.abs(_to_f64(a)))),
         )
     if func_id == Func.EXP:
-        return _round32(etl.exp(_to_f64(a)))
+        return _round32(evoxc.exp(_to_f64(a)))
     if func_id == Func.INV:
-        return etl.select(
-            etl.equal(a, _trace_const(_ZERO)),
+        return evoxc.select(
+            evoxc.equal(a, _trace_const(_ZERO)),
             _trace_const(_NaN),
-            etl.divide(_trace_const(_ONE), a),
+            evoxc.divide(_trace_const(_ONE), a),
         )
     if func_id == Func.LOOSE_INV:
-        safe = etl.select(
-            etl.less_equal(etl.abs(a), _trace_const(_DELTA)),
+        safe = evoxc.select(
+            evoxc.less_equal(evoxc.abs(a), _trace_const(_DELTA)),
             _copysign_delta(a),
             a,
         )
-        return etl.divide(_trace_const(_ONE), safe)
+        return evoxc.divide(_trace_const(_ONE), safe)
     if func_id == Func.NEG:
-        return etl.negate(a)
+        return evoxc.negate(a)
     if func_id == Func.ABS:
-        return etl.abs(a)
+        return evoxc.abs(a)
     if func_id == Func.SQRT:
-        return etl.sqrt(a)
+        return evoxc.sqrt(a)
     if func_id == Func.LOOSE_SQRT:
-        return etl.sqrt(etl.abs(a))
+        return evoxc.sqrt(evoxc.abs(a))
     return _ZERO  # unmatched branch leaves top_val at its initializer
 
 
 def _emit_binary(func_id: int, a: Any, b: Any) -> Any:
     """One binary node: fold when both operands are constant, else emit ops."""
-    sym_a = isinstance(a, etl.SymbolicTensor)
-    sym_b = isinstance(b, etl.SymbolicTensor)
+    sym_a = isinstance(a, evoxc.SymbolicTensor)
+    sym_b = isinstance(b, evoxc.SymbolicTensor)
     if not sym_a and not sym_b:
         return _fold_binary(func_id, a, b)
     if func_id == Func.ADD:
-        return etl.add(_operand(a), _operand(b))
+        return evoxc.add(_operand(a), _operand(b))
     if func_id == Func.SUB:
-        return etl.subtract(_operand(a), _operand(b))
+        return evoxc.subtract(_operand(a), _operand(b))
     if func_id == Func.MUL:
-        return etl.multiply(_operand(a), _operand(b))
+        return evoxc.multiply(_operand(a), _operand(b))
     if func_id == Func.DIV:
         if not sym_b:  # constant divisor: the 0 test is a plain host branch
-            return _NaN if b == 0 else etl.divide(_operand(a), _operand(b))
-        quotient = etl.divide(_operand(a), _operand(b))
-        return etl.select(
-            etl.equal(b, _trace_const(_ZERO)), _trace_const(_NaN), quotient
+            return _NaN if b == 0 else evoxc.divide(_operand(a), _operand(b))
+        quotient = evoxc.divide(_operand(a), _operand(b))
+        return evoxc.select(
+            evoxc.equal(b, _trace_const(_ZERO)), _trace_const(_NaN), quotient
         )
     if func_id == Func.LOOSE_DIV:
         if not sym_b:  # constant divisor: sanitize on the host, exactly
             d = _f32(np.copysign(_DELTA, b)) if np.abs(b) <= _DELTA else b
-            return etl.divide(_operand(a), _trace_const(d))
-        safe = etl.select(
-            etl.less_equal(etl.abs(b), _trace_const(_DELTA)),
+            return evoxc.divide(_operand(a), _trace_const(d))
+        safe = evoxc.select(
+            evoxc.less_equal(evoxc.abs(b), _trace_const(_DELTA)),
             _copysign_delta(b),
             b,
         )
-        return etl.divide(_operand(a), safe)
+        return evoxc.divide(_operand(a), safe)
     if func_id == Func.POW:
-        return _round32(etl.power(_to_f64(_operand(a)), _to_f64(_operand(b))))
+        return _round32(evoxc.power(_to_f64(_operand(a)), _to_f64(_operand(b))))
     if func_id == Func.LOOSE_POW:
-        return etl.select(
-            etl.logical_and(
-                etl.equal(_operand(a), _trace_const(_ZERO)),
-                etl.equal(_operand(b), _trace_const(_ZERO)),
+        return evoxc.select(
+            evoxc.logical_and(
+                evoxc.equal(_operand(a), _trace_const(_ZERO)),
+                evoxc.equal(_operand(b), _trace_const(_ZERO)),
             ),
             _trace_const(_ZERO),
             _round32(
-                etl.power(etl.abs(_to_f64(_operand(a))), _to_f64(_operand(b)))
+                evoxc.power(evoxc.abs(_to_f64(_operand(a))), _to_f64(_operand(b)))
             ),
         )
     if func_id == Func.MAX:
-        return etl.select(
-            etl.greater_equal(_operand(a), _operand(b)), _operand(a), _operand(b)
+        return evoxc.select(
+            evoxc.greater_equal(_operand(a), _operand(b)), _operand(a), _operand(b)
         )
     if func_id == Func.MIN:
-        return etl.select(
-            etl.less_equal(_operand(a), _operand(b)), _operand(a), _operand(b)
+        return evoxc.select(
+            evoxc.less_equal(_operand(a), _operand(b)), _operand(a), _operand(b)
         )
     if func_id == Func.LT:
-        return etl.select(
-            etl.less(_operand(a), _operand(b)),
+        return evoxc.select(
+            evoxc.less(_operand(a), _operand(b)),
             _trace_const(_ONE),
             _trace_const(_NEG_ONE),
         )
     if func_id == Func.GT:
-        return etl.select(
-            etl.greater(_operand(a), _operand(b)),
+        return evoxc.select(
+            evoxc.greater(_operand(a), _operand(b)),
             _trace_const(_ONE),
             _trace_const(_NEG_ONE),
         )
     if func_id == Func.LE:
-        return etl.select(
-            etl.less_equal(_operand(a), _operand(b)),
+        return evoxc.select(
+            evoxc.less_equal(_operand(a), _operand(b)),
             _trace_const(_ONE),
             _trace_const(_NEG_ONE),
         )
     if func_id == Func.GE:
-        return etl.select(
-            etl.greater_equal(_operand(a), _operand(b)),
+        return evoxc.select(
+            evoxc.greater_equal(_operand(a), _operand(b)),
             _trace_const(_ONE),
             _trace_const(_NEG_ONE),
         )
@@ -906,10 +912,10 @@ def _emit_binary(func_id: int, a: Any, b: Any) -> Any:
 
 def _emit_ternary(a: Any, b: Any, c: Any) -> Any:
     """One ternary node (always ``if``): host pick when the condition folds."""
-    if not isinstance(a, etl.SymbolicTensor):
+    if not isinstance(a, evoxc.SymbolicTensor):
         return b if a > 0 else c
-    return etl.select(
-        etl.greater(a, _trace_const(_ZERO)), _operand(b), _operand(c)
+    return evoxc.select(
+        evoxc.greater(a, _trace_const(_ZERO)), _operand(b), _operand(c)
     )
 
 
@@ -926,32 +932,32 @@ def _acc_add(acc: Any, value: Any) -> Any:
     """Accumulate one out-node contribution (``s_outs[o] += value``)."""
     if acc is None:
         return value
-    if not isinstance(acc, etl.SymbolicTensor) and not isinstance(
-        value, etl.SymbolicTensor
+    if not isinstance(acc, evoxc.SymbolicTensor) and not isinstance(
+        value, evoxc.SymbolicTensor
     ):
         return _f32(np.float32(acc) + np.float32(value))
-    return etl.add(_operand(acc), _operand(value))
+    return evoxc.add(_operand(acc), _operand(value))
 
 
 def _assemble_outputs(accs: Sequence[Any], n_rows: int) -> Any:
     """Stack the accumulated outputs into the ``(n_rows, out_len)`` result."""
     cols = []
     for acc in accs:
-        if isinstance(acc, etl.SymbolicTensor):
+        if isinstance(acc, evoxc.SymbolicTensor):
             cols.append(acc)
         elif acc is None:
             cols.append(_trace_const_col(n_rows, _ZERO))
         else:
             cols.append(_trace_const_col(n_rows, np.float32(acc)))
-    return etl.concatenate(cols, axis=1)
+    return evoxc.concatenate(cols, axis=1)
 
 
 def _walk_tokens(tokens: Sequence[Sequence[int]], output_len: int, x: Any) -> Any:
-    """Run one static program: emit ETL ops, or evaluate on the host.
+    """Run one static program: emit evoxc ops, or evaluate on the host.
 
     The walk visits the token stream in reverse prefix order and keeps a value
     stack -- the same operand discipline as ``_treeGPEvalByStack`` (the first
-    pop is the leftmost child).  Values are either ``etl.SymbolicTensor``s or
+    pop is the leftmost child).  Values are either ``evoxc.SymbolicTensor``s or
     plain float32 constants that were folded at decode time; the emitters fold
     eagerly whenever every operand is constant, so this one function is also
     the host evaluator.
@@ -975,7 +981,7 @@ def _walk_tokens(tokens: Sequence[Sequence[int]], output_len: int, x: Any) -> An
             stack.append(_bits_to_float(tok[1]))
             continue
         if kind == _K_VAR:
-            stack.append(etl.slice(x, (0, tok[1]), (n_rows, 1)))
+            stack.append(evoxc.slice(x, (0, tok[1]), (n_rows, 1)))
             continue
         arity = kind - 1
         if len(stack) < arity:
@@ -1003,23 +1009,23 @@ def _walk_tokens(tokens: Sequence[Sequence[int]], output_len: int, x: Any) -> An
     root = stack[0]
     if x is None:
         return root
-    if not isinstance(root, etl.SymbolicTensor):  # constant root (defensive)
+    if not isinstance(root, evoxc.SymbolicTensor):  # constant root (defensive)
         return _trace_const_col(n_rows, np.float32(root))
     return root
 
 
 def _trace_program(program: Tuple[int, Sequence[Sequence[int]]], x: Any) -> Any:
-    """Specialize ``(out_len, tokens)`` into ETL ops over the input ``x``."""
+    """Specialize ``(out_len, tokens)`` into evoxc ops over the input ``x``."""
     out_len, tokens = program
     return _walk_tokens(tokens, int(out_len), x)
 
 
-@etl.defn
+@evoxc.defn
 def _eval_step(x, program):
     """One tree, specialized: ``x`` is ``(N, input_len)`` -> ``(N, out_len)``.
 
     ``program`` is a static ``(out_len, tokens)`` structure; it is decoded at
-    trace time into ordinary ETL ops.  Module-level on purpose: ``build_cached``
+    trace time into ordinary evoxc ops.  Module-level on purpose: ``build_cached``
     keys on ``id(fn)``, and a closure would be a permanent cache miss.
     """
     return _trace_program(program, x)
@@ -1030,23 +1036,41 @@ def _eval_step(x, program):
 # ---------------------------------------------------------------------------
 
 
+def _gpu_device_kind() -> str:
+    """The evoxc device KIND of this host's GPU: ``"rocm"`` or ``"cuda"``.
+
+    Read from the installed torch build (``torch.version.hip`` is set on a
+    ROCm/HIP build and ``None`` on a CUDA build): evoxc's IREE adapter loads the
+    HAL driver matching the device kind, so a hard-coded kind asks for a driver
+    that is not there on one of the two platforms.
+    """
+    return "rocm" if getattr(torch.version, "hip", None) else "cuda"
+
+
 def _resolve_backend(
     backend: Optional[str], iree_device_index: Optional[int]
 ) -> Tuple[str, Any, Dict[str, Any]]:
     """Resolve ``(backend_name, device, compile_options)``.
 
     Precedence: explicit argument > environment > default.  ``"numpy"`` runs on
-    the host with ``Device("cpu", 0)`` and no options; ``"iree"`` is the
-    CUDA-HAL device backend (see the module docstring).  Both are always
-    resolved to concrete values so that ``build_cached`` never consults the
-    ambient ``ETL_*`` environment.
+    the host with ``Device("cpu", 0)`` and no options; ``"iree"`` is the GPU-HAL
+    device backend (see the module docstring).  Both are always resolved to
+    concrete values so that ``build_cached`` never consults the ambient
+    ``EVOXC_*`` environment.
+
+    The device KIND of the ``"iree"`` path follows the installed torch build
+    (``"rocm"`` on a ROCm/HIP build, else ``"cuda"``): evoxc's IREE adapter
+    loads the matching HAL driver, and a hard-coded kind would ask for the wrong
+    driver on one of the two.  ``target_backends`` is deliberately NOT passed --
+    ``build_cached`` infers it from the resolved device kind -- so the compile
+    options carry only ``opt_level``.
     """
     name = backend if backend else os.environ.get(BACKEND_ENV, "").strip()
     if not name:
         name = SUPPORTED_BACKENDS[0]
     if name not in SUPPORTED_BACKENDS:
         raise ValueError(
-            f"unsupported backend {name!r}: evogp.tree.etl_engine supports "
+            f"unsupported backend {name!r}: evogp.tree.evoxc_engine supports "
             f"{list(SUPPORTED_BACKENDS)} (set {BACKEND_ENV!r} or pass backend=)"
         )
     if name == "numpy":
@@ -1060,14 +1084,14 @@ def _resolve_backend(
         raise ValueError(
             f"{IREE_OPT_LEVEL_ENV}={opt_level!r}: only 'O0' and 'O1' are supported"
         )
-    device = etl.core.Device("cuda", int(iree_device_index))
-    return name, device, {"target_backends": ["cuda"], "opt_level": opt_level}
+    device = evoxc.core.Device(_gpu_device_kind(), int(iree_device_index))
+    return name, device, {"opt_level": opt_level}
 
 
 def _freeze_options(value: Any) -> Any:
     """Hashable, order-insensitive, immutable snapshot of an option value.
 
-    Mirrors ``etl.build_cache._canonicalize_options`` exactly -- dicts become
+    Mirrors ``evoxc.build_cache._canonicalize_options`` exactly -- dicts become
     sorted ``(key, value)`` item tuples, lists/tuples sorted tuples of their
     frozen items, scalars pass through, and a ``TypeError`` from sorting
     (incomparable mixed types) keeps the original order -- so two option sets
@@ -1108,16 +1132,21 @@ def _executable_key(
     discriminating as :data:`CACHE` and can never serve an executable built for
     a different combination.  The key is value-typed and immutable: a re-decode
     of an unchanged tree yields an equal ``program`` tuple and therefore hits
-    (the elite case), and the device is a frozen ``etl.core.Device`` (kind +
+    (the elite case), and the device is a frozen ``evoxc.core.Device`` (kind +
     index, the same content the ``build_cached`` codec encodes).
 
-    Ambient ``ETL_BACKEND`` / ``ETL_DEVICE`` / ``ETL_TARGET_BACKENDS`` are not
-    part of the key, deliberately: this module always passes backend, device and
-    (for iree) ``target_backends`` itself, so they cannot change what it
-    computes -- the numpy backend documents ``target_backends`` as
-    accepted-and-ignored (``etl/backends/options.py``), which is the only one of
-    the three that can still enter ``build_cached``'s resolved options.  A memo
-    hit is therefore the same executable ``build_cached`` would return.
+    Ambient ``EVOXC_BACKEND`` / ``EVOXC_DEVICE`` are not part of the key,
+    deliberately: this module always passes backend and device itself, so they
+    cannot change what it computes.  Ambient ``EVOXC_TARGET_BACKENDS`` is the
+    one knob that can still enter ``build_cached``'s resolved options (the
+    compile stage infers ``target_backends`` from the resolved device and the
+    env var overrides that inference), so it is a process-env compile knob of
+    the caller's, exactly like ``EVOXC_OPT_LEVEL``: changing it mid-process
+    means calling :func:`clear_cache` (which resets this memo too), never a
+    silent memo hit on a differently-targeted executable.  On the numpy backend
+    the option is documented as accepted-and-ignored
+    (``evoxc/backends/options.py``).  Otherwise a memo hit is the same
+    executable ``build_cached`` would return.
     """
     return (
         id(_eval_step),
@@ -1141,7 +1170,7 @@ def _executable(
     """Memoized per-(structure, shape) executable (a hit returns identity).
 
     One value-keyed lookup in :data:`_EXECUTABLE_MEMO` (:func:`_executable_key`)
-    in front of ``etl.build_cached``; only a memo miss builds the
+    in front of ``evoxc.build_cached``; only a memo miss builds the
     ``TensorSpec`` and re-derives ``build_cached``'s own key -- still the more
     expensive path (~17-25 us for a fingerprint-replay hit against this memo's
     ~2.4-2.8 us).  ``_ExecutableMemo`` documents the contract and
@@ -1151,7 +1180,7 @@ def _executable(
     executable = _EXECUTABLE_MEMO.lookup(key)
     if executable is not None:
         return executable
-    spec = etl.TensorSpec((int(n_rows), int(input_len)), etl.float32)
+    spec = evoxc.TensorSpec((int(n_rows), int(input_len)), evoxc.float32)
     if backend_name == "numpy":
         executable = build_cached(
             _eval_step, spec, program, backend=backend_name, device=device, cache=CACHE
@@ -1560,13 +1589,13 @@ def _run_tree(
     exe = _executable(tree.program, n_rows, input_len, backend_name, device, options)
     if backend_name == "numpy":
         with _quiet():
-            result = etl.run(exe, xin, tree.program)
+            result = evoxc.run(exe, xin, tree.program)
         return np.asarray(result.numpy(), dtype=np.float32).reshape(n_rows, -1)
     device_input = prepared.get(xin_key)
     if device_input is None:  # one host->device copy per distinct input block
-        prepared[xin_key] = device_input = etl.from_numpy(xin).to(device)
+        prepared[xin_key] = device_input = evoxc.from_numpy(xin).to(device)
     with _quiet():
-        result = etl.run(exe, device_input, tree.program)
+        result = evoxc.run(exe, device_input, tree.program)
     return np.asarray(result.to(_CPU).numpy(), dtype=np.float32).reshape(n_rows, -1)
 
 
@@ -1709,7 +1738,7 @@ def sr_fitness(
       (allocating no extra ``(pop_size, N, output_len)`` temporaries), and
     * it uses **numpy, not torch**: torch's CPU ops on a ``(pop_size, N)``-sized
       tensor open an intra-op thread pool whose spin-waiting then starves the
-      single-threaded ETL/numpy interpreter of the *next* call (measured on the
+      single-threaded evoxc/numpy interpreter of the *next* call (measured on the
       64-tree / N=10000 fixture: 95.3 ms median per ``SR_fitness`` with the torch
       host reduction vs 20.5 ms with the numpy one, against 22.8 ms for the old
       device-reduction path -- and the torch path's stalls land in unrelated
@@ -1882,7 +1911,7 @@ class SpecializedRunner:
         )
         to_device = self.backend_name != "numpy"
         shared = (
-            etl.from_numpy(np.ascontiguousarray(xin)).to(self.device)
+            evoxc.from_numpy(np.ascontiguousarray(xin)).to(self.device)
             if to_device and not self.per_row
             else None
         )
@@ -1914,7 +1943,7 @@ class SpecializedRunner:
             if self.per_row:
                 row = xin[index : index + 1]
                 payloads.append(
-                    etl.from_numpy(np.ascontiguousarray(row)).to(self.device)
+                    evoxc.from_numpy(np.ascontiguousarray(row)).to(self.device)
                     if to_device
                     else row
                 )
@@ -1927,15 +1956,15 @@ class SpecializedRunner:
 
     @property
     def invocations(self) -> int:
-        """How many ``etl.run`` calls one :meth:`run` issues (non-constant trees)."""
+        """How many ``evoxc.run`` calls one :meth:`run` issues (non-constant trees)."""
         return sum(1 for executable in self.executables if executable is not None)
 
     def run(self) -> Tuple[Optional[Any], ...]:
         """Execute ONE forward pass -- the only thing a harness times.
 
         Returns:
-            A ``pop_size``-long tuple: entry ``i`` is the RAW ``etl.run`` result
-            of tree ``i`` -- an ``etl`` runtime tensor of shape ``(n_rows,
+            A ``pop_size``-long tuple: entry ``i`` is the RAW ``evoxc.run`` result
+            of tree ``i`` -- an ``evoxc`` runtime tensor of shape ``(n_rows,
             output_len)``, host-backed on the numpy backend and device-resident
             on a device backend -- or ``None`` for a constant tree (never
             compiled; its rows are staged in :attr:`constant_rows`).
@@ -1953,18 +1982,17 @@ class SpecializedRunner:
                 if executable is None:  # constant tree: nothing to run
                     results.append(None)
                     continue
-                # ADOPTION POINT (ETL-side facility landed, swap NOT made
-                # here): ``etl.run`` re-passes the statics by value and
-                # re-validates them on every call -- now through the
-                # per-executable content-fingerprint fast path (ETL bench,
-                # numpy: a 60-token program 303 -> ~67-71 us per call) -- and
-                # it walks the executable's structure.  ``etl.jit`` ->
-                # ``JitFunction`` / ``BoundJit`` now carries the bound
-                # invocation that skips the consumer-side lookup and key
-                # derivation; nothing in this repository emulates it and
-                # /mnt/local-ssd/bchuang/etl is not modified.  This is the one
-                # line to swap.
-                results.append(etl.run(executable, payload, tree.program))
+                # ``evoxc.run`` re-passes the statics by value and re-validates
+                # them on every call -- now through the per-executable
+                # content-fingerprint fast path (evoxc bench, numpy: a 60-token
+                # program 303 -> ~67-71 us per call) -- and it walks the
+                # executable's structure.  evoxc has no pre-bound runner
+                # (``evoxc.jit`` / ``JitFunction`` / ``BoundJit`` do NOT exist
+                # there), so this raw ``evoxc.run`` is the cheapest supported
+                # call: it skips the wrapper's own key derivation, which is all
+                # the consumer side can skip without emulating a binding layer
+                # in this repository.
+                results.append(evoxc.run(executable, payload, tree.program))
         return tuple(results)
 
 
@@ -1988,7 +2016,7 @@ def build_specialized_runner(
             every tree is evaluated on.
         per_row: per-tree inputs (default ``False``: every tree sees all rows).
         backend / iree_device_index: exactly :func:`evaluate`'s overrides of the
-            ``EVOGP_ETL_BACKEND`` / ``EVOGP_ETL_IREE_DEVICE`` environment.
+            ``EVOGP_EVOXC_BACKEND`` / ``EVOGP_EVOXC_DEVICE`` environment.
 
     Returns:
         A :class:`SpecializedRunner`; ``.run()`` is the compiled forward pass

@@ -1,11 +1,11 @@
-"""One-graph "dense" population evaluator for the ETL engine (integrated).
+"""One-graph "dense" population evaluator for the evoxc engine (integrated).
 
-This module evaluates a whole population with ONE compiled ETL executable fed
+This module evaluates a whole population with ONE compiled evoxc executable fed
 with the population's node tensors as RUNTIME DATA, instead of one compiled
 graph per tree structure.  The specialized engine
-(:mod:`evogp.tree.etl_engine`) compiles one ETL graph per *tree structure* and
+(:mod:`evogp.tree.evoxc_engine`) compiles one evoxc graph per *tree structure* and
 calls it once per tree: a ``pop_size`` fitness pass is ``pop_size``
-``build_cached`` lookups + ``pop_size`` ``etl.run`` calls + ``pop_size`` device
+``build_cached`` lookups + ``pop_size`` ``evoxc.run`` calls + ``pop_size`` device
 readbacks (IREE), and a new structure costs a 0.4-2.6 s compile there.  The dense
 path compiles ONE graph per *shape signature*
 ``(L, P, N, input_len, per_row, update_mode, backend, device, options)`` and
@@ -31,7 +31,7 @@ call site                     per_row                    dense entry point
 The **fallback is silent but deliberate**: a :class:`DenseUnsupported` (a
 multi-output population, a tree longer than the trace cap, structural doubt)
 re-runs the very same call on the existing ``decode_population`` +
-``etl_engine.evaluate`` / ``etl_engine.sr_fitness`` path, which owns the error
+``evoxc_engine.evaluate`` / ``evoxc_engine.sr_fitness`` path, which owns the error
 contract for malformed trees.  The ONE exception is an over-cap tree on a
 non-numpy backend, where the fallback (``pop_size`` per-structure compiles)
 really is the expensive outcome: that decline emits a deduped once-per-process
@@ -43,8 +43,8 @@ fitness returns a fresh writable ``(pop_size,)`` positive-loss tensor).
 
 Strategy switch: ``EVOGP_EVAL_MODE``
 ------------------------------------
-One master switch, read **per call** (exactly like ``EVOGP_ETL_BACKEND`` in
-``etl_engine._resolve_backend``), case-insensitive, default ``auto``:
+One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
+``evoxc_engine._resolve_backend``), case-insensitive, default ``auto``:
 
 ``auto`` (default)
     the measured policy, implemented once in :func:`should_use_dense` (plus the
@@ -94,17 +94,17 @@ Scheme (see :func:`_dense_body` for the trace-time body)
    fails *any* structural check -- raises :class:`DenseUnsupported` so the caller
    falls back to the specialized path (which owns the error contract; this module
    deliberately does NOT reproduce
-   :func:`etl_engine.decode_population`'s error messages).  An over-cap tree is
+   :func:`evoxc_engine.decode_population`'s error messages).  An over-cap tree is
    the ONE decline that warns (once per process, on a device backend -- see
    :func:`_warn_trace_cap`), because the specialized fallback there is the
    expensive one.
-2. **One graph** (module-level ``@etl.defn _dense_step``) with a Python
+2. **One graph** (module-level ``@evoxc.defn _dense_step``) with a Python
    trace-time ``for i in range(L-1, -1, -1)`` unroll over node positions
    (reverse prefix order: children always have a larger index than their
    parent).  Per position it gathers the three child values (single-axis
    ``gather`` from a flat view of the value buffer -- the documented flatten
    trick), computes the whole function-candidate chain with the *same* private
-   emitters the specialized engine uses (:func:`etl_engine._emit_unary` /
+   emitters the specialized engine uses (:func:`evoxc_engine._emit_unary` /
    :func:`_emit_binary` / :func:`_emit_ternary`, parity by construction) and
    selects the leaf / function value with broadcast ``select`` preds.
 3. **No per-tree host calls, no per-tree readbacks**: the nodes are inputs, the
@@ -115,7 +115,7 @@ Scheme (see :func:`_dense_body` for the trace-time body)
 Value buffer & write modes (:data:`UPDATE_MODE_ENV`)
 ---------------------------------------------------
 The trace keeps already-computed values as a buffer of shape ``(L, P, N)``
-(``N == 1`` for ``per_row=True``).  ETL has no in-place mutation primitive that
+(``N == 1`` for ``per_row=True``).  evoxc has no in-place mutation primitive that
 is safe on every backend, so the row write is emulated:
 
 ``grow`` (default)
@@ -133,7 +133,7 @@ is safe on every backend, so the row write is emulated:
     plain ``child`` indices.
 ``scatter``
     A full zero buffer written with ``scatter(buf, i, row, axis=0)``.
-    **numpy backend only by default**: on iree-cuda ETL's ``scatter`` mutates its
+    **numpy backend only by default**: on iree-cuda evoxc's ``scatter`` mutates its
     input tensor in place (a retained input is modified by later invokes), so
     iree refuses unless :data:`ALLOW_UNSAFE_SCATTER_ENV` is set
     (``dense_spike_check.py`` uses it for the optional "is an
@@ -174,14 +174,14 @@ Environment knobs
 Every knob is read per call (see the module's configuration section), so a
 process can change strategy between calls.  Backend/device/opt-level knobs, the
 shared compile cache (:data:`DENSE_CACHE` is the very same
-:data:`etl_engine.CACHE`) and the ``ETL_DISABLE_LOCATIONS=1`` tracing speedup
-are inherited unchanged from :mod:`evogp.tree.etl_engine`.
+:data:`evoxc_engine.CACHE`) and the ``EVOXC_DISABLE_LOCATIONS=1`` tracing speedup
+are inherited unchanged from :mod:`evogp.tree.evoxc_engine`.
 
 Parity notes / known numeric deviations
 ---------------------------------------
 * Function and leaf values go through the identical emission path, so a dense
   value is bit-exact unless the *specialized* engine folded a constant subtree at
-  decode time (``etl_engine._decode_row`` -> ``_fold_*``).  A folded chain
+  decode time (``evoxc_engine._decode_row`` -> ``_fold_*``).  A folded chain
   rounds to float32 after every op, exactly like the emitted graph, so the only
   way to diverge is a host ``numpy`` float64 primitive (``pow``/``exp``/``sin``/
   ... in the fold path) disagreeing by one ulp with the backend's float64
@@ -195,17 +195,17 @@ Parity notes / known numeric deviations
   and forwards through ``Forest.forward`` / ``Forest.batch_forward``, so its
   sub-forests take the same policy decision as any other population.
 * ``per_row=True`` -> ``(pop_size, output_len)`` and ``per_row=False`` ->
-  ``(pop_size, N, output_len)`` follow :func:`etl_engine.evaluate`'s contract
+  ``(pop_size, N, output_len)`` follow :func:`evoxc_engine.evaluate`'s contract
   (fresh, contiguous, ``requires_grad=False``, float32, on ``x``'s device unless
   ``out_device``); :func:`sr_fitness_dense` mirrors
-  :func:`etl_engine.sr_fitness` (positive loss ``sum_N sum_out err / N``, MSE or
+  :func:`evoxc_engine.sr_fitness` (positive loss ``sum_N sum_out err / N``, MSE or
   MAE, NaN/inf propagate) with the very same torch reduction ops, so identical
   predictions give identical losses.
 
 Shared cache, chunk policy, follow-ups
 --------------------------------------
-* The dense graphs live in the same ``etl_engine.CACHE`` as the specialized
-  ones: one entry per shape signature, so ``etl_engine.cache_stats()`` reports
+* The dense graphs live in the same ``evoxc_engine.CACHE`` as the specialized
+  ones: one entry per shape signature, so ``evoxc_engine.cache_stats()`` reports
   the whole-population dense compile as ONE miss (against ``pop_size`` misses on
   the specialized path) and a later call of the same shape is a pure hit.
 * **Chunking**: one compile must serve the whole call, so the graph's ``P``/``N``
@@ -221,7 +221,7 @@ Shared cache, chunk policy, follow-ups
 
 Measurements (round-1 battery, re-runnable with ``dense_spike_check.py``)
 -------------------------------------------------------------------------
-Run: repo root, ``PYTHONPATH=src ETL_DISABLE_LOCATIONS=1``, venv
+Run: repo root, ``PYTHONPATH=src EVOXC_DISABLE_LOCATIONS=1``, venv
 ``/mnt/local-ssd/bchuang/evox/.venv/bin/python``; GPU 3 via
 ``CUDA_VISIBLE_DEVICES=3`` + ``--gpu 0``.
 
@@ -247,9 +247,9 @@ Run: repo root, ``PYTHONPATH=src ETL_DISABLE_LOCATIONS=1``, venv
    graph evaluates them with **iree f64** transcendentals, and iree's f64 libm is
    not bit-identical to numpy's. Same class of ~1 ulp difference for
    ``const_out`` trees. All within the 1e-4 tolerance; report it, do not chase it.
-4. **Known pre-existing ``etl_engine`` issue, iree + ``per_row=True``** (owned by
+4. **Known pre-existing ``evoxc_engine`` issue, iree + ``per_row=True``** (owned by
    the specialized engine, tracked/fixed separately; the dense path does not
-   share that code).  ``etl_engine._run_tree`` (``etl_engine.py:1237-1242``)
+   share that code).  ``evoxc_engine._run_tree`` (``evoxc_engine.py:1237-1242``)
    memoizes the host->device input as ``prepared[0]`` and reuses it for every
    tree of one ``evaluate`` call. That is right for ``per_row=False`` (same
    ``xin``) and WRONG for ``per_row=True`` (``xin = xt[index:index+1]``), where
@@ -261,14 +261,14 @@ Run: repo root, ``PYTHONPATH=src ETL_DISABLE_LOCATIONS=1``, venv
    backend) is unaffected.
 5. **iree runtime robustness.** A long battery (≈25 compiled executables in one
    process) segfaulted the interpreter mid-run, after emitting nanobind
-   "leaked function/HalBuffer" warnings — the etl/iree binding leaks device
+   "leaked function/HalBuffer" warnings — the evoxc/iree binding leaks device
    buffers per live executable. Keep iree sessions short and split batteries
    into stages; ``cache_stats()``/``clear_cache()`` between stages.
 6. **Economics (numpy CPU interpreter, warm medians, P/N from the script).**
    Dense is **much slower** than the specialized path on numpy: 0.01–0.17×
    (``P=64,N=64``: 18.8 ms specialized vs 209.7 ms dense; ``P=64,N=1024``:
    19.9 ms vs 3137.6 ms), because the graph carries ≈264 ops per traced
-   position (≈264·L ops: L=8 → 2110, L=16 → 4478, L=32 → 9214) and ETL's numpy
+   position (≈264·L ops: L=8 → 2110, L=16 → 4478, L=32 → 9214) and evoxc's numpy
    interpreter pays per-op overhead on ``(L,P,N)`` tensors. Cold build is also
    worse (dense 5.1 s vs 196 ms for P=64) and both grow with L (numpy L=32:
    trace 204 ms, lower 468 ms, compile 1893 ms, load 397 ms).
@@ -305,11 +305,11 @@ a build-once / run-many object for benchmarking harnesses: the build phase plans
 + compiles (or hits) the ONE shape-signature graph and stages every payload of
 the (single) chunk through the readback-free seam
 (:func:`_iter_plan_chunks` with an injected memo), then ``.run()`` executes only
-the forward pass -- one ``etl.run`` over the staged payloads, returning the raw
+the forward pass -- one ``evoxc.run`` over the staged payloads, returning the raw
 backend result, with no readback, no host assembly, no re-plan and no key
 derivation.  It changes nothing about ``evaluate_dense`` / ``sr_fitness_dense``,
 is called by nothing in the library and is documented -- with the specialized
-twin, ``etl_engine.build_specialized_runner`` -- in ``RUNNER_HOOKS.md``.
+twin, ``evoxc_engine.build_specialized_runner`` -- in ``RUNNER_HOOKS.md``.
 """
 
 from __future__ import annotations
@@ -322,10 +322,10 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import torch
 
-import etl
+import evoxc
 
 from .utils import NType
-from .etl_engine import (  # private but deliberately reused: parity by construction
+from .evoxc_engine import (  # private but deliberately reused: parity by construction
     CACHE,
     _CPU,
     _as_numpy,
@@ -392,7 +392,7 @@ __all__ = [
 
 #: Master switch (``EVOGP_EVAL_MODE``): ``dense`` / ``specialized`` / ``auto``.
 #: The ONE policy knob; :func:`resolve_eval_mode` / :func:`should_use_dense`
-#: read it per call, exactly like ``etl_engine._resolve_backend`` reads the
+#: read it per call, exactly like ``evoxc_engine._resolve_backend`` reads the
 #: backend variable.
 EVAL_MODE_ENV = "EVOGP_EVAL_MODE"
 #: Population-size threshold of the ``auto`` policy on a non-numpy backend
@@ -413,7 +413,7 @@ MAX_TREE_LEN_ENV = "EVOGP_DENSE_MAX_TREE_LEN"
 BUDGET_MB_ENV = "EVOGP_DENSE_BUDGET_MB"
 #: Buffer write strategy (``EVOGP_DENSE_UPDATE_MODE``): see the module docstring.
 UPDATE_MODE_ENV = "EVOGP_DENSE_UPDATE_MODE"
-#: Explicit opt-in for ``scatter`` on IREE, where ETL's scatter mutates its input.
+#: Explicit opt-in for ``scatter`` on IREE, where evoxc's scatter mutates its input.
 ALLOW_UNSAFE_SCATTER_ENV = "EVOGP_DENSE_ALLOW_UNSAFE_SCATTER"
 
 EVAL_MODES = ("dense", "specialized", "auto")
@@ -500,7 +500,7 @@ class DenseUnsupported(RuntimeError):
     """The dense path cannot (safely) evaluate this population.
 
     Callers must fall back to the specialized engine
-    (:func:`etl_engine.decode_population` + :func:`etl_engine.evaluate`), which
+    (:func:`evoxc_engine.decode_population` + :func:`evoxc_engine.evaluate`), which
     owns the error contract for malformed trees.  ``reason`` carries the
     human-readable cause; this module deliberately does not reproduce the
     specialized decoder's ``ValueError`` messages.
@@ -536,8 +536,8 @@ def _resolve_budget_mb(value: Optional[float]) -> float:
 def resolve_eval_mode(value: Optional[str] = None) -> str:
     """Resolve the ``EVOGP_EVAL_MODE`` master switch (explicit argument wins).
 
-    Read per call -- like every knob here and like ``etl_engine._resolve_backend``
-    reads ``EVOGP_ETL_BACKEND`` -- so a process can change strategy between calls
+    Read per call -- like every knob here and like ``evoxc_engine._resolve_backend``
+    reads ``EVOGP_EVOXC_BACKEND`` -- so a process can change strategy between calls
     (e.g. force ``specialized`` to produce a reference result).  Case-insensitive;
     an empty value means the default ``"auto"``; the accepted aliases
     (:data:`EVAL_MODE_ALIASES`, currently ``dynamic`` -> ``dense``) are folded in
@@ -567,9 +567,9 @@ def resolve_backend_name(
 ) -> str:
     """The backend name a call will run on, resolved the engine's way.
 
-    Single-sources the ``explicit argument > EVOGP_ETL_BACKEND > default`` rule
+    Single-sources the ``explicit argument > EVOGP_EVOXC_BACKEND > default`` rule
     (and the backend-name validation) by delegating to
-    :func:`etl_engine._resolve_backend`; no graph is built, so this is the cheap
+    :func:`evoxc_engine._resolve_backend`; no graph is built, so this is the cheap
     way to ask "numpy or not?".
     """
     return _resolve_backend(backend, iree_device_index)[0]
@@ -692,11 +692,11 @@ def resolve_update_mode(value: Optional[str], backend_name: Optional[str]) -> st
     if mode == "scatter" and backend_name == "iree":
         allowed = os.environ.get(ALLOW_UNSAFE_SCATTER_ENV, "").strip() not in ("", "0")
         if not allowed:
-            # ETL's iree scatter mutates its input tensor in place and the value
+            # evoxc's iree scatter mutates its input tensor in place and the value
             # buffer is retained across the trace-time loop, so a later invoke
             # would re-apply the row writes.
             raise DenseUnsupported(
-                "update_mode='scatter' is unsafe on the iree backend (ETL's "
+                "update_mode='scatter' is unsafe on the iree backend (evoxc's "
                 "scatter mutates its input tensor in place); use "
                 f"{UPDATE_MODE_ENV}=grow|concat or set "
                 f"{ALLOW_UNSAFE_SCATTER_ENV}=1 to opt in for experiments"
@@ -834,7 +834,7 @@ def prepare_dense(
 ) -> DensePrep:
     """Decode/validate a population for the dense graph (host-side, vectorized).
 
-    Validation is a **superset** of :func:`etl_engine.decode_population`'s
+    Validation is a **superset** of :func:`evoxc_engine.decode_population`'s
     structural checks, applied only to positions that belong to a tree: a
     population the dense path accepts is one the specialized decoder accepts
     too, and anything doubtful raises :class:`DenseUnsupported`.
@@ -1045,7 +1045,7 @@ def _decode_columns(
 
 def _col(tensor: Any, i: int, P: int) -> Any:
     """Row ``i`` of an ``(L, P)`` runtime input as a ``(P, 1)`` symbolic tensor."""
-    return etl.reshape(etl.slice(tensor, (i, 0), (1, P)), (P, 1))
+    return evoxc.reshape(evoxc.slice(tensor, (i, 0), (1, P)), (P, 1))
 
 
 def _read_buffer(
@@ -1059,11 +1059,11 @@ def _read_buffer(
     The resulting offset is clamped into ``[0, rows-1]`` so padding rows can
     never produce an out-of-range index.
     """
-    off = etl.subtract(child, offset_base)
-    off = etl.maximum(etl.minimum(off, rows - 1), 0)
-    index = etl.reshape(etl.add(etl.multiply(off, PN), pn_off), (PN,))
-    flat = etl.reshape(buf, (rows * PN,))
-    return etl.reshape(etl.gather(flat, index, axis=0), (P, N))
+    off = evoxc.subtract(child, offset_base)
+    off = evoxc.maximum(evoxc.minimum(off, rows - 1), 0)
+    index = evoxc.reshape(evoxc.add(evoxc.multiply(off, PN), pn_off), (PN,))
+    flat = evoxc.reshape(buf, (rows * PN,))
+    return evoxc.reshape(evoxc.gather(flat, index, axis=0), (P, N))
 
 
 def _dense_body(
@@ -1100,22 +1100,22 @@ def _dense_body(
     mode = str(cfg[5])
     used_func_ids = tuple(int(v) for v in cfg[6])
     PN = P * N
-    pn_off = etl.add(
-        etl.reshape(etl.cast(etl.arange(P), etl.int32) * N, (P, 1)),
-        etl.reshape(etl.cast(etl.arange(N), etl.int32), (1, N)),
+    pn_off = evoxc.add(
+        evoxc.reshape(evoxc.cast(evoxc.arange(P), evoxc.int32) * N, (P, 1)),
+        evoxc.reshape(evoxc.cast(evoxc.arange(N), evoxc.int32), (1, N)),
     )
     zero = _trace_const(np.float32(0.0))
     if per_row:
         # x is (P, input_len): tree p reads its own row p.
-        x_flat = etl.reshape(x, (P * input_len,))
-        x_base = etl.reshape(etl.cast(etl.arange(P), etl.int32) * input_len, (P, 1))
+        x_flat = evoxc.reshape(x, (P * input_len,))
+        x_base = evoxc.reshape(evoxc.cast(evoxc.arange(P), evoxc.int32) * input_len, (P, 1))
     else:
         # x is (N, input_len): every tree reads all N rows.
-        x_flat = etl.reshape(x, (N * input_len,))
-        x_base = etl.reshape(etl.cast(etl.arange(N), etl.int32) * input_len, (1, N))
+        x_flat = evoxc.reshape(x, (N * input_len,))
+        x_base = evoxc.reshape(evoxc.cast(evoxc.arange(N), evoxc.int32) * input_len, (1, N))
 
     if mode in ("concat", "scatter"):
-        buf = etl.constant(etl.core.tensor(np.zeros((L, P, N), dtype=np.float32)))
+        buf = evoxc.constant(evoxc.core.tensor(np.zeros((L, P, N), dtype=np.float32)))
     else:
         buf = None
     buf_rows = 0
@@ -1149,9 +1149,9 @@ def _dense_body(
             has_children = True
 
         # -- leaf value --------------------------------------------------------
-        xidx = etl.reshape(etl.add(vi_i, x_base), (PN,))
-        xv = etl.reshape(etl.gather(x_flat, xidx, axis=0), (P, N))
-        leaf = etl.select(etl.equal(op_i, OP_VAR), xv, cv_i)
+        xidx = evoxc.reshape(evoxc.add(vi_i, x_base), (PN,))
+        xv = evoxc.reshape(evoxc.gather(x_flat, xidx, axis=0), (P, N))
+        leaf = evoxc.select(evoxc.equal(op_i, OP_VAR), xv, cv_i)
 
         if not has_children:
             val = leaf
@@ -1166,51 +1166,51 @@ def _dense_body(
                     if fid <= _BFUNC_MAX
                     else _emit_unary(fid, v1)
                 )
-                prod = etl.select(etl.equal(f_i, fid), _operand(candidate), prod)
-            valid = etl.logical_or(
-                etl.logical_and(
-                    etl.equal(op_i, OP_BFUNC),
-                    etl.logical_and(
-                        etl.greater_equal(f_i, 1), etl.less_equal(f_i, _BFUNC_MAX)
+                prod = evoxc.select(evoxc.equal(f_i, fid), _operand(candidate), prod)
+            valid = evoxc.logical_or(
+                evoxc.logical_and(
+                    evoxc.equal(op_i, OP_BFUNC),
+                    evoxc.logical_and(
+                        evoxc.greater_equal(f_i, 1), evoxc.less_equal(f_i, _BFUNC_MAX)
                     ),
                 ),
-                etl.logical_and(
-                    etl.equal(op_i, OP_UFUNC),
-                    etl.greater_equal(f_i, _BFUNC_MAX + 1),
+                evoxc.logical_and(
+                    evoxc.equal(op_i, OP_UFUNC),
+                    evoxc.greater_equal(f_i, _BFUNC_MAX + 1),
                 ),
             )
-            res = etl.select(valid, prod, zero)
-            res = etl.select(etl.equal(op_i, OP_TFUNC), _emit_ternary(v1, v2, v3), res)
-            val = etl.select(etl.less_equal(op_i, OP_CONST), leaf, res)
+            res = evoxc.select(valid, prod, zero)
+            res = evoxc.select(evoxc.equal(op_i, OP_TFUNC), _emit_ternary(v1, v2, v3), res)
+            val = evoxc.select(evoxc.less_equal(op_i, OP_CONST), leaf, res)
 
         if i == 0:
             root = val
             break
 
         # -- write row i -------------------------------------------------------
-        row = etl.reshape(val, (1, P, N))
+        row = evoxc.reshape(val, (1, P, N))
         if mode == "grow":
-            buf = row if buf is None else etl.concatenate([row, buf], axis=0)
+            buf = row if buf is None else evoxc.concatenate([row, buf], axis=0)
             buf_rows += 1
         elif mode == "concat":
             pieces = []
             if i > 0:
-                pieces.append(etl.slice(buf, (0, 0, 0), (i, P, N)))
+                pieces.append(evoxc.slice(buf, (0, 0, 0), (i, P, N)))
             pieces.append(row)
             if L - i - 1 > 0:
-                pieces.append(etl.slice(buf, (i + 1, 0, 0), (L - i - 1, P, N)))
+                pieces.append(evoxc.slice(buf, (i + 1, 0, 0), (L - i - 1, P, N)))
             buf = (
                 pieces[0]
                 if len(pieces) == 1
-                else etl.concatenate(pieces, axis=0)
+                else evoxc.concatenate(pieces, axis=0)
             )
         else:  # scatter -- numpy only by default (see resolve_update_mode)
-            index = etl.constant(etl.core.tensor(np.asarray([i], dtype=np.int32)))
-            buf = etl.scatter(buf, index, row, axis=0)
+            index = evoxc.constant(evoxc.core.tensor(np.asarray([i], dtype=np.int32)))
+            buf = evoxc.scatter(buf, index, row, axis=0)
     return root
 
 
-@etl.defn
+@evoxc.defn
 def _dense_step(
     opcode, func_id, const_value, var_index, child1, child2, child3, x, cfg
 ):
@@ -1225,7 +1225,7 @@ def _dense_step(
     )
 
 
-@etl.defn
+@evoxc.defn
 def _dense_loss_step(
     opcode,
     func_id,
@@ -1266,11 +1266,11 @@ def _dense_loss_step(
     )  # (P, N)
     zero = _trace_const(np.float32(0.0))
     one = _trace_const(np.float32(1.0))
-    diff = etl.subtract(etl.reshape(labels, (1, N)), values)
-    err = etl.multiply(diff, diff) if use_mse else etl.abs(diff)
-    real = etl.equal(etl.reshape(keep, (1, N)), one)
-    err = etl.select(real, err, zero)
-    return etl.sum(err, axes=(1,))
+    diff = evoxc.subtract(evoxc.reshape(labels, (1, N)), values)
+    err = evoxc.multiply(diff, diff) if use_mse else evoxc.abs(diff)
+    real = evoxc.equal(evoxc.reshape(keep, (1, N)), one)
+    err = evoxc.select(real, err, zero)
+    return evoxc.sum(err, axes=(1,))
 
 
 # ---------------------------------------------------------------------------
@@ -1316,9 +1316,9 @@ class DensePlan:
     """Everything :func:`build_dense` / :func:`evaluate_dense` need.
 
     ``specs`` is the exact ``build_cached`` spec tuple of THIS plan's variant
-    (runtime :class:`etl.TensorSpec` leaves + the static ``cfg``); ``cfg`` alone
-    is what :func:`etl.run` must receive as the trailing static argument.
-    ``variant`` picks the module-level ``@etl.defn`` (:func:`_dense_step` or
+    (runtime :class:`evoxc.TensorSpec` leaves + the static ``cfg``); ``cfg`` alone
+    is what :func:`evoxc.run` must receive as the trailing static argument.
+    ``variant`` picks the module-level ``@evoxc.defn`` (:func:`_dense_step` or
     :func:`_dense_loss_step`), i.e. the two variants are two distinct cache
     entries per shape signature -- and their specs never have the same length, so
     one variant can never be mistaken for the other.
@@ -1389,7 +1389,7 @@ def plan_dense(
 ) -> DensePlan:
     """Preprocess the population, pick the chunk shape and build the specs.
 
-    ``n_rows`` is ``x``'s row count in the :func:`etl_engine.evaluate` sense
+    ``n_rows`` is ``x``'s row count in the :func:`evoxc_engine.evaluate` sense
     (``pop_size`` when ``per_row=True``, the data-point count otherwise).  The
     graph's own ``N`` is ``1`` for ``per_row=True``; chunking then shaves ``P``.
 
@@ -1423,7 +1423,7 @@ def plan_dense(
         backend=backend,
     )
     # Same backend-name resolution as the runtime path (single-sourced in
-    # resolve_backend_name, which delegates to etl_engine._resolve_backend).
+    # resolve_backend_name, which delegates to evoxc_engine._resolve_backend).
     backend_name = resolve_backend_name(backend)
     mode = resolve_update_mode(update_mode, backend_name)
     budget = _resolve_budget_mb(budget_mb)
@@ -1460,20 +1460,20 @@ def plan_dense(
         used_func_ids,
     )
     specs: Tuple[Any, ...] = (
-        etl.TensorSpec(shape, etl.int32),
-        etl.TensorSpec(shape, etl.int32),
-        etl.TensorSpec(shape, etl.float32),
-        etl.TensorSpec(shape, etl.int32),
-        etl.TensorSpec(shape, etl.int32),
-        etl.TensorSpec(shape, etl.int32),
-        etl.TensorSpec(shape, etl.int32),
-        etl.TensorSpec(x_shape, etl.float32),
+        evoxc.TensorSpec(shape, evoxc.int32),
+        evoxc.TensorSpec(shape, evoxc.int32),
+        evoxc.TensorSpec(shape, evoxc.float32),
+        evoxc.TensorSpec(shape, evoxc.int32),
+        evoxc.TensorSpec(shape, evoxc.int32),
+        evoxc.TensorSpec(shape, evoxc.int32),
+        evoxc.TensorSpec(shape, evoxc.int32),
+        evoxc.TensorSpec(x_shape, evoxc.float32),
     )
     if variant == LOSS_VARIANT:
         cfg = cfg + (bool(use_mse),)
         specs = specs + (
-            etl.TensorSpec((n_chunk, prep.output_len), etl.float32),
-            etl.TensorSpec((1, n_chunk), etl.float32),
+            evoxc.TensorSpec((n_chunk, prep.output_len), evoxc.float32),
+            evoxc.TensorSpec((1, n_chunk), evoxc.float32),
         )
     specs = specs + (cfg,)
     return DensePlan(
@@ -1527,9 +1527,9 @@ def build_dense(
 ) -> Any:
     """Build-or-hit the ONE dense executable of ``plan`` (shared compile cache).
 
-    Mirrors :func:`etl_engine._executable`: the same in-repo ``build_cached``
+    Mirrors :func:`evoxc_engine._executable`: the same in-repo ``build_cached``
     pattern, the same shared cache, and the same explicit backend/device/options
-    resolution (the ambient ``ETL_*`` env cannot change it).  The runtime tensor
+    resolution (the ambient ``EVOXC_*`` env cannot change it).  The runtime tensor
     inputs are keyed once on their ``TensorSpec``, so new populations of the same
     shape never recompile, and ``plan.variant`` picks the graph
     (:func:`_dense_step` or :func:`_dense_loss_step`) -- one cache entry each.
@@ -1537,14 +1537,14 @@ def build_dense(
     backend_name, device, options = _resolve_backend(backend, iree_device_index)
     fn = _dense_loss_step if plan.variant == LOSS_VARIANT else _dense_step
     if backend_name == "numpy":
-        return etl.build_cached(
+        return evoxc.build_cached(
             fn,
             *plan.specs,
             backend=backend_name,
             device=device,
             cache=DENSE_CACHE,
         )
-    return etl.build_cached(
+    return evoxc.build_cached(
         fn,
         *plan.specs,
         backend=backend_name,
@@ -1623,7 +1623,7 @@ def run_plan(
     """Run every chunk of ``plan`` and assemble the ``(P, N)`` result (host).
 
     The result is the transposed / per-tree layout of
-    :func:`etl_engine.evaluate`'s return value: ``(P, 1)`` rows for
+    :func:`evoxc_engine.evaluate`'s return value: ``(P, 1)`` rows for
     ``per_row=True``, ``(P, N)`` otherwise.
     """
     prep = plan.prep
@@ -1652,7 +1652,7 @@ def _keep_mask(n_chunk: int, n_real: int) -> np.ndarray:
 
 
 def _to_host(result: Any, backend_name: str) -> np.ndarray:
-    """Read one ETL result back to host as a float32 numpy array."""
+    """Read one evoxc result back to host as a float32 numpy array."""
     if backend_name == "numpy":
         return np.asarray(result.numpy(), dtype=np.float32)
     return np.asarray(result.to(_CPU).numpy(), dtype=np.float32)
@@ -1693,9 +1693,9 @@ def _iter_plan_chunks(
     ``device_resident=True`` is the seam's flag for a readback-free consumer: it
     refuses the numpy backend (a "device-resident" result would be a host array)
     and an UNCHUNKED plan is required, because only then is one raw result the
-    whole block -- with chunking, a device-side assembly would need either an ETL
+    whole block -- with chunking, a device-side assembly would need either an evoxc
     zero-copy export (``core.Tensor.__dlpack__`` raises for every payload-backed
-    tensor today, and ``etl.from_dlpack`` is host-memory v1 only) or a second
+    tensor today, and ``evoxc.from_dlpack`` is host-memory v1 only) or a second
     compiled graph fed with the chunk results (a compile per call).  Both are
     upstream/structural and deliberately NOT emulated here.
 
@@ -1703,7 +1703,7 @@ def _iter_plan_chunks(
     to split "stage the inputs" (build phase) from "run" (``.run()``): pass a
     dict and the seam prepares + uploads every payload into it on the first
     iteration, so every later iteration with the SAME dict is a pure
-    ``etl.run`` over the already-staged payloads (no preparation, no upload, no
+    ``evoxc.run`` over the already-staged payloads (no preparation, no upload, no
     readback).  ``None`` (the default) keeps the original per-call behaviour: a
     private, empty memo.  The caller owns the dict; its values are
     ``(host_array, device_tensor_or_None)`` per payload key, and re-using it is
@@ -1723,7 +1723,7 @@ def _iter_plan_chunks(
         if plan.p_chunks > 1 or plan.n_chunks > 1:
             raise DenseUnsupported(
                 "device_resident results need a single-chunk plan: the chunk "
-                "results cannot be assembled on the device without an ETL "
+                "results cannot be assembled on the device without an evoxc "
                 f"zero-copy export (raise {BUDGET_MB_ENV} to stop chunking)"
             )
     to_device = backend_name != "numpy"
@@ -1738,7 +1738,7 @@ def _iter_plan_chunks(
             host = prepare(*args)
             entry = (
                 host,
-                etl.from_numpy(host).to(device) if to_device else None,
+                evoxc.from_numpy(host).to(device) if to_device else None,
             )
             prepared[key] = entry
         return entry[1] if to_device else entry[0]
@@ -1778,7 +1778,7 @@ def _iter_plan_chunks(
                     )
             args = args + (plan.cfg,)
             with _quiet():
-                yield (p0, p_chunk, n0, n_chunk), etl.run(executable, *args)
+                yield (p0, p_chunk, n0, n_chunk), evoxc.run(executable, *args)
 
 
 def run_loss_plan(    plan: DensePlan,
@@ -1794,7 +1794,7 @@ def run_loss_plan(    plan: DensePlan,
     Only ``(p_chunk,)``-scale chunk sums ever cross back to the host; they are
     accumulated in float32 and divided by ``N`` (the data-point count) once, so
     the result is ``sum_N sum_out err / N`` -- the same formula, and the same
-    float32 "sum then divide" order, as :func:`etl_engine.sr_fitness` (the
+    float32 "sum then divide" order, as :func:`evoxc_engine.sr_fitness` (the
     in-graph reduction order differs, ~1e-7 relative on the fixtures).
     """
     if plan.variant != LOSS_VARIANT:
@@ -1843,7 +1843,7 @@ def evaluate_dense(
 ) -> torch.Tensor:
     """Evaluate a whole population with ONE dense graph (see module docstring).
 
-    Contracts (mirroring :func:`etl_engine.evaluate` exactly):
+    Contracts (mirroring :func:`evoxc_engine.evaluate` exactly):
 
     * ``per_row=True``: ``x`` is ``(pop_size, input_len)``, tree ``i`` sees row
       ``i``; the result is ``(pop_size, output_len)``.
@@ -1857,8 +1857,8 @@ def evaluate_dense(
     is created as a torch tensor ONCE; the chunk results come back through
     :func:`run_plan` (one readback per chunk -- exactly one for the default
     unchunked plan).  A fully device-resident VALUE path (no readback, no H2D at
-    all) is **blocked on ETL upstream**: a payload-backed ``core.Tensor`` cannot
-    be exported zero-copy (``__dlpack__`` raises; ``etl.from_dlpack`` is
+    all) is **blocked on evoxc upstream**: a payload-backed ``core.Tensor`` cannot
+    be exported zero-copy (``__dlpack__`` raises; ``evoxc.from_dlpack`` is
     host-memory v1 only), and assembling chunk results on the device would need a
     second compiled graph per call.  :func:`_iter_plan_chunks` is the seam a
     future runner uses once that lands (see its docstring); the SR loss -- the
@@ -1867,7 +1867,7 @@ def evaluate_dense(
 
     Raises:
         DenseUnsupported: the population cannot be handled densely -- callers
-            fall back to ``etl_engine.decode_population`` + ``evaluate``.
+            fall back to ``evoxc_engine.decode_population`` + ``evaluate``.
     """
     query = _as_numpy(x, np.float32, "x")
     if query.ndim != 2:
@@ -1940,7 +1940,7 @@ def sr_fitness_dense(
 ) -> torch.Tensor:
     """Symbolic-regression fitness via the dense evaluator (IN-GRAPH loss).
 
-    Same contract as :func:`etl_engine.sr_fitness`: ``inputs`` is
+    Same contract as :func:`evoxc_engine.sr_fitness`: ``inputs`` is
     ``(N, input_len)``, ``labels`` is ``(N, output_len)`` and the result is a
     ``(pop_size,)`` float32 POSITIVE loss ``sum_N sum_out err / N`` (MSE or MAE)
     on ``inputs``' device unless ``out_device``; NaN/inf propagate unsanitized.
@@ -2002,7 +2002,7 @@ def sr_fitness_dense(
 #
 # ``build_dense_runner`` / ``DenseRunner`` are the dense half of the two frozen
 # benchmark-support runner APIs; the specialized half is
-# ``etl_engine.build_specialized_runner``.  The shared contract (exact
+# ``evoxc_engine.build_specialized_runner``.  The shared contract (exact
 # signatures, what the build phase costs, what ``.run()`` does per backend and
 # what it returns) is documented in ``RUNNER_HOOKS.md`` (this directory) and
 # pinned by ``runner_check.py``; the short version:
@@ -2013,7 +2013,7 @@ def sr_fitness_dense(
 #   (preparation + upload) through the readback-free seam
 #   (:func:`_iter_plan_chunks` with an injected payload memo), plus one warm-up
 #   run that does the staging;
-# * ``.run()`` executes ONLY the forward pass: one ``etl.run`` over the staged
+# * ``.run()`` executes ONLY the forward pass: one ``evoxc.run`` over the staged
 #   payloads, returning the RAW backend result -- device-resident on a device
 #   backend (no readback, no host assembly, no torch conversion) and
 #   host-backed on numpy (nothing is uploaded or read back there by
@@ -2032,7 +2032,7 @@ class DenseRunner:
     The constructor IS the build phase (both :func:`build_dense_runner` and a
     direct ``DenseRunner(...)`` build it the same way):
 
-    1. duck-type the population (:func:`etl_engine._population_inputs`) and
+    1. duck-type the population (:func:`evoxc_engine._population_inputs`) and
        validate/convert ``inputs`` once (``(N, input_len)`` float32, ``N ==
        pop_size`` when ``per_row``) -- the same semantics as :func:`evaluate_dense`;
     2. :func:`plan_dense` the host preprocessing + chunk shape + graph specs and
@@ -2052,7 +2052,7 @@ class DenseRunner:
     Read-only attributes (diagnostics for harnesses):
         plan: the :class:`DensePlan` (``trace_len`` / ``pop_size`` / ``n_rows`` /
             chunk shape / ``peak_bytes`` / variant ...; see :func:`describe_plan`).
-        executable: the compiled (or cache-hit) ETL executable.
+        executable: the compiled (or cache-hit) evoxc executable.
         staged: the payload memo (payload key -> ``(host_array,
             device_tensor_or_None)``) every ``.run()`` re-uses.
         backend_name / device: the resolved :func:`_resolve_backend` pair
@@ -2062,7 +2062,7 @@ class DenseRunner:
             ``1`` for ``per_row=True``).
 
     The result stays in the backend's own memory: read it back yourself
-    (``raw.to(etl.core.Device("cpu", 0)).numpy()`` on a device backend,
+    (``raw.to(evoxc.core.Device("cpu", 0)).numpy()`` on a device backend,
     ``raw.numpy()`` on numpy) -- that is the consumer's copy, not a runner step.
     """
 
@@ -2140,14 +2140,14 @@ class DenseRunner:
 
     @property
     def invocations(self) -> int:
-        """How many ``etl.run`` calls one :meth:`run` issues (always one chunk)."""
+        """How many ``evoxc.run`` calls one :meth:`run` issues (always one chunk)."""
         return 1
 
     def run(self) -> Any:
         """Execute ONE forward pass -- the only thing a harness times.
 
         Returns:
-            The RAW ``etl.run`` result of this plan's single chunk: an ``etl``
+            The RAW ``evoxc.run`` result of this plan's single chunk: an ``evoxc``
             runtime tensor of shape ``(pop_size, n_rows)`` (``n_rows == 1`` for
             ``per_row=True``), **device-resident** on a device backend
             (``iree``: no readback, no host assembly, no torch conversion) and
@@ -2203,7 +2203,7 @@ def build_dense_runner(
 
     Returns:
         A :class:`DenseRunner`; ``.run()`` is the compiled forward pass only (one
-        ``etl.run`` over the staged payloads; see its docstring for the exact
+        ``evoxc.run`` over the staged payloads; see its docstring for the exact
         return contract).
 
     Raises:
