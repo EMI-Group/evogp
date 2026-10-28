@@ -396,7 +396,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             f"{os.path.abspath(args.tree_root)!r} (the caller supplies --tree-root, "
             "nothing is hard-coded)"
         )
-        current = common.checkout_root()
+        current = os.path.abspath(os.path.join(_HERE, os.pardir, os.pardir, os.pardir))
         if os.path.abspath(args.tree_root) in (current, os.path.join(current, "src")):
             record["notes"].append(
                 "WARNING: --tree-root resolves to this checkout, not a snapshot; the "
