@@ -3,7 +3,7 @@
 ## Intent
 Hands-on Jupyter notebooks that teach the user-facing EvoGP API: `GenerateDescriptor`, `Forest`/`Tree`, the `GeneticProgramming` operator set, `SymbolicRegression` / `Classification` / `CustomLoss`, `StandardPipeline`, and the multi-output `CombinedForest` / `CombinedTree`.
 This is a leaf directory: 3 notebooks plus one generated PNG artifact, no subdirectories and no build step.
-All three notebooks are consistent with the current extension-free library (ETL engine, no custom CUDA kernels) and were **executed end-to-end cell by cell** against it; every stored output in the committed JSON comes from that run (see Test Strategy).
+All three notebooks are consistent with the current extension-free library (evoxc engine, no custom CUDA kernels) and were **executed end-to-end cell by cell** against it; every stored output in the committed JSON comes from that run (see Test Strategy).
 They are not linked from the top-level README (which points at `../example/basic.py`), so the directory is discoverable only by browsing.
 
 ## Notebooks
@@ -49,12 +49,12 @@ Every code cell in all three notebooks was executed successfully; there are no s
 - `best.A`/`best.B`/`best.C` exist because `CombinedTree.__init__` `setattr`s every `data_info` key onto the instance.
 
 ## Environment Requirements
-- Interpreter: **`/mnt/local-ssd/bchuang/evox/.venv/bin/python`** — there is no `python`/`python3` with torch on `PATH` (the system `/usr/bin/python3` has neither torch nor evogp). That venv has torch 2.6.0+cu124, sympy, networkx, matplotlib, ETL/IREE, and CUDA access (8× RTX A6000); it does **not** have jupyter/nbconvert/nbformat/nbclient/ipykernel, scikit-learn or pygraphviz.
+- Interpreter: **`/mnt/local-ssd/bchuang/evox/.venv/bin/python`** — there is no `python`/`python3` with torch on `PATH` (the system `/usr/bin/python3` has neither torch nor evogp). That venv has torch 2.6.0+cu124, sympy, networkx, matplotlib, evoxc/IREE, and CUDA access (8× RTX A6000); it does **not** have jupyter/nbconvert/nbformat/nbclient/ipykernel, scikit-learn or pygraphviz.
 - `evogp` is not installed in that venv (it is a src-layout checkout): every run needs `PYTHONPATH=<repo>/src` (or an editable install).
 - **Run from this directory.** `evogp_intro.ipynb` cell 23 calls `best.to_png("best_tree.png")`, a path relative to the notebook's cwd, so executing the notebook anywhere else drops the PNG somewhere else.
-- All three notebooks hard-code `device="cuda"` (`GenerateDescriptor`, data tensors) — a CUDA-capable GPU is required. The tree evaluation itself is not CUDA-dependent any more (ETL numpy backend by default).
+- All three notebooks hard-code `device="cuda"` (`GenerateDescriptor`, data tensors) — a CUDA-capable GPU is required. The tree evaluation itself is not CUDA-dependent any more (evoxc `numpy` backend by default).
 - Optional/extra imports: `scikit-learn` (only `evogp_intro.ipynb` cell 9; it is a declared evogp dependency) and `pygraphviz` (only `evogp_intro.ipynb` cell 23, the `visualize` extra). That venv has no `pip`, so both were installed into a scratch `--target` directory put on `PYTHONPATH` (pip itself bootstrapped the same way with `get-pip.py --target`); the PyPI `pygraphviz` cp311 manylinux wheel additionally needs a `dot` executable on `PATH` (a conda-forge `graphviz` prefix provides one, e.g. created with `CONDA_PKGS_DIRS=<writable dir> mamba create -p <prefix> -c conda-forge pygraphviz`). Without pygraphviz the PNG cell raises `ImportError` — skip/clear it if you cannot provide it (it produces no cell output either way).
-- Recommended speed env var: `ETL_DISABLE_LOCATIONS=1` (tracing is ~4× faster; the engine's own docs recommend it for production runs).
+- Recommended speed env var: `EVOXC_DISABLE_LOCATIONS=1` (tracing is ~4× faster; the engine's own docs recommend it for production runs).
 - Recorded `metadata.kernelspec` values are the authors' local environments (`evogp312`, `torch_env`) on Python 3.12; only `language: python` matters — do not read them as a requirement.
 
 ## Constraints
@@ -63,7 +63,7 @@ Every code cell in all three notebooks was executed successfully; there are no s
 - Exercise notebooks only on a GPU machine; generation/mutation/`check_tensor` hard-code `"cuda"`.
 - Stored outputs are part of the deliverable: a reader without a GPU should be able to study the results, so keep them consistent with the code (re-execute after editing a cell instead of hand-editing outputs).
 - Notebook JSON is `nbformat 4.2` with `indent=1`, `ensure_ascii=False` and a trailing newline (what Jupyter and the run recipes below produce); keep that format if you write JSON programmatically.
-- Training settings in the bodies are deliberately small so every notebook finishes in seconds-to-tens-of-seconds: `evogp_intro.ipynb` uses pop 200 (cells 13/15) × 10 generations (cell 17, ~21 s), `combined_gp.ipynb` uses pop 500 (cell 11) × 20 generations (cell 13, ~40 s) and `forest_intro.ipynb` only generates a 10-tree population (~3 s). They are pedagogical demos, not benchmarks — paper-scale runs live in `../example/`, and the pre-ETL full-scale notebook settings are in git history.
+- Training settings in the bodies are deliberately small so every notebook finishes in seconds-to-tens-of-seconds: `evogp_intro.ipynb` uses pop 200 (cells 13/15) × 10 generations (cell 17, ~21 s), `combined_gp.ipynb` uses pop 500 (cell 11) × 20 generations (cell 13, ~40 s) and `forest_intro.ipynb` only generates a 10-tree population (~3 s). They are pedagogical demos, not benchmarks — paper-scale runs live in `../example/`, and the original full-scale notebook settings are in git history.
 
 ## Known Issues
 1. **`SymbolicRegression` cannot score a `CombinedForest`** (it raises `NotImplementedError` by design), which is why the combined notebook uses `CustomLoss` instead.
@@ -78,14 +78,14 @@ There is no automated coverage of this directory and no CI. Verification is manu
 **Preferred (environment with Jupyter installed):**
 ```
 cd tutorial
-PYTHONPATH=<repo>/src ETL_DISABLE_LOCATIONS=1 \
+PYTHONPATH=<repo>/src:<evoxc checkout> EVOXC_DISABLE_LOCATIONS=1 \
   /mnt/local-ssd/bchuang/evox/.venv/bin/jupyter nbconvert --to notebook --execute --inplace evogp_intro.ipynb
 ```
 `jupyter`/`nbconvert` are **not** installed in the project venv, so this needs `pip install jupyter nbconvert ipykernel` first.
 
 **Recipe used for the committed outputs (works with the venv alone):** load the notebook JSON with the stdlib `json` module, `exec` its code cells in order in a single shared namespace while capturing stdout into `stream` outputs, emit every top-level expression whose value is not `None` as an `execute_result` (IPython's displayhook), stop at the first exception recording an `error` output, and dump the JSON back with `indent=1, ensure_ascii=False`. Run it from this directory, e.g.
 ```
-PYTHONPATH=<repo>/src ETL_DISABLE_LOCATIONS=1 \
+PYTHONPATH=<repo>/src:<evoxc checkout> EVOXC_DISABLE_LOCATIONS=1 \
   /mnt/local-ssd/bchuang/evox/.venv/bin/python <runner>.py evogp_intro.ipynb --write
 ```
 A cheap pre-check that the library itself imports (a frequent first failure) is `PYTHONPATH=<repo>/src /mnt/local-ssd/bchuang/evox/.venv/bin/python -c "import evogp.tree"`; the library's own gates live in `../src/evogp/tests/` (pytest) and `../src/evogp/sr_test.py`.
