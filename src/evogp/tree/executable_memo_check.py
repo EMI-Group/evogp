@@ -2,13 +2,13 @@
 """``executable_memo_check.py`` -- dev CLI: the ``_executable`` program->Executable memo.
 
 Small, self-contained check battery for the **in-process memo** in
-:func:`evogp.tree.etl_engine._executable` (the per-tree "build-or-hit" step of the
+:func:`evogp.tree.evoxc_engine._executable` (the per-tree "build-or-hit" step of the
 specialized evaluation path).  It is **NOT** pytest-collected, is imported by
-nothing, and only *reads* the library: it patches ``etl_engine.build_cached``
+nothing, and only *reads* the library: it patches ``evoxc_engine.build_cached``
 with a counting pass-through, calls the private helpers as they are, and swaps
-``etl_engine._executable`` for a memo-free twin to get a differential reference.
+``evoxc_engine._executable`` for a memo-free twin to get a differential reference.
 
-Why it exists: ``etl.build_cached`` re-derives its cache key on every call --
+Why it exists: ``evoxc.build_cached`` re-derives its cache key on every call --
 even on a hit -- so per-tree lookups cost ~16 us/tree on the numpy backend while
 a plain Python dict lookup on the very same (program, shape, backend, device,
 options) tuple costs well under a microsecond.  The engine therefore keeps a
@@ -24,7 +24,7 @@ properties that make that safe and worthwhile:
   backend name, device kind/index, options content), must be immutable/detached
   from the caller's option dict, and must not depend on container ordering --
   i.e. it is exactly as discriminating as ``build_cached``'s own key (mirrors
-  ``etl.build_cache._canonicalize_options``);
+  ``evoxc.build_cache._canonicalize_options``);
 * **hit cost** -- a memo hit must cost a fraction of a ``build_cached`` hit
   measured in the same process (the absolute number is printed, the *ratio* is
   the assertion, so a loaded box cannot turn this into a flake);
@@ -35,7 +35,7 @@ properties that make that safe and worthwhile:
 Usage (repository root, project venv; a CUDA-visible device is needed only
 because ``Forest.SR_fitness`` goes through ``check_tensor`` -> ``"cuda"``)::
 
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \\
+    PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \\
         /mnt/local-ssd/bchuang/evox/.venv/bin/python \\
         src/evogp/tree/executable_memo_check.py --reps 200
 
@@ -58,9 +58,9 @@ _SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
-import etl  # noqa: E402
+import evoxc  # noqa: E402
 from evogp.tree import Forest  # noqa: E402
-from evogp.tree import etl_engine as E  # noqa: E402
+from evogp.tree import evoxc_engine as E  # noqa: E402
 from evogp.tree.warm_path_probe import _load_fixture  # noqa: E402  (sibling dev CLI, inert lib)
 
 #: A memo hit is asserted to be at most this fraction of a ``build_cached`` hit.
@@ -90,7 +90,7 @@ class Report:
 
 
 class BuildCounter:
-    """Pass-through wrapper around ``etl_engine.build_cached`` counting calls."""
+    """Pass-through wrapper around ``evoxc_engine.build_cached`` counting calls."""
 
     def __init__(self, original: Callable[..., Any]) -> None:
         self.original = original
@@ -105,7 +105,7 @@ class BuildCounter:
 
 
 class CountingSection:
-    """Context manager: count ``etl_engine.build_cached`` calls for its body."""
+    """Context manager: count ``evoxc_engine.build_cached`` calls for its body."""
 
     def __init__(self, report: Report, name: str) -> None:
         self.report = report
@@ -137,7 +137,7 @@ def _no_memo_executable(
     Swapping it in for ``E._executable`` (``_run_tree`` resolves that name at
     call time) must not change a single bit of what the engine computes.
     """
-    spec = etl.TensorSpec((int(n_rows), int(input_len)), etl.float32)
+    spec = evoxc.TensorSpec((int(n_rows), int(input_len)), evoxc.float32)
     if backend_name == "numpy":
         return _ORIGINAL_BUILD_CACHED(
             E._eval_step, spec, program, backend=backend_name, device=device, cache=E.CACHE
@@ -210,7 +210,7 @@ def check_presence(
         )
         direct = _ORIGINAL_BUILD_CACHED(
             E._eval_step,
-            etl.TensorSpec((int(n_rows), int(input_len)), etl.float32),
+            evoxc.TensorSpec((int(n_rows), int(input_len)), evoxc.float32),
             program,
             backend=backend[0],
             device=backend[1],
@@ -278,7 +278,7 @@ def check_key(report: Report, program: Any, n_rows: int, input_len: int, backend
         report.add(
             "k0 _executable_key is exposed",
             False,
-            "evogp.tree.etl_engine has no _executable_key (memo not implemented)",
+            "evogp.tree.evoxc_engine has no _executable_key (memo not implemented)",
         )
         return
     device = backend[1]
@@ -294,6 +294,16 @@ def check_key(report: Report, program: Any, n_rows: int, input_len: int, backend
         "",
     )
     other = _distinct_programs(report.population, 2)
+    # The engine's resolved options carry ``opt_level`` ONLY -- ``target_backends``
+    # is inferred from the resolved device by ``build_cached`` and is no longer a
+    # knob the engine passes -- so the option cases below use that key (with a
+    # level that differs from the resolved one) and a neutral list-valued key.
+    resolved_level = dict(backend[2]).get("opt_level")
+    alt_level = "O1" if resolved_level == "O0" else "O0"
+    # ... and a device kind that differs from the resolved one: the GPU kind on
+    # the numpy/cpu route, the CPU kind on an iree route that already resolved
+    # the GPU kind (``Device("cuda", ...)`` does not exist on a ROCm host).
+    other_kind = "cpu" if E._gpu_device_kind() == device.kind else E._gpu_device_kind()
     variants = {
         "another program": (
             other[1] if len(other) > 1 else program,
@@ -307,14 +317,15 @@ def check_key(report: Report, program: Any, n_rows: int, input_len: int, backend
         "input_len+1": (program, n_rows, input_len + 1, backend[0], device, dict(backend[2])),
         "another backend": (program, n_rows, input_len, "iree-other", device, dict(backend[2])),
         "another device kind": (
-            program, n_rows, input_len, backend[0], etl.core.Device("cuda", 0), dict(backend[2]),
+            program, n_rows, input_len, backend[0], evoxc.core.Device(other_kind, 0),
+            dict(backend[2]),
         ),
         "another device index": (
             program,
             n_rows,
             input_len,
             backend[0],
-            etl.core.Device(device.kind, device.index + 1),
+            evoxc.core.Device(device.kind, device.index + 1),
             dict(backend[2]),
         ),
         "another option value": (
@@ -323,7 +334,7 @@ def check_key(report: Report, program: Any, n_rows: int, input_len: int, backend
             input_len,
             backend[0],
             device,
-            {"target_backends": ["cuda"], "opt_level": "O0"},
+            {"opt_level": alt_level},
         ),
         "an extra option": (
             program, n_rows, input_len, backend[0], device, {**dict(backend[2]), "extra": 1},
@@ -335,36 +346,36 @@ def check_key(report: Report, program: Any, n_rows: int, input_len: int, backend
         "k4 option dict insertion order does not change the key",
         key_fn(
             program, n_rows, input_len, backend[0], device,
-            {"opt_level": "O1", "target_backends": ["cuda"]},
+            {"opt_level": alt_level, "split_reduction": True},
         )
         == key_fn(
             program, n_rows, input_len, backend[0], device,
-            {"target_backends": ["cuda"], "opt_level": "O1"},
+            {"split_reduction": True, "opt_level": alt_level},
         ),
         "",
     )
     report.add(
         "k5 option list order does not change the key",
-        key_fn(program, n_rows, input_len, backend[0], device, {"target_backends": ["cuda", "xla"]})
-        == key_fn(program, n_rows, input_len, backend[0], device, {"target_backends": ["xla", "cuda"]}),
+        key_fn(program, n_rows, input_len, backend[0], device, {"tags": ["a", "b"]})
+        == key_fn(program, n_rows, input_len, backend[0], device, {"tags": ["b", "a"]}),
         "",
     )
     report.add(
         "k6 option list/tuple container type does not change the key",
-        key_fn(program, n_rows, input_len, backend[0], device, {"target_backends": ["cuda"]})
-        == key_fn(program, n_rows, input_len, backend[0], device, {"target_backends": ("cuda",)}),
+        key_fn(program, n_rows, input_len, backend[0], device, {"tags": ["a", "b"]})
+        == key_fn(program, n_rows, input_len, backend[0], device, {"tags": ("a", "b")}),
         "",
     )
-    options = {"target_backends": ["cuda"], "opt_level": "O1"}
+    options = {"opt_level": alt_level, "tags": ["a"]}
     key_before = key_fn(program, n_rows, input_len, backend[0], device, options)
-    options["opt_level"] = "O0"
-    options["target_backends"].append("xla")
+    options["opt_level"] = "O2"  # a different (and different-from-alt) level
+    options["tags"].append("b")
     report.add(
         "k7 the key is immutable / detached from the caller's options dict",
         key_before
         == key_fn(
             program, n_rows, input_len, backend[0], device,
-            {"target_backends": ["cuda"], "opt_level": "O1"},
+            {"opt_level": alt_level, "tags": ["a"]},
         ),
         "",
     )
@@ -375,7 +386,7 @@ def check_hit_cost(
 ) -> None:
     """c*: a memo hit must be far cheaper than a build_cached hit."""
     print("-- hit cost --")
-    spec = etl.TensorSpec((int(n_rows), int(input_len)), etl.float32)
+    spec = evoxc.TensorSpec((int(n_rows), int(input_len)), evoxc.float32)
     E.clear_cache()
     E._executable(program, n_rows, input_len, *backend)  # populate the memo
     _ORIGINAL_BUILD_CACHED(
