@@ -54,7 +54,8 @@ throughput), which is why the policy only reaches numpy below the auto threshold
 ### 2.1 Host preprocessing (`prepare_dense`, bulk-vectorized numpy)
 
 No per-tree host walk and no `decode_population`: the three `(pop_size, max_tree_len)` tensors are
-read to host once per call (`_as_numpy`) and turned into `(L, P)` **runtime input columns**, with
+read to host once per call — not at all when the plan memo of §2.5 serves an unchanged population —
+and turned into `(L, P)` **runtime input columns**, with
 `L = min(EVOGP_DENSE_MAX_TREE_LEN (64), max_tree_len)`:
 
 | column | dtype | meaning |
@@ -143,11 +144,123 @@ shape-control knob and watch host RSS on big grids.
 ### 2.5 Cache
 
 `dense_engine.DENSE_CACHE` **is** `evoxc_engine.CACHE` (one shared `evoxc.CompileCache`, default
-maxsize 4096 via `EVOGP_EVOXC_CACHE_SIZE`, process-local, in-memory only). The key is the full spec
+maxsize 4096 via `EVOGP_EVOXC_CACHE_SIZE`, in memory only). The key is the full spec
 tuple — the seven runtime `TensorSpec`s (shape + dtype) plus the static `cfg` — combined with backend /
 device / options, so one dense compile shows up as ONE miss in `evoxc_engine.cache_stats()` (against
 `pop_size` misses on the specialized path) and a later call of the same shape **and the same used-id
 set** is a pure hit (that set is a static `cfg` entry — §2.2 / §9 item 1).
+
+**The three front tables (`dense_memo.py`).** A warm call re-derives the `build_cached` key, re-decodes
+the population, re-converts `x`/`labels` and re-uploads every graph input unless something in front of
+the compile cache remembers the previous call. Three bounded LRUs do exactly that, and
+`evoxc_engine.clear_cache()` is their single invalidation point (`dense_memo.clear` is registered with
+`evoxc_engine._register_cache_reset`, so one call resets the compile cache, the executable memo and
+every dense table):
+
+| table | `dense_cache_stats()` keys | keyed on | holds |
+| --- | --- | --- | --- |
+| `DENSE_EXECUTABLE_MEMO` | `dense_exec_*` | everything `evoxc.build_cached` keys on (`_dense_executable_key`: `id(fn)`, `plan.specs`, backend, device, frozen options) | the compiled or artifact-loaded executable; sized like `DENSE_CACHE` |
+| `DENSE_PLAN_MEMO` | `dense_plan_*` | the three population identity tokens + the RESOLVED plan parameters (`_entry_key`: `input_len`, `output_len`, `n_rows`, `per_row`, variant, `use_mse`, cap, budget, update mode, prune, backend, device, options) | a `DenseEntry`: the `DensePlan`, its executable, the staged payload table and the storage pins |
+| `DENSE_INPUT_MEMO` | `dense_input_*` | `(dtype, dense_memo.token(tensor))` of `x` / `labels` | the host (numpy) copy, i.e. the skipped D2H |
+
+`dense_cache_stats()` returns exactly those 12 keys and is deliberately NOT folded into
+`evoxc_engine.cache_stats()` (whose 8 keys describe the compile cache and the specialized memo): a
+`dense_exec` hit never reaches `build_cached`, so `CACHE.hits` does not grow with a repeated
+`build_dense`.
+
+**Identity keys and pins.** `dense_memo.token(tensor)` is `(data_ptr, shape, dtype, device, _version)` —
+everything a repeat call needs to prove it is about to read the very bytes it read last time — and
+`_version` is bumped by every in-place torch write, so a half-evolved population is a miss by
+construction. `dense_memo.pin(...)` keeps the population storages (and, while staged, those of
+`x`/`labels`) alive for as long as an entry lives, so a `data_ptr` cannot be recycled by a *different*
+tensor while the entry still points at it: the ABA guard, at one storage reference per tensor instead of
+a copy. `DENSE_INPUT_MEMO` keeps no pin of its own — its guard is the `_version` counter — and a write
+that bypasses torch's version counter (a `numpy` view of the same memory) is not detected by design;
+nothing is memoized for a non-torch `x`/`labels` or population, which then take the full per-call path.
+`EVOGP_DENSE_HOST_MEMO` sizes the plan and input tables (default 16 entries, `0` disables both, read at
+import time like `EVOGP_EVOXC_CACHE_SIZE`) — deliberately small, because one plan entry holds a whole
+decoded population plus its device payloads and a training loop presents a new population every
+generation.
+
+**What a miss still costs** (the pre-front-table per-call path): 3 population D2H plus the whole
+vectorized decode/validate pass, the `build_cached` key derivation, and the preparation + upload of the
+seven `(L, p_chunk)` column payloads and of the `x` / `labels` / keep-mask payloads (crossing inventory:
+`device_resident_findings.md` §2). A hit skips all of it; only the chunk execution remains.
+
+**Measured effect of the front tables** (this box, AMD MI300X VF, torch 2.13.0+rocm7.1, default
+dense+iree route, warm medians, before → after):
+
+| call | shape | before | after |
+| --- | --- | --- | --- |
+| `Forest.SR_fitness` | p64 / `L=32` / `i8` / `N=1024` | 2616 µs | 988 µs |
+| `Forest.SR_fitness` | p256 / `L=32` / `i8` / `N=1024` | 3122 µs | 1137 µs |
+| `Forest.SR_fitness` | p1000 / `L=32` / `i8` / `N=1024` | 5655 µs | 1926 µs |
+| `Forest.forward` | p256 / `L=32` / `i32` | 2502 µs | 675 µs |
+| `Forest.batch_forward` | p256 / `L=32` | 3611 µs | 1949 µs |
+
+With the tables in place `evoxc.run` itself is 67–80 % of a warm `Forest.SR_fitness` call, i.e. the
+host-side half is largely gone and what remains is the compiled graph plus the one `(pop_size,)`
+readback/upload.
+
+### 2.6 On-disk artifacts (opt-in, `EVOGP_EVOXC_ARTIFACT_DIR`)
+
+The tables above and the compile cache are in memory only, so every fresh process re-pays the compile of
+its shape signature — 3.1–3.4 s at `L=32` and 6.1 s at `L=64` on this box, independent of `pop_size`,
+against 271–284 ms per distinct tree structure on the specialized route (the earlier CUDA-box round
+measured 13.9 s / 31.6 s — §1/§4). `artifact_cache.py` adds the missing disk layer for BOTH routes and
+nothing else:
+
+* **switch.** `EVOGP_EVOXC_ARTIFACT_DIR=/path` enables it; unset/empty (the default) disables it
+  completely — one environment read, no key derived, no directory created, no file touched. The
+  directory is created on the first save attempt, never on a load miss.
+* **key.** `artifact_key` hashes `(KEY_FORMAT, graph name, the build's spec tuple incl. static content,
+  backend name, "kind:index", frozen options, evoxc.__version__, installed iree-base-compiler version)`
+  with `evoxc.persist.cache.compute_key` (the codec `build_cached` itself uses) into
+  `"<readable-name>-<sha256 hex>"`, stored as `<key>.evoxcart`. The graph name is the process-stable
+  stand-in for `id(fn)`: `DENSE_ARTIFACT_NAMES` gives `dense:value` / `dense:loss`, the specialized route
+  uses `evoxc_engine.ARTIFACT_NAME = "specialized"` with the program inside the spec tuple — so this
+  route keeps one artifact per (shape, used-id set) and the specialized route one per distinct tree
+  structure.
+* **flow.** A front-table miss tries `artifact_cache.load(path, specs, backend_name, device)`
+  (`evoxc.Executable.load`), validates the result with `signature_matches` (tensor shapes/dtypes plus
+  the flattened static values) and stores it in the executable front table; ANY exception or mismatch
+  deletes the file and falls through to a real `build_cached`, whose result is then `save`d atomically
+  (temporary file in the same directory + `os.replace`) and best effort — a backend executable without a
+  usable `save` (no recorded `CompiledArtifact`) yields `False` and no file.
+* **invalidation.** Two lifetimes on purpose: `evoxc_engine.clear_cache()` resets the in-memory tables
+  and `evoxc.CompileCache` and never touches the disk, while `evoxc_engine.clear_artifacts()` deletes
+  every `*.evoxcart` and resets the disk counters without touching memory. `artifact_cache_stats()`
+  reports `artifact_enabled`, `artifact_files`, `artifact_hits`, `artifact_misses`,
+  `artifact_load_failures`, `artifact_stores`, `artifact_save_failures` — disjoint from `cache_stats()`
+  and `dense_cache_stats()`.
+* **not in the key.** The ambient `EVOXC_*` process-env compile knobs (`EVOXC_TARGET_BACKENDS`,
+  `EVOXC_OPT_LEVEL`, `EVOXC_IREE_*`), which `build_cached` does not key either. The safety net is
+  validation rather than keying: evoxc's loader refuses an artifact whose compile targets do not fit the
+  requested device kind (a device/target mismatch is its `BackendError`), and `signature_matches` refuses
+  a call shape that does not fit the file, so a stale artifact costs one rebuild and never a wrong number.
+
+**Measured** (`Forest.SR_fitness`, dense+iree, `use_MSE=True`, `EVOXC_DISABLE_LOCATIONS=1`; "first call"
+= the cold `SR_fitness` call of a fresh process, including host plan prep):
+
+| shape | cache OFF | cache ON (compile + save) | artifact | second process | pure `Executable.load` | warm |
+| --- | --- | --- | --- | --- | --- | --- |
+| p256 / `L=32` / `i8` / `N=1024` | 3276 ms | 3307 ms | 1 056 791 B (1.01 MiB) | 160 ms (20.5× faster) | 48–53 ms | 1.1–1.3 ms |
+| p64 / `L=64` / `i32` / `N=1024` | 6234 ms | 6408 ms | 2 747 325 B (2.62 MiB) | 174 ms (35.8× faster) | 60–62 ms | 1.5–1.8 ms |
+
+Every leg matches the specialized+numpy route at `rtol=atol=1e-4` with identical NaN placement
+(`max_rel` 2.2e-7 / 2.1e-7, the pre-existing fold-vs-emit ulp class of §5). A file truncated to a third
+gives `artifact_load_failures` 1, a 3229 ms rebuild, a rewritten 1 056 791 B artifact and the same loss
+numbers; end to end `python -m evogp.sr_test` (pop 200, `max_tree_len=64`, 100 generations, default
+dense+iree route) runs 15.48 s cache OFF, 15.30 s cache ON cold and 9.25 s cache ON with a warm
+artifact (~6.2 s / 40 % faster), with bit-identical final population statistics (max −0.2259,
+min −402278.7188, mean −2800.2346, std 28718.6426).
+
+**When it pays.** Exactly when a fresh process repeats a shape signature: the compile is then paid once
+ever, and every later process pays a load dominated by iree's own runtime/driver import. On the
+specialized route the artifact is per distinct tree structure, so a random population fills the
+directory (one file per individual, a miss on every new structure) — the dense route plus an occasional
+`clear_artifacts()` is the sensible pairing. The disk layer has no pytest coverage yet; the suite runs
+with the switch off.
 
 ---
 
@@ -172,7 +285,7 @@ rows ceiling — stays silent, and the dedupe flag is only consumed by a real wa
 (`_dense_loss_step`, `DensePlan.variant="loss"`, static `use_mse` in `cfg[7]`): the graph returns the
 per-tree `sum_N err` (`(p_chunk,)`), `run_loss_plan` assembles and divides by `N` host-side, and no
 prediction ever crosses back. `sr_fitness_dense` therefore does **not** route through `evaluate_dense`
-(one `inputs` D2H, one `labels` D2H, one `(P,)`-scale readback per chunk, one `torch.from_numpy((P,))`
+(the `inputs` and `labels` conversions are one D2H each on a `DENSE_INPUT_MEMO` miss and none at all afterwards — §2.5; one `(P,)`-scale readback per chunk, one `torch.from_numpy((P,))`
 + H2D). The value path (`forward` / `batch_forward`) keeps the earlier route: one compiled graph, one
 `(P, N)` chunk readback per chunk, one assembled prediction tensor. `use_MSE` is part of the loss
 variant's cache key, so MSE and MAE are two graphs per shape signature; the loss value matches the
@@ -193,6 +306,7 @@ accepted and still all mapping to the same engine path.
 | `EVOGP_DENSE_BUDGET_MB` | `2048` | chunking budget in MiB (`<= 0` → `ValueError`) |
 | `EVOGP_DENSE_UPDATE_MODE` | `grow` | `grow` / `concat` / `scatter` (unknown → `ValueError`; iree-`scatter` → `DenseUnsupported`) |
 | `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER` | unset | opt-in for `scatter` on iree |
+| `EVOGP_DENSE_HOST_MEMO` | `16` | entries of the plan and input front tables (§2.5); `0` disables both, i.e. every call does the full host work. Read at **import** time, like `EVOGP_EVOXC_CACHE_SIZE` |
 
 Everything else is inherited from `evoxc_engine.py`: `EVOGP_EVOXC_BACKEND` (default `numpy`),
 `EVOGP_EVOXC_DEVICE`, `EVOGP_EVOXC_OPT_LEVEL` (`O0`/`O1`, default `O1`), `EVOGP_EVOXC_CACHE_SIZE`
@@ -200,6 +314,12 @@ Everything else is inherited from `evoxc_engine.py`: `EVOGP_EVOXC_BACKEND` (defa
 runs, not part of the cache key). The iree device is `evoxc.core.Device(kind, idx)` with the kind from
 `evoxc_engine._gpu_device_kind()` — `"rocm"` when `torch.version.hip` is set, else `"cuda"` — so a
 hard-coded `Device("cuda", …)` fails at load on a ROCm box (this one is `rocm`).
+`EVOGP_EVOXC_ARTIFACT_DIR` (unset = off) is the disk layer's switch (§2.6); it is read at each
+build, so enabling it mid-process affects the next artifact lookup only.
+Measured opt-level verdict on this box (`p256` / `L=32` / `i8` / `N=1024` dense iree, cold compile /
+warm median): `O0` 3340 ms / 1.04 ms, `O1` 3197 ms / 1.04 ms, `O2` 3153 ms / 1.45 ms, `O3` 3215 ms /
+1.43 ms — `O1` (the default) is optimal and `O2`/`O3` are ~40 % slower warm with no compile saving,
+which is why only `O0`/`O1` are accepted and the set is not widened.
 
 ### The `auto` policy, exactly
 
@@ -243,6 +363,7 @@ Rules and consequences:
 | P=1000 | 147.0 ms | 5.67 ms (dense iree) | 3218 ms | 1 miss, 0 `memo_*` |
 
 That is 3.7× / 11.8× / 25.9× on P=64 / 256 / 1000 warm, at the price of one ≈3.2–3.4 s compile (amortized after ≈460 / ≈95 / ≈23 calls respectively).
+The three dense cells are the pre-front-table medians; with the plan/input tables of §2.5 the same P=64 / 256 / 1000 cells read 0.99 / 1.14 / 1.93 ms warm.
 P=8 and P=16 (and every `Tree`, pop 1) still route specialized+numpy and never compile a dense graph.
 The trade the threshold encodes is call count, not generation count: `sr_test` (P=200, 100 generations, `L=64`) pays one 6.5 s warm-up generation and then runs every generation in ≈11 ms instead of ≈30 ms.
 
@@ -444,18 +565,22 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
   single-family 338-row `dense_adversarial_check` session still SIGSEGVs outright). Protocol for iree
   work: keep sessions short, split batteries with `--only` / one family per fresh process, and use
   `evoxc_engine.clear_cache()` / `cache_stats()` between stages.
-* **Process-local cache.** Nothing persists across processes: a new process re-pays one dense compile
-  per shape signature. Long runs of a stable shape amortize it to nothing; short scripts and unit tests
-  do not — which is why the suite runs on numpy and `auto` keeps dense off there.
-* **Per-call overheads inherited from `evoxc_engine`.** `build_dense` re-derives the cache key on every
-  call (hit or miss) and `evoxc.run` re-validates the statics — the dense path pays this once per chunk
-  instead of once per tree. Both sides are cheap evoxc-side now: the multi-slot content-fingerprint memo
-  in `CompileCache` turns a repeat visit into a ~17–25 µs key replay (~32 µs per call in a steady-state
-  K=50 cycle of 60-token programs, against ~660 µs before) and the per-executable run-path
-  static-validation fast path cut the per-call static overhead to ~7–15 µs at 60–170 tokens (~250 µs
-  before), holding a whole 60-token `evoxc.run` at 67–71 µs (303 before) and 170 tokens at 87–96 µs
-  (758 before). Landed evoxc-side on branch `evogit-agent-T1-A160`, on top of the `main`
-  checkout the venv installs (`bench_logs/hotpath/`).
+* **Process-local cache, plus the opt-in disk layer (§2.6).** Without `EVOGP_EVOXC_ARTIFACT_DIR`
+  nothing persists across processes and a new process re-pays one dense compile per shape signature;
+  with it set, the artifact of a compiled shape is loaded instead (160–174 ms for a first call against
+  3.3–6.4 s of compile on this box), so the compile is paid once per shape signature ever. Long runs of
+  a stable shape amortize it to nothing either way; short scripts and unit tests do not — which is why
+  the suite runs on numpy, with the switch off, and `auto` keeps dense off there.
+* **Per-call overheads inherited from `evoxc_engine`.** A `build_dense` memo miss re-derives the cache
+  key (`DENSE_EXECUTABLE_MEMO`, §2.5, serves every repeat from a dict lookup) and `evoxc.run`
+  re-validates the statics — the dense path pays this once per chunk instead of once per tree.
+  Both sides are cheap evoxc-side: the multi-slot content-fingerprint memo in `CompileCache` turns
+  a repeat visit into a ~17–25 µs key replay (~32 µs per call in a steady-state K=50 cycle of 60-token
+  programs, against ~660 µs before) and the per-executable run-path static-validation fast path cut the
+  per-call static overhead to ~7–15 µs at 60–170 tokens (~250 µs before), holding a whole 60-token
+  `evoxc.run` at 67–71 µs (303 before) and 170 tokens at 87–96 µs (758 before). Both fast paths are
+  in the `evoxc` checkout the venv installs (`evogit-agent-T1-A160`, on top of `main`;
+  `bench_logs/hotpath/`).
 * **Compile options carry no `target_backends`.** The engine passes `{"opt_level": opt_level}` plus
   `device=` and lets `build_cached` infer the target (passing `target_backends` mis-targets), so an
   ambient `EVOXC_TARGET_BACKENDS` can enter `build_cached`'s resolved options on the iree route: it is a
@@ -546,9 +671,12 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
    a power of two, clamped at the cap — that would stop a short-tree population with a wide row
    (`row_len >= 64`) from paying `L=64`, at the cost of an extra compile per distinct realized length.
    Unmeasured, so it is not in the code.
-5. **Cross-call caching of the prepared columns and `x`.** A generation re-evaluates a *new* population
-   on the *same* `x`, so keeping the device-resident `x` block (and the columns' device copies) across
-   calls would remove most of the per-chunk upload cost.
+5. **Cross-call caching of the prepared columns and `x` — implemented (§2.5).** `DENSE_PLAN_MEMO`
+   serves the decoded plan, the executable and the staged payloads of an unchanged population, and
+   `DENSE_INPUT_MEMO` the host copies of `x`/`labels`; a repeated evaluation of the same population on
+   the same data therefore skips the decode, the key derivation and every upload. Still open: the
+   *cross-generation* half — a generation evaluates a NEW population on the same `x`, so the
+   population half of the plan key changes every generation and only the input table carries over.
 6. **Blocked writes** (several rows per buffer update) to cut the `L(L+1)/2 · P·N` concatenation
    traffic, and an in-graph fitness reduction (the loss is currently a torch reduction on the assembled
    host result).
@@ -562,6 +690,11 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
   the `runner_check.py` evidence battery.
 
 
+* `artifact_cache.py` — the opt-in on-disk executable artifact layer (`EVOGP_EVOXC_ARTIFACT_DIR`): key
+  derivation, the load/save contract, signature validation, the separate invalidation
+  (`clear_artifacts()`) and the measured second-process numbers (§2.6).
+* `dense_memo.py` — the dense route's front tables (`DenseMemo`, the identity `token`, the ABA `pin`);
+  `dense_cache_stats()` reports them.
 * `dense_engine.py` — the implementation; its module docstring is the condensed version of this file.
 * `ENGINE_SPEC.md` §13 (semantics unchanged) and `CONTEXT.md` (routing + operational notes).
 * `dense_spike_check.py` / `dense_integration_check.py` / `dense_adversarial_check.py` — the three
