@@ -12,9 +12,9 @@ batteries, not in pytest).
   loop would otherwise re-prepare and re-upload the ``p0``-keyed node columns
   once per ``(p0, n0)`` chunk -- measured as 296 host preparations instead of the
   distinct payload count, for an 8x37 population in 1x1 chunks.
-* **Executable memo** -- ``etl_engine._EXECUTABLE_MEMO`` (an ``_ExecutableMemo``
-  LRU in front of ``etl_engine.CACHE``) absorbs repeated / duplicate / elite
-  ``_executable`` lookups, so ``etl.build_cached`` (which re-derives its cache key
+* **Executable memo** -- ``evoxc_engine._EXECUTABLE_MEMO`` (an ``_ExecutableMemo``
+  LRU in front of ``evoxc_engine.CACHE``) absorbs repeated / duplicate / elite
+  ``_executable`` lookups, so ``evoxc.build_cached`` (which re-derives its cache key
   on *every* call, hits included) runs once per distinct
   ``(program, shape, backend, device, options)``.
 
@@ -31,33 +31,35 @@ How the counts are observed:
   loss variant, keyed per ``n0``) and ``dense_engine._keep_mask`` (per ``n0``);
 * payload UPLOADS -- the numpy backend never uploads (host interpreter), so the
   "preparations == uploads" equality is pinned with a *synthetic* device backend:
-  ``etl.from_numpy`` is monkeypatched to a tiny fake whose ``.to(device)`` returns
-  the host array.  The executable was built on numpy and ``etl.run`` therefore
-  still receives host arrays, so nothing is compiled or executed on iree -- only
-  the seam's ``to_device`` branch is exercised;
-* ``etl.run`` invocations -- exactly one per chunk (the chunk product);
+  ``evoxc.from_numpy`` (a zero-copy HOST wrap in evoxc) is monkeypatched to a tiny
+  fake whose ``.to(device)`` -- the actual host->device upload the seam performs --
+  records the payload and returns the host array.  The executable was built on
+  numpy and ``evoxc.run`` therefore still receives host arrays, so nothing is
+  compiled or executed on iree -- only the seam's ``to_device`` branch is
+  exercised;
+* ``evoxc.run`` invocations -- exactly one per chunk (the chunk product);
 * executable BUILDS -- a counting wrapper on the module global
-  ``etl_engine.build_cached`` (``_executable`` calls it as a module global).
+  ``evoxc_engine.build_cached`` (``_executable`` calls it as a module global).
 
 Hermeticity: the two memos are process-global, so every memo test defines its own
-baseline with ``etl_engine.clear_cache()`` and only asserts counter *deltas* it
+baseline with ``evoxc_engine.clear_cache()`` and only asserts counter *deltas* it
 established itself.  Shapes are deliberately tiny (P=8, L=16, N=12) and the engine
 backend is ``"numpy"`` everywhere, so nothing leaves the host: the direct
-``etl_engine`` calls pass ``backend="numpy"`` explicitly, while the one public
+``evoxc_engine`` calls pass ``backend="numpy"`` explicitly, while the one public
 ``Forest.SR_fitness`` call -- the only one that needs CUDA (``check_tensor``
 relocates its inputs) and the only one that skips without a GPU -- resolves BOTH
 its route and its backend from the environment and therefore pins them itself
-(``dense_engine.EVAL_MODE_ENV=specialized`` + ``etl_engine.BACKEND_ENV=numpy``).
+(``dense_engine.EVAL_MODE_ENV=specialized`` + ``evoxc_engine.BACKEND_ENV=numpy``).
 
 That pin is what makes the ``Forest``-level differential non-vacuous: the memo
-under test (``etl_engine._EXECUTABLE_MEMO``) is the SPECIALIZED route's front
+under test (``evoxc_engine._EXECUTABLE_MEMO``) is the SPECIALIZED route's front
 table, so a forced-dense suite run (``EVOGP_EVAL_MODE=dense``) would otherwise turn
 all three calls into dense evaluations against the memo-free twin's unused path --
 three identical dense results, compared and passing for the wrong reason.  The test
-counts ``etl_engine._executable`` calls (both the memoized and the memo-free half)
+counts ``evoxc_engine._executable`` calls (both the memoized and the memo-free half)
 and fails if the route it claims to check was not taken, so it reaches the
 specialized path under the default run and under the forced-dense run alike.  The
-direct ``etl_engine`` calls are always the specialized route; the file passes with
+direct ``evoxc_engine`` calls are always the specialized route; the file passes with
 ``EVOGP_EVAL_MODE`` unset and with ``EVOGP_EVAL_MODE=dense``.
 """
 
@@ -73,11 +75,11 @@ import numpy as np
 import pytest
 import torch
 
-import etl
+import evoxc
 
 from evogp.tree import Forest
 from evogp.tree import dense_engine as D
-from evogp.tree import etl_engine as E
+from evogp.tree import evoxc_engine as E
 
 # --------------------------------------------------------------------------- #
 # The suite's tree-spec DSL (var/const/fn -> prefix rows) is reused, not copied
@@ -98,7 +100,7 @@ except ImportError:  # pragma: no cover - only under pytest's importlib import m
 INPUT_LEN = 3
 POP = 8
 ROW_LEN = 16  # the population rows' width == the dense trace length L here
-#: Data points per chunked call.  Small on purpose: one ``etl.run`` costs the same
+#: Data points per chunked call.  Small on purpose: one ``evoxc.run`` costs the same
 #: ~28 ms on the numpy interpreter whether its chunk block is 1x1 or 8x37, so the
 #: run COUNT is what the runtime scales with.  The memo regression was measured on
 #: an 8x37 population (296 preparations instead of 37); the counts asserted here are
@@ -159,31 +161,40 @@ def _int32_view(value: Any) -> np.ndarray:
 class _FakeDeviceTensor:
     """Stand-in for an uploaded payload: ``.to(device)`` IS the host array.
 
-    The seam only ever hands the *device* half of a payload to ``etl.run``.  With
-    this fake, the numpy-built executable receives the very host arrays the numpy
-    path would pass, so every ``etl.run`` stays a real, fully validated run while
-    the wrapper still observes one "upload" per distinct payload.
+    ``evoxc.from_numpy`` is a zero-copy HOST wrap in evoxc -- the host->device
+    UPLOAD is the ``.to(device)`` the seam performs on that wrap -- so the upload
+    counter lives on ``.to()`` (``_SeamCounters`` hands its recorder in), the one
+    call the seam makes per distinct payload.  The seam only ever hands the
+    *device* half of a payload to ``evoxc.run``.  With this fake, the numpy-built
+    executable receives the very host arrays the numpy path would pass, so every
+    ``evoxc.run`` stays a real, fully validated run while the wrapper still
+    observes one "upload" per distinct payload.
     """
 
-    __slots__ = ("host",)
+    __slots__ = ("host", "on_upload")
 
-    def __init__(self, host: np.ndarray) -> None:
+    def __init__(
+        self, host: np.ndarray, on_upload: Callable[[Tuple[int, ...]], None]
+    ) -> None:
         self.host = host
+        self.on_upload = on_upload
 
     def to(self, device: Any) -> np.ndarray:
+        self.on_upload(tuple(np.shape(self.host)))
         return self.host
 
 
 class _SeamCounters:
-    """Count the seam's payload preparations, uploads and ``etl.run`` calls.
+    """Count the seam's payload preparations, uploads and ``evoxc.run`` calls.
 
     A context manager that patches the module globals ``dense_engine`` resolves at
-    call time (``_prep_column`` / ``_chunk_rows`` / ``_keep_mask`` / ``etl.run``,
-    plus ``etl.from_numpy`` in synthetic-device mode) with counting pass-throughs
-    and restores every one of them on exit, exception included -- the same
-    set/restore discipline as the batteries' ``Traffic``.
+    call time (``_prep_column`` / ``_chunk_rows`` / ``_keep_mask`` / ``evoxc.run``,
+    plus ``evoxc.from_numpy`` in synthetic-device mode, whose fake counts the
+    upload on ``.to(device)``) with counting pass-throughs and restores every one
+    of them on exit, exception included -- the same set/restore discipline as the
+    batteries' ``Traffic``.
 
-    ``run_arg_ids`` records the ``id()`` of every host array handed to ``etl.run``
+    ``run_arg_ids`` records the ``id()`` of every host array handed to ``evoxc.run``
     (per call): with a payload memo the second iteration over one ``staged`` dict
     must pass the IDENTICAL array objects, which is what "reused by reference"
     means.  The ids are stable because ``staged`` keeps every payload alive.
@@ -219,8 +230,8 @@ class _SeamCounters:
             D._prep_column,
             D._chunk_rows,
             D._keep_mask,
-            D.etl.run,
-            D.etl.from_numpy,
+            D.evoxc.run,
+            D.evoxc.from_numpy,
         )
         prep_column, chunk_rows, keep_mask, run, from_numpy = self._originals
 
@@ -244,14 +255,13 @@ class _SeamCounters:
         D._prep_column = _prep_column
         D._chunk_rows = _chunk_rows
         D._keep_mask = _keep_mask
-        D.etl.run = _run
+        D.evoxc.run = _run
         if self.synthetic_device:
 
             def _from_numpy(array: np.ndarray) -> _FakeDeviceTensor:
-                self.uploads.append(tuple(np.shape(array)))
-                return _FakeDeviceTensor(array)
+                return _FakeDeviceTensor(array, self.uploads.append)
 
-            D.etl.from_numpy = _from_numpy
+            D.evoxc.from_numpy = _from_numpy
         return self
 
     def __exit__(self, *exc: Any) -> bool:
@@ -259,14 +269,14 @@ class _SeamCounters:
             D._prep_column,
             D._chunk_rows,
             D._keep_mask,
-            D.etl.run,
-            D.etl.from_numpy,
+            D.evoxc.run,
+            D.evoxc.from_numpy,
         ) = self._originals
         return False
 
 
 class _BuildCounter:
-    """Pass-through wrapper around ``etl_engine.build_cached`` counting calls."""
+    """Pass-through wrapper around ``evoxc_engine.build_cached`` counting calls."""
 
     def __init__(self, original: Callable[..., Any]) -> None:
         self.original = original
@@ -298,7 +308,7 @@ def _memo_free_executable(
     sends every per-tree lookup straight to ``build_cached`` -- the reference the
     memo must be bit-identical to.
     """
-    spec = etl.TensorSpec((int(n_rows), int(input_len)), etl.float32)
+    spec = evoxc.TensorSpec((int(n_rows), int(input_len)), evoxc.float32)
     if backend_name == "numpy":
         return _ORIGINAL_BUILD_CACHED(
             E._eval_step, spec, program, backend=backend_name, device=device, cache=E.CACHE
@@ -372,7 +382,7 @@ def _assert_memoized_payload_counts(plan: Any, counters: _SeamCounters) -> None:
     assert counters.prepares["rows"] == _expected_row_preparations(plan)
     assert counters.prepares["keep"] == _expected_keep_preparations(plan)
     assert counters.runs == _expected_runs(plan), (
-        f"etl.run calls={counters.runs} for {plan.p_chunks}x"
+        f"evoxc.run calls={counters.runs} for {plan.p_chunks}x"
         f"{1 if plan.per_row else plan.n_chunks} chunks (expected {_expected_runs(plan)})"
     )
 
@@ -500,9 +510,10 @@ def test_seam_prepares_each_payload_once(value_plan: Any) -> None:
 def test_seam_uploads_each_payload_once_on_a_device_backend(value_plan: Any) -> None:
     """preparations == uploads, each payload uploaded once per call.
 
-    Synthetic device backend: ``etl.from_numpy`` returns a fake whose ``.to()`` is
-    the host array, so the numpy-built executable still runs on host arrays (it is
-    a real, validated ``etl.run``).  No iree graph is compiled or executed.
+    Synthetic device backend: ``evoxc.from_numpy`` returns a fake whose ``.to()``
+    (the host->device upload) records the payload and is the host array, so the
+    numpy-built executable still runs on host arrays (it is a real, validated
+    ``evoxc.run``).  No iree graph is compiled or executed.
     """
     plan, executable = value_plan
     x = _x_host()
@@ -513,7 +524,10 @@ def test_seam_uploads_each_payload_once_on_a_device_backend(value_plan: Any) -> 
                 executable,
                 x,
                 backend_name="iree",
-                device=etl.core.Device("cuda", 0),
+                # The seam only uses the device for the (faked) upload, but build
+                # the SAME kind the engine resolves (``"rocm"`` on a ROCm/HIP
+                # torch build, else ``"cuda"``) rather than hard-coding one.
+                device=evoxc.core.Device(E._gpu_device_kind(), 0),
             )
         )
     _assert_memoized_payload_counts(plan, counters)
@@ -568,7 +582,7 @@ def test_seam_memoizes_the_loss_variant_payloads(loss_plan: Any) -> None:
 # 3. payload memo: the injected ``staged`` dict
 # --------------------------------------------------------------------------- #
 def test_seam_staged_memo_is_filled_once_and_reused(value_plan: Any) -> None:
-    """First iteration fills the injected dict; later ones only re-``etl.run``."""
+    """First iteration fills the injected dict; later ones only re-``evoxc.run``."""
     plan, executable = value_plan
     x = _x_host()
     staged: Dict[Any, Tuple[np.ndarray, Any]] = {}
@@ -605,14 +619,14 @@ def test_seam_staged_memo_is_filled_once_and_reused(value_plan: Any) -> None:
         f"{second_prepares}"
     )
     assert second_runs == first_runs == _expected_runs(plan), (
-        "the staged iteration must issue exactly the same etl.run calls "
+        "the staged iteration must issue exactly the same evoxc.run calls "
         f"({second_runs} vs {first_runs})"
     )
     assert {key: id(entry) for key, entry in staged.items()} == entry_ids, (
         "the staged entries were replaced instead of reused"
     )
     assert second_arg_ids == first_arg_ids, (
-        "the second iteration handed DIFFERENT host arrays to etl.run: the staged "
+        "the second iteration handed DIFFERENT host arrays to evoxc.run: the staged "
         "payloads are not reused by reference"
     )
     assert all(
@@ -771,10 +785,10 @@ def test_executable_memo_is_bit_identical_through_forest_sr_fitness(
     under a forced-dense suite run (``EVOGP_EVAL_MODE=dense``), where the public
     call would otherwise take the dense route and the memo-free twin would never be
     exercised -- three identical dense evaluations, passing vacuously.  The
-    ``EVOGP_ETL_BACKEND=numpy`` pin (``etl_engine.BACKEND_ENV``) is the same
+    ``EVOGP_EVOXC_BACKEND=numpy`` pin (``evoxc_engine.BACKEND_ENV``) is the same
     environment resolution: ``Forest.SR_fitness`` passes no ``backend=`` of its own.
 
-    The route is not trusted, it is OBSERVED: ``etl_engine._executable`` is counted
+    The route is not trusted, it is OBSERVED: ``evoxc_engine._executable`` is counted
     (memoized half and memo-free half), so a call that skips the specialized path
     fails here instead of comparing something else.
     """
