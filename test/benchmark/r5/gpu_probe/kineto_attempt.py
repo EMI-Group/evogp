@@ -20,9 +20,9 @@ compact key-averages table (name, counts, cuda/cpu totals) and, only when small
 
 Usage (repo root, project venv, GPU):
 
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \\
-      EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=dense EVOGP_ETL_IREE_DEVICE=0 \\
-      EVOGP_ETL_IREE_OPT_LEVEL=O1 \\
+    PYTHONPATH=src EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \\
+      EVOGP_EVOXC_BACKEND=iree EVOGP_EVAL_MODE=dense EVOGP_EVOXC_IREE_DEVICE=0 \\
+      EVOGP_EVOXC_IREE_OPT_LEVEL=O1 \\
       <venv>/bin/python test/benchmark/r5/gpu_probe/kineto_attempt.py \\
         --fixture test/goldens/forest_random.npz --invocations 30 \\
         --out-dir test/benchmark/r5/results/q2_gpu/kineto_f64 \\
@@ -66,7 +66,7 @@ def main(argv=None):
     log_path = args.log_out or os.path.join(args.out_dir, "kineto.log")
     with open(log_path, "w") as out:
         out.write(f"=== {PROBE} ===\n")
-        import etl
+        import evoxc
         import torch
 
         from evogp.tree import dense_engine
@@ -162,7 +162,7 @@ def main(argv=None):
                     f"{len(cuda_events)} torch/runtime events"
                 )
             ),
-            "stamp": pl.identity_stamp(etl, extra={"probe": PROBE, "tag": args.tag}),
+            "stamp": pl.identity_stamp(evoxc, extra={"probe": PROBE, "tag": args.tag}),
         }
         if args.json_out:
             pl.write_json(args.json_out, payload)

@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-"""``bench_gp.py`` -- side-agnostic benchmark harness for the legacy-CUDA vs ETL comparison.
+"""``bench_gp.py`` -- side-agnostic benchmark harness for the legacy-CUDA vs evoxc comparison.
 
 One file, two checkouts: it drives *either* engine through the same public
 ``evogp`` API, selected by ``PYTHONPATH``:
 
-* NEW = this repository at HEAD (pure-torch/ETL "true jit" engine,
-  ``evogp/tree/etl_engine.py``), default ``"numpy"`` backend;
+* NEW = this repository at HEAD (pure-torch/evoxc "true jit" engine,
+  ``evogp/tree/evoxc_engine.py``), default ``"numpy"`` backend;
 * OLD = the legacy custom-CUDA checkout at ``b613503`` (``evogp.evogp_cuda`` /
   ``src/evogp/cuda/*.cu``; no CPU fallback there).
 
@@ -27,19 +27,19 @@ fixture) and ``evalfresh`` (W3': repeated ``evaluate`` on a freshly generated
 random population).
 
 Environment contract (set *before* importing evogp, as the SPEC requires):
-``ETL_DISABLE_LOCATIONS=1`` by default (``=0`` with ``--no-disable-locations``);
-``EVOGP_ETL_BACKEND`` / ``EVOGP_ETL_IREE_DEVICE`` / ``EVOGP_ETL_IREE_OPT_LEVEL``
+``EVOXC_DISABLE_LOCATIONS=1`` by default (``=0`` with ``--no-disable-locations``);
+``EVOGP_EVOXC_BACKEND`` / ``EVOGP_EVOXC_IREE_DEVICE`` / ``EVOGP_EVOXC_IREE_OPT_LEVEL``
 are read by the new engine only and are simply inert on the old one.
 
 R2 additions -- every one of them is opt-in; with none of them passed the CLI,
 the code path and the JSON keys are exactly the pre-R2 ones plus additive keys::
 
     --backend {default,numpy,iree}   ``default`` (default value) sets nothing;
-                                     ``numpy``/``iree`` set ``EVOGP_ETL_BACKEND``
+                                     ``numpy``/``iree`` set ``EVOGP_EVOXC_BACKEND``
                                      (and the two IREE settings) in ``apply_env``,
                                      i.e. *before* evogp is imported
-    --iree-device I                  ``EVOGP_ETL_IREE_DEVICE`` (default 0)
-    --iree-opt-level {O0,O1}         ``EVOGP_ETL_IREE_OPT_LEVEL`` (default O1)
+    --iree-device I                  ``EVOGP_EVOXC_IREE_DEVICE`` (default 0)
+    --iree-opt-level {O0,O1}         ``EVOGP_EVOXC_IREE_OPT_LEVEL`` (default O1)
     --data-rows N                    eval64 only: tile the fixture ``x``/``labels``
                                      up to N rows (N == the fixture row count is a
                                      byte-identical no-op, so prior C5 stays
@@ -48,11 +48,11 @@ the code path and the JSON keys are exactly the pre-R2 ones plus additive keys::
     --mem-guard-mb M                 default 8192: before any heavy step, compare M
                                      with the free device memory reported by
                                      ``torch.cuda.mem_get_info()``
-    --max-cold-builds N              default 300: stop when the cumulative ETL
+    --max-cold-builds N              default 300: stop when the cumulative evoxc
                                      compile misses exceed N -- enforced only on the
                                      NEW side with ``--backend iree`` (a numpy run
                                      compiles no GPU program per structure and the
-                                     legacy engine has no ``etl_engine`` module, so
+                                     legacy engine has no ``evoxc_engine`` module, so
                                      both are exempt)
     --allow-cold-builds              disable that guard
     --stage-probe                    decompose every ``problem.evaluate`` call
@@ -107,7 +107,7 @@ type 2) next to the existing end-to-end eval tasks (measurement type 1)::
 
 ``eval-pure`` reuses ``--fixture`` (with the ``eval64`` ``--data-rows`` tiling), the
 memory / cold-build guards, the FD + peak-memory telemetry and the JSON conventions; it
-does not use the stage probe (the probe wraps ``etl.run`` and would tax a tight loop) and
+does not use the stage probe (the probe wraps ``evoxc.run`` and would tax a tight loop) and
 it skips cleanly (exit 3) on the legacy side, which has no separable pure forward.  The
 runner/timing core lives in ``test/benchmark/pure_forward.py``.
 
@@ -159,7 +159,7 @@ Old-compat audit (every evogp symbol/kwarg this harness uses, checked against th
       torch.cuda.synchronize / torch.cuda.get_device_name
 
 Known asymmetric bits (do not fail the old side): ``enable_pareto_front`` is only
-passed for ``--task xor`` (as in ``example/basic.py``); ``ETL_*`` env vars are inert
+passed for ``--task xor`` (as in ``example/basic.py``); ``EVOXC_*`` env vars are inert
 on the old side (C7 therefore degenerates to a plain legacy run); the old side reads
 its RNG stream from the kernels, so population structures/fitness differ from the new
 side -- compare *times*, use fitness only as a convergence sanity check.
@@ -266,27 +266,27 @@ def parse_args(argv=None):
     parser.add_argument(
         "--no-disable-locations",
         action="store_true",
-        help="force ETL_DISABLE_LOCATIONS=0 (verbose ETL call-site capture)",
+        help="force EVOXC_DISABLE_LOCATIONS=0 (verbose evoxc call-site capture)",
     )
     parser.add_argument(
         "--backend",
         choices=("default", "numpy", "iree"),
         default="default",
-        help="ETL backend for the NEW engine: 'default' (default) leaves the environment "
-        "alone; 'numpy'/'iree' export EVOGP_ETL_BACKEND (plus the IREE settings) before "
+        help="evoxc backend for the NEW engine: 'default' (default) leaves the environment "
+        "alone; 'numpy'/'iree' export EVOGP_EVOXC_BACKEND (plus the IREE settings) before "
         "evogp is imported.  Inert on the old side",
     )
     parser.add_argument(
         "--iree-device",
         type=int,
         default=0,
-        help="IREE device index -> EVOGP_ETL_IREE_DEVICE (only meaningful with --backend iree)",
+        help="IREE device index -> EVOGP_EVOXC_IREE_DEVICE (only meaningful with --backend iree)",
     )
     parser.add_argument(
         "--iree-opt-level",
         choices=("O0", "O1"),
         default="O1",
-        help="IREE optimization level -> EVOGP_ETL_IREE_OPT_LEVEL (only with --backend iree)",
+        help="IREE optimization level -> EVOGP_EVOXC_IREE_OPT_LEVEL (only with --backend iree)",
     )
     parser.add_argument(
         "--data-rows",
@@ -307,8 +307,8 @@ def parse_args(argv=None):
         "--max-cold-builds",
         type=int,
         default=300,
-        help="stop cleanly (exit 3) when the cumulative ETL compile misses "
-        "(etl_engine.cache_stats()['misses']) exceed N (default: 300); enforced only on "
+        help="stop cleanly (exit 3) when the cumulative evoxc compile misses "
+        "(evoxc_engine.cache_stats()['misses']) exceed N (default: 300); enforced only on "
         "the NEW side with --backend iree",
     )
     parser.add_argument(
@@ -437,19 +437,19 @@ def parse_args(argv=None):
 def apply_env(args):
     """Fix the engine environment.  MUST run before evogp (or torch) is imported."""
     if args.no_disable_locations:
-        os.environ["ETL_DISABLE_LOCATIONS"] = "0"
+        os.environ["EVOXC_DISABLE_LOCATIONS"] = "0"
     else:
-        os.environ.setdefault("ETL_DISABLE_LOCATIONS", "1")
-    # Old side: every EVOGP_ETL_* var below is inert (there is no ``etl_engine``
+        os.environ.setdefault("EVOXC_DISABLE_LOCATIONS", "1")
+    # Old side: every EVOGP_EVOXC_* var below is inert (there is no ``evoxc_engine``
     # module there).  New side: ``--backend default`` forces nothing, so an
-    # externally exported EVOGP_ETL_BACKEND keeps winning, while an explicit
+    # externally exported EVOGP_EVOXC_BACKEND keeps winning, while an explicit
     # ``--backend numpy|iree`` writes all three settings (the two IREE ones are
     # only read by the iree backend, and only there do they matter).
     if args.backend != "default":
-        os.environ["EVOGP_ETL_BACKEND"] = args.backend
-        os.environ["EVOGP_ETL_IREE_DEVICE"] = str(args.iree_device)
-        os.environ["EVOGP_ETL_IREE_OPT_LEVEL"] = args.iree_opt_level
-    return {k: v for k, v in os.environ.items() if k.startswith(("ETL_", "EVOGP_"))}
+        os.environ["EVOGP_EVOXC_BACKEND"] = args.backend
+        os.environ["EVOGP_EVOXC_IREE_DEVICE"] = str(args.iree_device)
+        os.environ["EVOGP_EVOXC_IREE_OPT_LEVEL"] = args.iree_opt_level
+    return {k: v for k, v in os.environ.items() if k.startswith(("EVOXC_", "EVOGP_"))}
 
 # ---------------------------------------------------------------------------
 # environment / identity snapshots
@@ -487,7 +487,7 @@ def evogp_package_dir():
 
     Import-free: the already-imported module wins (``import_modules()`` runs first in
     :func:`main`), otherwise ``importlib.machinery.PathFinder`` walks ``sys.path`` for the
-    spec.  Unlike ``importlib.util.find_spec("evogp.tree.etl_engine")`` -- which *imports*
+    spec.  Unlike ``importlib.util.find_spec("evogp.tree.evoxc_engine")`` -- which *imports*
     ``evogp`` and ``evogp.tree``, and with them the legacy ``evogp.evogp_cuda`` extension --
     nothing here can fail because a checkout is not importable.
     """
@@ -507,16 +507,16 @@ def evogp_package_dir():
 
 
 def detect_side():
-    """``"new"`` when the ``evogp`` checkout in use carries the ETL engine, ``"old"`` when it is a
+    """``"new"`` when the ``evogp`` checkout in use carries the evoxc engine, ``"old"`` when it is a
     legacy-layout checkout, ``"unknown"`` only when no ``evogp`` checkout can be located.
 
     The test is a filesystem fact about the *checkout*, not environment-level import success:
-    ``"new"`` iff the resolved package directory has ``tree/etl_engine.py`` (a legacy checkout
+    ``"new"`` iff the resolved package directory has ``tree/evoxc_engine.py`` (a legacy checkout
     has ``cuda/`` instead).  Nothing is imported, so a legacy checkout whose ``evogp_cuda``
     extension is not built -- e.g. a bare ``git archive b613503 src`` materialization, where the
     old env-level probe raised and read ``"unknown"`` -- still reads ``"old"``.
 
-    This is the *engine family*, not the checkout identity: every ETL-era checkout (this tree,
+    This is the *engine family*, not the checkout identity: every evoxc-era checkout (this tree,
     ``/tmp/base_850db27``, a ``NEW_PYTHONPATH`` shadow run, ...) reads ``"new"`` by design.
     Checkout identity comes from the payload fields instead (see :func:`repo_snapshot`):
     ``evogp_file`` is the resolved package path -- distinct per checkout -- and ``evogp_commit``
@@ -528,10 +528,10 @@ def detect_side():
     ``detect_side()``; ``before -> after`` the fix)::
 
         worktree/HEAD, PYTHONPATH=src                        new     -> new
-        worktree/HEAD + /mnt/local-ssd/bchuang/etl entry      new     -> new
+        worktree/HEAD + /mnt/local-ssd/bchuang/evoxc entry   new     -> new
         /tmp/evogp_legacy_bench (built ext)                   old     -> old
         b613503 ``git archive`` layout, no built ext          unknown -> old   <- the bug
-        /tmp/base_850db27 (ETL-era base checkout)             new     -> new
+        /tmp/base_850db27 (evoxc-era base checkout)          new     -> new
         no ``evogp`` anywhere on ``sys.path``                 unknown -> unknown
     """
     try:
@@ -540,7 +540,7 @@ def detect_side():
         return "unknown"
     if package_dir is None:
         return "unknown"
-    return "new" if os.path.isfile(os.path.join(package_dir, "tree", "etl_engine.py")) else "old"
+    return "new" if os.path.isfile(os.path.join(package_dir, "tree", "evoxc_engine.py")) else "old"
 
 
 def _guarded(label, fn, default=None):
@@ -551,17 +551,18 @@ def _guarded(label, fn, default=None):
 
 
 def etl_version():
-    """Version of the ``etl`` package; guarded so the old side can never crash on it."""
+    """Version of the ``evoxc`` package (the payload key stays ``etl_version``, the name the
+    frozen R1-R6 comparators read); guarded so the old side can never crash on it."""
     try:
         from importlib.metadata import version as _md_version
 
-        return _md_version("etl")
+        return _md_version("evoxc")
     except Exception:
         pass
     try:
-        import etl  # noqa: F401
+        import evoxc  # noqa: F401
 
-        return getattr(etl, "__version__", "unknown")
+        return getattr(evoxc, "__version__", "unknown")
     except Exception as exc:
         return f"<unavailable: {type(exc).__name__}: {exc}>"
 
@@ -603,7 +604,7 @@ def gpu_snapshot():
 
 
 def env_snapshot():
-    env = {k: v for k, v in os.environ.items() if k.startswith(("ETL_", "EVOGP_"))}
+    env = {k: v for k, v in os.environ.items() if k.startswith(("EVOXC_", "EVOGP_"))}
     env["CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES")
     return env
 
@@ -928,7 +929,7 @@ def summary_eval(tag, side, record, reps):
 def import_pure_forward():
     """Import ``pure_forward.py`` from this script's directory.
 
-    The module imports only numpy/torch at import time (``evogp``/``etl`` are imported
+    The module imports only numpy/torch at import time (``evogp``/``evoxc`` are imported
     lazily inside its functions), so this is safe on either side.
     """
     here = os.path.dirname(os.path.abspath(__file__))
@@ -1133,7 +1134,7 @@ def cold_build_guard_enforced(args, side):
 
 
 class ColdBuildGuard:
-    """Cumulative ETL compile-miss guard (``--max-cold-builds``).
+    """Cumulative evoxc compile-miss guard (``--max-cold-builds``).
 
     Sampling is a no-op unless :func:`cold_build_guard_enforced` holds, and it never
     raises: a failing counter read is printed and ignored so the guard can never
@@ -1150,7 +1151,7 @@ class ColdBuildGuard:
         self._engine = None
 
     def sample(self):
-        """Sample ``etl_engine.cache_stats()['misses']``; True when the guard trips."""
+        """Sample ``evoxc_engine.cache_stats()['misses']``; True when the guard trips."""
         if not self.enforced:
             return False
         try:
@@ -1174,7 +1175,7 @@ class ColdBuildGuard:
             self.payload["skipped"] = True
             self.payload["skip_reason"] = f"cold-builds-exceeded:{misses}>{self.limit}"
             print(
-                f"[{self.tag}] cold-build guard: {misses} cumulative ETL compile misses > "
+                f"[{self.tag}] cold-build guard: {misses} cumulative evoxc compile misses > "
                 f"--max-cold-builds {self.limit}; stopping cleanly (exit 3, JSON partial/skipped)",
                 flush=True,
             )
@@ -1183,7 +1184,7 @@ class ColdBuildGuard:
 
     def _read_misses(self):
         if self._engine is None:
-            import evogp.tree.etl_engine as engine  # new side only (``enforced``)
+            import evogp.tree.evoxc_engine as engine  # new side only (``enforced``)
 
             self._engine = engine
         return int(self._engine.cache_stats()["misses"])
@@ -1204,11 +1205,11 @@ def install_stage_probe(args, side, payload):
     """Install the R2 stage probe, wire ``payload["stages"]``; never raises.
 
     Returns the ``stage_probe`` module (to be handed to the runners) or ``None``
-    when the probe is off / unavailable.  The old side has no ``etl_engine``
+    when the probe is off / unavailable.  The old side has no ``evoxc_engine``
     module to instrument, so ``--stage-probe`` there warns and no-ops (leaving
     ``stages`` at ``null``) instead of failing the run.
 
-    ``--task eval-pure`` never installs it either: the probe wraps ``etl.run`` and
+    ``--task eval-pure`` never installs it either: the probe wraps ``evoxc.run`` and
     books every call into stages, i.e. it would tax exactly the tight loop the pure
     task measures -- so the flag warns and no-ops there too (``stages`` stays
     ``null``; the pure numbers come from ``pure``/``compile``/``e2e_companion``).
@@ -1218,7 +1219,7 @@ def install_stage_probe(args, side, payload):
     if args.task in PURE_TASKS:
         print(
             f"[{args.tag}] warning: --stage-probe is not installed for --task eval-pure "
-            f"(the probe wraps etl.run and would tax the timed pure loop); continuing with "
+            f"(the probe wraps evoxc.run and would tax the timed pure loop); continuing with "
             f"stages=null -- the pure measurement is reported under 'pure'/'compile'",
             flush=True,
         )
@@ -1226,7 +1227,7 @@ def install_stage_probe(args, side, payload):
     if side != "new":
         print(
             f"[{args.tag}] warning: --stage-probe is new-side only (side={side}: there is no "
-            f"etl_engine to instrument); continuing with stages=null",
+            f"evoxc_engine to instrument); continuing with stages=null",
             flush=True,
         )
         return None
@@ -1236,7 +1237,7 @@ def install_stage_probe(args, side, payload):
     try:
         import stage_probe
 
-        import evogp.tree.etl_engine as engine
+        import evogp.tree.evoxc_engine as engine
     except Exception as exc:
         print(
             f"[{args.tag}] warning: --stage-probe could not be installed "
@@ -1448,7 +1449,7 @@ def run_pure(mods, args, payload, flush, guard=None, probe=None):
     warm from the construction, so ``E2E - pure`` prices the per-call host glue.
 
     ``probe`` is always ``None`` for this task (:func:`install_stage_probe` refuses to
-    install it: the probe wraps ``etl.run`` and would tax exactly the loop being measured).
+    install it: the probe wraps ``evoxc.run`` and would tax exactly the loop being measured).
     """
     interrupted = False
     if payload["side"] != "new":
@@ -1856,7 +1857,7 @@ def main(argv=None):
         )
     if guard.enforced:
         print(
-            f"[{args.tag}] cold-build guard ACTIVE: stop when the cumulative ETL compile "
+            f"[{args.tag}] cold-build guard ACTIVE: stop when the cumulative evoxc compile "
             f"misses exceed --max-cold-builds={guard.limit}",
             flush=True,
         )
@@ -1887,8 +1888,8 @@ def main(argv=None):
         f"[{args.tag}] harness=bench_gp.py side={side} task={args.task} "
         f"pop={args.pop} gens={args.gens} tree_len={args.tree_len} seed={args.seed} "
         f"reps={args.reps} eval_reps={args.eval_reps} "
-        f"ETL_DISABLE_LOCATIONS={payload['env'].get('ETL_DISABLE_LOCATIONS')} "
-        f"EVOGP_ETL_BACKEND={payload['env'].get('EVOGP_ETL_BACKEND')} "
+        f"EVOXC_DISABLE_LOCATIONS={payload['env'].get('EVOXC_DISABLE_LOCATIONS')} "
+        f"EVOGP_EVOXC_BACKEND={payload['env'].get('EVOGP_EVOXC_BACKEND')} "
         f"CUDA_VISIBLE_DEVICES={payload['env'].get('CUDA_VISIBLE_DEVICES')} "
         f"gpu={payload['gpu'].get('name')} evogp={payload['evogp_file']} "
         f"commit={payload['evogp_commit']} etl={payload['etl_version']} "

@@ -15,9 +15,9 @@ cannot rule out is the interpreter/venv (identical here by construction).
 
 Usage (repo root, project venv, GPU):
 
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
-      EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 \
-      EVOGP_ETL_IREE_OPT_LEVEL=O1 \
+    PYTHONPATH=src EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
+      EVOGP_EVOXC_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_EVOXC_IREE_DEVICE=0 \
+      EVOGP_EVOXC_IREE_OPT_LEVEL=O1 \
       <venv>/bin/python test/benchmark/r5/minimal_loop.py \
         --fixture test/goldens/forest_random.npz --reps 25 \
         --json-out test/benchmark/r5/results/q8_minimal/minimal_f64.json \
@@ -57,7 +57,7 @@ def stamp():
         "torch": getattr(torch, "__version__", "<n/a>"),
         "numpy": np.__version__,
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", "<unset>"),
-        "env_knobs": {k: v for k, v in sorted(os.environ.items()) if k.startswith(("ETL_", "EVOGP_"))},
+        "env_knobs": {k: v for k, v in sorted(os.environ.items()) if k.startswith(("EVOXC_", "EVOGP_"))},
         "gpu": run(["nvidia-smi", "--query-gpu=index,name,utilization.gpu,memory.used", "--format=csv,noheader,nounits", "-i", os.environ.get("CUDA_VISIBLE_DEVICES", "0")]),
         "gpu_tenants": run(["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader", "-i", os.environ.get("CUDA_VISIBLE_DEVICES", "0")]),
     }
@@ -74,7 +74,7 @@ def main(argv=None):
     import numpy as np
     import torch
 
-    import etl
+    import evoxc
     from evogp.problem import SymbolicRegression
     from evogp.tree import Forest
 
@@ -106,13 +106,13 @@ def main(argv=None):
         "median_warm_ms": statistics.median(warm),
         "min_warm_ms": min(warm),
         "max_warm_ms": max(warm),
-        "etl_file": getattr(etl, "__file__", "<n/a>"),
+        "etl_file": getattr(evoxc, "__file__", "<n/a>"),
         "stamp": stamp(),
     }
     lines = [
         "=== r5/minimal_loop.py (Q8: no harness, no probe) ===",
         f"fixture: {result['config']['fixture']}  pop={forest.pop_size} rows={x.shape[0]}  reps={args.reps}",
-        f"etl    : {result['etl_file']}",
+        f"evoxc  : {result['etl_file']}",
         "per-call ms: " + " ".join(f"{v:.3f}" for v in calls),
         f"first (cold): {calls[0]:.3f} ms   warm median: {result['median_warm_ms']:.3f} ms "
         f"(min {result['min_warm_ms']:.3f} / max {result['max_warm_ms']:.3f})",

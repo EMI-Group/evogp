@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """``ab_probe.py`` -- R5 Q3: engine-call vs frozen-runner, same process, same artifact.
 
-The question this resolves: Q1 measured the engine's in-process ``etl.run`` at
+The question this resolves: Q1 measured the engine's in-process ``evoxc.run`` at
 2.13 / 2.37 ms (f64 / f200) while the R4/Q4 *frozen* pure forward of the same
 population measured 1.21 / 1.46 ms -- two numbers that describe the same compiled
 graph call.  Q3 puts the two paths in ONE process on ONE population and one
 compiled artifact, and separates what actually differs:
 
-* **payload freshness** -- does ``etl.run`` cost more when the payloads it consumes
+* **payload freshness** -- does ``evoxc.run`` cost more when the payloads it consumes
   were uploaded immediately before (the engine's per-call behaviour) than when they
   are long-staged (the frozen runner's behaviour)?  (``A1-A2``, ``L1-L2``)
 * **the run path itself** -- the engine's own ``_iter_plan_chunks`` seam vs the frozen
@@ -29,7 +29,7 @@ Arms (one process per fixture; every arm is 25 harness-shaped calls, call 0 cold
 ``L1_engine_fresh_loss``  engine seam, LOSS artifact, fresh payloads (the real route)
 ``L2_engine_staged_loss`` engine seam, LOSS artifact, staged payloads
 ``R1_repl_fresh_loss``    probe-replicated fresh loop (replication control vs L1)
-``R2_repl_fresh_drained`` the same loop with an explicit fence before ``etl.run``
+``R2_repl_fresh_drained`` the same loop with an explicit fence before ``evoxc.run``
 ``E1_e2e_in_process``     ``problem.evaluate(forest)`` -- the in-process e2e companion
 ==============  ======================================================================
 
@@ -37,14 +37,14 @@ Every artifact is built once (cache miss) and every later build is a content-key
 hit; the arms hold the plan/executable/args directly, so no arm pays a per-call key
 derivation -- that cost is Q6's ``M4V`` -> ``M5`` delta, and is cited, not re-measured.
 
-Analysis-only: no ``src/evogp`` edit, no write in the foreign ``etl`` checkout, every
+Analysis-only: no ``src/evogp`` edit, no write in the foreign ``evoxc`` checkout, every
 patch is a runtime monkeypatch restored before the next arm.
 
 Usage (repo root, project venv, GPU; one locked process per fixture)::
 
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
-      EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 \
-      EVOGP_ETL_IREE_OPT_LEVEL=O1 \
+    PYTHONPATH=src EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
+      EVOGP_EVOXC_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_EVOXC_IREE_DEVICE=0 \
+      EVOGP_EVOXC_IREE_OPT_LEVEL=O1 \
       <venv>/bin/python test/benchmark/r5/ab_probe.py \
         --fixture test/goldens/forest_random.npz --reps 25 --tag ab_f64 \
         --json-out test/benchmark/r5/results/q3_ab/ab_f64.json \
@@ -87,8 +87,8 @@ ARM_DOCS = {
     "A4_frozen_fresh": "frozen runner's plan/executable/inputs, FRESH payloads",
     "L1_engine_fresh_loss": "engine seam, LOSS artifact, FRESH payloads (the SR route's graph)",
     "L2_engine_staged_loss": "engine seam, LOSS artifact, STAGED payloads",
-    "R1_repl_fresh_loss": "probe-replicated fresh loop + etl.run (replication control)",
-    "R2_repl_fresh_drained": "probe-replicated fresh loop + explicit fence + etl.run",
+    "R1_repl_fresh_loss": "probe-replicated fresh loop + evoxc.run (replication control)",
+    "R2_repl_fresh_drained": "probe-replicated fresh loop + explicit fence + evoxc.run",
     "E1_e2e_in_process": "problem.evaluate(forest) -- the in-process e2e companion",
 }
 
@@ -124,7 +124,7 @@ def engine_loop(plan, executable, xt, label, staged, dense_engine, backend_name,
     return call
 
 
-def replicated_loss_args(etl, dense_engine, plan, xt, label, device):
+def replicated_loss_args(evoxc, dense_engine, plan, xt, label, device):
     """The exact loss-variant argument tuple ``_iter_plan_chunks`` would build, fresh.
 
     Mirrors ``dense_engine._iter_plan_chunks`` for a single-chunk plan: the 7 node
@@ -138,10 +138,10 @@ def replicated_loss_args(etl, dense_engine, plan, xt, label, device):
     xin = dense_engine._chunk_rows(xt, 0, n_chunk, plan.n_chunk)
     lin = dense_engine._chunk_rows(label, 0, n_chunk, plan.n_chunk)
     keep = dense_engine._keep_mask(plan.n_chunk, n_chunk)
-    return tuple(etl.from_numpy(array).to(device) for array in columns) + (
-        etl.from_numpy(xin).to(device),
-        etl.from_numpy(lin).to(device),
-        etl.from_numpy(keep).to(device),
+    return tuple(evoxc.from_numpy(array).to(device) for array in columns) + (
+        evoxc.from_numpy(xin).to(device),
+        evoxc.from_numpy(lin).to(device),
+        evoxc.from_numpy(keep).to(device),
         plan.cfg,
     )
 
@@ -175,7 +175,7 @@ def main(argv=None):
     import numpy as np
     import torch
 
-    import etl
+    import evoxc
     from evogp.problem import SymbolicRegression
     from evogp.tree import dense_engine
 
@@ -194,7 +194,7 @@ def main(argv=None):
         dense_engine, forest_module, SymbolicRegression, profiler
     )
     proxy = pl.install_etl_proxy(dense_engine, profiler)
-    pl.patch_etl_tensor_to(etl, profiler)
+    pl.patch_etl_tensor_to(evoxc, profiler)
     host_load_start = pl.host_load()
     # The fresh arms' payload construction (fresh / replication / drain arms only).
     for bucket, name in (("chunk_rows", "_chunk_rows"), ("keep_mask", "_keep_mask")):
@@ -212,7 +212,7 @@ def main(argv=None):
         f"input_len={forest.input_len}, output_len={forest.output_len}) + "
         f"SymbolicRegression(datapoints=x{x.shape}, labels=labels{labels.shape})\n"
     )
-    out.write(f"etl          : {etl.__file__}\n")
+    out.write(f"evoxc        : {evoxc.__file__}\n")
     out.write(f"wrapped      : {', '.join(wraps['wrapped'])}\n")
     out.write(f"missing      : {wraps['missing'] or 'none'}\n")
     out.write(
@@ -425,13 +425,13 @@ def main(argv=None):
               "cost of building/uploading the payloads fresh, per call (prep+upload+semaphores)",
               "measured"),
         delta("A1-A2 run span", "A1_engine_fresh", "A2_engine_staged", "etl_run",
-              "payload-freshness cost INSIDE etl.run (fresh buffers vs staged buffers)",
+              "payload-freshness cost INSIDE evoxc.run (fresh buffers vs staged buffers)",
               "measured"),
         delta("A2-A3 total", "A2_engine_staged", "A3_frozen_runner", "median_warm_ms",
               "engine-seam staged call vs frozen runner.run() (same staged artifact)",
               "measured"),
         delta("A2-A3 run span", "A2_engine_staged", "A3_frozen_runner", "etl_run",
-              "the run path itself (engine seam vs frozen run(): same etl.run, same args)",
+              "the run path itself (engine seam vs frozen run(): same evoxc.run, same args)",
               "measured"),
         delta("A4-A3 total", "A4_frozen_fresh", "A3_frozen_runner", "median_warm_ms",
               "upload cost in runner terms (frozen plan/executable fed with fresh payloads)",
@@ -443,7 +443,7 @@ def main(argv=None):
               "fresh-vs-staged payload cost on the LOSS artifact (the engine's real route)",
               "measured"),
         delta("L1-L2 run span", "L1_engine_fresh_loss", "L2_engine_staged_loss", "etl_run",
-              "freshness cost inside etl.run on the LOSS artifact",
+              "freshness cost inside evoxc.run on the LOSS artifact",
               "measured"),
         delta("L2-A3 run span", "L2_engine_staged_loss", "A3_frozen_runner", "etl_run",
               "LOSS artifact staged run vs VALUE artifact staged run (in-graph loss vs values)",
@@ -452,10 +452,10 @@ def main(argv=None):
               "replication fidelity of the probe-side fresh loop (must be ~0)",
               "measured"),
         delta("R2-R1 total", "R2_repl_fresh_drained", "R1_repl_fresh_loss", "median_warm_ms",
-              "cost of an explicit fence between staging and the run (the drain that etl.run absorbs)",
+              "cost of an explicit fence between staging and the run (the drain that evoxc.run absorbs)",
               "measured"),
         delta("R2-R1 run span", "R2_repl_fresh_drained", "R1_repl_fresh_loss", "etl_run",
-              "how much of etl.run's fresh-payload cost is the staging copy's drain",
+              "how much of evoxc.run's fresh-payload cost is the staging copy's drain",
               "measured"),
         delta("E1-A3 total", "E1_e2e_in_process", "A3_frozen_runner", "median_warm_ms",
               "in-process e2e evaluate minus frozen pure run (the e2e_companion analogue)",
@@ -474,7 +474,7 @@ def main(argv=None):
         "probe": PROBE,
         "tag": tag,
         "stamp": pl.identity_stamp(
-            etl,
+            evoxc,
             extra={
                 "probe": PROBE,
                 "tag": tag,
@@ -527,7 +527,7 @@ def main(argv=None):
             f"{name:24s} {arms[name]['stats']['median_warm_ms']:10.4f} "
             f"{'n/a' if span is None else f'{span:11.4f}'}  {ARM_DOCS[name]}\n"
         )
-    out.write("\n=== deltas (median warm ms; run spans are the etl.run exclusive bucket) ===\n")
+    out.write("\n=== deltas (median warm ms; run spans are the evoxc.run exclusive bucket) ===\n")
     out.write(f"{'delta':20s} {'metric':12s} {'delta_ms':>9s} {'label':>9s}  meaning\n")
     for entry in deltas:
         value = "n/a" if entry["delta_ms"] is None else f"{entry['delta_ms']:.4f}"

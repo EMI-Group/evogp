@@ -5,7 +5,7 @@ The question: the dense-iree ``problem.evaluate(forest)`` route costs ~5.4-6.9 m
 warm (Q4 same-window window, ``results/q4_window/``) while its pure compiled
 forward is ~1.2-1.5 ms -- so where do the other ~4 ms go?
 
-Method (analysis-only; ``src/evogp`` and the foreign ``etl`` are never edited):
+Method (analysis-only; ``src/evogp`` and the foreign ``evoxc`` are never edited):
 the probe rebuilds the harness' ``--task eval64`` wiring verbatim
 (:func:`probe_lib.build_eval_case` = ``test/benchmark/bench_gp.py:768-806``) and
 times ``problem.evaluate(forest)`` (``bench_gp.py:1374-1381``: one
@@ -13,8 +13,8 @@ times ``problem.evaluate(forest)`` (``bench_gp.py:1374-1381``: one
 warm).  Around that call it monkeypatches the dense chain's own call sites
 (:func:`probe_lib.install_dense_wraps`) into >=8 non-overlapping buckets --
 exclusive times, so the sum of every bucket is the outer span by construction --
-plus the ``etl`` module proxy (``from_numpy`` / ``run``) and
-``etl.core.Tensor.to`` bucketed by caller (``payload`` = upload, ``_to_host`` =
+plus the ``evoxc`` module proxy (``from_numpy`` / ``run``) and
+``evoxc.core.Tensor.to`` bucketed by caller (``payload`` = upload, ``_to_host`` =
 readback).
 
 Recorded per fixture (one process, immutable JSON + log):
@@ -22,7 +22,7 @@ Recorded per fixture (one process, immutable JSON + log):
 * the 25 per-call harness totals + the inner call wall + the post-call fence,
 * per-call exclusive ms for every bucket + the count of every bucket,
 * the reconciliation (sum of buckets vs the in-process total),
-* Q7: ``etl.CompileCache`` hit/miss/size deltas + the ``build_dense`` wall of
+* Q7: ``evoxc.CompileCache`` hit/miss/size deltas + the ``build_dense`` wall of
   every call, and a deliberate cache-clear cold rebuild (phase ``cold``),
 * two controls: a region-sync pass (a CUDA fence *inside* every span, showing
   where the GPU tail is waited for) and an uninstrumented pass (same 25-call
@@ -32,9 +32,9 @@ Recorded per fixture (one process, immutable JSON + log):
 
 Usage (repo root, project venv, GPU):
 
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
-      EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 \
-      EVOGP_ETL_IREE_OPT_LEVEL=O1 \
+    PYTHONPATH=src EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
+      EVOGP_EVOXC_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_EVOXC_IREE_DEVICE=0 \
+      EVOGP_EVOXC_IREE_OPT_LEVEL=O1 \
       <venv>/bin/python test/benchmark/r5/decomp_probe.py \
         --fixture test/goldens/forest_random.npz --eval-reps 25 \
         --json-out test/benchmark/r5/results/q1_decomp/decomp_f64.json \
@@ -181,7 +181,7 @@ def main(argv=None):
     import numpy as np  # noqa: F401  (kept: from_numpy patch needs it loaded)
     import torch
 
-    import etl
+    import evoxc
     from evogp.problem import SymbolicRegression
     from evogp.tree import Forest, dense_engine
 
@@ -193,7 +193,7 @@ def main(argv=None):
 
     if args.cprofile:
         payload = run_cprofile(args, problem, forest, out)
-        stamps = pl.identity_stamp(etl, extra={"probe": PROBE, "tag": tag, "mode": "cprofile"})
+        stamps = pl.identity_stamp(evoxc, extra={"probe": PROBE, "tag": tag, "mode": "cprofile"})
         pl.write_json(args.json_out, {"probe": PROBE, "tag": tag, **payload, "stamp": stamps})
         out.write(f"\nwrote {args.json_out}\n")
         out.close()
@@ -205,7 +205,7 @@ def main(argv=None):
         dense_engine, forest_module, SymbolicRegression, profiler, sync_region=True
     )
     pl.install_etl_proxy(dense_engine, profiler)
-    pl.patch_etl_tensor_to(etl, profiler)
+    pl.patch_etl_tensor_to(evoxc, profiler)
     plan_sink = {}
     pl.install_plan_capture(dense_engine, plan_sink, profiler)
     cache = dense_engine.DENSE_CACHE
@@ -216,7 +216,7 @@ def main(argv=None):
         f"input_len={forest.input_len}, output_len={forest.output_len}) + "
         f"SymbolicRegression(datapoints=x{x.shape}, labels=labels{labels.shape})\n"
     )
-    out.write(f"etl            : {etl.__file__}\n")
+    out.write(f"evoxc          : {evoxc.__file__}\n")
     out.write(f"wrapped        : {', '.join(profiler.install_status['wrapped'])}\n")
     out.write(f"missing        : {profiler.install_status['missing'] or 'none'}\n")
     out.write(f"compile cache  : hits={cache.hits} misses={cache.misses} size={len(cache)}\n")
@@ -348,7 +348,7 @@ def main(argv=None):
         "probe": PROBE,
         "tag": tag,
         "stamp": pl.identity_stamp(
-            etl,
+            evoxc,
             extra={
                 "probe": PROBE,
                 "tag": tag,

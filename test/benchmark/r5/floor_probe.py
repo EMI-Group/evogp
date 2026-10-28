@@ -18,10 +18,10 @@ more component memoized, pre-staged or dropped):
 ``M2``        M1 with ``_prep_column`` memoized (the 7 node-column host preparations
               elided on warm calls)
 ``M3``        M2 with the payloads pre-staged (the loss loop runs against a staged
-              payload memo -- no per-call ``etl.from_numpy``/``.to(device)``, no copy
+              payload memo -- no per-call ``evoxc.from_numpy``/``.to(device)``, no copy
               semaphores)
 ``M4``        M3 without the readback and the host assembly (the loop stops after
-              ``etl.run``; the device-resident loss is dropped, as a pure forward does)
+              ``evoxc.run``; the device-resident loss is dropped, as a pure forward does)
 ``M4V``       M4 on the VALUE variant artifact (the graph the frozen pure runner builds)
               -- same prologue, no labels payload, no in-graph loss
 ``M5``        the frozen runner's ``run()`` on the same staged inputs
@@ -37,15 +37,15 @@ under ``floors`` in the JSON.  The per-step deltas are compared against Q1's tim
 attribution (``results/q1_decomp/SUMMARY.md``) -- that is the falsification function:
 a delta that does not match its predicted bucket sum is investigated and said so.
 
-Analysis-only: nothing here edits ``src/evogp`` or the foreign ``etl`` checkout; every
+Analysis-only: nothing here edits ``src/evogp`` or the foreign ``evoxc`` checkout; every
 step is a runtime monkeypatch (``probe_lib.PatchStack``), and any runtime patch is
 restored before the closing controls.
 
 Usage (repo root, project venv, GPU; one locked process per fixture)::
 
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
-      EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_ETL_IREE_DEVICE=0 \
-      EVOGP_ETL_IREE_OPT_LEVEL=O1 \
+    PYTHONPATH=src EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
+      EVOGP_EVOXC_BACKEND=iree EVOGP_EVAL_MODE=auto EVOGP_EVOXC_IREE_DEVICE=0 \
+      EVOGP_EVOXC_IREE_OPT_LEVEL=O1 \
       <venv>/bin/python test/benchmark/r5/floor_probe.py \
         --fixture test/goldens/forest_random.npz --reps 25 --tag floor_f64 \
         --json-out test/benchmark/r5/results/q6_floors/floor_f64.json \
@@ -82,10 +82,10 @@ ARM_DOCS = {
     "M2": ("M1 + memoized _prep_column (7 node-column host preparations)", "_prep_column x7"),
     "M3": (
         "M2 + payloads pre-staged (memo injected into _iter_plan_chunks)",
-        "etl.from_numpy + Tensor.to(device) for all 10 payloads (uploads + copy semaphores)",
+        "evoxc.from_numpy + Tensor.to(device) for all 10 payloads (uploads + copy semaphores)",
     ),
     "M4": (
-        "M3 without readback/host assembly (stop after etl.run)",
+        "M3 without readback/host assembly (stop after evoxc.run)",
         "_to_host D2H + run_loss_plan host assembly + fitness H2D",
     ),
     "M4V": (
@@ -264,12 +264,12 @@ def build_payload_hosts(dense_engine, plan, xt, label):
     return [(name, np.ascontiguousarray(array)) for name, array in hosts]
 
 
-def upload_micro_probe(etl, device, hosts, reps, out):
+def upload_micro_probe(evoxc, device, hosts, reps, out):
     """Per-fixture upload micro-benchmark (batch + per-payload-isolated, engine payloads)."""
     import torch
 
     sizes = [(name, list(array.shape), int(array.nbytes)) for name, array in hosts]
-    out.write("\n-- upload micro-probe (fresh etl.from_numpy(...).to(device) per payload) --\n")
+    out.write("\n-- upload micro-probe (fresh evoxc.from_numpy(...).to(device) per payload) --\n")
     for name, shape, nbytes in sizes:
         out.write(f"   {name:12s} shape={shape} bytes={nbytes}\n")
     batch_ms = []
@@ -277,13 +277,13 @@ def upload_micro_probe(etl, device, hosts, reps, out):
     for _rep in range(reps):
         torch.cuda.synchronize()
         t0 = pl.NOW()
-        tensors = [etl.from_numpy(array).to(device) for _name, array in hosts]
+        tensors = [evoxc.from_numpy(array).to(device) for _name, array in hosts]
         torch.cuda.synchronize()
         batch_ms.append((pl.NOW() - t0) * 1e3)
         del tensors
         for index, (_name, array) in enumerate(hosts):
             t0 = pl.NOW()
-            tensor = etl.from_numpy(array).to(device)
+            tensor = evoxc.from_numpy(array).to(device)
             torch.cuda.synchronize()
             per_index[index].append((pl.NOW() - t0) * 1e3)
             del tensor
@@ -316,7 +316,7 @@ def main(argv=None):
     import numpy as np
     import torch
 
-    import etl
+    import evoxc
     from evogp.problem import SymbolicRegression
     from evogp.tree import dense_engine
 
@@ -335,7 +335,7 @@ def main(argv=None):
         dense_engine, forest_module, SymbolicRegression, profiler
     )
     pl.install_etl_proxy(dense_engine, profiler)
-    pl.patch_etl_tensor_to(etl, profiler)
+    pl.patch_etl_tensor_to(evoxc, profiler)
     plan_sink = {}
     pl.install_plan_capture(dense_engine, plan_sink, profiler)
     cache = dense_engine.DENSE_CACHE
@@ -358,7 +358,7 @@ def main(argv=None):
         f"input_len={forest.input_len}, output_len={forest.output_len}) + "
         f"SymbolicRegression(datapoints=x{x.shape}, labels=labels{labels.shape})\n"
     )
-    out.write(f"etl          : {etl.__file__}\n")
+    out.write(f"evoxc        : {evoxc.__file__}\n")
     out.write(f"wrapped      : {', '.join(wraps['wrapped'])}\n")
     out.write(f"missing      : {wraps['missing'] or 'none'}\n")
     out.write(
@@ -492,7 +492,7 @@ def main(argv=None):
     # ---- M4 / M4V: stop after the run ------------------------------------
     make_call = make_m4(problem, forest, dense_engine)
     m4_verify = make_call(captured["plan_call"], staged, with_labels=True)
-    out.write("\n-- M4: M3 without readback + host assembly (stop after etl.run) --\n")
+    out.write("\n-- M4: M3 without readback + host assembly (stop after evoxc.run) --\n")
     run_arm("M4", lambda: m4_verify(False), args.reps, verify=lambda: m4_verify(True))
 
     out.write("\n-- M4V: M4 on the VALUE artifact (the frozen pure runner's graph) --\n")
@@ -576,7 +576,7 @@ def main(argv=None):
     steps = (
         ("M0-M1", "plan_dense: decode + np.unique + plan build", "M0", "M1"),
         ("M1-M2", "_prep_column x7 (node-column host prep)", "M1", "M2"),
-        ("M2-M3", "payload uploads: etl.from_numpy + .to(device) x10", "M2", "M3"),
+        ("M2-M3", "payload uploads: evoxc.from_numpy + .to(device) x10", "M2", "M3"),
         ("M3-M4", "readback D2H + run_loss_plan assembly + fitness H2D", "M3", "M4"),
         ("M4-M4V", "loss variant -> value variant (graph + labels/keep payloads)", "M4", "M4V"),
         ("M4V-M5", "engine per-call prologue (plan memo hit + build_dense + x host copy)", "M4V", "M5"),
@@ -616,7 +616,7 @@ def main(argv=None):
         "M5_pure_only_frozen_runner_ms": arms["M5"]["stats"]["median_warm_ms"],
         "M0_minus_M5_ms": total_m0_m5,
         "removes": {
-            "M3_host_glue_removed": "covers M1+M2+M3: plan_dense (decode+unique+plan), _prep_column x7, and the 10 per-call payload uploads (etl.from_numpy + Tensor.to, incl. the copy-semaphore waits)",
+            "M3_host_glue_removed": "covers M1+M2+M3: plan_dense (decode+unique+plan), _prep_column x7, and the 10 per-call payload uploads (evoxc.from_numpy + Tensor.to, incl. the copy-semaphore waits)",
             "M4_host_glue_and_readback_removed": "M3 plus the (pop,) loss readback D2H, the run_loss_plan host assembly and the fitness H2D",
             "M5_pure_only": "M4V plus the engine's per-call prologue (plan_dense memo hit, build_dense cache-hit prologue, _resolve_backend, the x host copy); the frozen runner holds plan/executable/args directly",
         },
@@ -628,7 +628,7 @@ def main(argv=None):
         "probe": PROBE,
         "tag": tag,
         "stamp": pl.identity_stamp(
-            etl,
+            evoxc,
             extra={
                 "probe": PROBE,
                 "tag": tag,
@@ -739,7 +739,7 @@ def main(argv=None):
         label_host = dense_engine._as_numpy(labels, np.float32, "labels")
         captured_plan = captured["plan_from_build"]
         hosts = build_payload_hosts(dense_engine, captured_plan, xt_host, label_host)
-        upload_micro = upload_micro_probe(etl, device, hosts, args.micro_reps, out)
+        upload_micro = upload_micro_probe(evoxc, device, hosts, args.micro_reps, out)
     payload["upload_micro"] = upload_micro
 
     if args.json_out:

@@ -8,11 +8,11 @@ actually put on the GPU?  This probe produces the IREE-side evidence: the
 **dispatch graph** and the **scheduling statistics** of the freshly compiled
 dense route.
 
-Method (analysis-only; ``src/evogp`` and the foreign ``etl`` are never edited):
+Method (analysis-only; ``src/evogp`` and the foreign ``evoxc`` are never edited):
 
-* set ``ETL_IREE_COMPILE_ARGS`` (the documented etl env var -> the iree compile
-  stage's ``iree_compile_args``; see ``etl/pipeline_options.py:123`` and
-  ``etl/backends/adapters/iree.py:345/953``) to the dump flags, so the *first*
+* set ``EVOXC_IREE_COMPILE_ARGS`` (the documented evoxc env var -> the iree compile
+  stage's ``iree_compile_args``; see ``evoxc/pipeline_options.py`` and
+  ``evoxc/backends/adapters/iree.py``) to the dump flags, so the *first*
   graph call (which compiles) writes its dispatch graph, its scheduling
   statistics CSV and its per-executable binaries into ``--out-dir``;
 * build the harness' exact route (``probe_lib.build_eval_case`` =
@@ -27,9 +27,9 @@ Method (analysis-only; ``src/evogp`` and the foreign ``etl`` are never edited):
 
 Usage (repo root, project venv, GPU; route envs come from the shell):
 
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \\
-      EVOGP_ETL_BACKEND=iree EVOGP_EVAL_MODE=dense EVOGP_ETL_IREE_DEVICE=0 \\
-      EVOGP_ETL_IREE_OPT_LEVEL=O1 \\
+    PYTHONPATH=src EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \\
+      EVOGP_EVOXC_BACKEND=iree EVOGP_EVAL_MODE=dense EVOGP_EVOXC_IREE_DEVICE=0 \\
+      EVOGP_EVOXC_IREE_OPT_LEVEL=O1 \\
       <venv>/bin/python test/benchmark/r5/gpu_probe/dispatch_dump.py \\
         --fixture test/goldens/forest_random.npz --mode pure --invocations 3 \\
         --out-dir test/benchmark/r5/results/q2_gpu/dumps/f64_pure \\
@@ -55,7 +55,7 @@ import probe_lib as pl  # noqa: E402
 PROBE = "r5/gpu_probe/dispatch_dump.py"
 
 #: The iree-compile flags the dump rides on.  All three are plain pass-through
-#: flags for etl (``_IREE_DENIED_COMPILE_FLAGS`` denies only the f64-demotion and
+#: flags for evoxc (``_IREE_DENIED_COMPILE_FLAGS`` denies only the f64-demotion and
 #: the llvm-cpu flags), validated by the compiler itself.
 DUMP_FLAGS = (
     "--iree-flow-dump-dispatch-graph",
@@ -246,7 +246,7 @@ def parse_args(argv=None):
     parser.add_argument("--mode", choices=("e2e", "pure"), default="pure")
     parser.add_argument("--invocations", type=int, default=3, help="timed calls after the compile")
     parser.add_argument("--data-rows", type=int, default=None, help="tile x/labels to N rows")
-    parser.add_argument("--compile-args", default=None, help="override ETL_IREE_COMPILE_ARGS")
+    parser.add_argument("--compile-args", default=None, help="override EVOXC_IREE_COMPILE_ARGS")
     parser.add_argument("--json-out", default=None)
     parser.add_argument("--log-out", default=None)
     parser.add_argument("--tag", default=None)
@@ -259,14 +259,14 @@ def main(argv=None):
     compile_args = args.compile_args or " ".join(
         flag.format(dumps=os.path.abspath(args.out_dir)) for flag in DUMP_FLAGS
     )
-    os.environ["ETL_IREE_COMPILE_ARGS"] = compile_args
+    os.environ["EVOXC_IREE_COMPILE_ARGS"] = compile_args
 
     log_path = args.log_out or os.path.join(args.out_dir, "dump.log")
     with open(log_path, "w") as out:
         out.write(f"=== {PROBE} ===\n")
-        out.write(f"ETL_IREE_COMPILE_ARGS={os.environ['ETL_IREE_COMPILE_ARGS']}\n")
+        out.write(f"EVOXC_IREE_COMPILE_ARGS={os.environ['EVOXC_IREE_COMPILE_ARGS']}\n")
 
-        import etl
+        import evoxc
         import torch
 
         from evogp.tree import dense_engine
@@ -372,7 +372,7 @@ def main(argv=None):
             "scheduling_stats": stats,
             "executables": executables,
             "stamp": pl.identity_stamp(
-                etl,
+                evoxc,
                 extra={
                     "probe": PROBE,
                     "tag": args.tag,

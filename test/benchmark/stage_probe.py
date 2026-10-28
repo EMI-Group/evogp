@@ -2,25 +2,25 @@
 """``stage_probe.py`` -- per-stage time/event decomposition of ``problem.evaluate``.
 
 R2 add-on for ``bench_gp.py`` (``--stage-probe``), **new side only**.  The legacy
-engine is one fused CUDA call per population; the ETL "true jit" engine is a
-per-tree host decode + ``etl.build_cached`` + ``etl.run`` + host readback, so a
+engine is one fused CUDA call per population; the evoxc "true jit" engine is a
+per-tree host decode + ``evoxc.build_cached`` + ``evoxc.run`` + host readback, so a
 whole-call wall clock cannot say *where* the time goes.  This module wraps the
 engine's hot call sites at **runtime** (``src/`` is never edited, and nothing is
 imported from the library either) and books every evaluate call / training
 generation into named stages.
 
-The wrapped chain (confirmed against ``src/evogp/tree/etl_engine.py`` /
+The wrapped chain (confirmed against ``src/evogp/tree/evoxc_engine.py`` /
 ``forest.py``)::
 
     problem.evaluate(forest)                    <- harness timing (outer total)
-      Forest.SR_fitness            forest.py:255
-        etl_engine.decode_population  :1146      -> decode_ms
-        etl_engine.sr_fitness         :1301
-          etl_engine.evaluate         :1245
-            etl_engine._run_tree      :1222      -> per-tree residual = readback_ms
-              etl_engine._executable  :882
-                etl.build_cached                -> build_{hit,miss}_ms + counts
-              etl.run                           -> run_ms / run_calls
+      Forest.SR_fitness            forest.py
+        evoxc_engine.decode_population           -> decode_ms
+        evoxc_engine.sr_fitness
+          evoxc_engine.evaluate
+            evoxc_engine._run_tree               -> per-tree residual = readback_ms
+              evoxc_engine._executable
+                evoxc.build_cached                -> build_{hit,miss}_ms + counts
+              evoxc.run                           -> run_ms / run_calls
           (loss_ms  = sr_fitness_ms - evaluate_ms)
     (misc_ms = total_ms - decode_ms - sr_fitness_ms)
 
@@ -31,12 +31,12 @@ Stage semantics (one record per evaluate call / training generation)::
     probe_span_ms  begin() -> snapshot() inside the probe (>= total_ms; the extra
                  is the harness' own torch.cuda.synchronize() pair)
     decode_ms    time in ``decode_population`` (host-side population decode;
-                 ETL tracing of the per-tree static programs)
+                 evoxc tracing of the per-tree static programs)
     build_hit_ms / build_miss_ms
-                 time in ``build_cached``, split by the ``etl.CompileCache``
+                 time in ``build_cached``, split by the ``evoxc.CompileCache``
                  counter delta around the call (a hit is a dict lookup, a miss is
                  trace+lower+compile+load): ``build_hits`` / ``build_misses``
-    run_ms       time in ``etl.run`` (``run_calls`` = number of invocations)
+    run_ms       time in ``evoxc.run`` (``run_calls`` = number of invocations)
     readback_ms  per-tree residual inside ``_run_tree`` =
                  tree_total - build - run, i.e. the device->host result readback
                  (+ its synchronization) and the host glue around it;
@@ -52,8 +52,8 @@ Stage semantics (one record per evaluate call / training generation)::
 
 Device traffic counters (measured, not derived):
 
-* ``h2d_calls`` -- ``etl.from_numpy`` invocations made *inside* ``_run_tree`` and
-  outside a nested ``etl.run`` (the engine's one explicit input upload per
+* ``h2d_calls`` -- ``evoxc.from_numpy`` invocations made *inside* ``_run_tree`` and
+  outside a nested ``evoxc.run`` (the engine's one explicit input upload per
   evaluate call on a device backend; ``0`` for the numpy backend);
 * ``d2h_calls`` -- ``_run_tree`` invocations whose backend is not ``numpy``, i.e.
   the per-tree ``result.to(cpu).numpy()`` readbacks.  Torch-level host<->device
@@ -76,7 +76,7 @@ was not wrapped.
 
 API (kept small on purpose; ``bench_gp.py`` needs ~5 hooks per call site)::
 
-    install(engine_module, etl_module=None) -> status dict (idempotent)
+    install(engine_module, evoxc_module=None) -> status dict (idempotent)
     container(side=None)          -> the ``stages`` JSON block (holds ``reps``)
     status_line()                 -> one-line install report
     begin_rep(rep, kind)          -> per-rep block (resets ``begin``/``snapshot``)
@@ -88,7 +88,7 @@ API (kept small on purpose; ``bench_gp.py`` needs ~5 hooks per call site)::
     records() / reps() / status() -> read-only access for report tooling
     reset()                       -> drop all state (keeps the install)
 
-Self-test (no torch, no GPU, no etl: a fake engine with the same call shape)::
+Self-test (no torch, no GPU, no evoxc: a fake engine with the same call shape)::
 
     python test/benchmark/stage_probe.py
 """
@@ -177,9 +177,9 @@ _SPAN_T0 = None  # begin() timestamp
 
 _IN_TREE = False  # inside _run_tree
 _IN_BUILD = False  # inside build_cached
-_IN_RUN = False  # inside etl.run
+_IN_RUN = False  # inside evoxc.run
 _TREE_BUILD_S = 0.0  # build time inside the current _run_tree (for the residual)
-_TREE_RUN_S = 0.0  # etl.run time inside the current _run_tree
+_TREE_RUN_S = 0.0  # evoxc.run time inside the current _run_tree
 
 
 def _new_acc():
@@ -246,20 +246,20 @@ def _patch(target, name, factory, status, required=True, note=None):
     return True
 
 
-def install(engine_module, etl_module=None):
+def install(engine_module, evoxc_module=None):
     """Wrap ``engine_module``'s evaluate chain; idempotent, never raises.
 
     Args:
-        engine_module: the ``evogp.tree.etl_engine`` module (its module globals
+        engine_module: the ``evogp.tree.evoxc_engine`` module (its module globals
             are what ``forest.py`` and the engine itself call, so patching them
             covers every call site).
-        etl_module: the ``etl`` package (default: ``engine_module.etl``, then
-            ``import etl``); only ``etl.run`` / ``etl.from_numpy`` are wrapped.
+        evoxc_module: the ``evoxc`` package (default: ``engine_module.evoxc``, then
+            ``import evoxc``); only ``evoxc.run`` / ``evoxc.from_numpy`` are wrapped.
 
     Returns:
         The status dict (also stored on ``status()``): ``installed``,
         ``partial``, ``note``, ``wrapped``, ``missing``, ``counters``,
-        ``nested_runs`` (``etl.run`` calls seen *inside* a build).
+        ``nested_runs`` (``evoxc.run`` calls seen *inside* a build).
     """
     global _STATUS, _COUNTERS, _RUN_TREE_BACKEND_POS
     if _STATUS is not None:
@@ -270,7 +270,7 @@ def install(engine_module, etl_module=None):
         "partial": False,
         "note": "",
         "engine_module": getattr(engine_module, "__name__", repr(engine_module)),
-        "etl_module": None,
+        "evoxc_module": None,
         "wrapped": [],
         "missing": [],
         "counters": None,
@@ -278,21 +278,21 @@ def install(engine_module, etl_module=None):
     }
     _STATUS = status  # wrappers read the nested-run counter through this
 
-    if etl_module is None:
-        etl_module = getattr(engine_module, "etl", None)
-    if etl_module is None:
+    if evoxc_module is None:
+        evoxc_module = getattr(engine_module, "evoxc", None)
+    if evoxc_module is None:
         try:
-            import etl as etl_module  # type: ignore[no-redef]
+            import evoxc as evoxc_module  # type: ignore[no-redef]
         except Exception as exc:
-            etl_module = None
-            status["note"] = f"etl not importable ({type(exc).__name__}: {exc})"
-    status["etl_module"] = getattr(etl_module, "__name__", None)
+            evoxc_module = None
+            status["note"] = f"evoxc not importable ({type(exc).__name__}: {exc})"
+    status["evoxc_module"] = getattr(evoxc_module, "__name__", None)
 
     _patch(engine_module, "decode_population", _wrap_decode, status)
     _patch(engine_module, "_run_tree", _wrap_run_tree, status)
     _patch(engine_module, "build_cached", _wrap_build_cached, status)
-    _patch(etl_module, "run", _wrap_etl_run, status)
-    _patch(etl_module, "from_numpy", _wrap_from_numpy, status)
+    _patch(evoxc_module, "run", _wrap_evoxc_run, status)
+    _patch(evoxc_module, "from_numpy", _wrap_from_numpy, status)
     _patch(engine_module, "evaluate", _wrap_evaluate, status)
     _patch(engine_module, "sr_fitness", _wrap_sr_fitness, status)
 
@@ -412,7 +412,7 @@ def _wrap_build_cached(original):
     return wrapper
 
 
-def _wrap_etl_run(original):
+def _wrap_evoxc_run(original):
     def wrapper(*args, **kwargs):
         global _IN_RUN, _TREE_RUN_S
         if _IN_BUILD:  # a compile-internal run belongs to the build stage
@@ -444,7 +444,7 @@ def _wrap_etl_run(original):
 def _wrap_from_numpy(original):
     def wrapper(*args, **kwargs):
         # The engine's explicit host->device upload: only inside _run_tree and
-        # outside a nested etl.run (etl's own conversions are not counted).
+        # outside a nested evoxc.run (evoxc's own conversions are not counted).
         if _IN_TREE and not _IN_RUN and not _IN_BUILD:
             acc = _CUR
             if acc is not None:
@@ -707,7 +707,7 @@ def finish_rep():
 
 
 # ---------------------------------------------------------------------------
-# self-test: a fake engine with the same call shape (no torch / GPU / etl)
+# self-test: a fake engine with the same call shape (no torch / GPU / evoxc)
 # ---------------------------------------------------------------------------
 
 
@@ -736,7 +736,7 @@ def _self_test():  # pragma: no cover - run as ``python stage_probe.py``
             return [self.value]
 
     def make_engine(default_backend):
-        engine = types.ModuleType(f"fake_etl_engine_{default_backend}")
+        engine = types.ModuleType(f"fake_evoxc_engine_{default_backend}")
         engine.CACHE = FakeCache()
         state = {"built": {}}
 
@@ -764,10 +764,10 @@ def _self_test():  # pragma: no cover - run as ``python stage_probe.py``
             del n_rows, input_len, device, options
             exe = engine.build_cached(None, None, tree, backend=backend_name, cache=engine.CACHE)
             if backend_name == "numpy":
-                return engine.etl.run(exe, xin, tree)
+                return engine.evoxc.run(exe, xin, tree)
             if not prepared:
-                prepared.append(engine.etl.from_numpy(xin).to("device"))
-            result = engine.etl.run(exe, prepared[0], tree)
+                prepared.append(engine.evoxc.from_numpy(xin).to("device"))
+            result = engine.evoxc.run(exe, prepared[0], tree)
             return result.numpy()
 
         def evaluate(population, x, *, per_row, out_device=None, backend=None, iree_device_index=None):
@@ -792,10 +792,10 @@ def _self_test():  # pragma: no cover - run as ``python stage_probe.py``
 
             return DeviceTensor()
 
-        etl = types.ModuleType("fake_etl")
-        etl.run = run
-        etl.from_numpy = from_numpy
-        engine.etl = etl
+        evoxc = types.ModuleType("fake_evoxc")
+        evoxc.run = run
+        evoxc.from_numpy = from_numpy
+        engine.evoxc = evoxc
         engine.decode_population = decode_population
         engine.build_cached = build_cached
         engine._run_tree = _run_tree

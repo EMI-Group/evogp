@@ -3,8 +3,8 @@
 
 R4 add-on for the side-agnostic harness.  The existing eval tasks (``eval64`` /
 ``evalfresh``) measure **measurement type 1: the end-to-end public call**
-``problem.evaluate(forest)`` -- decode + per-structure ``etl.build_cached`` + per-tree
-``etl.run`` + device->host readback + host row assembly + the fitness reduction.  A pure
+``problem.evaluate(forest)`` -- decode + per-structure ``evoxc.build_cached`` + per-tree
+``evoxc.run`` + device->host readback + host row assembly + the fitness reduction.  A pure
 forward is **measurement type 2: the internal graph forward pass only** -- one invocation =
 one full-population forward on a fixed ``x`` with ``per_row=False``, with the results
 dropped, so none of the host glue above is in the timed region.  The comparison of the two
@@ -13,7 +13,7 @@ it in the same process as ``e2e_companion``).
 
 This module owns everything that is engine-facing: the mode/backend resolution, the
 frozen-vs-fallback runner construction and the timing core.  ``bench_gp.py`` only parses
-flags and writes the payload.  Nothing here imports ``evogp`` / ``etl`` at module import
+flags and writes the payload.  Nothing here imports ``evogp`` / ``evoxc`` at module import
 time (neither side may be forced to have them); the imports happen inside the functions,
 i.e. only on the new side and only when a runner is actually built.
 
@@ -22,11 +22,11 @@ Two construction paths, selected by ``runner_source`` (``--pure-runner``):
 ``frozen``
     the frozen API of the parallel code round --
     ``dense_engine.build_dense_runner(forest, x)`` for the dense mode and
-    ``etl_engine.build_specialized_runner(forest, x)`` for the specialized mode.  The
+    ``evoxc_engine.build_specialized_runner(forest, x)`` for the specialized mode.  The
     validated call forms (``src/evogp/tree/RUNNER_HOOKS.md`` §1/§3, both builders landed in
     this checkout) are **two positional arguments at build** (the ``Forest`` and the ``x``
     tensor -- ``per_row=False``, the backend from the environment) and a **no-arg
-    ``runner.run()``** at invoke time, returning the raw ``etl`` result(s): one
+    ``runner.run()``** at invoke time, returning the raw ``evoxc`` result(s): one
     ``(pop_size, n_rows)`` tensor for dense, a ``pop_size``-long tuple for specialized
     (``None`` at a constant tree).  When the API is absent on this checkout,
     ``--pure-runner frozen`` fails hard and ``auto`` silently uses the fallback; the JSON's
@@ -37,21 +37,21 @@ Two construction paths, selected by ``runner_source`` (``--pure-runner``):
 
     * dense -- ``plan_dense(...)`` (host preprocess + chunk shape, ``per_row=False``),
       ``build_dense(plan)`` (ONE graph for the whole population) and the per-chunk
-      invocation arguments, precomputed **once**; the timed loop is one ``etl.run`` per
+      invocation arguments, precomputed **once**; the timed loop is one ``evoxc.run`` per
       chunk and the result is dropped.
     * specialized -- ``decode_population(...)`` once, ``_executable(...)`` once per
       non-constant tree (the shared compile cache, exactly the engine's memo key) and the
-      host->device input upload once; the timed loop is one ``etl.run`` per non-constant
+      host->device input upload once; the timed loop is one ``evoxc.run`` per non-constant
       tree and the result is dropped.
 
-Honesty note on what a pure invocation still pays: the ``etl.run`` wrapper's own validation
+Honesty note on what a pure invocation still pays: the ``evoxc.run`` wrapper's own validation
 and the backend invoke are inside the timed loop by design -- they cannot be removed without
 measuring nothing.  The compile tax, the input upload, the key derivation, the readback and
 the host assembly are all outside it.  Whole-population device-side stacking does not exist
-today, so the per-tree ``etl.run`` loop is the honest floor for the specialized route (and
+today, so the per-tree ``evoxc.run`` loop is the honest floor for the specialized route (and
 the per-chunk loop for the dense route, which is one call per chunk).
 
-``n_graph_calls_per_run`` is the number of ``etl.run`` calls one invocation makes
+``n_graph_calls_per_run`` is the number of ``evoxc.run`` calls one invocation makes
 (``<= n_trees``: the specialized route skips constant trees, which the engine evaluates as a
 constant and never invokes) -- the divisor that turns a per-invocation number into
 ``per_graph_call_ms``.
@@ -111,14 +111,14 @@ OUTPUT_CHECKSUM_NOTE = (
 )
 
 # ---------------------------------------------------------------------------
-# lazy module access (never imports evogp/etl at import time)
+# lazy module access (never imports evogp/evoxc at import time)
 # ---------------------------------------------------------------------------
 
 
-def _etl_engine():
-    from evogp.tree import etl_engine
+def _evoxc_engine():
+    from evogp.tree import evoxc_engine
 
-    return etl_engine
+    return evoxc_engine
 
 
 def _dense_engine():
@@ -131,11 +131,11 @@ def resolve_backend_name(explicit=None):
     """Engine backend name (``"numpy"`` / ``"iree"``) for a harness ``--backend`` value.
 
     ``None`` / ``"default"`` means "set nothing": the engine's own precedence
-    (``EVOGP_ETL_BACKEND`` env > built-in default) decides, single-sourced by delegating to
-    ``etl_engine._resolve_backend`` (the same helper the engine itself calls).
+    (``EVOGP_EVOXC_BACKEND`` env > built-in default) decides, single-sourced by delegating to
+    ``evoxc_engine._resolve_backend`` (the same helper the engine itself calls).
     """
     arg = None if explicit in (None, "", "default") else str(explicit)
-    return _etl_engine()._resolve_backend(arg, None)[0]
+    return _evoxc_engine()._resolve_backend(arg, None)[0]
 
 
 def resolve_mode(requested, pop_size, backend_name):
@@ -173,12 +173,12 @@ def frozen_availability():
     """``{"dense": bool, "specialized": bool}`` -- which frozen runner API exists here.
 
     Presence-only detection (``getattr``, never a call): the parallel code round lands
-    ``dense_engine.build_dense_runner`` / ``etl_engine.build_specialized_runner``, and this
+    ``dense_engine.build_dense_runner`` / ``evoxc_engine.build_specialized_runner``, and this
     is how the harness decides between the frozen path and its own fallback.
     """
     return {
         "dense": getattr(_dense_engine(), "build_dense_runner", None) is not None,
-        "specialized": getattr(_etl_engine(), "build_specialized_runner", None) is not None,
+        "specialized": getattr(_evoxc_engine(), "build_specialized_runner", None) is not None,
     }
 
 
@@ -266,9 +266,9 @@ class PureRunner:
 
 
 def _cache_counters():
-    """``(hits, misses)`` of the shared ETL compile cache; ``(None, None)`` when unreadable."""
+    """``(hits, misses)`` of the shared evoxc compile cache; ``(None, None)`` when unreadable."""
     try:
-        stats = _etl_engine().cache_stats()
+        stats = _evoxc_engine().cache_stats()
         return int(stats["hits"]), int(stats["misses"])
     except Exception:
         return None, None
@@ -294,7 +294,7 @@ def _frozen_call(frozen_runner, x):
     FROZEN-ADAPTER: the validated forms at this commit are ``build_dense_runner(forest, x)``
     / ``build_specialized_runner(forest, x)`` (two positional arguments -- the input is bound
     at build, ``per_row=False``, backend from the environment) and a **no-arg**
-    ``runner.run()`` returning the raw ``etl`` result(s); see
+    ``runner.run()`` returning the raw ``evoxc`` result(s); see
     ``src/evogp/tree/RUNNER_HOOKS.md`` §1/§3 (and §3's own recorded ``.run()`` numbers) for
     the contract this was checked against.  The two older guesses are kept behind it, in
     order, so the adapter stays honest against a foreign checkout: a bare callable, then
@@ -327,19 +327,19 @@ def _frozen_invoke(frozen_runner, x):
 
 
 def to_host_block(raw, backend_name):
-    """One raw ``etl`` result -> host float32 C-contiguous numpy (an out-of-band readback).
+    """One raw ``evoxc`` result -> host float32 C-contiguous numpy (an out-of-band readback).
 
     ``numpy`` backend: the result never left the host, so ``.numpy()`` is a view/copy of the
     runner's own memory.  Device backend: an explicit ``to(Device("cpu", 0))`` copy, i.e. a
     consumer-side readback -- exactly the hop no pure number pays for.  Called only from the
     capture path, never from a timed block.
     """
-    import etl  # lazy: only the new side reaches this function
+    import evoxc  # lazy: only the new side reaches this function
 
     if backend_name == "numpy":
         host = raw.numpy()
     else:
-        host = raw.to(etl.core.Device("cpu", 0)).numpy()
+        host = raw.to(evoxc.core.Device("cpu", 0)).numpy()
     return np.ascontiguousarray(host, dtype=np.float32)
 
 
@@ -452,7 +452,7 @@ def build_pure_runner(forest, x, *, mode, runner_source="auto", backend=None, ta
         raise RuntimeError(
             f"[{tag}] --pure-runner frozen: the frozen pure-forward API for mode={mode} is "
             "missing in this checkout (evogp.tree.dense_engine.build_dense_runner / "
-            "evogp.tree.etl_engine.build_specialized_runner); use --pure-runner auto|fallback"
+            "evogp.tree.evoxc_engine.build_specialized_runner); use --pure-runner auto|fallback"
         )
     if runner_source == "frozen":
         return _construct_frozen(forest, x, mode=mode, backend_name=backend_name)
@@ -461,13 +461,13 @@ def build_pure_runner(forest, x, *, mode, runner_source="auto", backend=None, ta
 
 def _construct_frozen(forest, x, *, mode, backend_name):
     """Build through the frozen API (``build_{dense,specialized}_runner(forest, x)``)."""
-    etl_engine = _etl_engine()
+    evoxc_engine = _evoxc_engine()
     dense_engine = _dense_engine()
     if mode == "dense":
         build_fn = dense_engine.build_dense_runner  # FROZEN-ADAPTER (call form)
         source = FROZEN_DENSE
     else:
-        build_fn = etl_engine.build_specialized_runner  # FROZEN-ADAPTER (call form)
+        build_fn = evoxc_engine.build_specialized_runner  # FROZEN-ADAPTER (call form)
         source = FROZEN_SPECIALIZED
     hits_before, misses_before = _cache_counters()
     start = time.perf_counter()
@@ -546,10 +546,10 @@ def _construct_fallback(forest, x, *, mode, backend_name):
 
 
 def _fallback_dense(forest, x, *, backend_name):
-    """Fallback dense runner: ONE graph for the population, one ``etl.run`` per chunk."""
-    import etl  # lazy: only the new side reaches this function
+    """Fallback dense runner: ONE graph for the population, one ``evoxc.run`` per chunk."""
+    import evoxc  # lazy: only the new side reaches this function
 
-    etl_engine = _etl_engine()
+    evoxc_engine = _evoxc_engine()
     dense_engine = _dense_engine()
     n_rows = int(x.shape[0])
     hits_before, misses_before = _cache_counters()
@@ -567,12 +567,12 @@ def _fallback_dense(forest, x, *, backend_name):
     decode_plan_end = time.perf_counter()
     executable = dense_engine.build_dense(plan, backend=backend_name)
     build_end = time.perf_counter()
-    device = etl_engine._resolve_backend(backend_name, None)[1]
+    device = evoxc_engine._resolve_backend(backend_name, None)[1]
     to_device = backend_name != "numpy"
     # The engine reads x back once per evaluate call; here it is read ONCE for the whole
     # task (a fixed x) and, on a device backend, uploaded once -- both outside the timed loop.
     # ``per_row=False`` is fixed for this task, so every chunk consumes data rows.
-    host_x = etl_engine._input_to_numpy(x, plan.input_len, "x")
+    host_x = evoxc_engine._input_to_numpy(x, plan.input_len, "x")
     args_per_chunk = []
     for p0 in range(0, plan.pop_size, plan.p_chunk):
         columns = dense_engine._prep_columns(plan.prep, p0, plan.p_chunk)
@@ -583,19 +583,19 @@ def _fallback_dense(forest, x, *, backend_name):
             xin = dense_engine._pad_rows(xin, plan.n_chunk)
             if to_device:
                 args_per_chunk.append(
-                    tuple(etl.from_numpy(a).to(device) for a in columns)
-                    + (etl.from_numpy(xin).to(device), plan.cfg)
+                    tuple(evoxc.from_numpy(a).to(device) for a in columns)
+                    + (evoxc.from_numpy(xin).to(device), plan.cfg)
                 )
             else:
                 args_per_chunk.append(columns + (xin, plan.cfg))
     construct_total_ms = (time.perf_counter() - start) * 1000.0
     hits_after, misses_after = _cache_counters()
-    quiet = etl_engine._quiet
+    quiet = evoxc_engine._quiet
 
     def invoke():
         for args in args_per_chunk:
             with quiet():
-                etl.run(executable, *args)
+                evoxc.run(executable, *args)
 
     def capture():
         # Same calls, same order, same args as ``invoke`` -- only the results are kept, then
@@ -603,7 +603,7 @@ def _fallback_dense(forest, x, *, backend_name):
         blocks = []
         for args in args_per_chunk:
             with quiet():
-                raw = etl.run(executable, *args)
+                raw = evoxc.run(executable, *args)
             blocks.append(to_host_block(raw, backend_name))
         return blocks
 
@@ -633,14 +633,14 @@ def _fallback_dense(forest, x, *, backend_name):
 
 
 def _fallback_specialized(forest, x, *, backend_name):
-    """Fallback specialized runner: the engine's decode + per-tree ``etl.run`` loop."""
-    import etl  # lazy: only the new side reaches this function
+    """Fallback specialized runner: the engine's decode + per-tree ``evoxc.run`` loop."""
+    import evoxc  # lazy: only the new side reaches this function
 
-    etl_engine = _etl_engine()
+    evoxc_engine = _evoxc_engine()
     n_rows = int(x.shape[0])
     hits_before, misses_before = _cache_counters()
     start = time.perf_counter()
-    population = etl_engine.decode_population(
+    population = evoxc_engine.decode_population(
         forest.batch_node_value,
         forest.batch_node_type,
         forest.batch_subtree_size,
@@ -649,14 +649,14 @@ def _fallback_specialized(forest, x, *, backend_name):
     )
     # Host input conversion + the one-time device upload (the engine memoizes one upload per
     # evaluate call; with a fixed x this task uploads once for the whole task).
-    host_x = etl_engine._input_to_numpy(x, population.input_len, "x")
-    backend_resolved, device, options = etl_engine._resolve_backend(backend_name, None)
-    dev_x = None if backend_resolved == "numpy" else etl.from_numpy(host_x).to(device)
+    host_x = evoxc_engine._input_to_numpy(x, population.input_len, "x")
+    backend_resolved, device, options = evoxc_engine._resolve_backend(backend_name, None)
+    dev_x = None if backend_resolved == "numpy" else evoxc.from_numpy(host_x).to(device)
     decode_plan_end = time.perf_counter()
     built = [
         (
             tree.program,
-            etl_engine._executable(
+            evoxc_engine._executable(
                 tree.program, n_rows, population.input_len, backend_resolved, device, options
             ),
         )
@@ -665,13 +665,13 @@ def _fallback_specialized(forest, x, *, backend_name):
     ]
     build_end = time.perf_counter()
     hits_after, misses_after = _cache_counters()
-    quiet = etl_engine._quiet
+    quiet = evoxc_engine._quiet
     input_arg = dev_x if dev_x is not None else host_x
 
     def invoke():
         for program, executable in built:
             with quiet():
-                etl.run(executable, input_arg, program)
+                evoxc.run(executable, input_arg, program)
 
     def capture():
         # Same calls, same order, same args as ``invoke`` -- only the results are kept.  The
@@ -680,7 +680,7 @@ def _fallback_specialized(forest, x, *, backend_name):
         blocks = []
         for program, executable in built:
             with quiet():
-                raw = etl.run(executable, input_arg, program)
+                raw = evoxc.run(executable, input_arg, program)
             blocks.append(to_host_block(raw, backend_resolved))
         return blocks
 

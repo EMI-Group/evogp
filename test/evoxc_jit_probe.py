@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""test/etl_jit_probe.py — ETL "true jit" economics probe (standalone script).
+"""test/evoxc_jit_probe.py — evoxc "true jit" economics probe (standalone script).
 
-Measures the economics and API semantics of ETL's memoized-build sugar
-(``etl.build_cached`` + ``etl.CompileCache``) for a realistic genetic-
-programming workload: a step ``@etl.defn def _step(x, tree)`` where ``tree``
+Measures the economics and API semantics of evoxc's memoized-build sugar
+(``evoxc.build_cached`` + ``evoxc.CompileCache``) for a realistic genetic-
+programming workload: a step ``@evoxc.defn def _step(x, tree)`` where ``tree``
 is a nested-tuple STATIC (a decoded prefix expression over add/sub/mul/div,
 unary sin/exp/neg and a ``select``-based protected divide) and ``x`` is a
 ``TensorSpec((N, 2), float32)``.  This is the shape EvoGP will use if it
@@ -12,24 +12,24 @@ decodes tree tensors into static structures and compiles them per program.
 Sections (all printed as one aligned table, plus a summary at the end):
 
   (a) backend="numpy": cold/first build (miss), cache-hit build, distinct-tree
-      build, ``etl.run`` per tree at N=100 and N=1000, parity vs a pure-numpy
+      build, ``evoxc.run`` per tree at N=100 and N=1000, parity vs a pure-numpy
       reference evaluator.
   (b) backend="iree" on ``Device("cuda", 0)`` with
       ``target_backends=["cuda"]``: distinct-tree build and device-resident
       run at ``opt_level`` "O1" and "O0", each with and without
-      ``ETL_DISABLE_LOCATIONS=1``; hidden per-stage breakdown (trace/lower/
+      ``EVOXC_DISABLE_LOCATIONS=1``; hidden per-stage breakdown (trace/lower/
       compile/load).
   (c) simulated generation: 1000 distinct trees x (build_cached + run) on
       numpy (measured) and the iree-cuda extrapolation.
   (d) parallel-build feasibility: 64 distinct trees through
       ``ThreadPoolExecutor(8)`` and ``(32)`` on numpy and iree-cuda, with a
       post-hoc cache-completeness/race check (re-build serially: all hits).
-  (e) persistence: ``Executable.save`` + ``etl.Executable.load`` round trip
+  (e) persistence: ``Executable.save`` + ``evoxc.Executable.load`` round trip
       for an iree-cuda executable (timed; recompilation check).
   (f) API semantics checks (nested-tuple statics, run-boundary dtype/shape
-      errors, cache-key behaviour incl. LRU eviction, torch<->etl interop,
+      errors, cache-key behaviour incl. LRU eviction, torch<->evoxc interop,
       the exact working in-graph protected-divide recipe).
-  (g) ETL's own meta-programming test, run from a $TMPDIR copy (numpy leg,
+  (g) evoxc's own meta-programming test, run from a $TMPDIR copy (numpy leg,
       the file's own iree-llvm-cpu leg, plus a locally generated iree-cuda
       adaptation).
   (h) extra diagnostics: run time vs N sweep (16..100000), fixed per-run
@@ -37,7 +37,7 @@ Sections (all printed as one aligned table, plus a summary at the end):
 
 Run (``python`` is not on PATH in the task environment; use the EvoX venv):
 
-    /mnt/local-ssd/bchuang/evox/.venv/bin/python test/etl_jit_probe.py
+    /mnt/local-ssd/bchuang/evox/.venv/bin/python test/evoxc_jit_probe.py
 
 Useful flags: ``--device N`` (cuda index; default 0), ``--sections a,b,f``,
 ``--reps-build`` (default 10), ``--reps-run`` (default 7),
@@ -71,11 +71,11 @@ from pathlib import Path
 import numpy as np
 
 try:
-    import etl
+    import evoxc
 except Exception as exc:  # pragma: no cover - environment guard
     sys.exit(
-        f"cannot import etl ({exc!r}) — run with the EvoX venv python: "
-        f"/mnt/local-ssd/bchuang/evox/.venv/bin/python test/etl_jit_probe.py"
+        f"cannot import evoxc ({exc!r}) — run with the EvoX venv python: "
+        f"/mnt/local-ssd/bchuang/evox/.venv/bin/python test/evoxc_jit_probe.py"
     )
 
 
@@ -92,71 +92,71 @@ N_LARGE = 1000
 
 
 def _compose(tree, x, n):
-    """Trace-time decode of a static tree into an etl op expression.
+    """Trace-time decode of a static tree into an evoxc op expression.
 
     ``tree`` is a nested tuple: ``('x', 0|1)`` column leaf, ``('c', float)``
     constant leaf, ``(op, child[, child])`` for the ops above.  Everything
-    here runs as plain Python while ETL traces, so the static structure
+    here runs as plain Python while evoxc traces, so the static structure
     specializes the graph.
     """
     tag = tree[0]
     if tag == "x":
-        return etl.slice(x, (0, tree[1]), (n, 1))
+        return evoxc.slice(x, (0, tree[1]), (n, 1))
     if tag == "c":
-        return etl.constant(etl.core.tensor(np.float32(tree[1])))
+        return evoxc.constant(evoxc.core.tensor(np.float32(tree[1])))
     if tag in BINOPS:
         a = _compose(tree[1], x, n)
         b = _compose(tree[2], x, n)
         if tag == "add":
-            return etl.add(a, b)
+            return evoxc.add(a, b)
         if tag == "sub":
-            return etl.subtract(a, b)
+            return evoxc.subtract(a, b)
         if tag == "mul":
-            return etl.multiply(a, b)
+            return evoxc.multiply(a, b)
         # The ONLY working in-graph "protected divide" recipe (verified in
         # section f): a select over a 0-comparison; the dead branch is still
         # evaluated by the backend (harmless for float: inf/nan), so select
-        # must mask it.  NOTE: etl.constant needs a core.Tensor, never a
+        # must mask it.  NOTE: evoxc.constant needs a core.Tensor, never a
         # Python scalar.
-        nan = etl.constant(etl.core.tensor(np.float32(np.nan)))
-        return etl.select(etl.equal(b, 0.0), nan, etl.divide(a, b))
+        nan = evoxc.constant(evoxc.core.tensor(np.float32(np.nan)))
+        return evoxc.select(evoxc.equal(b, 0.0), nan, evoxc.divide(a, b))
     if tag in UNOPS:
         a = _compose(tree[1], x, n)
         if tag == "sin":
-            return etl.sin(a)
+            return evoxc.sin(a)
         if tag == "exp":
-            return etl.exp(a)
-        return etl.negate(a)
+            return evoxc.exp(a)
+        return evoxc.negate(a)
     raise ValueError(f"unknown tree tag {tag!r}")
 
 
-@etl.defn
+@evoxc.defn
 def _step(x, tree):
     """GP evaluation step for ``x`` of shape (100, 2)."""
-    return etl.reshape(_compose(tree, x, N_SMALL), (N_SMALL,))
+    return evoxc.reshape(_compose(tree, x, N_SMALL), (N_SMALL,))
 
 
-@etl.defn
+@evoxc.defn
 def _step_large(x, tree):
     """GP evaluation step for ``x`` of shape (1000, 2)."""
-    return etl.reshape(_compose(tree, x, N_LARGE), (N_LARGE,))
+    return evoxc.reshape(_compose(tree, x, N_LARGE), (N_LARGE,))
 
 
-@etl.defn
+@evoxc.defn
 def _one_op(x):
     """Trivial 1-op graph: fixed per-run overhead probe."""
-    return etl.reshape(etl.slice(x, (0, 0), (1, 1)), (1,))
+    return evoxc.reshape(evoxc.slice(x, (0, 0), (1, 1)), (1,))
 
 
 def _make_step(n):
     """Factory for extra-N steps used by the N sweep (section h)."""
 
     def step(x, tree):
-        return etl.reshape(_compose(tree, x, n), (n,))
+        return evoxc.reshape(_compose(tree, x, n), (n,))
 
     step.__name__ = f"_step_n{n}"
     step.__qualname__ = f"_step_n{n}"
-    return etl.defn(step)
+    return evoxc.defn(step)
 
 
 SWEEP_NS = (16, 100, 1000, 10000, 100000)
@@ -166,7 +166,7 @@ SWEEP_STEPS = {n: _make_step(n) for n in SWEEP_NS}
 def contains_x(tree):
     """True when the static tree reads at least one input column.
 
-    An all-constant tree folds to a scalar etl expression (shape ()) and the
+    An all-constant tree folds to a scalar evoxc expression (shape ()) and the
     probe's (N,) reshape would fail, so generated programs must use x.
     """
     tag = tree[0]
@@ -364,41 +364,41 @@ def section_a(rep):
     trees = [make_tree(rng, TREE_BUDGET) for _ in range(max(CFG.reps_build, 12))]
     x = np.random.default_rng(7).uniform(-1.0, 1.0, (N_SMALL, 2)).astype(np.float32)
     x_large = np.random.default_rng(8).uniform(-1.0, 1.0, (N_LARGE, 2)).astype(np.float32)
-    spec = etl.TensorSpec((N_SMALL, 2), etl.float32)
-    spec_large = etl.TensorSpec((N_LARGE, 2), etl.float32)
+    spec = evoxc.TensorSpec((N_SMALL, 2), evoxc.float32)
+    spec_large = evoxc.TensorSpec((N_LARGE, 2), evoxc.float32)
     rep.note(f"tree nodes: min {min(map(count_nodes, trees))} "
              f"median {int(statistics.median(list(map(count_nodes, trees))))} "
              f"max {max(map(count_nodes, trees))}")
 
-    cache = etl.CompileCache()
+    cache = evoxc.CompileCache()
     t0 = time.perf_counter()
-    exe = etl.build_cached(_step, spec, trees[0], backend="numpy", cache=cache)
+    exe = evoxc.build_cached(_step, spec, trees[0], backend="numpy", cache=cache)
     first = (time.perf_counter() - t0) * 1e3
     rep.add("first build_cached (miss, cold process)", f"{first:.3f} ms")
 
-    t = timed(lambda: etl.build_cached(_step, spec, trees[0], backend="numpy", cache=cache),
+    t = timed(lambda: evoxc.build_cached(_step, spec, trees[0], backend="numpy", cache=cache),
               max(CFG.reps_build, 10))
     rep.add("build_cached cache hit", ms(t), f"hits {cache.hits} misses {cache.misses}")
 
     misses = []
     for tree in trees[1:CFG.reps_build + 1]:
         t0 = time.perf_counter()
-        etl.build_cached(_step, spec, tree, backend="numpy", cache=cache)
+        evoxc.build_cached(_step, spec, tree, backend="numpy", cache=cache)
         misses.append((time.perf_counter() - t0) * 1e3)
     build_med = statistics.median(misses)
     rep.add("distinct-tree build (miss)", ms((build_med, min(misses), max(misses))),
             f"n={len(misses)}")
 
-    out = etl.run(exe, x, trees[0])
+    out = evoxc.run(exe, x, trees[0])
     err, mism, n_nonfinite = compare(out.numpy(), ref_eval(trees[0], x))
-    run_t = timed(lambda: etl.run(exe, x, trees[0]), CFG.reps_run)
+    run_t = timed(lambda: evoxc.run(exe, x, trees[0]), CFG.reps_run)
     rep.add("run N=100 ms/tree", ms(run_t))
-    exe_l = etl.build_cached(_step_large, spec_large, trees[0], backend="numpy",
-                             cache=etl.CompileCache())
-    t = timed(lambda: etl.build_cached(_step_large, spec_large, trees[1], backend="numpy",
-                                       cache=etl.CompileCache()), max(CFG.reps_build, 5))
+    exe_l = evoxc.build_cached(_step_large, spec_large, trees[0], backend="numpy",
+                             cache=evoxc.CompileCache())
+    t = timed(lambda: evoxc.build_cached(_step_large, spec_large, trees[1], backend="numpy",
+                                       cache=evoxc.CompileCache()), max(CFG.reps_build, 5))
     rep.add("distinct-tree build N=1000 spec", ms(t), f"n={max(CFG.reps_build, 5)}")
-    run_l_t = timed(lambda: etl.run(exe_l, x_large, trees[0]), CFG.reps_run)
+    run_l_t = timed(lambda: evoxc.run(exe_l, x_large, trees[0]), CFG.reps_run)
     rep.add("run N=1000 ms/tree", ms(run_l_t))
     rep.add("output dtype/shape", f"{out.dtype} {out.shape}",
             f"max err {err:.3e} vs numpy ref, nonfinite-mismatch {mism} "
@@ -419,20 +419,20 @@ def section_a(rep):
 
 def section_b(rep):
     rep.section(f"(b) backend=iree, device=cuda:{CFG.device}, target_backends=['cuda']")
-    dev = etl.Device("cuda", CFG.device)
+    dev = evoxc.Device("cuda", CFG.device)
     rng = np.random.default_rng(20250202)
     trees = [make_tree(rng, TREE_BUDGET) for _ in range(CFG.reps_build + 2)]
     x = np.random.default_rng(17).uniform(-1.0, 1.0, (N_SMALL, 2)).astype(np.float32)
     x_large = np.random.default_rng(18).uniform(-1.0, 1.0, (N_LARGE, 2)).astype(np.float32)
-    spec = etl.TensorSpec((N_SMALL, 2), etl.float32)
-    spec_large = etl.TensorSpec((N_LARGE, 2), etl.float32)
+    spec = evoxc.TensorSpec((N_SMALL, 2), evoxc.float32)
+    spec_large = evoxc.TensorSpec((N_LARGE, 2), evoxc.float32)
 
     def build(tree, spec_, cache, opt_level, backend="iree"):
-        return etl.build_cached(_step if spec_ is spec else _step_large, spec_, tree,
+        return evoxc.build_cached(_step if spec_ is spec else _step_large, spec_, tree,
                                 backend=backend, device=dev,
                                 target_backends=["cuda"], opt_level=opt_level, cache=cache)
 
-    cache = etl.CompileCache()
+    cache = evoxc.CompileCache()
     t0 = time.perf_counter()
     exe = build(trees[0], spec, cache, "O1")
     rep.add("first build (miss, cold process incl. iree init)",
@@ -441,8 +441,8 @@ def section_b(rep):
     builds = {}
     for opt in ("O1", "O0"):
         for locations in (False, True):
-            c = etl.CompileCache()
-            with env_var("ETL_DISABLE_LOCATIONS", "1" if locations else None):
+            c = evoxc.CompileCache()
+            with env_var("EVOXC_DISABLE_LOCATIONS", "1" if locations else None):
                 ts = []
                 for tree in trees[1:CFG.reps_build + 1]:
                     t0 = time.perf_counter()
@@ -451,27 +451,27 @@ def section_b(rep):
             triple = (statistics.median(ts), min(ts), max(ts))
             builds[(opt, locations)] = triple
             rep.add(f"distinct-tree build opt_level={opt}"
-                    f"{' + ETL_DISABLE_LOCATIONS=1' if locations else ''}",
+                    f"{' + EVOXC_DISABLE_LOCATIONS=1' if locations else ''}",
                     ms(triple), f"n={len(ts)}")
         t = timed(lambda: build(trees[0], spec, cache, opt), max(CFG.reps_build, 10))
         rep.add(f"build_cached cache hit opt_level={opt}", ms(t))
 
-    dev_in = etl.core.tensor(x).to(dev)
-    dev_in_large = etl.core.tensor(x_large).to(dev)
-    etl.run(exe, dev_in, trees[0])  # warm up (lazy driver/module init)
-    run_t = timed(lambda: etl.run(exe, dev_in, trees[0]), max(CFG.reps_run, 5))
+    dev_in = evoxc.core.tensor(x).to(dev)
+    dev_in_large = evoxc.core.tensor(x_large).to(dev)
+    evoxc.run(exe, dev_in, trees[0])  # warm up (lazy driver/module init)
+    run_t = timed(lambda: evoxc.run(exe, dev_in, trees[0]), max(CFG.reps_run, 5))
     rep.add("run N=100 ms/tree (device-resident)", ms(run_t))
-    with env_var("ETL_DISABLE_LOCATIONS", "1"):
-        rep.add("run N=100 ms/tree with ETL_DISABLE_LOCATIONS=1",
-                ms(timed(lambda: etl.run(exe, dev_in, trees[0]), 5)),
+    with env_var("EVOXC_DISABLE_LOCATIONS", "1"):
+        rep.add("run N=100 ms/tree with EVOXC_DISABLE_LOCATIONS=1",
+                ms(timed(lambda: evoxc.run(exe, dev_in, trees[0]), 5)),
                 "env var is trace-time only -> run unchanged")
-    exe_l = build(trees[0], spec_large, etl.CompileCache(), "O1")
-    etl.run(exe_l, dev_in_large, trees[0])
-    run_l_t = timed(lambda: etl.run(exe_l, dev_in_large, trees[0]), CFG.reps_run)
+    exe_l = build(trees[0], spec_large, evoxc.CompileCache(), "O1")
+    evoxc.run(exe_l, dev_in_large, trees[0])
+    run_l_t = timed(lambda: evoxc.run(exe_l, dev_in_large, trees[0]), CFG.reps_run)
     rep.add("run N=1000 ms/tree (device-resident)", ms(run_l_t))
 
     def run_readback():
-        return etl.run(exe, dev_in, trees[0]).to(etl.Device("cpu", 0)).numpy()
+        return evoxc.run(exe, dev_in, trees[0]).to(evoxc.Device("cpu", 0)).numpy()
 
     t = timed(run_readback, CFG.reps_run)
     rep.add("run + D2H readback N=100 ms/tree", ms(t))
@@ -482,13 +482,13 @@ def section_b(rep):
 
     # per-stage breakdown (build_cached hides these; useful for planning)
     t0 = time.perf_counter()
-    graph = etl.trace(_step_large, spec_large, trees[0])
+    graph = evoxc.trace(_step_large, spec_large, trees[0])
     t1 = time.perf_counter()
-    lowered = etl.lower(graph, backend="iree", target_backends=["cuda"], opt_level="O1")
+    lowered = evoxc.lower(graph, backend="iree", target_backends=["cuda"], opt_level="O1")
     t2 = time.perf_counter()
-    artifact = etl.compile(lowered, backend="iree", target_backends=["cuda"], opt_level="O1")
+    artifact = evoxc.compile(lowered, backend="iree", target_backends=["cuda"], opt_level="O1")
     t3 = time.perf_counter()
-    etl.load(artifact, backend="iree", device=dev)
+    evoxc.load(artifact, backend="iree", device=dev)
     t4 = time.perf_counter()
     rep.note(f"stage breakdown (N=1000 spec): trace {(t1 - t0) * 1e3:.1f} ms, "
              f"lower {(t2 - t1) * 1e3:.1f} ms, compile {(t3 - t2) * 1e3:.1f} ms, "
@@ -516,59 +516,59 @@ def section_c(rep, numpy_build_ms, numpy_run_ms, iree_build_ms, iree_run_ms):
     rng = np.random.default_rng(20250303)
     trees = [make_tree(rng, TREE_BUDGET) for _ in range(n)]
     x = np.random.default_rng(27).uniform(-1.0, 1.0, (N_SMALL, 2)).astype(np.float32)
-    spec = etl.TensorSpec((N_SMALL, 2), etl.float32)
+    spec = evoxc.TensorSpec((N_SMALL, 2), evoxc.float32)
 
     # Fallbacks: if (a)/(b) were not run, take a short-shortened measurement so
     # the extrapolation still refers to THIS process/host.
     if not np.isfinite(numpy_build_ms):
-        c = etl.CompileCache()
+        c = evoxc.CompileCache()
         ts = []
         for i in range(5):
             t0 = time.perf_counter()
-            etl.build_cached(_step, spec, trees[i], backend="numpy", cache=c)
+            evoxc.build_cached(_step, spec, trees[i], backend="numpy", cache=c)
             ts.append((time.perf_counter() - t0) * 1e3)
         numpy_build_ms = statistics.median(ts)
-        exe = etl.build_cached(_step, spec, trees[0], backend="numpy", cache=c)
-        numpy_run_ms = timed(lambda: etl.run(exe, x, trees[0]), 5)[0]
+        exe = evoxc.build_cached(_step, spec, trees[0], backend="numpy", cache=c)
+        numpy_run_ms = timed(lambda: evoxc.run(exe, x, trees[0]), 5)[0]
     if not np.isfinite(iree_build_ms):
-        dev = etl.Device("cuda", CFG.device)
-        c = etl.CompileCache()
+        dev = evoxc.Device("cuda", CFG.device)
+        c = evoxc.CompileCache()
         ts = []
         for i in range(3):
             t0 = time.perf_counter()
-            etl.build_cached(_step, spec, trees[i], backend="iree", device=dev,
+            evoxc.build_cached(_step, spec, trees[i], backend="iree", device=dev,
                              target_backends=["cuda"], opt_level="O1", cache=c)
             ts.append((time.perf_counter() - t0) * 1e3)
         iree_build_ms = statistics.median(ts)
     if not np.isfinite(iree_run_ms):
-        dev = etl.Device("cuda", CFG.device)
-        exe = etl.build_cached(_step, spec, trees[0], backend="iree", device=dev,
+        dev = evoxc.Device("cuda", CFG.device)
+        exe = evoxc.build_cached(_step, spec, trees[0], backend="iree", device=dev,
                                target_backends=["cuda"], opt_level="O1",
-                               cache=etl.CompileCache())
-        arg = etl.core.tensor(x).to(dev)
-        etl.run(exe, arg, trees[0])
-        iree_run_ms = timed(lambda: etl.run(exe, arg, trees[0]), 5)[0]
+                               cache=evoxc.CompileCache())
+        arg = evoxc.core.tensor(x).to(dev)
+        evoxc.run(exe, arg, trees[0])
+        iree_run_ms = timed(lambda: evoxc.run(exe, arg, trees[0]), 5)[0]
 
     for locations in (False, True):
         # The default-env pass runs over every generated tree; the auxiliary
-        # ETL_DISABLE_LOCATIONS=1 pass is measured on a fresh SUBSAMPLE and
+        # EVOXC_DISABLE_LOCATIONS=1 pass is measured on a fresh SUBSAMPLE and
         # scaled, to keep the section bounded.
         n_pass = n if not locations else min(n, CFG.gen_sample)
         pass_trees = trees if not locations else [
             make_tree(rng, TREE_BUDGET) for _ in range(n_pass)]
-        c = etl.CompileCache(maxsize=max(256, n * 2))
+        c = evoxc.CompileCache(maxsize=max(256, n * 2))
         t_build = 0.0
         t_run = 0.0
-        with env_var("ETL_DISABLE_LOCATIONS", "1" if locations else None):
+        with env_var("EVOXC_DISABLE_LOCATIONS", "1" if locations else None):
             for tree in pass_trees:
                 t0 = time.perf_counter()
-                exe = etl.build_cached(_step, spec, tree, backend="numpy", cache=c)
+                exe = evoxc.build_cached(_step, spec, tree, backend="numpy", cache=c)
                 t1 = time.perf_counter()
-                etl.run(exe, x, tree)
+                evoxc.run(exe, x, tree)
                 t2 = time.perf_counter()
                 t_build += t1 - t0
                 t_run += t2 - t1
-        label = " + ETL_DISABLE_LOCATIONS=1" if locations else ""
+        label = " + EVOXC_DISABLE_LOCATIONS=1" if locations else ""
         note = "" if not locations else f"(n={n_pass} sample, scaled to {n})"
         rep.add(f"numpy {n} trees{label}: build",
                 secs(t_build / n_pass * n), 
@@ -593,8 +593,8 @@ def section_d(rep):
     n = CFG.par_trees
     rng = np.random.default_rng(20250404)
     trees = [make_tree(rng, TREE_BUDGET) for _ in range(n)]
-    spec = etl.TensorSpec((N_SMALL, 2), etl.float32)
-    dev = etl.Device("cuda", CFG.device)
+    spec = evoxc.TensorSpec((N_SMALL, 2), evoxc.float32)
+    dev = evoxc.Device("cuda", CFG.device)
 
     def parallel(build_one, workers):
         def task(i):
@@ -614,15 +614,15 @@ def section_d(rep):
 
     # numpy: pure-Python trace, expect GIL-bound scaling
     for workers in (8, 32):
-        c = etl.CompileCache(maxsize=n * 2)
+        c = evoxc.CompileCache(maxsize=n * 2)
         wall, errs, med = parallel(
-            lambda tree, i, c=c: etl.build_cached(
+            lambda tree, i, c=c: evoxc.build_cached(
                 _step, spec, tree, backend="numpy", cache=c), workers)
         rep.add(f"numpy {n} trees, {workers} threads", f"{wall:.2f} s wall",
                 f"{med:.1f} ms median build/task, errors {len(errs)} {errs[:2]}")
         hits, misses = c.hits, c.misses
         for i in range(n):  # serial re-build: must be all hits (no lost inserts)
-            etl.build_cached(_step, spec, trees[i], backend="numpy", cache=c)
+            evoxc.build_cached(_step, spec, trees[i], backend="numpy", cache=c)
         rep.add(f"numpy {n} trees, {workers} threads: cache after serial re-run",
                 f"misses {misses} hits {hits}",
                 f"post-hoc re-run hits {c.hits - hits} (expect {n})")
@@ -631,9 +631,9 @@ def section_d(rep):
                      AssertionError(f"misses {misses}, re-run hits {c.hits - hits}, expected {n}"))
 
     for workers in (8, 32):
-        c = etl.CompileCache(maxsize=n * 2)
+        c = evoxc.CompileCache(maxsize=n * 2)
         wall, errs, med = parallel(
-            lambda tree, i, c=c: etl.build_cached(
+            lambda tree, i, c=c: evoxc.build_cached(
                 _step, spec, tree, backend="iree", device=dev,
                 target_backends=["cuda"], opt_level="O0", cache=c), workers)
         rep.add(f"iree-cuda(O0) {n} trees, {workers} threads", f"{wall:.2f} s wall",
@@ -643,7 +643,7 @@ def section_d(rep):
         if not errs:
             t0 = time.perf_counter()
             for i in range(n):
-                serial = etl.build_cached(
+                serial = evoxc.build_cached(
                     _step, spec, trees[i], backend="iree", device=dev,
                     target_backends=["cuda"], opt_level="O0", cache=c)
             rep.add(f"iree-cuda(O0) {n} trees, {workers} threads: "
@@ -667,42 +667,42 @@ def section_d(rep):
 def section_e(rep, dev):
     rep.section("(e) persistence: Executable.save + Executable.load")
     tree = make_tree(np.random.default_rng(20250505), TREE_BUDGET)
-    spec = etl.TensorSpec((N_SMALL, 2), etl.float32)
+    spec = evoxc.TensorSpec((N_SMALL, 2), evoxc.float32)
     x = np.random.default_rng(37).uniform(-1.0, 1.0, (N_SMALL, 2)).astype(np.float32)
-    dev_in = etl.core.tensor(x).to(dev)
-    exe = etl.build_cached(_step, spec, tree, backend="iree", device=dev,
+    dev_in = evoxc.core.tensor(x).to(dev)
+    exe = evoxc.build_cached(_step, spec, tree, backend="iree", device=dev,
                            target_backends=["cuda"], opt_level="O1",
-                           cache=etl.CompileCache())
+                           cache=evoxc.CompileCache())
     path = CFG.scratch / "probe_exe_iree_cuda.bin"
     t = timed(lambda: exe.save(path), 3)
     rep.add("save (iree-cuda executable)", ms(t), f"{path} ({path.stat().st_size} bytes)")
-    loaded = etl.Executable.load(path, backend="iree", device=dev)
-    t = timed(lambda: etl.Executable.load(path, backend="iree", device=dev), 3)
+    loaded = evoxc.Executable.load(path, backend="iree", device=dev)
+    t = timed(lambda: evoxc.Executable.load(path, backend="iree", device=dev), 3)
     rep.add("Executable.load (reload from disk)", ms(t),
             f"backend {loaded.backend}, device {loaded.device}")
     rep.note("load avg matches the build_cached 'load' stage (runtime-device "
              "creation); the iree compiler is NOT invoked again")
-    a = etl.run(exe, dev_in, tree).to(etl.Device("cpu", 0)).numpy()
-    b = etl.run(loaded, dev_in, tree).to(etl.Device("cpu", 0)).numpy()
+    a = evoxc.run(exe, dev_in, tree).to(evoxc.Device("cpu", 0)).numpy()
+    b = evoxc.run(loaded, dev_in, tree).to(evoxc.Device("cpu", 0)).numpy()
     rep.add("reloaded executable output identical", str(bool(np.array_equal(a, b, equal_nan=True))))
 
-    # `etl.load` is the pipeline stage (artifact -> executable), NOT the
+    # `evoxc.load` is the pipeline stage (artifact -> executable), NOT the
     # persistence entry point: passing a path is a TypeError.
     try:
-        etl.load(path, backend="iree", device=dev)
-        rep.add("etl.load(path) (pipeline stage)", "UNEXPECTEDLY ACCEPTED")
+        evoxc.load(path, backend="iree", device=dev)
+        rep.add("evoxc.load(path) (pipeline stage)", "UNEXPECTEDLY ACCEPTED")
     except Exception as exc:  # noqa: BLE001 - message is the point
-        rep.add("etl.load(path) -> rejected (use Executable.load)",
+        rep.add("evoxc.load(path) -> rejected (use Executable.load)",
                 f"{type(exc).__name__}: {str(exc)[:60]}")
 
     np_tree = make_tree(np.random.default_rng(20250606), TREE_BUDGET)
-    np_exe = etl.build_cached(_step, spec, np_tree, backend="numpy", cache=etl.CompileCache())
+    np_exe = evoxc.build_cached(_step, spec, np_tree, backend="numpy", cache=evoxc.CompileCache())
     np_path = CFG.scratch / "probe_exe_numpy.bin"
     try:
         np_exe.save(np_path)
-        np_loaded = etl.Executable.load(np_path, backend="numpy")
-        same = np.array_equal(etl.run(np_exe, x, np_tree).numpy(),
-                              etl.run(np_loaded, x, np_tree).numpy(), equal_nan=True)
+        np_loaded = evoxc.Executable.load(np_path, backend="numpy")
+        same = np.array_equal(evoxc.run(np_exe, x, np_tree).numpy(),
+                              evoxc.run(np_loaded, x, np_tree).numpy(), equal_nan=True)
         rep.add("numpy save/load round trip", f"{np_path.stat().st_size} bytes",
                 f"identical output {bool(same)}")
     except Exception as exc:  # noqa: BLE001
@@ -716,16 +716,16 @@ def section_e(rep, dev):
 
 def section_f(rep, dev):
     rep.section("(f) API semantics checks")
-    spec = etl.TensorSpec((N_SMALL, 2), etl.float32)
+    spec = evoxc.TensorSpec((N_SMALL, 2), evoxc.float32)
     tree = make_tree(np.random.default_rng(20250707), TREE_BUDGET)
     x = np.random.default_rng(47).uniform(-1.0, 1.0, (N_SMALL, 2)).astype(np.float32)
 
     # 1. nested-tuple static round trip
     try:
-        c = etl.CompileCache()
-        exe = etl.build_cached(_step, spec, tree, backend="numpy", cache=c)
-        again = etl.build_cached(_step, spec, tree, backend="numpy", cache=c)
-        out = etl.run(exe, x, tree)
+        c = evoxc.CompileCache()
+        exe = evoxc.build_cached(_step, spec, tree, backend="numpy", cache=c)
+        again = evoxc.build_cached(_step, spec, tree, backend="numpy", cache=c)
+        out = evoxc.run(exe, x, tree)
         err, mism, _ = compare(out.numpy(), ref_eval(tree, x))
         rep.add("nested-tuple static round trip",
                 f"PASS (err {err:.2e}, mismatches {mism})",
@@ -735,9 +735,9 @@ def section_f(rep, dev):
 
     # 2. static-leaf types accepted by the cache key.  `_key_probe` ignores
     # its static argument, so this exercises ONLY the key-encoding path.
-    @etl.defn
+    @evoxc.defn
     def _key_probe(x, static):
-        return etl.reshape(etl.slice(x, (0, 0), (N_SMALL, 1)), (N_SMALL,))
+        return evoxc.reshape(evoxc.slice(x, (0, 0), (N_SMALL, 1)), (N_SMALL,))
 
     statics = {
         "nested-tuple tree (str ops)": ("mul", ("x", 0), ("c", 2.0)),
@@ -749,9 +749,9 @@ def section_f(rep, dev):
     }
     for name, static in statics.items():
         try:
-            c = etl.CompileCache()
-            etl.build_cached(_key_probe, spec, static, backend="numpy", cache=c)
-            etl.build_cached(_key_probe, spec, eval(repr(static)), backend="numpy",
+            c = evoxc.CompileCache()
+            evoxc.build_cached(_key_probe, spec, static, backend="numpy", cache=c)
+            evoxc.build_cached(_key_probe, spec, eval(repr(static)), backend="numpy",
                              cache=c)  # equal content, new object
             ok = c.misses == 1 and c.hits == 1
             rep.add(f"static encodable: {name}",
@@ -763,11 +763,11 @@ def section_f(rep, dev):
             rep.fail(f"static encodable: {name}", exc)
 
     for name, v in (("np.float32", np.float32(3.0)), ("np.int64", np.int64(3)),
-                    ("core.Tensor", etl.core.tensor(np.float32(3.0))),
+                    ("core.Tensor", evoxc.core.tensor(np.float32(3.0))),
                     ("tuple containing np.float32", ("add", np.float32(1.0)))):
         try:
-            etl.build_cached(_key_probe, spec, v, backend="numpy",
-                             cache=etl.CompileCache())
+            evoxc.build_cached(_key_probe, spec, v, backend="numpy",
+                             cache=evoxc.CompileCache())
             rep.add(f"static leaf type {name}", "accepted")
         except Exception as exc:  # noqa: BLE001
             rep.add(f"static leaf type {name}",
@@ -776,14 +776,14 @@ def section_f(rep, dev):
 
     # 3. cache-key behaviour
     try:
-        c = etl.CompileCache()
+        c = evoxc.CompileCache()
         t1 = ("mul", ("x", 0), ("c", 2.0))
         t2 = ("mu" + "l", ("x", 0), ("c", 1.0 + 1.0))  # equal content, new object
-        e1 = etl.build_cached(_step, spec, t1, backend="numpy", cache=c)
-        e2 = etl.build_cached(_step, spec, t2, backend="numpy", cache=c)
-        e3 = etl.build_cached(_step, spec, ("mul", ("x", 1), ("c", 2.0)),
+        e1 = evoxc.build_cached(_step, spec, t1, backend="numpy", cache=c)
+        e2 = evoxc.build_cached(_step, spec, t2, backend="numpy", cache=c)
+        e3 = evoxc.build_cached(_step, spec, ("mul", ("x", 1), ("c", 2.0)),
                               backend="numpy", cache=c)
-        e4 = etl.build_cached(_step, etl.TensorSpec((200, 2), etl.float32), t1,
+        e4 = evoxc.build_cached(_step, evoxc.TensorSpec((200, 2), evoxc.float32), t1,
                               backend="numpy", cache=c)
         ok = (c.misses, c.hits) == (3, 1) and e1 is e2 and e1 is not e3 and e1 is not e4
         rep.add("cache key: content-based / spec-sensitive",
@@ -795,12 +795,12 @@ def section_f(rep, dev):
         rep.fail("cache key semantics", exc)
 
     try:
-        c = etl.CompileCache(maxsize=2)
+        c = evoxc.CompileCache(maxsize=2)
         for i in range(3):
-            etl.build_cached(_step, spec, ("add", ("x", 0), ("c", float(i))),
+            evoxc.build_cached(_step, spec, ("add", ("x", 0), ("c", float(i))),
                              backend="numpy", cache=c)
         before = c.misses
-        etl.build_cached(_step, spec, ("add", ("x", 0), ("c", 0.0)),
+        evoxc.build_cached(_step, spec, ("add", ("x", 0), ("c", 0.0)),
                          backend="numpy", cache=c)
         rep.add("CompileCache(maxsize=2) LRU eviction",
                 f"misses {c.misses} hits {c.hits} (len {len(c)})",
@@ -810,12 +810,12 @@ def section_f(rep, dev):
         rep.fail("CompileCache LRU eviction", exc)
 
     # 4. run-boundary validation messages
-    exe = etl.build_cached(_step, spec, tree, backend="numpy", cache=etl.CompileCache())
+    exe = evoxc.build_cached(_step, spec, tree, backend="numpy", cache=evoxc.CompileCache())
     checks = [
-        ("float64 input vs float32 spec", lambda: etl.run(
+        ("float64 input vs float32 spec", lambda: evoxc.run(
             exe, x.astype(np.float64), tree)),
-        ("wrong N", lambda: etl.run(exe, x[:50], tree)),
-        ("wrong static program", lambda: etl.run(
+        ("wrong N", lambda: evoxc.run(exe, x[:50], tree)),
+        ("wrong static program", lambda: evoxc.run(
             exe, x, ("mul", ("x", 0), ("c", 9.0)))),
     ]
     for name, fn in checks:
@@ -826,35 +826,35 @@ def section_f(rep, dev):
             rep.add(f"run-boundary {name}", type(exc).__name__,
                     str(exc).replace("\n", " ")[:110])
 
-    # 5. torch <-> etl interop
+    # 5. torch <-> evoxc interop
     try:
         import torch
     except Exception as exc:  # noqa: BLE001
         rep.fail("torch interop (import torch)", exc)
         torch = None
     if torch is not None:
-        host_t = etl.core.tensor(x)
+        host_t = evoxc.core.tensor(x)
         try:
             tt = torch.from_dlpack(host_t)
-            rep.add("torch.from_dlpack(etl cpu tensor)",
+            rep.add("torch.from_dlpack(evoxc cpu tensor)",
                     f"PASS {tuple(tt.shape)} {tt.dtype}",
                     f"zero-copy: {np.shares_memory(tt.numpy(), host_t.numpy())}")
         except Exception as exc:  # noqa: BLE001
-            rep.fail("torch.from_dlpack(etl cpu tensor)", exc)
+            rep.fail("torch.from_dlpack(evoxc cpu tensor)", exc)
         try:
-            back = etl.core.from_dlpack(torch.from_numpy(x))
-            rep.add("etl.core.from_dlpack(torch cpu tensor)",
+            back = evoxc.core.from_dlpack(torch.from_numpy(x))
+            rep.add("evoxc.core.from_dlpack(torch cpu tensor)",
                     f"PASS {back.shape} {back.device}")
         except Exception as exc:  # noqa: BLE001
-            rep.fail("etl.core.from_dlpack(torch cpu tensor)", exc)
+            rep.fail("evoxc.core.from_dlpack(torch cpu tensor)", exc)
         try:
             dev_t = host_t.to(dev)
         except Exception:  # noqa: BLE001
             dev_t = host_t
         for name, fn in (
-            ("torch.from_dlpack(etl CUDA tensor)", lambda: torch.from_dlpack(dev_t)),
-            ("etl.core.from_dlpack(torch CUDA tensor)",
-             lambda: etl.core.from_dlpack(torch.from_numpy(x).to("cuda"))),
+            ("torch.from_dlpack(evoxc CUDA tensor)", lambda: torch.from_dlpack(dev_t)),
+            ("evoxc.core.from_dlpack(torch CUDA tensor)",
+             lambda: evoxc.core.from_dlpack(torch.from_numpy(x).to("cuda"))),
         ):
             try:
                 fn()
@@ -863,28 +863,28 @@ def section_f(rep, dev):
                 rep.add(name, f"{type(exc).__name__} (expected)",
                         str(exc).replace("\n", " ")[:110])
         # the supported host<->device path
-        cyc = dev_t.to(etl.Device("cpu", 0)).numpy()
-        rep.add("supported readback", f"etl Tensor .to(cpu).numpy() -> {cyc.shape}",
+        cyc = dev_t.to(evoxc.Device("cpu", 0)).numpy()
+        rep.add("supported readback", f"evoxc Tensor .to(cpu).numpy() -> {cyc.shape}",
                 "device payloads refuse DLPack; .to(cpu) is the only transfer")
         t_np = torch.from_numpy(np.ascontiguousarray(cyc))
         rep.add("back into torch", f"torch.from_numpy(...) -> {tuple(t_np.shape)}")
 
     # 6. protected divide recipe
-    @etl.defn
+    @evoxc.defn
     def _div_probe(x):
-        a = etl.slice(x, (0, 0), (N_SMALL, 1))
-        b = etl.slice(x, (0, 1), (N_SMALL, 1))
-        nan = etl.constant(etl.core.tensor(np.float32(np.nan)))
-        return etl.reshape(etl.select(etl.equal(b, 0.0), nan, etl.divide(a, b)), (N_SMALL,))
+        a = evoxc.slice(x, (0, 0), (N_SMALL, 1))
+        b = evoxc.slice(x, (0, 1), (N_SMALL, 1))
+        nan = evoxc.constant(evoxc.core.tensor(np.float32(np.nan)))
+        return evoxc.reshape(evoxc.select(evoxc.equal(b, 0.0), nan, evoxc.divide(a, b)), (N_SMALL,))
 
     x_div = np.ones((N_SMALL, 2), np.float32)
     x_div[3, 1] = 0.0
     x_div[7, 1] = 0.0
     try:
-        div_exe = etl.build_cached(_div_probe, spec, backend="numpy", cache=etl.CompileCache())
+        div_exe = evoxc.build_cached(_div_probe, spec, backend="numpy", cache=evoxc.CompileCache())
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            got = etl.run(div_exe, x_div).numpy()
+            got = evoxc.run(div_exe, x_div).numpy()
         ok = np.isnan(got[3]) and np.isnan(got[7]) and got[0] == np.float32(1.0)
         rep.add("protected divide (numpy)",
                 f"{'PASS' if ok else 'FAIL'}: 1/0 -> {got[3]}, 1/1 -> {got[0]}",
@@ -894,11 +894,11 @@ def section_f(rep, dev):
     except Exception as exc:  # noqa: BLE001
         rep.fail("protected divide (numpy)", exc)
     try:
-        div_exe = etl.build_cached(_div_probe, spec, backend="iree", device=dev,
+        div_exe = evoxc.build_cached(_div_probe, spec, backend="iree", device=dev,
                                    target_backends=["cuda"], opt_level="O0",
-                                   cache=etl.CompileCache())
-        got = etl.run(div_exe, etl.core.tensor(x_div).to(dev)).to(
-            etl.Device("cpu", 0)).numpy()
+                                   cache=evoxc.CompileCache())
+        got = evoxc.run(div_exe, evoxc.core.tensor(x_div).to(dev)).to(
+            evoxc.Device("cpu", 0)).numpy()
         ok = np.isnan(got[3]) and np.isnan(got[7]) and got[0] == np.float32(1.0)
         rep.add("protected divide (iree-cuda)",
                 f"{'PASS' if ok else 'FAIL'}: 1/0 -> {got[3]}, 1/1 -> {got[0]}")
@@ -906,44 +906,44 @@ def section_f(rep, dev):
             rep.fail("protected divide (iree-cuda)", AssertionError(str(got[:8])))
     except Exception as exc:  # noqa: BLE001
         rep.fail("protected divide (iree-cuda)", exc)
-    rep.note("working recipe: etl.select(etl.equal(b, 0.0), "
-             "etl.constant(etl.core.tensor(np.float32(np.nan))), etl.divide(a, b)) "
-             "-- etl.equal accepts a plain Python float (weak scalar), but "
-             "etl.constant REQUIRES a core.Tensor")
+    rep.note("working recipe: evoxc.select(evoxc.equal(b, 0.0), "
+             "evoxc.constant(evoxc.core.tensor(np.float32(np.nan))), evoxc.divide(a, b)) "
+             "-- evoxc.equal accepts a plain Python float (weak scalar), but "
+             "evoxc.constant REQUIRES a core.Tensor")
 
 
 # --------------------------------------------------------------------------
-# (g) ETL's own meta-programming test, from a $TMPDIR copy
+# (g) evoxc's own meta-programming test, from a $TMPDIR copy
 # --------------------------------------------------------------------------
 
 
-ETL_TESTS = Path("/mnt/local-ssd/bchuang/etl/tests")
+EVOXC_TESTS = Path("/mnt/local-ssd/bchuang/evoxc/tests")
 
 IREE_CUDA_ADAPTATION = '''\
-"""iree-cuda adaptation of ETL's tests/test_meta_programming.py (section 1)."""
-import sys, numpy as np, etl
+"""iree-cuda adaptation of evoxc's tests/test_meta_programming.py (section 1)."""
+import sys, numpy as np, evoxc
 
 sys.path.insert(0, {tests_dir!r})
 import test_meta_programming as T  # the copied upstream test module
 
-DEVICE = etl.Device("cuda", {device})
-cache = etl.CompileCache()
+DEVICE = evoxc.Device("cuda", {device})
+cache = evoxc.CompileCache()
 exes = {{}}
 trees = []
 for i in range(2):
     _, _, tree = T._find_program(T.IREE_SEED_BASE + i * T.SEED_GAP)
-    exe = etl.build_cached(T._step, T.SPEC, tree, cache=cache, backend="iree",
+    exe = evoxc.build_cached(T._step, T.SPEC, tree, cache=cache, backend="iree",
                            device=DEVICE, target_backends=["cuda"], opt_level="O1")
     assert exe.backend == "iree" and exe.device == DEVICE, (exe.backend, exe.device)
     exes[tree] = exe
     trees.append(tree)
     assert cache.misses == i + 1, cache.misses
     for x in T.EVAL_INPUTS:
-        xd = etl.core.tensor(np.ascontiguousarray(x)).to(DEVICE)
-        got = etl.run(exe, xd, tree).to(etl.Device("cpu", 0)).numpy().astype(np.float64)
+        xd = evoxc.core.tensor(np.ascontiguousarray(x)).to(DEVICE)
+        got = evoxc.run(exe, xd, tree).to(evoxc.Device("cpu", 0)).numpy().astype(np.float64)
         ref = T._np_eval(tree, x.astype(np.float64))
         assert np.allclose(got, ref, rtol=1e-5, atol=1e-5), (tree, x, got, ref)
-again = etl.build_cached(T._step, T.SPEC, trees[-1], cache=cache, backend="iree",
+again = evoxc.build_cached(T._step, T.SPEC, trees[-1], cache=cache, backend="iree",
                          device=DEVICE, target_backends=["cuda"], opt_level="O1")
 assert again is exes[trees[-1]]
 assert cache.hits == 1 and cache.misses == 2, (cache.hits, cache.misses)
@@ -952,12 +952,12 @@ print("iree-cuda adaptation: PASS (2 compiles, 2 programs, parity ok, hit return
 
 
 def section_g(rep):
-    rep.section("(g) ETL's own meta-programming test ($TMPDIR copy)")
-    tests_dir = CFG.scratch / "etl_tests"
+    rep.section("(g) evoxc's own meta-programming test ($TMPDIR copy)")
+    tests_dir = CFG.scratch / "evoxc_tests"
     tests_dir.mkdir(parents=True, exist_ok=True)
-    src = ETL_TESTS / "test_meta_programming.py"
+    src = EVOXC_TESTS / "test_meta_programming.py"
     if not src.exists():
-        rep.fail("copy ETL test", FileNotFoundError(str(src)))
+        rep.fail("copy evoxc test", FileNotFoundError(str(src)))
         return
     (tests_dir / src.name).write_text(src.read_text())
 
@@ -1004,53 +1004,53 @@ def section_h(rep, dev):
     rep.section("(h) extra diagnostics: N sweep / fixed overhead / transfers")
     tree = make_tree(np.random.default_rng(20250808), TREE_BUDGET)
     for n in SWEEP_NS:
-        spec = etl.TensorSpec((n, 2), etl.float32)
+        spec = evoxc.TensorSpec((n, 2), evoxc.float32)
         x = np.random.default_rng(n).uniform(-1.0, 1.0, (n, 2)).astype(np.float32)
         row = [f"N={n:>6}"]
         for backend in ("numpy", "iree"):
             try:
-                kw = dict(backend=backend, cache=etl.CompileCache())
+                kw = dict(backend=backend, cache=evoxc.CompileCache())
                 if backend == "iree":
                     kw.update(device=dev, target_backends=["cuda"], opt_level="O0")
-                exe = etl.build_cached(SWEEP_STEPS[n], spec, tree, **kw)
+                exe = evoxc.build_cached(SWEEP_STEPS[n], spec, tree, **kw)
                 if backend == "iree":
-                    arg = etl.core.tensor(x).to(dev)
-                    etl.run(exe, arg, tree)
-                    t = timed(lambda: etl.run(exe, arg, tree), 5)
+                    arg = evoxc.core.tensor(x).to(dev)
+                    evoxc.run(exe, arg, tree)
+                    t = timed(lambda: evoxc.run(exe, arg, tree), 5)
                 else:
-                    etl.run(exe, x, tree)
-                    t = timed(lambda: etl.run(exe, x, tree), 5)
+                    evoxc.run(exe, x, tree)
+                    t = timed(lambda: evoxc.run(exe, x, tree), 5)
                 row.append(f"{backend} {t[0]:7.3f} ms")
             except Exception as exc:  # noqa: BLE001
                 row.append(f"{backend} FAIL {type(exc).__name__}")
         rep.add("run ms/tree (median of 5)", "   ".join(row))
 
-    spec1 = etl.TensorSpec((1, 2), etl.float32)
+    spec1 = evoxc.TensorSpec((1, 2), evoxc.float32)
     x1 = np.ones((1, 2), np.float32)
     for backend, kw in (("numpy", {}),
                         ("iree", dict(device=dev, target_backends=["cuda"],
                                       opt_level="O0"))):
-        exe = etl.build_cached(_one_op, spec1, backend=backend,
-                               cache=etl.CompileCache(), **kw)
+        exe = evoxc.build_cached(_one_op, spec1, backend=backend,
+                               cache=evoxc.CompileCache(), **kw)
         if backend == "iree":
-            arg = etl.core.tensor(x1).to(dev)
-            etl.run(exe, arg)
-            t = timed(lambda: etl.run(exe, arg), 20)
+            arg = evoxc.core.tensor(x1).to(dev)
+            evoxc.run(exe, arg)
+            t = timed(lambda: evoxc.run(exe, arg), 20)
         else:
-            etl.run(exe, x1)
-            t = timed(lambda: etl.run(exe, x1), 20)
+            evoxc.run(exe, x1)
+            t = timed(lambda: evoxc.run(exe, x1), 20)
         rep.add(f"fixed per-run cost, 1-op graph ({backend})", ms(t))
 
-    t = timed(lambda: etl.core.tensor(x1).to(dev), 20)
-    rep.add("H2D etl tensor (1, 2) f32", ms(t))
+    t = timed(lambda: evoxc.core.tensor(x1).to(dev), 20)
+    rep.add("H2D evoxc tensor (1, 2) f32", ms(t))
     x1000 = np.ones((1000, 2), np.float32)
-    t = timed(lambda: etl.core.tensor(x1000).to(dev), 20)
-    rep.add("H2D etl tensor (1000, 2) f32", ms(t))
-    exe = etl.build_cached(_one_op, spec1, backend="iree", device=dev,
+    t = timed(lambda: evoxc.core.tensor(x1000).to(dev), 20)
+    rep.add("H2D evoxc tensor (1000, 2) f32", ms(t))
+    exe = evoxc.build_cached(_one_op, spec1, backend="iree", device=dev,
                            target_backends=["cuda"], opt_level="O0",
-                           cache=etl.CompileCache())
-    arg = etl.core.tensor(x1).to(dev)
-    t = timed(lambda: etl.run(exe, arg).to(etl.Device("cpu", 0)).numpy(), 20)
+                           cache=evoxc.CompileCache())
+    arg = evoxc.core.tensor(x1).to(dev)
+    t = timed(lambda: evoxc.run(exe, arg).to(evoxc.Device("cpu", 0)).numpy(), 20)
     rep.add("iree-cuda run + readback, 1-op graph", ms(t),
             "readback dominates small-batch device loops")
 
@@ -1079,14 +1079,14 @@ def main(argv=None):
     # section (f) pins the protected-divide recipe).  Keep the table readable.
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-    base = Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "etl_jit_probe"
+    base = Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "evoxc_jit_probe"
     base.mkdir(parents=True, exist_ok=True)
     CFG.scratch = Path(tempfile.mkdtemp(prefix="run_", dir=base))
 
     print("=" * 100)
-    print("ETL true-jit probe")
-    print(f"  python {sys.version.split()[0]}  etl {getattr(etl, '__version__', '?')} "
-          f"from {etl.__file__}")
+    print("evoxc true-jit probe")
+    print(f"  python {sys.version.split()[0]}  evoxc {getattr(evoxc, '__version__', '?')} "
+          f"from {evoxc.__file__}")
     try:
         import torch
         print(f"  torch {torch.__version__}  numpy {np.__version__}")
@@ -1114,7 +1114,7 @@ def main(argv=None):
 
     rep = Report()
     wanted = set(CFG.sections)
-    dev = etl.Device("cuda", CFG.device)
+    dev = evoxc.Device("cuda", CFG.device)
     res_a = res_b = None
     t_start = time.perf_counter()
 
