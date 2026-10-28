@@ -674,7 +674,7 @@ def test_crossover_index_tensors_are_read_as_integers():
 SPLICE_HOOK_MODULES = [
     "evogp.tree.splicing",  # the vectorized mutate/crossover splice primitive
     "evogp.tree.forest", "evogp.tree.tree", "evogp.tree.gp_ops", "evogp.tree.ops",
-    "evogp.tree.torch_ops", "evogp.tree.etl_engine",
+    "evogp.tree.torch_ops", "evogp.tree.evoxc_engine",
 ]
 SPLICE_HOOK_NAMES = [
     "splice", "tree_splice", "splice_subtree", "replace_subtree", "tree_replace",

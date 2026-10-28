@@ -18,7 +18,7 @@ Purpose
 
 Run from the repository root::
 
-    ETL_DISABLE_LOCATIONS=1 PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python \\
+    EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python \\
         -m pytest src/evogp/tests/test_mujoco_problem.py -q
 """
 from __future__ import annotations
