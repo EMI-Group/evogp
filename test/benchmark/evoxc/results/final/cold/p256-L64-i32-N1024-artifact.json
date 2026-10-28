@@ -1,0 +1,174 @@
+{
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-28T10:34:50Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A50/src",
+  "tree_root_sha": "761ef05ce87d456c364cbb706fa234d9b184ecdd",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A50",
+  "arm": "cold-start",
+  "python": "3.14.8",
+  "python_executable": "/tmp/genesis/task_967a300e3bce7f35/evogp-venv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "855050d7750133b11d94639754637b090d304acd",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A50/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOGP_EVOXC_ARTIFACT_DIR": "/tmp/evogp_artifact_final",
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.1.0",
+  "applied_knobs": {
+   "eval_mode": null,
+   "backend": null
+  },
+  "cell": {
+   "id": "p256-L64-i32-N1024",
+   "pop": 256,
+   "tree_len": 64,
+   "input_len": 32,
+   "rows": 1024
+  },
+  "phase": "populate",
+  "artifact_dir": "/tmp/evogp_artifact_final",
+  "artifact_measurement": {
+   "dir": "/tmp/evogp_artifact_final",
+   "phases": [
+    "populate",
+    "reload"
+   ],
+   "one_process_per_phase": true
+  }
+ },
+ "cell": {
+  "id": "p256-L64-i32-N1024",
+  "pop": 256,
+  "tree_len": 64,
+  "input_len": 32,
+  "rows": 1024
+ },
+ "measurement": "cold-start-artifact",
+ "phase": "artifact",
+ "protocol": {
+  "one_process_per_population": true,
+  "route": "default (EVOGP_EVAL_MODE / EVOGP_EVOXC_BACKEND unset)",
+  "t0": "module import (cold_start.py top level)",
+  "repeat": 1,
+  "repeats_share_the_process_cache": true,
+  "seed": 0,
+  "sync_bracketed": true,
+  "workload": "sr_fitness"
+ },
+ "wall_to_first_fitness_ms": {
+  "populate": 14133.0933,
+  "reload": 7762.0757
+ },
+ "breakdown": {
+  "populate": {
+   "import_ms": 6876.3247,
+   "workload_build_ms": 714.3115,
+   "first_call_ms": 6542.3702,
+   "other_ms": 0.0869
+  },
+  "reload": {
+   "import_ms": 6840.8146,
+   "workload_build_ms": 725.4946,
+   "first_call_ms": 195.6577,
+   "other_ms": 0.1088
+  }
+ },
+ "artifact": {
+  "feature": "present",
+  "dir": "/tmp/evogp_artifact_final",
+  "suffix": ".evoxcart",
+  "before": {
+   "dir": "/tmp/evogp_artifact_final",
+   "suffix": ".evoxcart",
+   "files": 0,
+   "bytes": 0,
+   "unreadable": 0
+  },
+  "after": {
+   "dir": "/tmp/evogp_artifact_final",
+   "suffix": ".evoxcart",
+   "files": 1,
+   "bytes": 2075522,
+   "unreadable": 0
+  },
+  "files_added": 1,
+  "bytes_added": 2075522
+ },
+ "phases": {
+  "populate": {
+   "out": "./test/benchmark/evoxc/results/final/cold/p256-L64-i32-N1024-artifact.populate.json",
+   "wall_to_first_fitness_ms": 14133.0933,
+   "first_call_ms": 6542.3702,
+   "compile_misses_first_call": 1,
+   "artifact_first_call_deltas": {
+    "artifact_enabled": 0,
+    "artifact_files": 1,
+    "artifact_hits": 0,
+    "artifact_misses": 1,
+    "artifact_load_failures": 0,
+    "artifact_stores": 1,
+    "artifact_save_failures": 0
+   },
+   "artifact_dir_before": {
+    "dir": "/tmp/evogp_artifact_final",
+    "suffix": ".evoxcart",
+    "files": 0,
+    "bytes": 0,
+    "unreadable": 0
+   },
+   "artifact_dir_after": {
+    "dir": "/tmp/evogp_artifact_final",
+    "suffix": ".evoxcart",
+    "files": 1,
+    "bytes": 2075522,
+    "unreadable": 0
+   }
+  },
+  "reload": {
+   "out": "./test/benchmark/evoxc/results/final/cold/p256-L64-i32-N1024-artifact.reload.json",
+   "wall_to_first_fitness_ms": 7762.0757,
+   "first_call_ms": 195.6577,
+   "compile_misses_first_call": 0,
+   "artifact_first_call_deltas": {
+    "artifact_enabled": 0,
+    "artifact_files": 0,
+    "artifact_hits": 1,
+    "artifact_misses": 0,
+    "artifact_load_failures": 0,
+    "artifact_stores": 0,
+    "artifact_save_failures": 0
+   },
+   "artifact_dir_before": {
+    "dir": "/tmp/evogp_artifact_final",
+    "suffix": ".evoxcart",
+    "files": 1,
+    "bytes": 2075522,
+    "unreadable": 0
+   },
+   "artifact_dir_after": {
+    "dir": "/tmp/evogp_artifact_final",
+    "suffix": ".evoxcart",
+    "files": 1,
+    "bytes": 2075522,
+    "unreadable": 0
+   }
+  }
+ },
+ "notes": [
+  "artifact mode is two child processes of this same script, one per phase: the in-memory compile cache is per process, so only a second process can show what the on-disk artifact buys",
+  "phase 'populate' compiles and writes the artifacts; phase 'reload' must report artifact_hits >= 1 on its first call (artifact_first_call_deltas) for the number to mean anything",
+  "each phase's wall_to_first_fitness_ms is that child's own full cold-start number (module import -> first synchronized fitness), not a delta",
+  "artifact copies: the child records sit next to this one as p256-L64-i32-N1024-artifact.populate.json / p256-L64-i32-N1024-artifact.reload.json"
+ ]
+}

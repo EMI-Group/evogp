@@ -1,0 +1,633 @@
+{
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-28T10:35:32Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A50/src",
+  "tree_root_sha": "761ef05ce87d456c364cbb706fa234d9b184ecdd",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A50",
+  "arm": "torch-per-tree",
+  "python": "3.14.8",
+  "python_executable": "/tmp/genesis/task_967a300e3bce7f35/evogp-venv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "855050d7750133b11d94639754637b090d304acd",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A50/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.1.0",
+  "applied_knobs": {
+   "eval_mode": null,
+   "backend": null
+  },
+  "training": {
+   "arm": "torch-per-tree",
+   "pop": 256,
+   "generations": 50,
+   "tree_len": 64,
+   "input_len": 2,
+   "num_data": 1000,
+   "seed": 0
+  }
+ },
+ "measurement": "training-run",
+ "arm": "torch-per-tree",
+ "family": "torch",
+ "config": {
+  "pop": 256,
+  "generations": 50,
+  "tree_len": 64,
+  "input_len": 2,
+  "num_data": 1000,
+  "lower_bounds": -5,
+  "upper_bounds": 5,
+  "seed": 0,
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A50/src",
+  "descriptor": {
+   "max_tree_len": 64,
+   "input_len": 2,
+   "output_len": 1,
+   "using_funcs": [
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "mutation_max_layer_cnt": 3,
+   "mutation_rate": 0.2,
+   "survival_rate": 0.3,
+   "elite_rate": 0.01
+  }
+ },
+ "problem": {
+  "name": "synthetic symbolic regression (the src/evogp/sr_test.py target, generalized to input_len inputs)",
+  "func": "sum_i x_i**4 / (x_i**4 + 1)",
+  "problem_dim": 2,
+  "solution_dim": 1,
+  "datapoints_digest": {
+   "shape": [
+    1000,
+    2
+   ],
+   "sha256": "5a435ea4015db08a04d4c57d61c27aaf",
+   "finite": 2000,
+   "nan": 0,
+   "posinf": 0,
+   "neginf": 0,
+   "abs_sum": 5017.269626379013
+  },
+  "labels_digest": {
+   "shape": [
+    1000,
+    1
+   ],
+   "sha256": "92f677de1afb290e53cb7b4a4368cea2",
+   "finite": 1000,
+   "nan": 0,
+   "posinf": 0,
+   "neginf": 0,
+   "abs_sum": 1564.2868073784048
+  }
+ },
+ "population": {
+  "pop_size": 256,
+  "max_tree_len": 64,
+  "tree_len_mean": 15.4140625,
+  "tree_len_median": 17.0,
+  "tree_len_max": 31,
+  "distinct_structures": 216
+ },
+ "protocol": {
+  "one_process_per_arm": true,
+  "generation_driver": "StandardPipeline.step() (run() is the same loop plus the stopping rules)",
+  "fitness_call_path": "torch-per-tree: arms_torch.PerTreeEvaluator rebuilt per generation, substituted through arms.SRLossProblem",
+  "sync_bracketed": true,
+  "seed": 0,
+  "generations": 50,
+  "report_gens": [
+   10,
+   25,
+   50
+  ],
+  "torch_arm_setup_ms": 1.7033
+ },
+ "route": {
+  "knobs": {
+   "eval_mode": null,
+   "backend": null
+  },
+  "resolved": {
+   "eval_mode": "auto",
+   "backend": "numpy",
+   "should_use_dense_pop_only": true,
+   "should_use_dense_with_rows": true,
+   "would_use_dense": true
+  },
+  "evaluator": "torch-per-tree: arms_torch.PerTreeEvaluator rebuilt per generation, substituted through arms.SRLossProblem"
+ },
+ "generations": [
+  {
+   "generation": 1,
+   "wall_ms": 290.3966,
+   "gen_best": -0.2510969936847687,
+   "best_fitness": -0.2510969936847687
+  },
+  {
+   "generation": 2,
+   "wall_ms": 21.1413,
+   "gen_best": -0.22633196413516998,
+   "best_fitness": -0.22633196413516998
+  },
+  {
+   "generation": 3,
+   "wall_ms": 25.5834,
+   "gen_best": -0.22633196413516998,
+   "best_fitness": -0.22633196413516998
+  },
+  {
+   "generation": 4,
+   "wall_ms": 14.2661,
+   "gen_best": -0.22633196413516998,
+   "best_fitness": -0.22633196413516998
+  },
+  {
+   "generation": 5,
+   "wall_ms": 12.1673,
+   "gen_best": -0.22633196413516998,
+   "best_fitness": -0.22633196413516998
+  },
+  {
+   "generation": 6,
+   "wall_ms": 12.2662,
+   "gen_best": -0.22633196413516998,
+   "best_fitness": -0.22633196413516998
+  },
+  {
+   "generation": 7,
+   "wall_ms": 11.3578,
+   "gen_best": -0.22633196413516998,
+   "best_fitness": -0.22633196413516998
+  },
+  {
+   "generation": 8,
+   "wall_ms": 11.4886,
+   "gen_best": -0.22633196413516998,
+   "best_fitness": -0.22633196413516998
+  },
+  {
+   "generation": 9,
+   "wall_ms": 11.2507,
+   "gen_best": -0.22633196413516998,
+   "best_fitness": -0.22633196413516998
+  },
+  {
+   "generation": 10,
+   "wall_ms": 11.2024,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 11,
+   "wall_ms": 11.1725,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 12,
+   "wall_ms": 12.0048,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 13,
+   "wall_ms": 10.8679,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 14,
+   "wall_ms": 12.0321,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 15,
+   "wall_ms": 12.0438,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 16,
+   "wall_ms": 12.7647,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 17,
+   "wall_ms": 12.7706,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 18,
+   "wall_ms": 12.302,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 19,
+   "wall_ms": 11.6,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 20,
+   "wall_ms": 11.9805,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 21,
+   "wall_ms": 12.8674,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 22,
+   "wall_ms": 12.5991,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 23,
+   "wall_ms": 11.9661,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 24,
+   "wall_ms": 11.2818,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 25,
+   "wall_ms": 11.7575,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 26,
+   "wall_ms": 12.6884,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 27,
+   "wall_ms": 11.8509,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 28,
+   "wall_ms": 11.7661,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 29,
+   "wall_ms": 12.8532,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 30,
+   "wall_ms": 13.3201,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 31,
+   "wall_ms": 13.4453,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 32,
+   "wall_ms": 12.8226,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 33,
+   "wall_ms": 12.4993,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 34,
+   "wall_ms": 12.1965,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 35,
+   "wall_ms": 12.6657,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 36,
+   "wall_ms": 12.6078,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 37,
+   "wall_ms": 13.2725,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 38,
+   "wall_ms": 13.3207,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 39,
+   "wall_ms": 12.788,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 40,
+   "wall_ms": 13.2025,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 41,
+   "wall_ms": 13.4618,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 42,
+   "wall_ms": 12.8196,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 43,
+   "wall_ms": 13.4902,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 44,
+   "wall_ms": 13.5438,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 45,
+   "wall_ms": 12.5225,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 46,
+   "wall_ms": 13.1558,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 47,
+   "wall_ms": 12.752,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 48,
+   "wall_ms": 12.76,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 49,
+   "wall_ms": 11.8078,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  },
+  {
+   "generation": 50,
+   "wall_ms": 12.0729,
+   "gen_best": -0.22611656785011292,
+   "best_fitness": -0.22611656785011292
+  }
+ ],
+ "best_fitness_by_generation": [
+  -0.2510969936847687,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292
+ ],
+ "gen_best_by_generation": [
+  -0.2510969936847687,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22633196413516998,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292,
+  -0.22611656785011292
+ ],
+ "best_fitness_at": {
+  "10": -0.22611656785011292,
+  "25": -0.22611656785011292,
+  "50": -0.22611656785011292
+ },
+ "trajectory_digest": {
+  "shape": [
+   50
+  ],
+  "sha256": "5cbdcfbd307a8b33267bb77d09998bfe",
+  "finite": 50,
+  "nan": 0,
+  "posinf": 0,
+  "neginf": 0,
+  "abs_sum": 11.332531988620758
+ },
+ "gen_best_digest": {
+  "shape": [
+   50
+  ],
+  "sha256": "5cbdcfbd307a8b33267bb77d09998bfe",
+  "finite": 50,
+  "nan": 0,
+  "posinf": 0,
+  "neginf": 0,
+  "abs_sum": 11.332531988620758
+ },
+ "total_wall_ms": 921.8875,
+ "per_generation_ms": {
+  "median": 12.6034,
+  "mean": 18.4163,
+  "min": 10.8679,
+  "max": 290.3966,
+  "first_generation_ms": 290.3966
+ },
+ "final_pop_size": 256,
+ "pipeline_reported_best_fitness": -0.22611656785011292,
+ "cache": {
+  "before": {
+   "hits": 0,
+   "misses": 0,
+   "entries": 0,
+   "maxsize": 4096,
+   "memo_hits": 0,
+   "memo_misses": 0,
+   "memo_entries": 0,
+   "memo_maxsize": 4096
+  },
+  "after": {
+   "hits": 0,
+   "misses": 0,
+   "entries": 0,
+   "maxsize": 4096,
+   "memo_hits": 0,
+   "memo_misses": 0,
+   "memo_entries": 0,
+   "memo_maxsize": 4096
+  },
+  "compile_misses_total": 0,
+  "artifact": {
+   "enabled": false,
+   "before": {
+    "artifact_enabled": 0,
+    "artifact_files": 0,
+    "artifact_hits": 0,
+    "artifact_misses": 0,
+    "artifact_load_failures": 0,
+    "artifact_stores": 0,
+    "artifact_save_failures": 0
+   },
+   "after": {
+    "artifact_enabled": 0,
+    "artifact_files": 0,
+    "artifact_hits": 0,
+    "artifact_misses": 0,
+    "artifact_load_failures": 0,
+    "artifact_stores": 0,
+    "artifact_save_failures": 0
+   }
+  }
+ },
+ "dense_policy": {
+  "auto_min_pop": 64,
+  "auto_max_rows": 2048
+ },
+ "notes": [
+  "the fitness callable goes through the pipeline exactly as the library calls it (StandardPipeline.step() -> problem.evaluate); this script only adds the per-generation clock and the trajectory record",
+  "speed is only meaningful next to best_fitness_by_generation: a faster arm that converges worse is not a win -- compare the trajectories and the trajectory_digest before quoting per-generation milliseconds",
+  "the problem data is generated by SymbolicRegression in-process from torch.manual_seed(seed) (no dataset, no network); the datapoint/label digests are identical across arms",
+  "torch arm: the evaluator (arms_torch.PerTreeEvaluator) is rebuilt from the live forest at every generation and that decode is inside the generation wall time, like the engine's own host-side decode; the initial-forest decode is the separate torch_arm_setup_ms"
+ ]
+}

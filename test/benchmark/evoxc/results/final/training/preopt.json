@@ -1,0 +1,613 @@
+{
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-28T10:35:45Z",
+  "tree_root": "/tmp/evogp_preopt",
+  "tree_root_sha": null,
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A50",
+  "arm": "preopt",
+  "python": "3.14.8",
+  "python_executable": "/tmp/genesis/task_967a300e3bce7f35/evogp-venv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "855050d7750133b11d94639754637b090d304acd",
+  "evogp_file": "/tmp/evogp_preopt/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.1.0",
+  "applied_knobs": {
+   "eval_mode": null,
+   "backend": null
+  },
+  "training": {
+   "arm": "preopt",
+   "pop": 256,
+   "generations": 50,
+   "tree_len": 64,
+   "input_len": 2,
+   "num_data": 1000,
+   "seed": 0
+  }
+ },
+ "measurement": "training-run",
+ "arm": "preopt",
+ "family": "evoxc",
+ "config": {
+  "pop": 256,
+  "generations": 50,
+  "tree_len": 64,
+  "input_len": 2,
+  "num_data": 1000,
+  "lower_bounds": -5,
+  "upper_bounds": 5,
+  "seed": 0,
+  "tree_root": "/tmp/evogp_preopt",
+  "descriptor": {
+   "max_tree_len": 64,
+   "input_len": 2,
+   "output_len": 1,
+   "using_funcs": [
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "mutation_max_layer_cnt": 3,
+   "mutation_rate": 0.2,
+   "survival_rate": 0.3,
+   "elite_rate": 0.01
+  }
+ },
+ "problem": {
+  "name": "synthetic symbolic regression (the src/evogp/sr_test.py target, generalized to input_len inputs)",
+  "func": "sum_i x_i**4 / (x_i**4 + 1)",
+  "problem_dim": 2,
+  "solution_dim": 1,
+  "datapoints_digest": {
+   "shape": [
+    1000,
+    2
+   ],
+   "sha256": "5a435ea4015db08a04d4c57d61c27aaf",
+   "finite": 2000,
+   "nan": 0,
+   "posinf": 0,
+   "neginf": 0,
+   "abs_sum": 5017.269626379013
+  },
+  "labels_digest": {
+   "shape": [
+    1000,
+    1
+   ],
+   "sha256": "92f677de1afb290e53cb7b4a4368cea2",
+   "finite": 1000,
+   "nan": 0,
+   "posinf": 0,
+   "neginf": 0,
+   "abs_sum": 1564.2868073784048
+  }
+ },
+ "population": {
+  "pop_size": 256,
+  "max_tree_len": 64,
+  "tree_len_mean": 15.0390625,
+  "tree_len_median": 17.0,
+  "tree_len_max": 31,
+  "distinct_structures": 214
+ },
+ "protocol": {
+  "one_process_per_arm": true,
+  "generation_driver": "StandardPipeline.step() (run() is the same loop plus the stopping rules)",
+  "fitness_call_path": "engine: SymbolicRegression.evaluate -> Forest.SR_fitness",
+  "sync_bracketed": true,
+  "seed": 0,
+  "generations": 50,
+  "report_gens": [
+   10,
+   25,
+   50
+  ],
+  "torch_arm_setup_ms": null
+ },
+ "route": {
+  "knobs": {
+   "eval_mode": null,
+   "backend": null
+  },
+  "resolved": {
+   "eval_mode": "auto",
+   "backend": "numpy",
+   "should_use_dense_pop_only": false,
+   "should_use_dense_with_rows": false,
+   "would_use_dense": false
+  },
+  "evaluator": "engine: SymbolicRegression.evaluate -> Forest.SR_fitness"
+ },
+ "generations": [
+  {
+   "generation": 1,
+   "wall_ms": 1062.08,
+   "gen_best": -0.2510969936847687,
+   "best_fitness": -0.2510969936847687
+  },
+  {
+   "generation": 2,
+   "wall_ms": 209.1436,
+   "gen_best": -0.2421019971370697,
+   "best_fitness": -0.2421019971370697
+  },
+  {
+   "generation": 3,
+   "wall_ms": 248.6517,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 4,
+   "wall_ms": 108.2765,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 5,
+   "wall_ms": 176.4621,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 6,
+   "wall_ms": 117.8628,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 7,
+   "wall_ms": 63.1167,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 8,
+   "wall_ms": 48.6388,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 9,
+   "wall_ms": 59.3745,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 10,
+   "wall_ms": 68.8851,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 11,
+   "wall_ms": 70.7238,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 12,
+   "wall_ms": 71.1557,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 13,
+   "wall_ms": 63.4485,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 14,
+   "wall_ms": 65.2005,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 15,
+   "wall_ms": 66.9434,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 16,
+   "wall_ms": 70.1434,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 17,
+   "wall_ms": 75.4767,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 18,
+   "wall_ms": 141.2405,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 19,
+   "wall_ms": 72.7315,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 20,
+   "wall_ms": 53.0246,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 21,
+   "wall_ms": 91.5467,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 22,
+   "wall_ms": 65.9738,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 23,
+   "wall_ms": 61.678,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 24,
+   "wall_ms": 68.0092,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 25,
+   "wall_ms": 48.7385,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 26,
+   "wall_ms": 79.9848,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 27,
+   "wall_ms": 78.2944,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 28,
+   "wall_ms": 50.8237,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 29,
+   "wall_ms": 63.018,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 30,
+   "wall_ms": 58.001,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 31,
+   "wall_ms": 57.9544,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 32,
+   "wall_ms": 59.2325,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 33,
+   "wall_ms": 74.4139,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 34,
+   "wall_ms": 57.8747,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 35,
+   "wall_ms": 137.6485,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 36,
+   "wall_ms": 71.9144,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 37,
+   "wall_ms": 63.8199,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 38,
+   "wall_ms": 75.5372,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 39,
+   "wall_ms": 74.6113,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 40,
+   "wall_ms": 77.5844,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 41,
+   "wall_ms": 78.3313,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 42,
+   "wall_ms": 75.4448,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 43,
+   "wall_ms": 72.2539,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 44,
+   "wall_ms": 73.359,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 45,
+   "wall_ms": 55.7209,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 46,
+   "wall_ms": 66.068,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 47,
+   "wall_ms": 72.5053,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 48,
+   "wall_ms": 80.8475,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 49,
+   "wall_ms": 61.1825,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  },
+  {
+   "generation": 50,
+   "wall_ms": 59.7973,
+   "gen_best": -0.22567951679229736,
+   "best_fitness": -0.22567951679229736
+  }
+ ],
+ "best_fitness_by_generation": [
+  -0.2510969936847687,
+  -0.2421019971370697,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736
+ ],
+ "gen_best_by_generation": [
+  -0.2510969936847687,
+  -0.2421019971370697,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736,
+  -0.22567951679229736
+ ],
+ "best_fitness_at": {
+  "10": -0.22567951679229736,
+  "25": -0.22567951679229736,
+  "50": -0.22567951679229736
+ },
+ "trajectory_digest": {
+  "shape": [
+   50
+  ],
+  "sha256": "079d14cac488fb36d562b6d4538adb68",
+  "finite": 50,
+  "nan": 0,
+  "posinf": 0,
+  "neginf": 0,
+  "abs_sum": 11.325815796852112
+ },
+ "gen_best_digest": {
+  "shape": [
+   50
+  ],
+  "sha256": "079d14cac488fb36d562b6d4538adb68",
+  "finite": 50,
+  "nan": 0,
+  "posinf": 0,
+  "neginf": 0,
+  "abs_sum": 11.325815796852112
+ },
+ "total_wall_ms": 5025.9215,
+ "per_generation_ms": {
+  "median": 70.9398,
+  "mean": 100.495,
+  "min": 48.6388,
+  "max": 1062.08,
+  "first_generation_ms": 1062.08
+ },
+ "final_pop_size": 256,
+ "pipeline_reported_best_fitness": -0.22567951679229736,
+ "cache": {
+  "before": {
+   "hits": 0,
+   "misses": 0,
+   "entries": 0,
+   "maxsize": 4096,
+   "memo_hits": 0,
+   "memo_misses": 0,
+   "memo_entries": 0,
+   "memo_maxsize": 4096
+  },
+  "after": {
+   "hits": 0,
+   "misses": 2076,
+   "entries": 2076,
+   "maxsize": 4096,
+   "memo_hits": 415,
+   "memo_misses": 2076,
+   "memo_entries": 2076,
+   "memo_maxsize": 4096
+  },
+  "compile_misses_total": 2076,
+  "artifact": "absent"
+ },
+ "dense_policy": {
+  "auto_min_pop": 16,
+  "auto_max_rows": 2048
+ },
+ "notes": [
+  "the fitness callable goes through the pipeline exactly as the library calls it (StandardPipeline.step() -> problem.evaluate); this script only adds the per-generation clock and the trajectory record",
+  "speed is only meaningful next to best_fitness_by_generation: a faster arm that converges worse is not a win -- compare the trajectories and the trajectory_digest before quoting per-generation milliseconds",
+  "the problem data is generated by SymbolicRegression in-process from torch.manual_seed(seed) (no dataset, no network); the datapoint/label digests are identical across arms",
+  "preopt arm: identical code path to --arm engine; the snapshot under test is '/tmp/evogp_preopt' (the caller supplies --tree-root, nothing is hard-coded)"
+ ]
+}

@@ -1,0 +1,2980 @@
+{
+ "schema": "evogp-bench-evoxc-v1-validation",
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-28T10:32:27Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A50",
+  "tree_root_sha": "761ef05ce87d456c364cbb706fa234d9b184ecdd",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A50",
+  "arm": "validate",
+  "python": "3.14.8",
+  "python_executable": "/tmp/genesis/task_967a300e3bce7f35/evogp-venv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "855050d7750133b11d94639754637b090d304acd",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A50/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.1.0",
+  "note": ""
+ },
+ "protocol": {
+  "oracle": "src/evogp/tests/reference_eval.py (plain torch, CPU)",
+  "max_oracle_trees": 64,
+  "func_sets": {
+   "arith": [
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "rich": [
+    "+",
+    "-",
+    "*",
+    "/",
+    "max",
+    "min",
+    "<",
+    "sin",
+    "exp",
+    "log",
+    "abs",
+    "sqrt",
+    "loose_div",
+    "loose_inv"
+   ],
+   "ternary": [
+    "if",
+    "+",
+    "-",
+    "*",
+    "/"
+   ]
+  },
+  "seed": 0
+ },
+ "cases": [
+  {
+   "cell": "p16-L32-i8-N1024",
+   "label": "arith",
+   "funcs": [
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "pop_size": 16,
+   "trees_compared": 16,
+   "max_tree_len": 32,
+   "rows": 1024,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": false,
+    "should_use_dense_with_rows": false,
+    "would_use_dense": false
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 104564.9609375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 104564.9609375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 104564.9609375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 104564.9609375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 104564.9609375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1621.285400390625,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1621.285400390625,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1621.285400390625,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1621.285400390625,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1621.285400390625,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      16
+     ],
+     "max_abs": 2.0,
+     "max_rel": 2.1103794267673948e-07,
+     "ref_abs_max": 23890374.0,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      16
+     ],
+     "max_abs": 0.125,
+     "max_rel": 1.899277179973069e-07,
+     "ref_abs_max": 23890374.0,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      16
+     ],
+     "max_abs": 0.0625,
+     "max_rel": 1.266184739279197e-07,
+     "ref_abs_max": 23890374.0,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      16
+     ],
+     "max_abs": 2.0,
+     "max_rel": 2.3722584785446088e-07,
+     "ref_abs_max": 23890372.0,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      16
+     ],
+     "max_abs": 2.0,
+     "max_rel": 1.4069199494315399e-07,
+     "ref_abs_max": 23890372.0,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "seconds": 1.468
+  },
+  {
+   "cell": "p16-L32-i8-N1024",
+   "label": "rich",
+   "funcs": [
+    "+",
+    "-",
+    "*",
+    "/",
+    "max",
+    "min",
+    "<",
+    "sin",
+    "exp",
+    "log",
+    "abs",
+    "sqrt",
+    "loose_div",
+    "loose_inv"
+   ],
+   "pop_size": 16,
+   "trees_compared": 16,
+   "max_tree_len": 32,
+   "rows": 1024,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": false,
+    "should_use_dense_with_rows": false,
+    "would_use_dense": false
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 3178.698486328125,
+     "finite_points": 15729,
+     "nan_points": 655,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.093505859375,
+     "max_rel": 0.0001493301970185712,
+     "ref_abs_max": 3178.698486328125,
+     "finite_points": 15729,
+     "nan_points": 655,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.093505859375,
+     "max_rel": 0.0001493301970185712,
+     "ref_abs_max": 3178.698486328125,
+     "finite_points": 15729,
+     "nan_points": 655,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.093505859375,
+     "max_rel": 0.0001493301970185712,
+     "ref_abs_max": 3178.698486328125,
+     "finite_points": 15729,
+     "nan_points": 655,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.093505859375,
+     "max_rel": 0.0001493301970185712,
+     "ref_abs_max": 3178.698486328125,
+     "finite_points": 15729,
+     "nan_points": 655,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 60.576446533203125,
+     "finite_points": 15,
+     "nan_points": 1,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 2.384185791015625e-07,
+     "max_rel": 8.747959157062724e-08,
+     "ref_abs_max": 60.576446533203125,
+     "finite_points": 15,
+     "nan_points": 1,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 2.384185791015625e-07,
+     "max_rel": 8.747959157062724e-08,
+     "ref_abs_max": 60.576446533203125,
+     "finite_points": 15,
+     "nan_points": 1,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 2.384185791015625e-07,
+     "max_rel": 8.747959157062724e-08,
+     "ref_abs_max": 60.576446533203125,
+     "finite_points": 15,
+     "nan_points": 1,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 2.384185791015625e-07,
+     "max_rel": 8.747959157062724e-08,
+     "ref_abs_max": 60.576446533203125,
+     "finite_points": 15,
+     "nan_points": 1,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      16
+     ],
+     "max_abs": 0.001953125,
+     "max_rel": 1.2908637359032582e-07,
+     "ref_abs_max": 19810.970703125,
+     "finite_points": 15,
+     "nan_points": 1,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      16
+     ],
+     "max_abs": 0.114288330078125,
+     "max_rel": 0.00029046472627669573,
+     "ref_abs_max": 19810.970703125,
+     "finite_points": 15,
+     "nan_points": 1,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      16
+     ],
+     "max_abs": 0.11431884765625,
+     "max_rel": 0.0002905422879848629,
+     "ref_abs_max": 19810.970703125,
+     "finite_points": 15,
+     "nan_points": 1,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      16
+     ],
+     "max_abs": 0.114288330078125,
+     "max_rel": 0.00029046472627669573,
+     "ref_abs_max": 19810.97265625,
+     "finite_points": 15,
+     "nan_points": 1,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      16
+     ],
+     "max_abs": 0.11431884765625,
+     "max_rel": 0.0002905422879848629,
+     "ref_abs_max": 19810.97265625,
+     "finite_points": 15,
+     "nan_points": 1,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "seconds": 0.183
+  },
+  {
+   "cell": "p16-L32-i8-N1024",
+   "label": "ternary",
+   "funcs": [
+    "if",
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "pop_size": 16,
+   "trees_compared": 16,
+   "max_tree_len": 32,
+   "rows": 1024,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": false,
+    "should_use_dense_with_rows": false,
+    "would_use_dense": false
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 5863.88818359375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 5863.88818359375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 5863.88818359375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 5863.88818359375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 5863.88818359375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 136.8855438232422,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 136.8855438232422,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 136.8855438232422,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 136.8855438232422,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      16,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 136.8855438232422,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      16
+     ],
+     "max_abs": 0.0078125,
+     "max_rel": 1.1382042686136629e-07,
+     "ref_abs_max": 89774.9453125,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      16
+     ],
+     "max_abs": 0.0078125,
+     "max_rel": 1.1382042686136629e-07,
+     "ref_abs_max": 89774.9453125,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      16
+     ],
+     "max_abs": 0.0078125,
+     "max_rel": 1.1382042686136629e-07,
+     "ref_abs_max": 89774.9453125,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      16
+     ],
+     "max_abs": 3.814697265625e-06,
+     "max_rel": 9.72910001451055e-08,
+     "ref_abs_max": 89774.9375,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      16
+     ],
+     "max_abs": 3.814697265625e-06,
+     "max_rel": 9.72910001451055e-08,
+     "ref_abs_max": 89774.9375,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "seconds": 0.034
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "label": "arith",
+   "funcs": [
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "pop_size": 256,
+   "trees_compared": 64,
+   "max_tree_len": 64,
+   "rows": 1024,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      64
+     ],
+     "max_abs": 32.0,
+     "max_rel": 3.4326194509048946e-07,
+     "ref_abs_max": 2985255168.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 256.0,
+     "max_rel": 2.2884130146394455e-07,
+     "ref_abs_max": 2985255168.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 256.0,
+     "max_rel": 2.23993936288025e-07,
+     "ref_abs_max": 2985255168.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 256.0,
+     "max_rel": 2.2179300174229866e-07,
+     "ref_abs_max": 2985255168.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 256.0,
+     "max_rel": 2.3706660101652233e-07,
+     "ref_abs_max": 2985255168.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "seconds": 17.851
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "label": "rich",
+   "funcs": [
+    "+",
+    "-",
+    "*",
+    "/",
+    "max",
+    "min",
+    "<",
+    "sin",
+    "exp",
+    "log",
+    "abs",
+    "sqrt",
+    "loose_div",
+    "loose_inv"
+   ],
+   "pop_size": 256,
+   "trees_compared": 64,
+   "max_tree_len": 64,
+   "rows": 1024,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 1.610170602798462,
+     "max_rel": 15.608588218688965,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 59732,
+     "nan_points": 5804,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 1.4177923202514648,
+     "max_rel": 2.3016669750213623,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 59732,
+     "nan_points": 5804,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 1.4177923202514648,
+     "max_rel": 2.3016669750213623,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 59732,
+     "nan_points": 5804,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 1.610170602798462,
+     "max_rel": 5.642573356628418,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 59732,
+     "nan_points": 5804,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 1.610170602798462,
+     "max_rel": 5.642573356628418,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 59732,
+     "nan_points": 5804,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.25,
+     "max_rel": 2.95116620918634e-07,
+     "ref_abs_max": 2927438.5,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.25,
+     "max_rel": 1.6507450709468685e-05,
+     "ref_abs_max": 2927438.5,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.25,
+     "max_rel": 1.6507450709468685e-05,
+     "ref_abs_max": 2927438.5,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0009765625,
+     "max_rel": 1.6507450709468685e-05,
+     "ref_abs_max": 2927438.75,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0009765625,
+     "max_rel": 1.6507450709468685e-05,
+     "ref_abs_max": 2927438.75,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "seconds": 29.716
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "label": "ternary",
+   "funcs": [
+    "if",
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "pop_size": 256,
+   "trees_compared": 64,
+   "max_tree_len": 64,
+   "rows": 1024,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8650.3125,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8650.3125,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8650.3125,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8650.3125,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8650.3125,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.015625,
+     "max_rel": 2.0819722124088003e-07,
+     "ref_abs_max": 75049.03125,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.015625,
+     "max_rel": 2.0819722124088003e-07,
+     "ref_abs_max": 75049.03125,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.015625,
+     "max_rel": 2.0819722124088003e-07,
+     "ref_abs_max": 75049.03125,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.00390625,
+     "max_rel": 2.0563732050504768e-07,
+     "ref_abs_max": 75049.015625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.00390625,
+     "max_rel": 2.0563732050504768e-07,
+     "ref_abs_max": 75049.015625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "seconds": 1.755
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "label": "arith",
+   "funcs": [
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "pop_size": 1000,
+   "trees_compared": 64,
+   "max_tree_len": 64,
+   "rows": 1024,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      64
+     ],
+     "max_abs": 256.0,
+     "max_rel": 2.2884130146394455e-07,
+     "ref_abs_max": 2985255168.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 256.0,
+     "max_rel": 2.2884130146394455e-07,
+     "ref_abs_max": 2985255168.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 256.0,
+     "max_rel": 2.23993936288025e-07,
+     "ref_abs_max": 2985255168.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 2.0,
+     "max_rel": 1.2456838760499522e-07,
+     "ref_abs_max": 2985255424.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 32.0,
+     "max_rel": 1.7563350240834552e-07,
+     "ref_abs_max": 2985255424.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "seconds": 19.696
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "label": "rich",
+   "funcs": [
+    "+",
+    "-",
+    "*",
+    "/",
+    "max",
+    "min",
+    "<",
+    "sin",
+    "exp",
+    "log",
+    "abs",
+    "sqrt",
+    "loose_div",
+    "loose_inv"
+   ],
+   "pop_size": 1000,
+   "trees_compared": 64,
+   "max_tree_len": 64,
+   "rows": 1024,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 1.610170602798462,
+     "max_rel": 15.608588218688965,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 59732,
+     "nan_points": 5804,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 1.4177923202514648,
+     "max_rel": 2.3016669750213623,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 59732,
+     "nan_points": 5804,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 1.4177923202514648,
+     "max_rel": 2.3016669750213623,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 59732,
+     "nan_points": 5804,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 1.610170602798462,
+     "max_rel": 5.642573356628418,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 59732,
+     "nan_points": 5804,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 1.610170602798462,
+     "max_rel": 5.642573356628418,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 59732,
+     "nan_points": 5804,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.25,
+     "max_rel": 1.7723962741911237e-07,
+     "ref_abs_max": 2927438.5,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.25,
+     "max_rel": 1.6507450709468685e-05,
+     "ref_abs_max": 2927438.5,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.25,
+     "max_rel": 1.6507450709468685e-05,
+     "ref_abs_max": 2927438.5,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0003662109375,
+     "max_rel": 1.6416250218753703e-05,
+     "ref_abs_max": 2927438.75,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0003662109375,
+     "max_rel": 1.6416250218753703e-05,
+     "ref_abs_max": 2927438.75,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "seconds": 30.218
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "label": "ternary",
+   "funcs": [
+    "if",
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "pop_size": 1000,
+   "trees_compared": 64,
+   "max_tree_len": 64,
+   "rows": 1024,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8650.3125,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8650.3125,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8650.3125,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8650.3125,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8650.3125,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0078125,
+     "max_rel": 1.8917158683962043e-07,
+     "ref_abs_max": 75049.03125,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.015625,
+     "max_rel": 2.0819722124088003e-07,
+     "ref_abs_max": 75049.03125,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.015625,
+     "max_rel": 2.0819722124088003e-07,
+     "ref_abs_max": 75049.03125,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0078125,
+     "max_rel": 1.1424534562820554e-07,
+     "ref_abs_max": 75049.0234375,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0078125,
+     "max_rel": 1.3076164862013684e-07,
+     "ref_abs_max": 75049.0234375,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "seconds": 1.892
+  },
+  {
+   "cell": "p256-L64-i32-N64",
+   "label": "arith",
+   "funcs": [
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "pop_size": 256,
+   "trees_compared": 64,
+   "max_tree_len": 64,
+   "rows": 64,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 227145.34375,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 227145.34375,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 227145.34375,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 227145.34375,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 227145.34375,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 485.0377197265625,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      64
+     ],
+     "max_abs": 64.0,
+     "max_rel": 1.605563539897048e-07,
+     "ref_abs_max": 1054011520.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 64.0,
+     "max_rel": 1.605563539897048e-07,
+     "ref_abs_max": 1054011520.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 64.0,
+     "max_rel": 1.605563539897048e-07,
+     "ref_abs_max": 1054011520.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1054011456.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1054011456.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "seconds": 12.831
+  },
+  {
+   "cell": "p256-L64-i32-N64",
+   "label": "rich",
+   "funcs": [
+    "+",
+    "-",
+    "*",
+    "/",
+    "max",
+    "min",
+    "<",
+    "sin",
+    "exp",
+    "log",
+    "abs",
+    "sqrt",
+    "loose_div",
+    "loose_inv"
+   ],
+   "pop_size": 256,
+   "trees_compared": 64,
+   "max_tree_len": 64,
+   "rows": 64,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.43694353103637695,
+     "max_rel": 0.6398064494132996,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 3727,
+     "nan_points": 369,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 5.245208740234375e-06,
+     "max_rel": 6.35776905255625e-06,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 3727,
+     "nan_points": 369,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 5.245208740234375e-06,
+     "max_rel": 6.35776905255625e-06,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 3727,
+     "nan_points": 369,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.43694353103637695,
+     "max_rel": 1.7762850522994995,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 3727,
+     "nan_points": 369,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.43694353103637695,
+     "max_rel": 1.7762850522994995,
+     "ref_abs_max": 1000000000.0,
+     "finite_points": 3727,
+     "nan_points": 369,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 2.9802322387695312e-08,
+     "max_rel": 8.104147042331533e-08,
+     "ref_abs_max": 17.07732582092285,
+     "finite_points": 58,
+     "nan_points": 6,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      64
+     ],
+     "max_abs": 1.52587890625e-05,
+     "max_rel": 1.9336823697813088e-07,
+     "ref_abs_max": 8984.509765625,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 1.52587890625e-05,
+     "max_rel": 1.5961337567205192e-06,
+     "ref_abs_max": 8984.509765625,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 1.52587890625e-05,
+     "max_rel": 1.5961337567205192e-06,
+     "ref_abs_max": 8984.509765625,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 9.5367431640625e-07,
+     "max_rel": 1.4821242757534492e-06,
+     "ref_abs_max": 8984.509765625,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 9.5367431640625e-07,
+     "max_rel": 1.4821242757534492e-06,
+     "ref_abs_max": 8984.509765625,
+     "finite_points": 56,
+     "nan_points": 8,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "seconds": 19.851
+  },
+  {
+   "cell": "p256-L64-i32-N64",
+   "label": "ternary",
+   "funcs": [
+    "if",
+    "+",
+    "-",
+    "*",
+    "/"
+   ],
+   "pop_size": 256,
+   "trees_compared": 64,
+   "max_tree_len": 64,
+   "rows": 64,
+   "output_len": 1,
+   "route": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   },
+   "setup_ms": {
+    "per-tree": null,
+    "batched": null
+   },
+   "checks": {
+    "vs-oracle-batch_forward:engine": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 3284.57763671875,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:per-tree": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 3284.57763671875,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-batch_forward:batched": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 3284.57763671875,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:per-tree": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 3284.57763671875,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-batch_forward:batched": {
+     "shape": [
+      64,
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 3284.57763671875,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:engine": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:per-tree": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-forward:batched": {
+     "shape": [
+      64,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 194.22047424316406,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-oracle-sr_fitness:engine": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.001953125,
+     "max_rel": 2.3077222977008205e-07,
+     "ref_abs_max": 172453.171875,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.001953125,
+     "max_rel": 2.3077222977008205e-07,
+     "ref_abs_max": 172453.171875,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-oracle-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.001953125,
+     "max_rel": 2.3077222977008205e-07,
+     "ref_abs_max": 172453.171875,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "vs-engine-sr_fitness:per-tree": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 172453.171875,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "vs-engine-sr_fitness:batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 172453.171875,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "seconds": 0.164
+  }
+ ]
+}

@@ -1,0 +1,901 @@
+{
+ "schema": "evogp-bench-evoxc-v1-decompose",
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-28T10:30:00Z",
+  "tree_root": "/tmp/evogp_preopt",
+  "tree_root_sha": null,
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A50",
+  "arm": "decompose",
+  "python": "3.14.8",
+  "python_executable": "/tmp/genesis/task_967a300e3bce7f35/evogp-venv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "855050d7750133b11d94639754637b090d304acd",
+  "evogp_file": "/tmp/evogp_preopt/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.1.0",
+  "note": "",
+  "protocol": {
+   "warmup": 2,
+   "reps": 5,
+   "method": "module-level inclusive perf_counter_ns phase timers + seam counters",
+   "cold_call_excluded": true
+  }
+ },
+ "cell": {
+  "id": "p256-L64-i32-N1024",
+  "pop": 256,
+  "tree_len": 64,
+  "input_len": 32,
+  "rows": 1024
+ },
+ "entries": [
+  {
+   "route": "specialized-numpy",
+   "family": "specialized",
+   "workload": "sr_fitness",
+   "cold_ms": 835.578,
+   "cold_compile_misses": 218,
+   "plain_ms": {
+    "median": 37.109,
+    "min": 36.647,
+    "samples": [
+     36.647,
+     36.866,
+     37.109,
+     37.505,
+     38.218
+    ]
+   },
+   "instrumented_ms": {
+    "median": 39.298,
+    "samples": [
+     38.675,
+     39.298,
+     38.806,
+     39.61
+    ]
+   },
+   "phases": [
+    {
+     "phase": "_require_population",
+     "calls": 1,
+     "us": 0.188,
+     "percent": 0.0
+    },
+    {
+     "phase": "_input_to_numpy",
+     "calls": 1,
+     "us": 9.37,
+     "percent": 0.1
+    },
+    {
+     "phase": "_as_numpy",
+     "calls": 5,
+     "us": 34.635,
+     "percent": 0.4
+    },
+    {
+     "phase": "_evaluate_rows",
+     "calls": 1,
+     "us": 7601.767,
+     "percent": 91.5
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": 33899.844,
+     "percent": 81.6
+    },
+    {
+     "phase": "  ._executable (nested)",
+     "calls": 224,
+     "us": 206.21,
+     "percent": 2.5
+    },
+    {
+     "phase": "  ._run_tree (nested)",
+     "calls": 224,
+     "us": 7500.255,
+     "percent": 90.3
+    },
+    {
+     "phase": "  .decode_population (nested)",
+     "calls": 1,
+     "us": 610.126,
+     "percent": 7.3
+    },
+    {
+     "phase": "  .sr_fitness (nested)",
+     "calls": 1,
+     "us": 7668.735,
+     "percent": 92.3
+    }
+   ],
+   "counters_per_call": {
+    "run": 224,
+    "numpy": 5697
+   },
+   "cache_after": {
+    "hits": 0,
+    "misses": 218,
+    "memo_hits": 2694,
+    "memo_misses": 218
+   },
+   "structures": null,
+   "cell": "p256-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": "specialized",
+    "EVOGP_EVOXC_BACKEND": "numpy"
+   },
+   "route_resolved": {
+    "eval_mode": "specialized",
+    "backend": "numpy",
+    "should_use_dense_pop_only": false,
+    "should_use_dense_with_rows": false,
+    "would_use_dense": false
+   }
+  },
+  {
+   "route": "specialized-numpy",
+   "family": "specialized",
+   "workload": "forward",
+   "cold_ms": 782.778,
+   "cold_compile_misses": 218,
+   "plain_ms": {
+    "median": 35.172,
+    "min": 33.434,
+    "samples": [
+     33.434,
+     35.018,
+     35.172,
+     35.39,
+     35.833
+    ]
+   },
+   "instrumented_ms": {
+    "median": 36.823,
+    "samples": [
+     36.878,
+     36.823,
+     35.589,
+     36.353
+    ]
+   },
+   "phases": [
+    {
+     "phase": "_require_population",
+     "calls": 1,
+     "us": 0.856,
+     "percent": 0.0
+    },
+    {
+     "phase": "_input_to_numpy",
+     "calls": 1,
+     "us": 36.476,
+     "percent": 0.1
+    },
+    {
+     "phase": "_evaluate_rows",
+     "calls": 1,
+     "us": 36125.251,
+     "percent": 91.9
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": 3164.339,
+     "percent": 8.0
+    },
+    {
+     "phase": "  ._as_numpy (nested)",
+     "calls": 4,
+     "us": 122.342,
+     "percent": 0.3
+    },
+    {
+     "phase": "  ._executable (nested)",
+     "calls": 224,
+     "us": 1034.545,
+     "percent": 2.6
+    },
+    {
+     "phase": "  ._run_tree (nested)",
+     "calls": 224,
+     "us": 35649.984,
+     "percent": 90.7
+    },
+    {
+     "phase": "  .decode_population (nested)",
+     "calls": 1,
+     "us": 2929.159,
+     "percent": 7.4
+    },
+    {
+     "phase": "  .evaluate (nested)",
+     "calls": 1,
+     "us": 36260.619,
+     "percent": 92.2
+    }
+   ],
+   "counters_per_call": {
+    "run": 224,
+    "numpy": 5697
+   },
+   "cache_after": {
+    "hits": 0,
+    "misses": 218,
+    "memo_hits": 2694,
+    "memo_misses": 218
+   },
+   "structures": null,
+   "cell": "p256-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": "specialized",
+    "EVOGP_EVOXC_BACKEND": "numpy"
+   },
+   "route_resolved": {
+    "eval_mode": "specialized",
+    "backend": "numpy",
+    "should_use_dense_pop_only": false,
+    "should_use_dense_with_rows": false,
+    "would_use_dense": false
+   }
+  },
+  {
+   "route": "specialized-iree",
+   "family": "specialized",
+   "workload": "sr_fitness",
+   "cold_ms": 60779.103,
+   "cold_compile_misses": 218,
+   "plain_ms": {
+    "median": 65.957,
+    "min": 65.012,
+    "samples": [
+     65.012,
+     65.152,
+     65.957,
+     66.331,
+     67.008
+    ]
+   },
+   "instrumented_ms": {
+    "median": 67.664,
+    "samples": [
+     67.862,
+     65.943,
+     67.287,
+     67.664
+    ]
+   },
+   "phases": [
+    {
+     "phase": "_require_population",
+     "calls": 1,
+     "us": 0.18,
+     "percent": 0.0
+    },
+    {
+     "phase": "_input_to_numpy",
+     "calls": 1,
+     "us": 11.241,
+     "percent": 0.1
+    },
+    {
+     "phase": "_as_numpy",
+     "calls": 5,
+     "us": 47.691,
+     "percent": 0.4
+    },
+    {
+     "phase": "_evaluate_rows",
+     "calls": 1,
+     "us": 12162.296,
+     "percent": 92.1
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": 53838.672,
+     "percent": 81.5
+    },
+    {
+     "phase": "  ._executable (nested)",
+     "calls": 224,
+     "us": 288.308,
+     "percent": 2.2
+    },
+    {
+     "phase": "  ._run_tree (nested)",
+     "calls": 224,
+     "us": 12007.821,
+     "percent": 90.9
+    },
+    {
+     "phase": "  .decode_population (nested)",
+     "calls": 1,
+     "us": 619.531,
+     "percent": 4.7
+    },
+    {
+     "phase": "  .sr_fitness (nested)",
+     "calls": 1,
+     "us": 12254.854,
+     "percent": 92.8
+    }
+   ],
+   "counters_per_call": {
+    "from_numpy": 1,
+    "to": 225,
+    "numpy": 225,
+    "run": 224
+   },
+   "cache_after": {
+    "hits": 0,
+    "misses": 218,
+    "memo_hits": 2694,
+    "memo_misses": 218
+   },
+   "structures": null,
+   "cell": "p256-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": "specialized",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "route_resolved": {
+    "eval_mode": "specialized",
+    "backend": "iree",
+    "should_use_dense_pop_only": false,
+    "should_use_dense_with_rows": false,
+    "would_use_dense": false
+   }
+  },
+  {
+   "route": "specialized-iree",
+   "family": "specialized",
+   "workload": "forward",
+   "cold_ms": 60324.756,
+   "cold_compile_misses": 218,
+   "plain_ms": {
+    "median": 127.73,
+    "min": 127.609,
+    "samples": [
+     127.609,
+     127.648,
+     127.73,
+     127.764,
+     131.064
+    ]
+   },
+   "instrumented_ms": {
+    "median": 130.811,
+    "samples": [
+     129.94,
+     132.008,
+     129.549,
+     130.811
+    ]
+   },
+   "phases": [
+    {
+     "phase": "_require_population",
+     "calls": 1,
+     "us": 0.944,
+     "percent": 0.0
+    },
+    {
+     "phase": "_input_to_numpy",
+     "calls": 1,
+     "us": 79.93,
+     "percent": 0.1
+    },
+    {
+     "phase": "_evaluate_rows",
+     "calls": 1,
+     "us": 125420.461,
+     "percent": 95.9
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": 5264.91,
+     "percent": 4.0
+    },
+    {
+     "phase": "  ._as_numpy (nested)",
+     "calls": 4,
+     "us": 368.913,
+     "percent": 0.3
+    },
+    {
+     "phase": "  ._executable (nested)",
+     "calls": 224,
+     "us": 1721.08,
+     "percent": 1.3
+    },
+    {
+     "phase": "  ._run_tree (nested)",
+     "calls": 224,
+     "us": 124461.892,
+     "percent": 95.2
+    },
+    {
+     "phase": "  .decode_population (nested)",
+     "calls": 1,
+     "us": 3308.526,
+     "percent": 2.5
+    },
+    {
+     "phase": "  .evaluate (nested)",
+     "calls": 1,
+     "us": 125729.206,
+     "percent": 96.1
+    }
+   ],
+   "counters_per_call": {
+    "from_numpy": 224,
+    "to": 448,
+    "numpy": 448,
+    "run": 224
+   },
+   "cache_after": {
+    "hits": 0,
+    "misses": 218,
+    "memo_hits": 2694,
+    "memo_misses": 218
+   },
+   "structures": null,
+   "cell": "p256-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": "specialized",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "route_resolved": {
+    "eval_mode": "specialized",
+    "backend": "iree",
+    "should_use_dense_pop_only": false,
+    "should_use_dense_with_rows": false,
+    "would_use_dense": false
+   }
+  },
+  {
+   "route": "dense-iree",
+   "family": "dense",
+   "workload": "sr_fitness",
+   "cold_ms": 6459.941,
+   "cold_compile_misses": 1,
+   "plain_ms": {
+    "median": 5.203,
+    "min": 5.132,
+    "samples": [
+     5.132,
+     5.16,
+     5.203,
+     5.247,
+     5.267
+    ]
+   },
+   "instrumented_ms": {
+    "median": 5.262,
+    "samples": [
+     5.155,
+     5.292,
+     5.262,
+     5.176
+    ]
+   },
+   "phases": [
+    {
+     "phase": "prepare_dense",
+     "calls": 1,
+     "us": 1233.259,
+     "percent": 23.8
+    },
+    {
+     "phase": "plan_dense",
+     "calls": 1,
+     "us": 1272.325,
+     "percent": 24.5
+    },
+    {
+     "phase": "build_dense",
+     "calls": 1,
+     "us": 246.196,
+     "percent": 4.7
+    },
+    {
+     "phase": "run_loss_plan",
+     "calls": 1,
+     "us": 3050.476,
+     "percent": 58.8
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": -615.088,
+     "percent": -11.9
+    },
+    {
+     "phase": "  ._decode_columns (nested)",
+     "calls": 1,
+     "us": 869.994,
+     "percent": 16.8
+    },
+    {
+     "phase": "  ._pad_rows (nested)",
+     "calls": 9,
+     "us": 9.486,
+     "percent": 0.2
+    },
+    {
+     "phase": "  ._to_host (nested)",
+     "calls": 1,
+     "us": 188.218,
+     "percent": 3.6
+    },
+    {
+     "phase": "  .sr_fitness_dense (nested)",
+     "calls": 1,
+     "us": 5022.324,
+     "percent": 96.8
+    }
+   ],
+   "counters_per_call": {
+    "from_numpy": 10,
+    "to": 11,
+    "numpy": 11,
+    "run": 1
+   },
+   "cache_after": {
+    "hits": 12,
+    "misses": 1,
+    "memo_hits": 0,
+    "memo_misses": 0
+   },
+   "structures": null,
+   "cell": "p256-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": "dense",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "route_resolved": {
+    "eval_mode": "dense",
+    "backend": "iree",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   }
+  },
+  {
+   "route": "dense-iree",
+   "family": "dense",
+   "workload": "forward",
+   "cold_ms": 4928.183,
+   "cold_compile_misses": 1,
+   "plain_ms": {
+    "median": 3.734,
+    "min": 3.719,
+    "samples": [
+     3.719,
+     3.731,
+     3.734,
+     3.835,
+     3.841
+    ]
+   },
+   "instrumented_ms": {
+    "median": 3.88,
+    "samples": [
+     3.88,
+     3.893,
+     3.834,
+     3.874
+    ]
+   },
+   "phases": [
+    {
+     "phase": "prepare_dense",
+     "calls": 1,
+     "us": 1291.828,
+     "percent": 32.7
+    },
+    {
+     "phase": "plan_dense",
+     "calls": 1,
+     "us": 1328.519,
+     "percent": 33.6
+    },
+    {
+     "phase": "build_dense",
+     "calls": 1,
+     "us": 224.31,
+     "percent": 5.7
+    },
+    {
+     "phase": "run_plan",
+     "calls": 1,
+     "us": 1818.149,
+     "percent": 46.0
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": -712.69,
+     "percent": -18.0
+    },
+    {
+     "phase": "  ._decode_columns (nested)",
+     "calls": 1,
+     "us": 863.854,
+     "percent": 21.9
+    },
+    {
+     "phase": "  ._pad_rows (nested)",
+     "calls": 8,
+     "us": 7.96,
+     "percent": 0.2
+    },
+    {
+     "phase": "  ._to_host (nested)",
+     "calls": 1,
+     "us": 215.638,
+     "percent": 5.5
+    },
+    {
+     "phase": "  .evaluate_dense (nested)",
+     "calls": 1,
+     "us": 3765.964,
+     "percent": 95.3
+    }
+   ],
+   "counters_per_call": {
+    "from_numpy": 8,
+    "to": 9,
+    "numpy": 9,
+    "run": 1
+   },
+   "cache_after": {
+    "hits": 12,
+    "misses": 1,
+    "memo_hits": 0,
+    "memo_misses": 0
+   },
+   "structures": null,
+   "cell": "p256-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": "dense",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "route_resolved": {
+    "eval_mode": "dense",
+    "backend": "iree",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   }
+  },
+  {
+   "route": "auto",
+   "family": "specialized",
+   "workload": "sr_fitness",
+   "cold_ms": 43.942,
+   "cold_compile_misses": 0,
+   "plain_ms": {
+    "median": 37.689,
+    "min": 35.959,
+    "samples": [
+     35.959,
+     36.352,
+     37.689,
+     38.119,
+     38.693
+    ]
+   },
+   "instrumented_ms": {
+    "median": 41.895,
+    "samples": [
+     43.589,
+     41.895,
+     39.582,
+     38.594
+    ]
+   },
+   "phases": [
+    {
+     "phase": "_require_population",
+     "calls": 1,
+     "us": 0.204,
+     "percent": 0.0
+    },
+    {
+     "phase": "_input_to_numpy",
+     "calls": 1,
+     "us": 14.443,
+     "percent": 0.2
+    },
+    {
+     "phase": "_as_numpy",
+     "calls": 5,
+     "us": 54.508,
+     "percent": 0.7
+    },
+    {
+     "phase": "_evaluate_rows",
+     "calls": 1,
+     "us": 7143.346,
+     "percent": 91.4
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": 31849.124,
+     "percent": 81.5
+    },
+    {
+     "phase": "  ._executable (nested)",
+     "calls": 224,
+     "us": 197.364,
+     "percent": 2.5
+    },
+    {
+     "phase": "  ._run_tree (nested)",
+     "calls": 224,
+     "us": 7047.384,
+     "percent": 90.2
+    },
+    {
+     "phase": "  .decode_population (nested)",
+     "calls": 1,
+     "us": 540.166,
+     "percent": 6.9
+    },
+    {
+     "phase": "  .sr_fitness (nested)",
+     "calls": 1,
+     "us": 7223.935,
+     "percent": 92.5
+    }
+   ],
+   "counters_per_call": {
+    "run": 224,
+    "numpy": 5697
+   },
+   "cache_after": {
+    "hits": 0,
+    "misses": 0,
+    "memo_hits": 2912,
+    "memo_misses": 0
+   },
+   "structures": null,
+   "cell": "p256-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": null,
+    "EVOGP_EVOXC_BACKEND": null
+   },
+   "route_resolved": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": false,
+    "should_use_dense_with_rows": false,
+    "would_use_dense": false
+   }
+  },
+  {
+   "route": "auto",
+   "family": "specialized",
+   "workload": "forward",
+   "cold_ms": 37.66,
+   "cold_compile_misses": 0,
+   "plain_ms": {
+    "median": 34.492,
+    "min": 32.821,
+    "samples": [
+     32.821,
+     33.223,
+     34.492,
+     34.516,
+     35.029
+    ]
+   },
+   "instrumented_ms": {
+    "median": 38.368,
+    "samples": [
+     37.571,
+     41.644,
+     38.368,
+     36.666
+    ]
+   },
+   "phases": [
+    {
+     "phase": "_require_population",
+     "calls": 1,
+     "us": 0.964,
+     "percent": 0.0
+    },
+    {
+     "phase": "_input_to_numpy",
+     "calls": 1,
+     "us": 68.641,
+     "percent": 0.2
+    },
+    {
+     "phase": "_evaluate_rows",
+     "calls": 1,
+     "us": 35063.121,
+     "percent": 91.0
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": 3403.949,
+     "percent": 8.8
+    },
+    {
+     "phase": "  ._as_numpy (nested)",
+     "calls": 4,
+     "us": 228.917,
+     "percent": 0.6
+    },
+    {
+     "phase": "  ._executable (nested)",
+     "calls": 224,
+     "us": 1000.962,
+     "percent": 2.6
+    },
+    {
+     "phase": "  ._run_tree (nested)",
+     "calls": 224,
+     "us": 34595.254,
+     "percent": 89.8
+    },
+    {
+     "phase": "  .decode_population (nested)",
+     "calls": 1,
+     "us": 2998.042,
+     "percent": 7.8
+    },
+    {
+     "phase": "  .evaluate (nested)",
+     "calls": 1,
+     "us": 35295.522,
+     "percent": 91.6
+    }
+   ],
+   "counters_per_call": {
+    "run": 224,
+    "numpy": 5697
+   },
+   "cache_after": {
+    "hits": 0,
+    "misses": 0,
+    "memo_hits": 2912,
+    "memo_misses": 0
+   },
+   "structures": null,
+   "cell": "p256-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": null,
+    "EVOGP_EVOXC_BACKEND": null
+   },
+   "route_resolved": {
+    "eval_mode": "auto",
+    "backend": "numpy",
+    "should_use_dense_pop_only": false,
+    "should_use_dense_with_rows": false,
+    "would_use_dense": false
+   }
+  }
+ ]
+}

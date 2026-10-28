@@ -1,0 +1,183 @@
+{
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-28T11:02:28Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A50/src",
+  "tree_root_sha": "761ef05ce87d456c364cbb706fa234d9b184ecdd",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A50",
+  "arm": "cold-start",
+  "python": "3.14.8",
+  "python_executable": "/tmp/genesis/task_967a300e3bce7f35/evogp-venv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "855050d7750133b11d94639754637b090d304acd",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A50/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.1.0",
+  "applied_knobs": {
+   "eval_mode": null,
+   "backend": null
+  },
+  "cell": {
+   "id": "p16-L64-i32-N1024",
+   "pop": 16,
+   "tree_len": 64,
+   "input_len": 32,
+   "rows": 1024
+  },
+  "phase": "auto",
+  "artifact_dir": null
+ },
+ "cell": {
+  "id": "p16-L64-i32-N1024",
+  "pop": 16,
+  "tree_len": 64,
+  "input_len": 32,
+  "rows": 1024
+ },
+ "measurement": "cold-start",
+ "phase": "auto",
+ "protocol": {
+  "one_process_per_population": true,
+  "route": "default (EVOGP_EVAL_MODE / EVOGP_EVOXC_BACKEND unset)",
+  "t0": "module import (cold_start.py top level)",
+  "repeat": 1,
+  "repeats_share_the_process_cache": true,
+  "seed": 0,
+  "sync_bracketed": true,
+  "workload": "sr_fitness"
+ },
+ "wall_to_first_fitness_ms": 7733.5195,
+ "breakdown": {
+  "import_ms": 6912.6872,
+  "workload_build_ms": 739.2665,
+  "first_call_ms": 81.5113,
+  "other_ms": 0.0545
+ },
+ "runs": [
+  {
+   "index": 1,
+   "cold": true,
+   "first_call_ms": 81.5113,
+   "wall_to_first_fitness_ms": 7733.5195,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 13,
+     "entries": 13,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 13,
+     "memo_entries": 13,
+     "memo_maxsize": 4096
+    },
+    "compile_misses": 13
+   },
+   "artifact": {
+    "artifact_enabled": 0,
+    "artifact_files": 0,
+    "artifact_hits": 0,
+    "artifact_misses": 0,
+    "artifact_load_failures": 0,
+    "artifact_stores": 0,
+    "artifact_save_failures": 0
+   },
+   "loss_digest": {
+    "shape": [
+     16
+    ],
+    "sha256": "dacc5ee34b1a8a7fc63794733232cb35",
+    "finite": 16,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 516695535.73391575
+   }
+  }
+ ],
+ "cache": {
+  "before": {
+   "hits": 0,
+   "misses": 0,
+   "entries": 0,
+   "maxsize": 4096,
+   "memo_hits": 0,
+   "memo_misses": 0,
+   "memo_entries": 0,
+   "memo_maxsize": 4096
+  },
+  "after_first_call": {
+   "hits": 0,
+   "misses": 13,
+   "entries": 13,
+   "maxsize": 4096,
+   "memo_hits": 0,
+   "memo_misses": 13,
+   "memo_entries": 13,
+   "memo_maxsize": 4096
+  },
+  "after": {
+   "hits": 0,
+   "misses": 13,
+   "entries": 13,
+   "maxsize": 4096,
+   "memo_hits": 0,
+   "memo_misses": 13,
+   "memo_entries": 13,
+   "memo_maxsize": 4096
+  },
+  "compile_misses_first_call": 13,
+  "compile_misses_total": 13
+ },
+ "routes": {
+  "sr_fitness": {
+   "eval_mode": "auto",
+   "backend": "numpy",
+   "should_use_dense_pop_only": false,
+   "should_use_dense_with_rows": false,
+   "would_use_dense": false
+  }
+ },
+ "dense_policy": {
+  "auto_min_pop": 64,
+  "auto_max_rows": 2048
+ },
+ "notes": [
+  "the DEFAULT route is measured: EVOGP_EVAL_MODE / EVOGP_EVOXC_BACKEND are cleared in this process (inherited values were {'EVOGP_EVAL_MODE': None, 'EVOGP_EVOXC_BACKEND': None}), so an inherited route cannot leak into a cold number",
+  "the CUDA context is created during workload construction (the data tensors are built on the device), so first_call_ms excludes context creation while wall_to_first_fitness_ms includes it",
+  "wall_to_first_fitness_ms starts at this module's first line; interpreter start-up before it is not visible from inside the process"
+ ],
+ "structures": {
+  "pop_size": 16,
+  "max_tree_len": 64,
+  "tree_len_mean": 15.25,
+  "tree_len_median": 16.0,
+  "tree_len_max": 29,
+  "distinct_structures": 16
+ },
+ "artifact_cache": {
+  "feature": "present",
+  "enabled": false,
+  "reason": "no --artifact-dir (EVOGP_EVOXC_ARTIFACT_DIR unset)"
+ }
+}
