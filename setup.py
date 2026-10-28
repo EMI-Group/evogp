@@ -9,8 +9,8 @@ setup(
     author="Zhihong Wu, Lishuang Wang, Kebin Sun",
     author_email="zhihong2718@gmail.com",
     description=(
-        "Evolutionary Genetic Programming in pure Python, running on ETL "
-        "(EvoX Tensor Library) with optional compiled ETL backends."
+        "Evolutionary Genetic Programming in pure Python, running on evoxc "
+        "(EvoX Compiler) with optional compiled evoxc backends."
     ),
     long_description=long_description,
     long_description_content_type="text/markdown",

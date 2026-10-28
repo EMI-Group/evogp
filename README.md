@@ -23,7 +23,7 @@
 
 
 <p align="center">
-🌟 EvoGP: Tensor-native Tree-based Genetic Programming, JIT-compiled through ETL 🌟
+🌟 EvoGP: Tensor-native Tree-based Genetic Programming, JIT-compiled through EvoX Compiler 🌟
 </p>
 
 <p align="center">
@@ -55,21 +55,21 @@
 ## Introduction
 
 EvoGP is a **tensor-native** Tree-based Genetic Programming (TGP) framework built on PyTorch and driven by
-**ETL** (the EvoX Tensor Library). An individual is just a few ordinary tensors — a population is three parallel
+**EvoX Compiler** (`evoxc`). An individual is just a few ordinary tensors — a population is three parallel
 `[pop_size, max_tree_len]` matrices holding prefix-encoded trees — so random tree generation, crossover and mutation
 are plain vectorized torch operations, and a whole generation moves through the GPU as one batch.
 
-Evaluation is a **"true jit"**. `evogp.tree.etl_engine` walks a population host-side into frozen, per-tree *static
-programs*, specializes each program into a fresh ETL graph through `etl.build_cached`, and memoizes the compiled
-executable in one shared `etl.CompileCache` keyed by *(tree structure, input shape, backend, device, options)*.
+Evaluation is a **"true jit"**. `evogp.tree.evoxc_engine` walks a population host-side into frozen, per-tree *static
+programs*, specializes each program into a fresh evoxc graph through `evoxc.build_cached`, and memoizes the compiled
+executable in one shared `evoxc.CompileCache` keyed by *(tree structure, input shape, backend, device, options)*.
 A structure is therefore compiled **once** and re-evaluated as a cache hit: elites, duplicated individuals and the
 same population in the next generation never pay the compile cost twice.
 No in-graph dispatch, no recursion — the tree *is* the graph.
 
-There are **no custom CUDA/HIP kernels and no build step**: EvoGP is pure Python on top of `torch` and `etl`.
+There are **no custom CUDA/HIP kernels and no build step**: EvoGP is pure Python on top of `torch` and `evoxc`.
 `pip install .` compiles nothing, `import evogp.tree` works straight from a checkout (`src/` on the import path), and
-the only engine requirement is that `etl` is importable. Out of the box evaluation runs on ETL's CPU reference
-interpreter (the `numpy` backend); compiled IREE backends (CUDA execution) are opt-in — see
+the only engine requirement is that `evoxc` is importable. Out of the box evaluation runs on evoxc's CPU reference
+interpreter (the `numpy` backend); compiled IREE backends (GPU execution) are opt-in — see
 [Evaluation Backends & Performance](#evaluation-backends--performance).
 
 EvoGP supports multi-output trees and ships task layers for symbolic regression, classification, feature
@@ -79,10 +79,10 @@ EvoGP is a sister project of <a href="https://github.com/EMI-Group/evox">EvoX</a
 
 ## Key Features
 
-- **"True jit" evaluation through ETL**:
+- **"True jit" evaluation through evoxc**:
 
-    - Every tree structure is decoded host-side into an int-only static program, compiled once into an ETL graph and cached per structure — so the population-scale cost is dominated by *new* structures, not by generations.
-    - The same program runs on any ETL backend: the CPU reference interpreter (`numpy`, default) or a compiled backend (IREE), chosen per process with environment variables or per call.
+    - Every tree structure is decoded host-side into an int-only static program, compiled once into an evoxc graph and cached per structure — so the population-scale cost is dominated by *new* structures, not by generations.
+    - The same program runs on any evoxc backend: the CPU reference interpreter (`numpy`, default) or a compiled backend (IREE), chosen per process with environment variables or per call.
 
 - **Tensor-native GP loop**:
 
@@ -109,13 +109,13 @@ EvoGP is a sister project of <a href="https://github.com/EMI-Group/evox">EvoX</a
 **Requirements:** Python >= 3.11, plus PyTorch (`torch`, `numpy`, `scikit_learn`, `networkx`, `sympy` are installed as dependencies).
 A **CUDA Toolkit / ROCm / C++ compiler is not required** — nothing is compiled, at install time or at run time.
 
-### 1. Install ETL (EvoX Tensor Library)
+### 1. Install EvoX Compiler (`evoxc`)
 
-ETL is EvoGP's evaluation engine. It is a sibling project and deliberately **not** a PyPI dependency of EvoGP
+`evoxc` is EvoGP's evaluation engine. It is a sibling project and deliberately **not** a PyPI dependency of EvoGP
 (see the comments in `requirements.txt`), so install it from its source checkout:
 
 ```bash
-pip install /path/to/etl      # or: pip install -e /path/to/etl
+pip install /path/to/evoxc      # or: pip install -e /path/to/evoxc
 ```
 
 ### 2. Install EvoGP
@@ -255,9 +255,9 @@ print(algorithm.pareto_front)
 best.to_png("./imgs/xor_tree.png")
 ```
 
-Every structure encountered during the run is compiled once and then served from the ETL compile cache, so
+Every structure encountered during the run is compiled once and then served from the evoxc compile cache, so
 `best.forward(...)` after `pipeline.run()` is a cache hit for the structure/shape combination the run already built
-(`EVOGP_ETL_CACHE_SIZE` defaults to 4096 entries, one per *(structure, shape, backend, device, options)*).
+(`EVOGP_EVOXC_CACHE_SIZE` defaults to 4096 entries, one per *(structure, shape, backend, device, options)*).
 
 The complete, runnable script is [`example/basic.py`](example/basic.py) (it leaves the `to_png` call commented out so
 that it writes nothing to disk); more end-to-end scripts live in [`example/`](example).
@@ -269,7 +269,7 @@ The demo is a wiring example, not a tuned search: the XOR-3d target is a hard on
 **Note on devices:** the tensor representation, the algorithm layer and the problem layer create their tensors on
 `"cuda"` (the same string also selects AMD GPUs under ROCm) and tensors are relocated there on use, so an end-to-end
 run expects a CUDA-visible device — even though the default evaluation backend computes on the CPU. Only the
-evaluation engine itself (`evogp.tree.etl_engine`) is device-agnostic: it accepts population/input tensors from any
+evaluation engine itself (`evogp.tree.evoxc_engine`) is device-agnostic: it accepts population/input tensors from any
 device and returns results on the input's device.
 
 ## Evaluation Backends & Performance
@@ -279,12 +279,12 @@ takes to build.
 
 | Backend | Enabled by | Runs on | Build cost per tree structure | Run cost |
 |---|---|---|---|---|
-| `numpy` (default) | nothing to do (explicitly: `EVOGP_ETL_BACKEND=numpy`) | CPU, ETL's reference interpreter | ~1–10 ms | ~0.5 ms per tree (N=100–1000, ~30–43-node trees) |
-| `iree` (opt-in, experimental) | `pip install "evogp[iree]"` and `EVOGP_ETL_BACKEND=iree` | a CUDA device through IREE's CUDA HAL | ~0.4 s (up to ~0.9 s depending on opt level / tracing metadata) | ~2.4–3.6 ms per tree, device-resident |
+| `numpy` (default) | nothing to do (explicitly: `EVOGP_EVOXC_BACKEND=numpy`) | CPU, evoxc's reference interpreter | ~1–10 ms | ~0.5 ms per tree (N=100–1000, ~30–43-node trees) |
+| `iree` (opt-in, experimental) | `pip install "evogp[iree]"` and `EVOGP_EVOXC_BACKEND=iree` | a GPU device through IREE (the compile target follows the evoxc `Device` kind: `cuda` on CUDA boxes, `rocm` on ROCm boxes) | ~0.4 s (up to ~0.9 s depending on opt level / tracing metadata) | ~2.4–3.6 ms per tree, device-resident |
 
 **Caching economics — compile once per structure.** The engine pays a *build* the first time it sees a given
 *(tree structure, input shape, backend, device, options)* pair and a cache-hit lookup (~0.45 ms) every time afterwards.
-Measured on the reference box with the `numpy` backend and `ETL_DISABLE_LOCATIONS=1`:
+Measured on the reference box with the `numpy` backend and `EVOXC_DISABLE_LOCATIONS=1`:
 
 - 30–43-node trees: **9.9 ms cold build**, **0.46 ms** warm run per tree at N=100 (0.49 ms at N=1000); a `build_cached` hit costs 0.45 ms.
 - That is ~102 distinct builds per second, so a fresh random population of 1000 all-distinct trees costs ~10 s to build, ~5.4 s at 50% duplicates, and only ~0.5 s once everything is cached. Population decoding on top of that is ~10 ms at pop=200 and ~48 ms at pop=1000.
@@ -293,15 +293,15 @@ Measured on the reference box with the `numpy` backend and `ETL_DISABLE_LOCATION
 - The cache is **in-memory only** (nothing is shared between processes) and holds one entry per *(structure, shape, backend, device, options)*; size it at `>= pop_size + headroom` because every distinct structure of a full-population fitness pass needs its own entry. Each entry pins a loaded executable (~270 KiB for a 30-node tree, ~478 KiB for a 60-node tree).
 - **Same-shaped small trees can go through ONE dense graph.** With `EVOGP_EVAL_MODE=auto` (default), the `iree` backend packs a whole same-shaped population into a single dense evaluator (the `auto` policy: iree only, populations ≥ 16, ≤ 2048 data rows): a single one-time compile per (population, shape) instead of one compile per structure, and **~6.7 ms warm per 64-tree × 64-row evaluation** on the reference box (**≈6.1 ms at 200 trees**) — versus ~59.6 / ~193.1 ms warm on the forced per-structure route and ~10.8 / ~52.9 ms for the numpy interpreter (Round-4 numbers; the legacy CUDA-engine anchor is ~0.63 ms, so the default-route gap is ≈9.5–10.5×, bracketed at ≈8–11× by the same-window controlled re-measurement of the r5 round). Root cause measured in `test/benchmark/r5/RCA.md`: ≈75% of a warm call is per-call host-side staging (payload uploads dominate; readback and compile churn are *not* the cause) plus a dispatch-bound dense graph (~310 chained device ops vs the legacy engine's 3). Numerics are validated against the per-structure route. The numpy backend keeps the per-structure route; force either route with `EVOGP_EVAL_MODE=dense|specialized` (`dynamic` is an alias of `dense`, the all-ops graph). Details: `src/evogp/tree/DENSE_EVAL.md`; benchmark verdict: `test/benchmark/REPORT.md`.
 
-**Environment variables** (all read by `evogp.tree.etl_engine`; an explicit keyword argument on the engine call wins over the environment):
+**Environment variables** (all read by `evogp.tree.evoxc_engine`; an explicit keyword argument on the engine call wins over the environment):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `EVOGP_ETL_BACKEND` | `numpy` | Engine backend: `numpy` (CPU reference interpreter) or `iree` (compiled, CUDA). |
-| `EVOGP_ETL_IREE_DEVICE` | `0` | *Visible* CUDA device index used by the IREE backend (only with `EVOGP_ETL_BACKEND=iree`). |
-| `EVOGP_ETL_IREE_OPT_LEVEL` | `O1` | IREE optimization level; use `O0`/`O1` only (higher levels are buggy on CUDA). |
-| `EVOGP_ETL_CACHE_SIZE` | `4096` | Maximum number of entries in the shared LRU compile cache. |
-| `ETL_DISABLE_LOCATIONS` | unset | Set to `1` to skip per-op source locations while tracing: builds are roughly 4× faster (recommended for production runs). It is *not* part of the cache key, and it only costs debug metadata in tracebacks. |
+| `EVOGP_EVOXC_BACKEND` | `numpy` | Engine backend: `numpy` (CPU reference interpreter) or `iree` (compiled, GPU). |
+| `EVOGP_EVOXC_DEVICE` | `0` | *Visible* GPU device index used by the IREE backend (only with `EVOGP_EVOXC_BACKEND=iree`). |
+| `EVOGP_EVOXC_OPT_LEVEL` | `O1` | IREE optimization level; use `O0`/`O1` only (higher levels are buggy on CUDA). |
+| `EVOGP_EVOXC_CACHE_SIZE` | `4096` | Maximum number of entries in the shared LRU compile cache. |
+| `EVOXC_DISABLE_LOCATIONS` | unset | Set to `1` to skip per-op source locations while tracing: builds are roughly 4× faster (recommended for production runs). It is *not* part of the cache key, and it only costs debug metadata in tracebacks. |
 
 Evaluation *routing* — which engine path evaluates a population — is configured by a separate family of variables read by `evogp.tree.dense_engine`: `EVOGP_EVAL_MODE` = `auto` (default) | `dense` (alias `dynamic`) | `specialized`, plus the `EVOGP_DENSE_*` knobs (`EVOGP_DENSE_AUTO_MIN_POP`, `EVOGP_DENSE_AUTO_MAX_ROWS`, `EVOGP_DENSE_MAX_TREE_LEN`, `EVOGP_DENSE_BUDGET_MB`, …); the full list is in `src/evogp/tree/DENSE_EVAL.md`.
 
@@ -309,15 +309,15 @@ Evaluation *routing* — which engine path evaluates a population — is configu
 # CPU reference interpreter (default), fastest builds
 python example/basic.py
 
-# compiled CUDA execution of the same run, via IREE
-EVOGP_ETL_BACKEND=iree EVOGP_ETL_IREE_DEVICE=0 ETL_DISABLE_LOCATIONS=1 python example/basic.py
+# compiled GPU execution of the same run, via IREE
+EVOGP_EVOXC_BACKEND=iree EVOGP_EVOXC_DEVICE=0 EVOXC_DISABLE_LOCATIONS=1 python example/basic.py
 ```
 
-Backend, device and options are always passed to `etl.build_cached` explicitly, so ambient `ETL_BACKEND` /
-`ETL_DEVICE` / `ETL_TARGET_BACKENDS` cannot silently change what the engine does. `evogp.tree.etl_engine.cache_stats()`
-and `evogp.tree.etl_engine.clear_cache()` inspect and reset the shared cache.
+Backend, device and options are always passed to `evoxc.build_cached` explicitly, so ambient `EVOXC_BACKEND` /
+`EVOXC_DEVICE` / `EVOXC_TARGET_BACKENDS` cannot silently change what the engine does. `evogp.tree.evoxc_engine.cache_stats()`
+and `evogp.tree.evoxc_engine.clear_cache()` inspect and reset the shared cache.
 
-The economics above can be reproduced with the standalone probes `test/etl_jit_probe.py` (ETL's memoized-build
+The economics above can be reproduced with the standalone probes `test/evoxc_jit_probe.py` (evoxc's memoized-build
 sugar on a realistic GP step; `--sections a,b,f` for a subset) and `src/evogp/tests/perf_probe.py --quick`
 (end-to-end engine build/run economics).
 
@@ -485,7 +485,7 @@ python -m evogp.sr_test
 
 This trains `SymbolicRegression` on the synthetic two-input target `x0^4/(x0^4+1) + x1^4/(x1^4+1)`
 (1000 data points) with the standard wiring and torch seed 0, and prints `best fitness: ...`.
-The defaults (`pop_size=200`, `generation_limit=100`, `max_tree_len=64`) are right-sized for the ETL engine and take
+The defaults (`pop_size=200`, `generation_limit=100`, `max_tree_len=64`) are right-sized for the evoxc engine and take
 roughly **30 seconds** on the reference box; the best fitness improves generation over generation.
 Scale the validation with the `EVOGP_SR_POP`, `EVOGP_SR_GENS` and `EVOGP_SR_MAX_TREE_LEN` environment variables
 without editing the file:
@@ -497,8 +497,8 @@ EVOGP_SR_POP=400 EVOGP_SR_GENS=200 python -m evogp.sr_test
 Bigger settings search harder and trade directly against wall time; keep `EVOGP_SR_GENS` at 100 or more, since with
 seed 0 this population only starts improving around generation 43.
 
-The script switches off ETL's per-op location capture (`ETL_DISABLE_LOCATIONS=1`) by default because tracing
-dominates the cold build; export `ETL_DISABLE_LOCATIONS=0` to keep the capture (the computed fitness is identical
+The script switches off evoxc's per-op location capture (`EVOXC_DISABLE_LOCATIONS=1`) by default because tracing
+dominates the cold build; export `EVOXC_DISABLE_LOCATIONS=0` to keep the capture (the computed fitness is identical
 either way, the run is just much slower).
 
 **2. Test suite**
@@ -511,7 +511,7 @@ python -m pytest src/evogp/tests -q --ignore=src/evogp/tests/test_equivalence.py
 python -m pytest src/evogp/tests -q
 ```
 
-The suite checks the ETL evaluation engine against an independent plain-torch reference evaluator (randomized and
+The suite checks the evoxc evaluation engine against an independent plain-torch reference evaluator (randomized and
 adversarial tree sets, plus any golden fixtures found), verifies generation/splice invariants and the public API
 surface, and runs a tiny convergence smoke test. It needs `pytest` (`pip install "evogp[dev]"`); the engine tests run
 on CPU with the default `numpy` backend, while the API/test harness places some tensors on `"cuda"` and therefore
@@ -576,7 +576,7 @@ We warmly welcome community developers to contribute to EvoGP and look forward t
 ## Acknowledgements
 
 1. Thanks to John R. Koza for the [Genetic Programming (GP) algorithm](https://www.genetic-programming.com/), which provided an excellent automatic programming technique and laid the foundation for the development of EvoGP.
-2. Thanks to [PyTorch](https://pytorch.org/) for providing the tensor framework EvoGP is built on, and to the EvoX project's **ETL** (EvoX Tensor Library) for the JIT compilation and caching layer that evaluates EvoGP's trees.
+2. Thanks to [PyTorch](https://pytorch.org/) for providing the tensor framework EvoGP is built on, and to the EvoX project's **EvoX Compiler** (`evoxc`) for the JIT compilation and caching layer that evaluates EvoGP's trees.
 3. Thanks to the following projects for their valuable contributions to GP research, which provided inspiration and guidance for EvoGP's design: [DEAP](https://github.com/DEAP/deap), [gplearn](https://github.com/trevorstephens/gplearn), [Karoo GP](https://github.com/kstaats/karoo_gp), [TensorGP](https://github.com/cdvetal/TensorGP) and [SymbolicRegressionGPU](https://github.com/RayZhhh/SymbolicRegressionGPU).
 4. Thanks to [scikit-learn](https://github.com/scikit-learn/scikit-learn) and [Brax](https://github.com/google/brax) for their benchmarking frameworks, which have provided a convenient environment for performance evaluation in EvoGP.
 5. Thanks to [EvoX](https://github.com/EMI-Group/evox) for providing a flexible framework that allows EvoGP to integrate with other evolutionary algorithms, expanding its potential.
