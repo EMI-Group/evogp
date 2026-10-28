@@ -9,6 +9,11 @@ It is deliberately separate from `../r2/`, `../r4/`, `../r5/`, `../r6/`: those
 rounds compare the evoxc engine against the *deleted legacy CUDA engine* and their
 committed numbers stay as history. This subtree never touches them.
 
+The current evidence is the post-optimization campaign in `results/final/` (HEAD
+vs the pre-optimization snapshot `530518e`, same window, same harness) plus its
+cold-start and whole-training-run columns; [`FINAL.md`](FINAL.md) is the report of
+record and [`SUMMARY.md`](SUMMARY.md) is the rendered earlier baseline round.
+
 ```
 common.py       workload construction (one definition shared by every arm), cell
                 grid, env block, warm-timing helper, route inspection
@@ -23,13 +28,18 @@ validate.py     numeric validation of every arm against reference_eval.py
 decompose.py    per-call phase breakdown of one cell on both routes
 summarize.py    renders the records into one markdown report (stdlib only; gp_step
                 falls back to steps[], before/after via --compare-results)
-check.py        the gate over a result directory or a {after,before} container
-                (stdlib only, exit 1 on failure)
+check.py        the gate over one campaign result directory (stdlib only, exit 1
+                on failure); a before/after round is gated one side at a time
 cold_start.py   cold-start column: import -> first fitness on the default route,
                 one process per population; --artifact-dir = populate + reload
 training_run.py end-to-end training run: per-generation wall ms + best-fitness
                 trajectory for the engine, the plain-torch evaluator and a snapshot
-results/        raw per-cell JSON records + logs + campaign.json (the evidence)
+results/        the evidence: baseline/ (frozen earlier round) and final/ (after/,
+                before/, decompose/, cold/, training/, validation.json, RENDERED.md)
+FINAL.md        report of record for the post-optimization campaign (tables, gate,
+                reproduce commands)
+SUMMARY.md      rendered report of the earlier baseline round
+VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreement
 ```
 
 ## Arms
@@ -38,8 +48,8 @@ results/        raw per-cell JSON records + logs + campaign.json (the evidence)
 |---|---|
 | `torch-per-tree` | the classic pre-jit PyTorch route: for each tree, walk it in Python and apply torch ops to the `(N, input_len)` batch on the GPU under `torch.no_grad()`. The honest "old torch version". |
 | `torch-batched` | the best a pure-torch implementation can do: the whole population in one vectorized pass (per-position `(pop, N)` buffer, one masked `torch.where` per occurring `(kind, function)` case, per-row child gather). No Python loop over trees. |
-| `evoxc-auto` | the shipped default: `EVOGP_EVAL_MODE=auto`, backend unset (numpy on a box without IREE options set) |
-| `evoxc-auto-iree` | `auto` but with `EVOGP_EVOXC_BACKEND=iree` — this is the route real training runs use |
+| `evoxc-auto` | the shipped default: both knobs unset, i.e. dense+iree at `pop >= 64` on a device box and specialized+numpy below that |
+| `evoxc-auto-iree` | `auto` with `EVOGP_EVOXC_BACKEND=iree`: the same dense+iree route from `pop >= 64`, specialized+iree below the threshold |
 | `evoxc-specialized-numpy` | `EVOGP_EVAL_MODE=specialized` + numpy |
 | `evoxc-specialized-iree` | `EVOGP_EVAL_MODE=specialized` + iree (one compiled graph per distinct tree structure) |
 | `evoxc-dense-iree` | `EVOGP_EVAL_MODE=dense` + iree (one all-ops graph per population shape) |
@@ -82,63 +92,97 @@ at `N` = 1024 rows, plus an `N` = 64 column at tree_len 64 / input_len 32 — 20
   driver itself (`campaign.py` reports the guard verdict in every log line, and the
   driver record keeps the whole guard block — a contaminated config is reported,
   never silently averaged in).
+* **`auto` is timed as the policy resolves it**, never as a forced mode: on this
+  device box that is dense+iree from `pop >= 64` and specialized+numpy below the
+  threshold (`EVOGP_DENSE_AUTO_MIN_POP`), so the `evoxc-auto` arm measures the dense
+  path at pop ≥ 64 and the specialized path at pop 16, and `evoxc-auto-iree` differs
+  from it only at pop 16 (specialized+iree). Each record keeps the decision under
+  `routes.<workload>` (`would_use_dense` plus the pop/rows halves).
 * `specialized`-iree compiles one graph per *distinct* tree structure and a
-  measured iree compile costs ~272-284 ms per structure on this box (p16: 4.26 s /
-  15 misses; p64: 13.3 s / 49 misses), which makes a fresh 256- or 1000-tree
-  population cost 1-5 minutes of compile and a GP step re-pay it every generation.
-  That route is therefore timed on `pop ∈ {16, 64}` only; the excluded cells are
-  listed in `campaign.json` under `protocol.scope_dropped`. Every other arm covers
-  the whole grid.
+  measured iree compile costs ~272-284 ms per structure on this box, which makes a
+  fresh 256- or 1000-tree population cost minutes of compile and a GP step re-pay it
+  every generation. That route is therefore timed on `pop ∈ {16, 64}` only; the
+  excluded cells are listed in `campaign.json` under `protocol.scope_dropped`.
+  Every other arm covers the whole grid. (The `pop 16` cell of the shipped default
+  is the cheap specialized+**numpy** route: 13 per-structure misses, 82 ms first
+  call — the per-structure compile cost belongs to iree, not to specialized.)
 
-## Commands
+## Final campaign: what was measured
+
+The report of record is [`FINAL.md`](FINAL.md) — headline and before/after tables,
+the per-call decomposition, cold-start economics, the 50- and 200-generation
+training runs, the noise audit and the caveats. This section is the short version.
+
+* **Grid**: the 20 cells of §Grid above (four populations × two tree lengths × two
+  input lengths at `N = 1024`, plus the `N = 64` column), timed on
+  `sr_fitness` / `batch_forward` / `forward` and on `gp_step`.
+* **Arms**: `torch-per-tree`, `torch-batched`, `evoxc-auto`, `evoxc-auto-iree`,
+  `evoxc-dense-iree`, `evoxc-specialized-numpy`, `evoxc-specialized-iree`
+  (the last on the `pop ∈ {16, 64}` cells only) — 130 records at HEAD in
+  `results/final/after/`.
+* **`before`**: the same harness in the same window against the pre-optimization
+  snapshot `/tmp/evogp_preopt` (commit `530518e`) through `--tree-root` — 90
+  records in `results/final/before/`, evoxc arms only, because the torch baselines
+  are tree-root-independent and their after values serve both sides.
+* **Rules**: one process per `(cell, arm)`, one timed config at a time, the
+  idle-device guard before every config, warm medians of 5 sync-bracketed reps
+  after 2 warmups, and the cold compile always reported separately.
+
+Verdicts in one line each:
+
+* Warm `sr_fitness` at `pop ≥ 64`: **4.9–75× faster than `torch-per-tree` and
+  2.1–3.9× faster than `torch-batched`** (1.3–7.8× on `gp_step`), with one real
+  loss — 1000 trees × 64 nodes at `i8`/`i32` (`0.86–0.88×` vs `torch-batched`).
+* The shipped default is **slower than `torch-per-tree` at pop 16** (0.73–0.81×):
+  pop < 64 still routes to specialized, a compile-cost decision rather than a
+  runtime one.
+* A **cold 50-generation training run is compile-dominated, 7.8× slower than the
+  torch evaluator end to end**; with a warm `EVOGP_EVOXC_ARTIFACT_DIR` the same run
+  is **1.14× faster end to end** (811.6 vs 921.9 ms).
+
+### Commands of record
 
 ```bash
-PY=/tmp/genesis/task_967a300e3bce7f35/evogp-venv/bin/python
-export PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc
-export EVOXC_DISABLE_LOCATIONS=1
+export PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1
+PY=/path/to/venv/bin/python
+cd test/benchmark/evoxc
 
-# 1. numeric validation of every arm against the oracle (no timing)
-$PY test/benchmark/evoxc/validate.py --func-sets arith,rich,ternary \
-    --out test/benchmark/evoxc/results/validation.json
+# 1. after campaign (one process per config, idle-guarded)
+$PY campaign.py --out results/final/after --cells main,n64 --arms all
 
-# 2. the campaign (sequential; ~30-40 min for the full grid)
-$PY test/benchmark/evoxc/campaign.py --out test/benchmark/evoxc/results/baseline \
-    --cells main,n64 --arms all
+# 2. before campaign against the pre-optimization snapshot
+git archive 530518e | tar -x -C /tmp/evogp_preopt
+$PY campaign.py --out results/final/before --tree-root /tmp/evogp_preopt --cells main,n64 --arms evoxc-auto,evoxc-auto-iree,evoxc-dense-iree,evoxc-specialized-numpy,evoxc-specialized-iree
 
-# 3. gate + report
-$PY test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/baseline
-$PY test/benchmark/evoxc/summarize.py --results test/benchmark/evoxc/results/baseline \
-    --out test/benchmark/evoxc/SUMMARY.md
+# 3. decomposition, validation, cold start, training
+$PY decompose.py --cell p256-L64-i32-N1024 --out results/final/decompose/p256-L64-i32-N1024.json
+$PY decompose.py --cell p256-L64-i32-N1024 --tree-root /tmp/evogp_preopt --out results/final/decompose-before/p256-L64-i32-N1024.json
+$PY validate.py --func-sets arith,rich,ternary --out results/final/validation.json
+EVOGP_EVAL_MODE=specialized EVOGP_EVOXC_BACKEND=iree $PY validate.py --out results/final/validation-specialized-iree.json
+for pop in 16 64 256 1000; do $PY cold_start.py --cell p${pop}-L64-i32-N1024 --out results/final/cold/p${pop}-L64-i32-N1024.json; done
+EVOGP_EVOXC_ARTIFACT_DIR=$TMPDIR/evogp_artifact $PY cold_start.py --cell p256-L64-i32-N1024 --out results/final/cold/p256-L64-i32-N1024-artifact.json
+$PY training_run.py --arm engine --out results/final/training/engine-200.json
+$PY training_run.py --arm torch-per-tree --out results/final/training/torch-per-tree-200.json
+$PY training_run.py --arm preopt --tree-root /tmp/evogp_preopt --out results/final/training/preopt-200.json
+EVOGP_EVOXC_ARTIFACT_DIR=$TMPDIR/evogp_training_art $PY training_run.py --arm engine --note "artifact cache cold (populates the dir)" --out results/final/training/engine-artifact-cold.json
+EVOGP_EVOXC_ARTIFACT_DIR=$TMPDIR/evogp_training_art $PY training_run.py --arm engine --note "artifact cache warm reload" --out results/final/training/engine-artifact-warm.json
 
-# 3b. a before/after round: gate every subdirectory, then render both sides
-$PY test/benchmark/evoxc/check.py --results results/final --allow-snapshot
-$PY test/benchmark/evoxc/summarize.py --results results/final/after \
-    --compare-results results/final/before --compare-label before \
-    --out results/final/SUMMARY.md
-
-# 4. per-call decomposition of the representative cell
-$PY test/benchmark/evoxc/decompose.py --cell p256-L64-i32-N1024 \
-    --out test/benchmark/evoxc/results/decompose
-
-# 5. replay the same campaign against a frozen snapshot, apples to apples
-git archive HEAD | tar -x -C /tmp/evogp_preopt
-$PY test/benchmark/evoxc/campaign.py --tree-root /tmp/evogp_preopt \
-    --out test/benchmark/evoxc/results/replay --cells main --arms all
-
-# 6. cold-start column: module import -> first fitness, ONE process per population
-$PY test/benchmark/evoxc/cold_start.py --cell p256-L64-i32-N1024
-$PY test/benchmark/evoxc/cold_start.py --artifact-dir "$TMPDIR/evogp_artifacts"
-
-# 7. one whole training run per arm (same ship, same seed, same problem)
-$PY test/benchmark/evoxc/training_run.py --arm engine
-$PY test/benchmark/evoxc/training_run.py --arm torch-per-tree
-$PY test/benchmark/evoxc/training_run.py --arm preopt --tree-root /tmp/evogp_preopt
+# 4. render + gate (one side at a time: the cold/training records use another schema)
+$PY summarize.py --results results/final/after --out /tmp/after.md
+$PY summarize.py --results results/final/after --compare-results results/final/before --compare-label before --out /tmp/compare.md
+python3 check.py --results results/final/after  --allow-snapshot --allow-missing --allow-digest-mismatch
+python3 check.py --results results/final/before --allow-snapshot --allow-missing --allow-digest-mismatch
 ```
 
-## Final campaign: cold start and a whole training run
+`results/baseline/` is the earlier round's frozen record set (rendered by
+[`SUMMARY.md`](SUMMARY.md)); a new round writes into its own directory, exactly
+like `results/final/after|before/` did.
+
+## Cold start and a whole training run
 
 Two questions the per-call grid above cannot answer, each measured by its own
-script (records under `results/final/`, which is NOT gated by `check.py`):
+script (records under `results/final/cold/` and `results/final/training/`, which
+`check.py` does not gate):
 
 * `cold_start.py` — what a user feels: wall time from module import to the first
   synchronized fitness value on the DEFAULT route, on an empty in-memory compile
@@ -182,6 +226,9 @@ protocol statement, environment, one warm table + one speedup table per workload
 the `gp_step` section, the cold-compile exclusion, digest agreement and caveats.
 Every table cell is a field of a record; a missing record or a contaminated guard
 stays visible instead of being averaged away.
+The final campaign's three renders (after, before, and the after-vs-before compare)
+are stored as plain text in `results/final/RENDERED.md`; the report of record that
+interprets them is [`FINAL.md`](FINAL.md).
 
 * `gp_step` is read from `median_total_ms` / `median_eval_ms` / `median_ops_ms`, and
   the eval/ops split carries the operator share of the generation
@@ -201,13 +248,21 @@ stays visible instead of being averaged away.
 samples with `len(samples_ms) == reps`, `first_call_ms > 0`, a re-derived median,
 evoxc route + compile-miss fields, cross-arm digest agreement, `gp_step` sanity
 including `median_total_ms` == the upper median of `steps[].total_ms`, guard
-honesty) and exits 1 on any failure. It gates a single result directory, or a
-directory that groups them (`results/final/{after,before}/`) directory by directory —
-so one command covers both halves of a before/after round.
+honesty) and exits 1 on any failure. It gates ONE campaign directory, so a
+before/after round is gated one side at a time (`--results results/final/after`,
+then `--results results/final/before`): `results/final/` also holds the
+`cold/`, `training/` and `decompose*/` records, whose different schema the gate
+rejects.
 
 * `--allow-snapshot` turns a null `env.tree_root_sha` into a warning, but only when
   the recorded `env.tree_root` really has no `.git` (a `git archive` export has no
   HEAD, so the archived SHA has to be quoted next to the numbers).
+* `--allow-missing` and `--allow-digest-mismatch` declare the two expected
+  deviations: the 10 `evoxc-specialized-iree` cells that the compile-cost scope rule
+  never schedules at pop ≥ 256, and the numpy-vs-iree sha256 split on
+  `forward`/`batch_forward`. Without them the same records report those as failures
+  (38 on the after side, 39 on `results/baseline`); with them the gates read
+  130 records / 3602 checks and 90 records / 2642 checks, 0 failures.
 * The gate still demands the `gp_step` aggregate keys: the renderer's `steps[]`
   fallback is a reporting safety net, not a licence for a record to drop them.
 
@@ -226,16 +281,18 @@ Three function sets, because they mean different things:
 | set | contents | what agreement to expect |
 |---|---|---|
 | `arith` | `+ - * /` (the campaign set) | float32 arithmetic is correctly rounded, so every arm must agree **bitwise** on the value path |
-| `rich` | `arith` + `max min < loose_div loose_inv sin exp log abs sqrt` | transcendental float32 kernels legitimately differ in the last bits — 1e-5 abs / 1e-5 rel class |
+| `rich` | `arith` + `max min < loose_div loose_inv sin exp log abs sqrt` | transcendental float32 kernels differ legitimately — `1e-8`–`1e-5` abs on the torch path, up to `~1e-1` abs in the tail of `batch_forward` on the dense route |
 | `ternary` | `if + - * /` (needs a shorter-layer descriptor: the descriptor asserts `max_tree_len >=` the fully-branching size) | value path bitwise; the `if` select is where a naive implementation gets the operand order wrong |
 
-Measured on the baseline box (see `SUMMARY.md` "Numeric validation" for the exact
-numbers): `batch_forward` and `forward` are **bit-identical** across the oracle, both
-torch arms and the engine on `arith` (max abs deviation `0.000e+00`), and
-`sr_fitness` agrees to `~2.5e-7` relative — that residual is float32 reduction
-order (the engine reduces on the host in numpy, the arms reduce in torch), not a
-semantic difference. On `rich` the value path deviates by `~1.5e-5` abs / `~5.8e-5`
-rel, the expected transcendental-kernel spread.
+Measured on the final campaign (12 cases over the four scheduled cells; the exact
+table is in `VALIDATION.md`): the value path (`batch_forward`, `forward`) is
+**bit-identical** across the oracle, both torch arms and the engine on `arith` and
+`ternary` (max abs deviation `0.000e+00`), and `sr_fitness` agrees to `~3.5e-7`
+relative — that residual is float32 reduction order (the engine reduces on the host
+in numpy, the arms reduce in torch), not a semantic difference. `rich` is the one
+set with real spread: `~9.3e-2` abs / `~1.5e-4` rel for the torch arms and up to
+`4.4e-1` abs / `6.4e-1` rel for the dense route on `batch_forward`, i.e. the
+dense/IREE lowering of transcendentals rather than a wrong tree evaluation.
 
 Both torch arms were debugged this way and the two classic mistakes are worth
 knowing before touching them: the reversed-prefix walk pushes the **right-most**
@@ -269,3 +326,5 @@ reported separately.
   medians from `samples_ms` to catch a record that does not.
 * Numerical honesty over tidiness: if a cell looks contaminated, re-run it and say
   so in the record (`--note`) instead of dropping or smoothing the number.
+* `results/baseline/` and `results/final/**` are frozen evidence: a re-run writes
+  into a fresh result directory and is gated there, never in place.
