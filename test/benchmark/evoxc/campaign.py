@@ -159,7 +159,11 @@ def guard(wait_s: float, poll_s: float = 5.0) -> Dict[str, Any]:
             "gpu_pids": gpu_compute_pids(),
             "waited_s": round(time.time() - started, 1),
         }
-        busy = bool(state["python"]) or not state["gpu_pids"].get("idle", True)
+        # the device process list is the real signal: a foreign process on the
+        # card is contamination, while a short-lived python that merely imports
+        # torch (a probe, a test run) is only a hint -- blocking on it made every
+        # config pay the whole guard window
+        busy = bool(state["gpu_pids"].get("pids"))
         if not busy or time.time() >= deadline:
             state["contaminated"] = bool(busy)
             state["ok"] = not busy
