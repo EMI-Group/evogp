@@ -5,7 +5,8 @@ It was distilled from the CUDA/HIP kernel sources that used to live in `src/evog
 (`forward.cu`, `generate.cu`, `mutation.cu`, `defs.h`, `kernel.h`, `torch_wrapper.cu`)
 at repository snapshot `8a487f19171a40823d5a3ae85c3738cc1bc9483a`, and it is the durable
 record of the semantics reproduced by the current extension-free Python implementation
-(`etl_engine.py` for evaluation/fitness, `generation.py` / `splicing.py` for the operators).
+(`evoxc_engine.py` for evaluation/fitness, `generation.py` / `splicing.py` for the operators),
+which runs on `evoxc` — the EvoX Compiler — the external evaluation-engine dependency.
 Section 13 is the only *implementation* section: it records the alternative dense whole-population
 route (`dense_engine.py`, design documentation in `DENSE_EVAL.md`) without changing any semantics.
 Legacy-only tables and notes are marked as such where they can no longer guide code.
@@ -433,7 +434,7 @@ One thread per **offspring** `n < pop_size_new = len(left_indices)`; `left = lef
 **Historical reference only.** These five ops were the interface of the legacy compiled CUDA/HIP
 extension that used to back this layer. The rewritten `evogp.tree` does not bind them any more:
 generation and splicing are pure torch (`generation.py`, `splicing.py`) and evaluation/fitness run
-through the ETL engine (`etl_engine.py`). The schemas are kept because those replacements were
+through the `evoxc` engine (`evoxc_engine.py`). The schemas are kept because those replacements were
 required to reproduce the ops' exact semantics, and because the tables below double as the
 specification of the call contract the old wrappers relied on.
 
@@ -527,18 +528,18 @@ returned tuple is `(value, node_type, subtree_size)`.
 **Nothing in sections 1–12 changes.** A population can be evaluated by two interchangeable
 implementations, and they are required to agree:
 
-- the **specialized engine** (`etl_engine.py`, sections 3–5): one ETL graph per *tree structure*,
+- the **specialized engine** (`evoxc_engine.py`, sections 3–5): one `evoxc` graph per *tree structure*,
   one Python invocation and one device readback per tree;
-- the **dense evaluator** (`dense_engine.py`): ONE ETL graph per *shape signature*, with the
+- the **dense evaluator** (`dense_engine.py`): ONE `evoxc` graph per *shape signature*, with the
   population's node tensors passed as runtime inputs (host-side vectorized encoding of
   opcode / function id / constant / variable index / child positions, a trace-time reverse-position
   unroll, chunked execution, one readback per call).
 
 The dense graph computes every node value through the *same* private op emitters as the specialized
-engine (`etl_engine._emit_unary` / `_emit_binary` / `_emit_ternary`), so the op table (§3), the
+engine (`evoxc_engine._emit_unary` / `_emit_binary` / `_emit_ternary`), so the op table (§3), the
 leftmost-child-first operand order (§4.1), the ±1 comparisons, the loose-op edge rules, the unary /
 binary / ternary arity dispatch and the SR-fitness formula (§5) are identical by construction, and the
-documented deviations from the legacy kernels (listed in the `etl_engine.py` module docstring) apply to both. Section 4.3 (multi-output) is implemented by the specialized
+documented deviations from the legacy kernels (listed in the `evoxc_engine.py` module docstring) apply to both. Section 4.3 (multi-output) is implemented by the specialized
 engine only: a multi-output population makes the dense path decline and fall back.
 
 Selection is per call, by the `EVOGP_EVAL_MODE` environment variable (an explicit `eval_mode=`
