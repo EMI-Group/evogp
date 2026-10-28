@@ -6,16 +6,16 @@ wiring -- ``Forest.random_generate`` + ``GenerateDescriptor`` -> ``GeneticProgra
 (default crossover / mutation / selection) -> ``StandardPipeline`` -- with torch seed 0,
 so the run is reproducible and its best fitness must improve generation over generation.
 
-The defaults are right-sized for the pure-Python ETL engine: every tree structure is
+The defaults are right-sized for the pure-Python evoxc engine: every tree structure is
 JIT-built once per *(structure, shape)* and then interpreted per data batch, so cost grows
 with ``pop_size`` x tree size while the population bloats as it improves. The original
 CUDA-scale validation (``pop_size=1000``, ``max_tree_len=128``, 100 generations) therefore
 needs hours here. As shipped (``pop_size=200`` x 100 generations, ``max_tree_len=64``) the
-run takes roughly 30 s on the reference box (RTX A6000 host, ETL ``"numpy"`` backend, seed
+run takes roughly 30 s on the reference box (RTX A6000 host, evoxc ``"numpy"`` backend, seed
 0) and still converges: the best fitness goes from about -0.2511 at generation 0 to about
 -0.1720 at generation 100, with the first improvement around generation 43.
 
-Most of that cost is *tracing*, not evaluating: ETL attaches a call-site ``Location`` to
+Most of that cost is *tracing*, not evaluating: evoxc attaches a call-site ``Location`` to
 every op unless ``EVOXC_DISABLE_LOCATIONS=1`` is set, which is its documented speed knob for
 tracing-heavy runs (locations are debug metadata -- they do not change the computed
 fitness; the trajectory above is identical either way). This script sets the knob by
@@ -31,8 +31,8 @@ only starts improving around generation 43.
 
 import os
 
-# ETL's per-op call-site capture dominates the cold build of every tree structure, so it
-# is switched off here unless the caller explicitly asks for it (ETL checks for the value
+# evoxc's per-op call-site capture dominates the cold build of every tree structure, so it
+# is switched off here unless the caller explicitly asks for it (evoxc checks for the value
 # "1"; setting it to "0" keeps the capture on).
 os.environ.setdefault("EVOXC_DISABLE_LOCATIONS", "1")
 
@@ -51,7 +51,7 @@ from evogp.algorithm import (
 )
 from evogp.problem import SymbolicRegression
 
-# right-sized for the pure-Python ETL engine (see the module docstring); the env
+# right-sized for the pure-Python evoxc engine (see the module docstring); the env
 # overrides exist only to scale this validation up or down without editing the file
 pop_size = int(os.environ.get("EVOGP_SR_POP", 200))
 generation_limit = int(os.environ.get("EVOGP_SR_GENS", 100))

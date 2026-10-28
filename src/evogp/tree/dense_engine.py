@@ -1669,7 +1669,7 @@ def _iter_plan_chunks(
     device_resident: bool = False,
     staged: Optional[Dict[Any, Tuple[np.ndarray, Any]]] = None,
 ):
-    """Yield ``((p0, p_chunk, n0, n_chunk), raw_etl_result)`` for every chunk.
+    """Yield ``((p0, p_chunk, n0, n_chunk), raw_evoxc_result)`` for every chunk.
 
     This is the READBACK-FREE SEAM of the dense route: the iterator prepares and
     uploads each distinct payload **at most once per call** and never reads a
