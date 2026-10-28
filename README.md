@@ -279,8 +279,8 @@ takes to build.
 
 | Backend | Enabled by | Runs on | Build cost per tree structure | Run cost |
 |---|---|---|---|---|
-| `numpy` (default) | nothing to do (explicitly: `EVOGP_EVOXC_BACKEND=numpy`) | CPU, evoxc's reference interpreter | ~1–10 ms | ~0.5 ms per tree (N=100–1000, ~30–43-node trees) |
-| `iree` (opt-in, experimental) | `pip install "evogp[iree]"` and `EVOGP_EVOXC_BACKEND=iree` | a GPU device through IREE (the compile target follows the evoxc `Device` kind: `cuda` on CUDA boxes, `rocm` on ROCm boxes) | ~0.4 s (up to ~0.9 s depending on opt level / tracing metadata) | ~2.4–3.6 ms per tree, device-resident |
+| `numpy` (the default on a CPU box, and below the dense threshold) | nothing to do (explicitly: `EVOGP_EVOXC_BACKEND=numpy`) | CPU, evoxc's reference interpreter | ~1–10 ms | ~0.5 ms per tree (N=100–1000, ~30–43-node trees) |
+| `iree` (the default on a device box at population ≥ 64) | `pip install "evogp[iree]"` and `EVOGP_EVOXC_BACKEND=iree` | a GPU device through IREE (the compile target follows the evoxc `Device` kind: `cuda` on CUDA boxes, `rocm` on ROCm boxes) | ~0.4 s (up to ~0.9 s depending on opt level / tracing metadata) | ~2.4–3.6 ms per tree, device-resident |
 
 **Caching economics — compile once per structure.** The engine pays a *build* the first time it sees a given
 *(tree structure, input shape, backend, device, options)* pair and a cache-hit lookup (~0.45 ms) every time afterwards.
@@ -291,7 +291,7 @@ Measured on the reference box with the `numpy` backend and `EVOXC_DISABLE_LOCATI
 - Consequently the **numpy default is the right choice at population scale**, where almost every individual is a new structure and the build dominates.
 - **IREE is for repeated structures and heavy per-run work**: the same trees evaluated again and again (elites, repeated rows, long inner loops over many data batches), where the ~0.4–0.9 s per-structure compile is amortized and the computation executes on the device. On the per-structure route, building a fresh random population with IREE is impractical (one compile per individual) and at small batch sizes the numpy interpreter's ~0.5 ms per run beats IREE's ~2.4–3.6 ms (fixed launch/readback overhead) — the dense route below removes both problems for same-shaped populations.
 - The cache is **in-memory only** (nothing is shared between processes) and holds one entry per *(structure, shape, backend, device, options)*; size it at `>= pop_size + headroom` because every distinct structure of a full-population fitness pass needs its own entry. Each entry pins a loaded executable (~270 KiB for a 30-node tree, ~478 KiB for a 60-node tree).
-- **Same-shaped small trees can go through ONE dense graph.** With `EVOGP_EVAL_MODE=auto` (default), the `iree` backend packs a whole same-shaped population into a single dense evaluator (the `auto` policy: iree only, populations ≥ 16, ≤ 2048 data rows): a single one-time compile per (population, shape) instead of one compile per structure, and **~6.7 ms warm per 64-tree × 64-row evaluation** on the reference box (**≈6.1 ms at 200 trees**) — versus ~59.6 / ~193.1 ms warm on the forced per-structure route and ~10.8 / ~52.9 ms for the numpy interpreter (Round-4 numbers; the legacy CUDA-engine anchor is ~0.63 ms, so the default-route gap is ≈9.5–10.5×, bracketed at ≈8–11× by the same-window controlled re-measurement of the r5 round). Root cause measured in `test/benchmark/r5/RCA.md`: ≈75% of a warm call is per-call host-side staging (payload uploads dominate; readback and compile churn are *not* the cause) plus a dispatch-bound dense graph (~310 chained device ops vs the legacy engine's 3). Numerics are validated against the per-structure route. The numpy backend keeps the per-structure route; force either route with `EVOGP_EVAL_MODE=dense|specialized` (`dynamic` is an alias of `dense`, the all-ops graph). Details: `src/evogp/tree/DENSE_EVAL.md`; benchmark verdict: `test/benchmark/REPORT.md`.
+- **Same-shaped populations go through ONE dense graph.** With `EVOGP_EVAL_MODE=auto` (the default), a device box with population ≥ 64 packs the whole population into a single dense `iree` evaluator (below that threshold — and on a CPU box, and on any fallback — `auto` stays on the per-structure `numpy` route, because one compile per (population, shape) cannot amortize at tiny populations): a single one-time compile per (population shape, used function set) instead of one compile per structure. Measured warm medians on the reference box (N=1024, `Forest.SR_fitness`): **1.55 ms at 64 trees × L=64**, **2.05 ms at 256 × L=64**, **5.67 ms at 1000 × L=32** — against the plain-PyTorch baselines that is **4.9–75× faster than a per-tree torch eval loop** and **2.1–3.9× faster than a batched whole-population torch implementation**, with one honest loss at 1000 trees × L=64 where the batched torch loop wins by 1.16×. At population 16 the default route is 1.22–1.37× *slower* than the per-tree torch loop; `EVOGP_EVAL_MODE=dense` wins that cell at the price of a compile. Where a warm dense call goes (`test/benchmark/evoxc/FINAL.md`): 84.7% `evoxc.run` and 15.3% host-side staging (staging was ~75% before the host-glue work), and the remaining gap to a hand-written kernel is the dispatch-bound graph (~310 chained device ops vs the deleted CUDA engine's 3). **Cold start matters:** a dense graph compiles in ~3.1–3.4 s (L=32) / ~6.1 s (L=64), so short training runs are compile-dominated until ≈1250 generations; set `EVOGP_EVOXC_ARTIFACT_DIR` to reuse a compiled artifact across processes (~0.16 s reload). Numerics: value paths are bitwise exact for the arithmetic and ternary function sets and ~1e-6 relative elsewhere, but the transcendental (`rich`) set is only approximate on the dense IREE route (up to 4.4e-01 absolute at large output magnitudes — see `test/benchmark/evoxc/VALIDATION.md`). The numpy backend keeps the per-structure route; force either route with `EVOGP_EVAL_MODE=dense|specialized` (`dynamic` is an alias of `dense`, the all-ops graph). Details: `src/evogp/tree/DENSE_EVAL.md`; verdict of record: `test/benchmark/evoxc/FINAL.md`.
 
 **Environment variables** (all read by `evogp.tree.evoxc_engine`; an explicit keyword argument on the engine call wins over the environment):
 
@@ -486,7 +486,7 @@ python -m evogp.sr_test
 This trains `SymbolicRegression` on the synthetic two-input target `x0^4/(x0^4+1) + x1^4/(x1^4+1)`
 (1000 data points) with the standard wiring and torch seed 0, and prints `best fitness: ...`.
 The defaults (`pop_size=200`, `generation_limit=100`, `max_tree_len=64`) are right-sized for the evoxc engine and take
-roughly **30 seconds** on the reference box; the best fitness improves generation over generation.
+roughly **16 seconds** on the reference box; the best fitness improves generation over generation.
 Scale the validation with the `EVOGP_SR_POP`, `EVOGP_SR_GENS` and `EVOGP_SR_MAX_TREE_LEN` environment variables
 without editing the file:
 
@@ -495,7 +495,7 @@ EVOGP_SR_POP=400 EVOGP_SR_GENS=200 python -m evogp.sr_test
 ```
 
 Bigger settings search harder and trade directly against wall time; keep `EVOGP_SR_GENS` at 100 or more, since with
-seed 0 this population only starts improving around generation 43.
+seed 0 this population only starts improving well past generation 40.
 
 The script switches off evoxc's per-op location capture (`EVOXC_DISABLE_LOCATIONS=1`) by default because tracing
 dominates the cold build; export `EVOXC_DISABLE_LOCATIONS=0` to keep the capture (the computed fitness is identical
@@ -504,10 +504,10 @@ either way, the run is just much slower).
 **2. Test suite**
 
 ```bash
-# fast subset (a few seconds): skips the heavy engine-vs-oracle differential file
+# fast subset: skips the heavy engine-vs-oracle differential file
 python -m pytest src/evogp/tests -q --ignore=src/evogp/tests/test_equivalence.py
 
-# full suite, including test_equivalence.py (randomized differential runs, ~2 minutes)
+# full suite, including test_equivalence.py (randomized differential runs; 618 passed / 5 skipped in ~100 s on the reference box)
 python -m pytest src/evogp/tests -q
 ```
 
