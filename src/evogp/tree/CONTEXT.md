@@ -73,6 +73,23 @@ It is wired into five call sites — `Tree.forward` / `Tree.SR_fitness` and `For
 - The benchmark-support counterpart is `build_dense_runner(population_or_forest, inputs, *, per_row=False, backend=None, iree_device_index=None, max_tree_len=None, budget_mb=None, update_mode=None) -> DenseRunner` (`DenseRunner:2029`, builder `:2177`): one compile + the staged columns at build; `.run()` = ONE `evoxc.run` returning the raw result (device-resident on iree; the zero-copy host view on numpy); chunked plans are refused at build with `DenseUnsupported`.
 Full detail (scheme, chunking model, knobs, tolerance classes, measured economics, evoxc/iree constraints, future work) is in `DENSE_EVAL.md` — keep it there, not here.
 
+## Environment knobs (read per call unless noted)
+Every knob below is read by `evoxc_engine.py`, `dense_engine.py` or `artifact_cache.py`; a bad value raises `ValueError` naming the variable.
+- `EVOGP_EVAL_MODE` (`auto`) — the master route switch: `dense` (alias `dynamic`) / `specialized` / `auto`; `auto` picks dense+iree from `EVOGP_DENSE_AUTO_MIN_POP` up on a device box.
+- `EVOGP_DENSE_AUTO_MIN_POP` (`64`) — `auto`'s population threshold for dense; the call-count break-even knob.
+- `EVOGP_DENSE_AUTO_MAX_ROWS` (`2048`) — `auto`'s data-row ceiling for `per_row=False` calls; above it the attempt declines to the specialized engine.
+- `EVOGP_DENSE_MAX_TREE_LEN` (`64`) — the trace cap `L = min(cap, row_len)`; a longer tree declines (with the once-per-process warning on device backends).
+- `EVOGP_DENSE_BUDGET_MB` (`2048`) — the chunking memory budget of `_chunk_shape`.
+- `EVOGP_DENSE_UPDATE_MODE` (`grow`) — `grow` / `concat` / `scatter` value-buffer strategy.
+- `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER` (unset) — opt-in for `scatter` on iree, where evoxc's scatter mutates its input.
+- `EVOGP_DENSE_PRUNE` (on) — emit the candidate chain for the population's used function ids only; `0`/`false`/`no`/`off` restores the full 28-id chain.
+- `EVOGP_DENSE_HOST_MEMO` (`16`, import time) — entries of the dense plan and input front tables; `0` disables both.
+- `EVOGP_EVOXC_CACHE_SIZE` (`4096`, import time) — `maxsize` of the shared `evoxc.CompileCache` and of the two executable front tables.
+- `EVOGP_EVOXC_BACKEND` (`numpy` inside the engine; the route policy passes `iree`) — `numpy` / `iree`.
+- `EVOGP_EVOXC_DEVICE` (`0`) — visible GPU index of the iree route.
+- `EVOGP_EVOXC_OPT_LEVEL` (`O1`) — iree opt level; only `O0` / `O1` are accepted, and `O1` is the measured optimum.
+- `EVOGP_EVOXC_ARTIFACT_DIR` (unset = off) — enables the on-disk executable artifacts; see the artifact bullets above.
+- External, not ours: `EVOXC_DISABLE_LOCATIONS=1` speeds evoxc tracing up ~4× (recommended for real runs, not part of any cache key), and an ambient `EVOXC_TARGET_BACKENDS` / `EVOXC_OPT_LEVEL` / `EVOXC_IREE_*` can enter `build_cached`'s resolved options, so pair a change with `clear_cache()` (and with `clear_artifacts()` for the disk layer).
 ## API Surface
 `evogp.tree` exports: `GenerateDescriptor`, `Tree`, `Forest`, `CombinedForest`, `CombinedTree`, `MAX_STACK`, `randint`, `NType`.
 
