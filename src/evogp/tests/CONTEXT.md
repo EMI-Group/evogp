@@ -1,6 +1,6 @@
-# `src/evogp/tests/` — pytest suite for the ETL-based (CUDA-free) EvoGP engine
+# `src/evogp/tests/` — pytest suite for the evoxc-based (CUDA-free) EvoGP engine
 ## Intent
-Automated verification of EvoGP's rewritten evaluation engine: GP trees are evaluated through ETL's "true jit" (host-side decode of the population tensors into a static structure → `etl.build_cached` specialization → shared `etl.CompileCache`), and generation/mutation/crossover are plain-torch tensor ops.
+Automated verification of EvoGP's rewritten evaluation engine: GP trees are evaluated through evoxc's "true jit" (host-side decode of the population tensors into a static structure → `evoxc.build_cached` specialization → shared `evoxc.CompileCache`), and generation/mutation/crossover are plain-torch tensor ops.
 These tests are the regression gate: an independent plain-torch reference evaluator plus randomized/adversarial equivalence tests, operator-invariant tests, public-API compatibility tests, a small convergence smoke, the numeric cross-check against the frozen outputs of the deleted CUDA kernels, and a counter-based regression layer for the dense evaluator / engine memos / policy + trace cap / pruning / runner hooks (the five new `test_dense_sr_fitness.py`, `test_engine_memos.py`, `test_dense_policy.py`, `test_dense_prune.py`, `test_runner_hooks.py` files).
 ## Contents
 - `reference_eval.py` — independent plain-torch oracle (slow, obviously-correct) implementing the original `_process_node` semantics; must NOT import the engine it verifies.
