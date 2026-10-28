@@ -4,7 +4,7 @@ Runnable script (no ``test_`` prefix, no pytest import): it is the evidence
 battery for the two frozen runner APIs documented in ``RUNNER_HOOKS.md`` --
 
     dense_engine.build_dense_runner(population_or_forest, inputs, *, ...)
-    etl_engine.build_specialized_runner(population_or_forest, inputs, *, ...)
+    evoxc_engine.build_specialized_runner(population_or_forest, inputs, *, ...)
 
 -- each returning an object whose repeatable ``.run()`` executes ONLY the
 compiled forward pass (device-resident inputs -> device-resident result, no
@@ -16,21 +16,27 @@ What it pins
 through and records, per call, the **caller's function name AND file** plus the
 payload shape.  It mirrors ``device_resident_check.Traffic`` (the same sites,
 the same "caller frame" idea); the file is added because the runner's entry
-point is named ``run`` -- a name ETL's own internals could reuse -- so a
+point is named ``run`` -- a name evoxc's own internals could reuse -- so a
 name-only filter cannot separate the runner's calls from the backend's.
 
-=========================== ===================== ==========================
-patched site                direction             what it sees
-=========================== ===================== ==========================
-``etl.core.Tensor.numpy``   ETL -> host           every readback (filtered by caller frame; the numpy interpreter calls it internally thousands of times)
-``etl.from_numpy``          host -> ETL tensor    every upload (device backends)
-``dense_engine._pad_rows``  host only             every dense payload PREPARATION (all backends)
-``torch.from_numpy``        host -> torch tensor  every host-side tensor assembly
-``etl.run``                 graph invocation      every compiled-graph call
-``etl_engine.build_cached`` compile                every compile-cache lookup
-``etl_engine._executable``  memo lookup           every per-tree executable resolution
-``etl_engine.decode_population`` host decode       every population decode
-=========================== ===================== ==========================
+============================= ===================== ==========================
+patched site                  direction             what it sees
+============================= ===================== ==========================
+``evoxc.core.Tensor.numpy``   evoxc -> host         every readback (filtered by caller frame; the numpy interpreter calls it internally thousands of times)
+``evoxc.core.Tensor.to``      host -> evoxc device  every upload (device backends; a ``kind == "cpu"`` target is the READBACK and is not counted)
+``dense_engine._pad_rows``    host only             every dense payload PREPARATION (all backends)
+``torch.from_numpy``          host -> torch tensor  every host-side tensor assembly
+``evoxc.run``                 graph invocation      every compiled-graph call
+``evoxc_engine.build_cached`` compile               every compile-cache lookup
+``evoxc_engine._executable``  memo lookup           every per-tree executable resolution
+``evoxc_engine.decode_population`` host decode       every population decode
+============================= ===================== ==========================
+
+``evoxc.from_numpy`` is a ZERO-COPY HOST WRAP (it never transfers), so the
+upload SITE is ``evoxc.core.Tensor.to`` -- only calls whose target kind is not
+``"cpu"`` are uploads.  The caller-frame filter still separates the runner's and
+the seam's calls (``payload`` / ``__init__`` / ``run`` ...) from the engine's and
+the evoxc interpreter's own internals.
 
 Stages
 ------
@@ -38,11 +44,11 @@ Stages
                 (never-compiled) tree: the build resolves ONE dense compile (one
                 cache entry), stages the 7 node columns and the ``x`` block
                 exactly once and performs one warm-up run with zero readbacks;
-                every ``.run()`` then issues exactly ONE ``etl.run`` with zero
+                every ``.run()`` then issues exactly ONE ``evoxc.run`` with zero
                 readbacks / uploads / payload preparations / torch conversions /
                 ``build_cached`` / ``_executable`` calls, repeats bit-exactly,
                 and the cache counters do not move.  Numeric agreement vs
-                ``etl_engine.evaluate`` and ``Forest.batch_forward``
+                ``evoxc_engine.evaluate`` and ``Forest.batch_forward``
                 (``per_row=False``) and vs ``evaluate`` + ``Forest.forward``
                 (``per_row=True``).  Warm per-call medians are printed.
 ``specialized`` ``build_specialized_runner`` on the same population: the build
@@ -50,7 +56,7 @@ Stages
                 ``_executable`` lookup per non-constant tree, one ``build_cached``
                 per DISTINCT program, zero runs), stages the input block once
                 (``per_row=False``) or one row per tree (``per_row=True``); every
-                ``.run()`` then issues exactly ``n_nonconst`` ``etl.run`` calls
+                ``.run()`` then issues exactly ``n_nonconst`` ``evoxc.run`` calls
                 with zero readbacks / uploads / lookups / decodes, returns a
                 ``None`` slot for each constant tree (``.constant_rows``), and
                 repeats bit-exactly.  Numeric agreement vs ``evaluate`` on a
@@ -66,7 +72,7 @@ Stages
 
 Usage (repo root, project venv)::
 
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
+    PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
       <venv>/bin/python src/evogp/tree/runner_check.py
     ... runner_check.py --stage dense,specialized --json $TMPDIR/runner.json
     ... runner_check.py --backend iree --gpu 0 --pop 4 --rows 8   # one config/process
@@ -91,11 +97,11 @@ _SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
-import etl  # noqa: E402
+import evoxc  # noqa: E402
 
 from evogp.tree import Forest  # noqa: E402
 from evogp.tree import dense_engine as D  # noqa: E402
-from evogp.tree import etl_engine as E  # noqa: E402
+from evogp.tree import evoxc_engine as E  # noqa: E402
 
 # Small helpers shared with the sibling batteries (same directory): the report
 # object, the float32 comparison policy, the fixtures and the mode switch.
@@ -126,13 +132,16 @@ _DENSE_COLUMNS = 7
 # ---------------------------------------------------------------------------
 
 _D = "dense_engine.py"
-_E = "etl_engine.py"
+_E = "evoxc_engine.py"
 
 #: caller frames of the runners themselves (their ``__init__`` = the build phase).
 _BUILD_FRAMES = (("__init__", _D), ("__init__", _E))
 _RUN_FRAMES = (("run", _D), ("run", _E))
-#: caller frames of the readback-free seam the dense runner runs through.
+#: caller frames of the readback-free seam the dense runner runs through
+#: (``payload`` is the dense payload-memo closure, i.e. the frame the
+#: ``evoxc.core.Tensor.to`` upload is issued from once per distinct payload).
 _SEAM_FRAMES = (
+    ("payload", _D),
     ("_iter_plan_chunks", _D),
     ("_to_host", _D),
     ("run_plan", _D),
@@ -180,11 +189,11 @@ class Traffic:
         self.decodes: List[Tuple[str, str]] = []
 
     def __enter__(self) -> "Traffic":
-        original_numpy = etl.core.Tensor.numpy
-        original_from_numpy = etl.from_numpy
+        original_numpy = evoxc.core.Tensor.numpy
+        original_tensor_to = evoxc.core.Tensor.to
         original_pad_rows = D._pad_rows
         original_torch = torch.from_numpy
-        original_run = etl.run
+        original_run = evoxc.run
         original_build = E.build_cached
         original_lookup = E._executable
         original_decode = E.decode_population
@@ -195,9 +204,12 @@ class Traffic:
             self.readbacks.append((name, file, tuple(self_.shape)))
             return result
 
-        def from_numpy(array: Any) -> Any:
-            self.uploads.append((*_frame(), tuple(np.shape(array))))
-            return original_from_numpy(array)
+        def tensor_to(self_: Any, device: Any, *args: Any, **kwargs: Any) -> Any:
+            """The host -> device upload site (``.to(cpu)`` = readback, uncounted)."""
+            result = original_tensor_to(self_, device, *args, **kwargs)
+            if getattr(device, "kind", None) != "cpu":
+                self.uploads.append((*_frame(), tuple(self_.shape)))
+            return result
 
         def pad_rows(array: Any, rows: int) -> Any:
             self.preparations.append((*_frame(), tuple(np.shape(array))))
@@ -223,20 +235,20 @@ class Traffic:
             self.decodes.append(_frame())
             return original_decode(*args, **kwargs)
 
-        etl.core.Tensor.numpy = tensor_numpy
-        etl.from_numpy = from_numpy
+        evoxc.core.Tensor.numpy = tensor_numpy
+        evoxc.core.Tensor.to = tensor_to
         D._pad_rows = pad_rows
         torch.from_numpy = torch_from_numpy
-        etl.run = run
+        evoxc.run = run
         E.build_cached = build_cached
         E._executable = executable
         E.decode_population = decode_population
         self._originals = (
-            (etl.core.Tensor, "numpy", original_numpy),
-            (etl, "from_numpy", original_from_numpy),
+            (evoxc.core.Tensor, "numpy", original_numpy),
+            (evoxc.core.Tensor, "to", original_tensor_to),
             (D, "_pad_rows", original_pad_rows),
             (torch, "from_numpy", original_torch),
-            (etl, "run", original_run),
+            (evoxc, "run", original_run),
             (E, "build_cached", original_build),
             (E, "_executable", original_lookup),
             (E, "decode_population", original_decode),
@@ -330,7 +342,7 @@ def reference_rows(forest: Forest, x: Any, *, per_row: bool, backend: str) -> to
 
 
 def raw_to_host(raw: Any, backend: str) -> np.ndarray:
-    """Host copy of one raw ETL result -- done by the CHECK, never by the runner."""
+    """Host copy of one raw evoxc result -- done by the CHECK, never by the runner."""
     array = raw.numpy() if backend == "numpy" else raw.to(E._CPU).numpy()
     return np.asarray(array, dtype=np.float32)
 
@@ -408,7 +420,7 @@ def control_dense_reference(forest: Forest, inputs: Any, args: Any, report: Repo
         "control: run_plan's per-chunk readbacks ARE visible to the counters",
         len(seen) == plan.p_chunks * plan.n_chunks and len(control.runs) == 1,
         f"{len(seen)} readbacks from {[record[:2] for record in seen]}, "
-        f"{len(control.runs)} etl.run calls",
+        f"{len(control.runs)} evoxc.run calls",
     )
     with Traffic() as fresh:
         chunks = list(
@@ -449,7 +461,7 @@ def control_specialized_reference(
     report.add(
         "control: evaluate()'s decode + per-tree readbacks ARE visible",
         len(control.decodes) == 1 and len(seen) > 0 and len(control.runs) > 0,
-        f"{len(control.decodes)} decode(s), {len(control.runs)} etl.run(s), "
+        f"{len(control.decodes)} decode(s), {len(control.runs)} evoxc.run(s), "
         f"{len(seen)} readbacks from {sorted({record[0] for record in seen})}",
     )
 
@@ -509,7 +521,7 @@ def stage_dense(args: Any, report: Report, results: Dict[str, Any]) -> None:
         payload_detail = (
             f"numpy backend: {len(columns)} column preparations (last dim="
             f"{plan.trace_len}), {len(blocks)} x preparations (last dim={input_len}); "
-            f"{len(build.uploads)} etl.from_numpy calls (a device backend uploads)"
+            f"{len(build.uploads)} upload calls (a device backend uploads)"
         )
     else:
         columns = [r for r in build.uploads if r[2] == (plan.trace_len, plan.p_chunk)]
@@ -528,11 +540,11 @@ def stage_dense(args: Any, report: Report, results: Dict[str, Any]) -> None:
     report.add(
         "dense build: one warm-up run and zero readbacks",
         len(build.runs) == 1 and len(build.runner_readbacks()) == 0,
-        f"{len(build.runs)} etl.run calls, {len(build.runner_readbacks())} readbacks "
+        f"{len(build.runs)} evoxc.run calls, {len(build.runner_readbacks())} readbacks "
         f"from runner/seam frames",
     )
 
-    # -- run phase: ONE etl.run, zero crossings, no re-key -----------------
+    # -- run phase: ONE evoxc.run, zero crossings, no re-key ---------------
     with Traffic() as probe:
         raw = runner.run()
     staged_before = {key: id(value[0]) for key, value in runner.staged.items()}
@@ -547,7 +559,7 @@ def stage_dense(args: Any, report: Report, results: Dict[str, Any]) -> None:
         and len(probe.decodes) == 0
     )
     report.add(
-        "dense run(): exactly ONE etl.run, no readback / upload / preparation /",
+        "dense run(): exactly ONE evoxc.run, no readback / upload / preparation /",
         probe_ok,
         f"{probe.summary()}",
     )
@@ -606,7 +618,7 @@ def stage_dense(args: Any, report: Report, results: Dict[str, Any]) -> None:
     # -- numerics ----------------------------------------------------------
     reference = reference_rows(forest, inputs, per_row=False, backend=args.backend)
     compare(
-        "dense run() rows == etl_engine.evaluate(per_row=False)",
+        "dense run() rows == evoxc_engine.evaluate(per_row=False)",
         reference[:, :, 0],
         first,
         report,
@@ -631,7 +643,7 @@ def stage_dense(args: Any, report: Report, results: Dict[str, Any]) -> None:
         per_row_raw = per_row_runner.run()
     per_row_host = raw_to_host(per_row_raw, args.backend).reshape(pop, 1)
     report.add(
-        "dense per_row run(): ONE etl.run on a single-chunk plan, no host crossings",
+        "dense per_row run(): ONE evoxc.run on a single-chunk plan, no host crossings",
         len(probe_per_row.runs) == 1
         and len(probe_per_row.runner_readbacks()) == 0
         and len(probe_per_row.uploads) == 0
@@ -641,7 +653,7 @@ def stage_dense(args: Any, report: Report, results: Dict[str, Any]) -> None:
         f"build {len(build_per_row.runs)} run(s); {probe_per_row.summary()}",
     )
     compare(
-        "dense per_row run() == etl_engine.evaluate(per_row=True)",
+        "dense per_row run() == evoxc_engine.evaluate(per_row=True)",
         reference_rows(per_row_forest, per_row_x, per_row=True, backend=args.backend),
         per_row_host,
         report,
@@ -683,7 +695,7 @@ def stage_dense(args: Any, report: Report, results: Dict[str, Any]) -> None:
 def _assemble_specialized(runner: Any, raws: Sequence[Any], backend: str) -> np.ndarray:
     """Host ``(P, N, out)`` / ``(P, out)`` rows from the runner's raw results.
 
-    The constant trees have no ETL result (``None``): their rows come from the
+    The constant trees have no evoxc result (``None``): their rows come from the
     broadcast ``.constant_rows`` the build staged.
     """
     pop, n_rows, out_len = runner.pop_size, runner.n_rows, runner.output_len
@@ -701,12 +713,12 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
     builder = getattr(E, "build_specialized_runner", None)
     if builder is None:
         report.add(
-            "etl_engine.build_specialized_runner exists",
+            "evoxc_engine.build_specialized_runner exists",
             False,
             "not implemented: the specialized benchmark runner API is missing",
         )
         return
-    report.add("etl_engine.build_specialized_runner exists", True, "")
+    report.add("evoxc_engine.build_specialized_runner exists", True, "")
 
     pop, rows, input_len = args.pop, args.rows, args.input_len
     const_rows = 1
@@ -752,7 +764,7 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
     report.add(
         "specialized build: never runs a graph, never reads a result back",
         len(build.runs) == 0 and len(build.runner_readbacks()) == 0,
-        f"{len(build.runs)} etl.run calls, {len(build.runner_readbacks())} readbacks",
+        f"{len(build.runs)} evoxc.run calls, {len(build.runner_readbacks())} readbacks",
     )
     expected_uploads = 1 if args.backend != "numpy" else 0
     report.add(
@@ -762,7 +774,7 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         f"preparations={len(build.preparations)} (this path never pads)",
     )
 
-    # -- run phase: n_nonconst etl.run calls, nothing else -----------------
+    # -- run phase: n_nonconst evoxc.run calls, nothing else ---------------
     with Traffic() as probe:
         raws = runner.run()
     ok = (
@@ -778,7 +790,7 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         and len(probe.decodes) == 0
     )
     report.add(
-        "specialized run(): exactly n_nonconst etl.run calls, no host crossings",
+        "specialized run(): exactly n_nonconst evoxc.run calls, no host crossings",
         ok,
         f"results={len(raws)} (None slots="
         f"{sum(1 for raw in raws if raw is None)}, expected {n_const}); "
@@ -809,7 +821,7 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
     report.add(
         f"specialized run(): {repeats} further calls are bit-identical and readback-free",
         same and zero_traffic,
-        detail or f"{repeats} calls, exactly {n_nonconst} etl.run each",
+        detail or f"{repeats} calls, exactly {n_nonconst} evoxc.run each",
     )
     after_runs = E.cache_stats()
     report.add(
@@ -823,7 +835,7 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
 
     # -- numerics ----------------------------------------------------------
     compare(
-        "specialized run() rows == etl_engine.evaluate(per_row=False)",
+        "specialized run() rows == evoxc_engine.evaluate(per_row=False)",
         reference_rows(forest, inputs, per_row=False, backend=args.backend),
         first,
         report,
@@ -861,7 +873,7 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         f"{probe_per_row.summary()}",
     )
     compare(
-        "specialized per_row run() == etl_engine.evaluate(per_row=True)",
+        "specialized per_row run() == evoxc_engine.evaluate(per_row=True)",
         reference_rows(per_row_forest, per_row_x, per_row=True, backend=args.backend),
         _assemble_specialized(per_row_runner, per_row_raws, args.backend),
         report,
@@ -890,7 +902,7 @@ def stage_specialized(args: Any, report: Report, results: Dict[str, Any]) -> Non
         f"output_len={multi_runner.output_len}",
     )
     compare(
-        "specialized multi-output rows == etl_engine.evaluate(per_row=False)",
+        "specialized multi-output rows == evoxc_engine.evaluate(per_row=False)",
         reference_rows(multi, multi_x, per_row=False, backend=args.backend),
         _assemble_specialized(multi_runner, multi_raws, args.backend),
         report,
@@ -1052,11 +1064,11 @@ def stage_edges(args: Any, report: Report, results: Dict[str, Any]) -> None:
     # The builders must not touch the route switch themselves: neither the mode
     # nor the backend variable may change while they run.
     report.add(
-        "the builders leave EVOGP_EVAL_MODE / EVOGP_ETL_BACKEND untouched",
+        "the builders leave EVOGP_EVAL_MODE / EVOGP_EVOXC_BACKEND untouched",
         os.environ.get(D.EVAL_MODE_ENV) == "dense"
-        and os.environ.get("EVOGP_ETL_BACKEND") == args.backend_env,
+        and os.environ.get("EVOGP_EVOXC_BACKEND") == args.backend_env,
         f"EVOGP_EVAL_MODE={os.environ.get(D.EVAL_MODE_ENV)!r} "
-        f"EVOGP_ETL_BACKEND={os.environ.get('EVOGP_ETL_BACKEND')!r}",
+        f"EVOGP_EVOXC_BACKEND={os.environ.get('EVOGP_EVOXC_BACKEND')!r}",
     )
     set_mode("auto", backend="numpy")
 
@@ -1085,7 +1097,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> Any:
         "--gpu",
         type=int,
         default=None,
-        help="visible CUDA index for the iree backend (EVOGP_ETL_IREE_DEVICE)",
+        help="visible CUDA index for the iree backend (EVOGP_EVOXC_DEVICE)",
     )
     parser.add_argument("--pop", type=int, default=None, help="population size")
     parser.add_argument("--rows", type=int, default=None, help="data rows")

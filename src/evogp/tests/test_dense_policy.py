@@ -54,15 +54,15 @@ from typing import Optional, Tuple
 import numpy as np
 import pytest
 
-from evogp.tree import NType, dense_engine as dense, etl_engine
+from evogp.tree import NType, dense_engine as dense, evoxc_engine
 from evogp.tree.utils import Func
 
 #: Env var naming the backend the engine would resolve, taken from the ENGINE's own
-#: constant (``etl_engine.BACKEND_ENV``) so the autouse clearing fixture below can
+#: constant (``evoxc_engine.BACKEND_ENV``) so the autouse clearing fixture below can
 #: never target a name the engine stopped reading.
-ETL_BACKEND_ENV = etl_engine.BACKEND_ENV
-assert ETL_BACKEND_ENV == "EVOGP_ETL_BACKEND", (
-    f"etl_engine.BACKEND_ENV is now {ETL_BACKEND_ENV!r}: update this module's "
+EVOXC_BACKEND_ENV = evoxc_engine.BACKEND_ENV
+assert EVOXC_BACKEND_ENV == "EVOGP_EVOXC_BACKEND", (
+    f"evoxc_engine.BACKEND_ENV is now {EVOXC_BACKEND_ENV!r}: update this module's "
     "docstring/expectations instead of clearing a stale name"
 )
 
@@ -105,7 +105,7 @@ def hermetic_knobs(monkeypatch):
         dense.MAX_TREE_LEN_ENV,
         dense.AUTO_MIN_POP_ENV,
         dense.AUTO_MAX_ROWS_ENV,
-        ETL_BACKEND_ENV,
+        EVOXC_BACKEND_ENV,
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -162,7 +162,7 @@ def tiny_plan(
     """A small numpy ``DensePlan`` built from the module's chain fixture.
 
     ``backend``/``update_mode`` are explicit so the plan never depends on the
-    ambient ``ETL_*`` environment; the population shape (P=8, N=8, L=16) keeps
+    ambient ``EVOXC_*`` environment; the population shape (P=8, N=8, L=16) keeps
     this module's compiled graphs small (one per variant/chunk shape, numpy).
     """
     values, types, sizes = chain_rows(CHAIN_LEN, ROW_LEN, POP_SIZE)
@@ -457,7 +457,7 @@ def test_iter_plan_chunks_yields_every_chunk(value_single_chunk, value_chunked, 
         assert keys == expected, label
         for (_, p_chunk, _, n_chunk), raw in chunks:
             assert p_chunk >= 1 and n_chunk >= 1, label
-            # the seam hands out the ETL result itself, never a host array
+            # the seam hands out the evoxc result itself, never a host array
             assert raw is not None and not isinstance(raw, np.ndarray), label
             assert hasattr(raw, "numpy"), label
 

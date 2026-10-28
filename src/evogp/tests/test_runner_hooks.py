@@ -9,14 +9,14 @@ route, nothing in the library calls them, and they deliberately ignore
   the build phase is duck-type + input conversion once + ``plan_dense`` +
   ONE compile (one cache entry for the WHOLE population) + input staging (the
   7 ``(L, P)`` node columns and ``x``, prepared/uploaded once through the
-  readback-free seam) + one warm-up ``etl.run``; ``.run()`` is ONE ``etl.run``
+  readback-free seam) + one warm-up ``evoxc.run``; ``.run()`` is ONE ``evoxc.run``
   over the staged payloads returning the RAW backend result of shape
   ``(pop_size, n_rows)`` (host-backed on numpy, device-resident on a device
   backend), with no re-plan / re-key / re-decode / readback / torch conversion.
-* ``etl_engine.build_specialized_runner(population, x, *, per_row=False, ...)``
+* ``evoxc_engine.build_specialized_runner(population, x, *, per_row=False, ...)``
   -- the build phase is one ``decode_population`` + one ``_executable`` per
   non-constant tree + staging the input block(s); ``.run()`` is ``n_nonconst``
-  ``etl.run`` calls returning a ``pop_size``-long tuple whose entries are the RAW
+  ``evoxc.run`` calls returning a ``pop_size``-long tuple whose entries are the RAW
   per-tree results (``(n_rows, output_len)``) or ``None`` for a constant tree
   (staged read-only in ``.constant_rows``), and it never assembles host rows.
 
@@ -28,15 +28,15 @@ hand-built trees, numpy backend only):
    the whole population, ``.invocations == 1``, ``.device_resident is False``,
    host-backed result of shape ``(pop_size, n_rows)``, ``.staged`` = the 7 node
    columns + ``x`` re-used by reference;
-2. dense run -- repeated calls are bit-identical and every ``etl_engine``
+2. dense run -- repeated calls are bit-identical and every ``evoxc_engine``
    ``cache_stats()`` delta of a repeated ``.run()`` is EMPTY (the
    "no re-plan / no re-decode / no re-key" invariant);
 3. dense numerics -- ``per_row=False`` / ``per_row=True`` vs
-   ``etl_engine.evaluate`` (rtol=atol=1e-4 on finite values, exact NaN/±inf
+   ``evoxc_engine.evaluate`` (rtol=atol=1e-4 on finite values, exact NaN/±inf
    masks);
 4. specialized contract + numerics -- tuple length ``pop_size``, ``None``
    exactly on the constant-tree slot, non-``None`` entries matching per-tree
-   ``etl_engine`` evaluation (1e-4 + exact masks), ``.invocations ==
+   ``evoxc_engine`` evaluation (1e-4 + exact masks), ``.invocations ==
    n_nonconst``, repeats bit-identical with EMPTY cache deltas, and (via
    monkeypatch counters) one decode + one ``_executable`` per non-constant tree
    with one ``build_cached`` per DISTINCT program at build and none at run;
@@ -57,7 +57,7 @@ timing assertion by design.
 
 Run from the repository root::
 
-    ETL_DISABLE_LOCATIONS=1 PYTHONPATH=src <venv>/bin/python -m pytest \\
+    EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src <venv>/bin/python -m pytest \\
         src/evogp/tests/test_runner_hooks.py -q
 """
 
@@ -84,7 +84,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 #: The two imports below are guarded by ``ImportError`` ONLY, deliberately: a
-#: genuinely missing dependency (``etl`` not installed, a pre-merge worktree without
+#: genuinely missing dependency (``evoxc`` not installed, a pre-merge worktree without
 #: ``test_equivalence.py``) skips the whole file, while an import REGRESSION inside
 #: the engine or the shared fixtures -- a ``SyntaxError``, an ``AttributeError``, a
 #: half-merged module -- must fail collection here instead of silently reporting 20
@@ -101,7 +101,7 @@ try:
     from evogp.tree import Forest
 
     from evogp.tree import dense_engine as D
-    from evogp.tree import etl_engine as E
+    from evogp.tree import evoxc_engine as E
 
     _ENGINE_IMPORT_ERROR: Any = None
 except ImportError as exc:  # pragma: no cover - only when a dependency is missing
@@ -221,7 +221,7 @@ def make_inputs(rows: int, *, seed: int = 5) -> torch.Tensor:
 
 
 def reference_rows(forest: "Forest", x: torch.Tensor, *, per_row: bool) -> torch.Tensor:
-    """``etl_engine.evaluate`` rows for ``forest`` (the engine's own assembler)."""
+    """``evoxc_engine.evaluate`` rows for ``forest`` (the engine's own assembler)."""
     population = E.decode_population(
         forest.batch_node_value,
         forest.batch_node_type,
@@ -245,7 +245,7 @@ def assemble(runner: Any, results: Tuple[Any, ...]) -> np.ndarray:
     """Host ``(pop, n_rows, output_len)`` rows from a specialized ``.run()``.
 
     The runner itself never assembles anything: the constant trees come from the
-    broadcast read-only ``.constant_rows`` and every other slot is the raw ETL
+    broadcast read-only ``.constant_rows`` and every other slot is the raw evoxc
     result, read back here by the TEST (the consumer's step).
     """
     rows = np.empty(
@@ -284,7 +284,7 @@ def assert_same_bits(got: Any, want: Any, *, context: str = "") -> None:
 
 
 def cache_delta(before: Dict[str, int], after: Dict[str, int]) -> Dict[str, int]:
-    """Changed ``etl_engine.cache_stats()`` counters ({} = no cache activity)."""
+    """Changed ``evoxc_engine.cache_stats()`` counters ({} = no cache activity)."""
     return {key: after[key] - before[key] for key in after if after[key] != before[key]}
 
 
@@ -317,7 +317,7 @@ def build_runner_under_cache_bracket(
 ) -> Tuple[Any, Dict[str, int]]:
     """Build one runner with a clean cache and return its build-phase delta.
 
-    The two runners share the process-wide ``etl_engine.CACHE`` (``dense_engine.
+    The two runners share the process-wide ``evoxc_engine.CACHE`` (``dense_engine.
     DENSE_CACHE`` IS that same object), so a build-phase delta is only
     meaningful from a cleared cache -- and bracketing it does not disturb the
     already-built runners, which hold their executables directly.
@@ -391,7 +391,7 @@ def test_dense_build_stages_one_single_chunk_plan(dense_case: RunnerCase) -> Non
 
 
 def test_dense_run_returns_the_raw_host_backed_block(dense_case: RunnerCase) -> None:
-    """``.run()`` = ONE ``etl.run`` returning the raw ``(pop_size, n_rows)`` block."""
+    """``.run()`` = ONE ``evoxc.run`` returning the raw ``(pop_size, n_rows)`` block."""
     runner = dense_case.runner
     assert runner.invocations == 1
     assert runner.backend_name == "numpy"
@@ -420,9 +420,23 @@ def test_dense_run_repeats_are_bit_identical_and_pay_no_cache_traffic(
 
     # The cache-stats delta below is the black-box half of the invariant; these
     # counters are the white-box half, so a repeated ``.run()`` that re-prepared a
-    # payload, re-decoded the population or re-resolved an executable anywhere would
-    # fail here even if it happened to leave the cache counters alone.
-    counts = {"pad_rows": 0, "from_numpy": 0, "decode": 0, "executable": 0}
+    # payload, re-uploaded it, re-decoded the population or re-resolved an
+    # executable anywhere would fail here even if it happened to leave the cache
+    # counters alone.
+    #
+    # The staging seam is ``dense_engine._iter_plan_chunks``'s ``payload`` helper,
+    # which prepares each payload once and uploads it as
+    # ``evoxc.from_numpy(host).to(device)``: ``from_numpy`` is the zero-copy host
+    # wrap and ``Tensor.to`` is the actual host->device transfer, so BOTH are
+    # counted (on the numpy backend ``to_device`` is False and the staged half is
+    # ``None``, so a numpy run must never wrap or upload anything).
+    counts = {
+        "pad_rows": 0,
+        "from_numpy": 0,
+        "upload": 0,
+        "decode": 0,
+        "executable": 0,
+    }
 
     def counting(name: str, original: Callable[..., Any]) -> Callable[..., Any]:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -433,7 +447,8 @@ def test_dense_run_repeats_are_bit_identical_and_pay_no_cache_traffic(
 
     for module, name, attribute in (
         (D, "pad_rows", "_pad_rows"),
-        (D.etl, "from_numpy", "from_numpy"),
+        (D.evoxc, "from_numpy", "from_numpy"),
+        (D.evoxc.core.Tensor, "upload", "to"),
         (E, "decode", "decode_population"),
         (E, "executable", "_executable"),
     ):
@@ -443,7 +458,13 @@ def test_dense_run_repeats_are_bit_identical_and_pay_no_cache_traffic(
         host = runner.run().numpy()
         assert_same_bits(host, first, context=f"dense .run() call {call + 1}")
 
-    assert counts == {"pad_rows": 0, "from_numpy": 0, "decode": 0, "executable": 0}, (
+    assert counts == {
+        "pad_rows": 0,
+        "from_numpy": 0,
+        "upload": 0,
+        "decode": 0,
+        "executable": 0,
+    }, (
         "a repeated .run() must re-use the staged payloads and the held executable, "
         f"got {counts}"
     )
@@ -459,7 +480,7 @@ def test_dense_run_repeats_are_bit_identical_and_pay_no_cache_traffic(
 # 3. dense runner: numerics
 # --------------------------------------------------------------------------- #
 def test_dense_rows_match_specialized_evaluation(dense_case: RunnerCase) -> None:
-    """``per_row=False``: ``(pop, N)`` rows vs ``etl_engine.evaluate``."""
+    """``per_row=False``: ``(pop, N)`` rows vs ``evoxc_engine.evaluate``."""
     runner, forest, x = dense_case.runner, dense_case.forest, dense_case.x
     got = runner.run().numpy().reshape(runner.plan.pop_size, runner.plan.n_rows)
     assert got.shape == (POP, ROWS)
@@ -474,7 +495,7 @@ def test_dense_rows_match_specialized_evaluation(dense_case: RunnerCase) -> None
 
 
 def test_dense_per_row_rows_match_specialized_evaluation(dense_per_row_case: RunnerCase) -> None:
-    """``per_row=True``: ``(pop, 1)`` rows vs ``etl_engine.evaluate(per_row=True)``."""
+    """``per_row=True``: ``(pop, 1)`` rows vs ``evoxc_engine.evaluate(per_row=True)``."""
     runner, forest, x = (
         dense_per_row_case.runner,
         dense_per_row_case.forest,
@@ -515,7 +536,7 @@ def test_specialized_run_contract(specialized_case: RunnerCase) -> None:
 
 
 def test_specialized_rows_match_specialized_evaluation(specialized_case: RunnerCase) -> None:
-    """Assembled rows vs ``etl_engine.evaluate`` (the constant slot included)."""
+    """Assembled rows vs ``evoxc_engine.evaluate`` (the constant slot included)."""
     runner, forest, x = (
         specialized_case.runner,
         specialized_case.forest,

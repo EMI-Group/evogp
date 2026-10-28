@@ -2,7 +2,7 @@
 """``warm_path_probe.py`` -- dev CLI: per-stage warm-path timing for the specialized engine.
 
 Small, self-contained measurement tool for the *host-side* overhead of the
-specialized (per-structure ``etl.build_cached``) route in :mod:`evogp.tree.etl_engine`
+specialized (per-structure ``evoxc.build_cached``) route in :mod:`evogp.tree.evoxc_engine`
 (``_run_tree`` / ``_executable`` / ``decode_population`` / ``evaluate`` /
 ``sr_fitness``).  It is **NOT** pytest-collected, is imported by nothing, and is
 read-only with respect to the library: it times the public entry points and the
@@ -16,7 +16,8 @@ host-side levers (input conversion, host loss reduction, decode folding).
 
 Usage (from the repository root, project venv)::
 
-    PYTHONPATH=src python src/evogp/tree/warm_path_probe.py \
+    PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 \
+        python src/evogp/tree/warm_path_probe.py \
         --fixture test/goldens/forest_random.npz --reps 25
     ... --fixture test/benchmark/fixtures/forest200_tree64_random.npz --rows 10000
     ... --device cuda --backend iree --profile    # needs a CUDA-visible device
@@ -25,13 +26,13 @@ Stages (medians, ms): ``decode`` (``decode_population``), per-tree ``run_tree``
 (one ``_run_tree`` on a decoded tree), ``build`` (the ``_executable`` lookup) and
 ``evaluate`` (whole-population, warm) are timed separately; ``sr_fitness`` is
 timed as the public ``Forest.SR_fitness``.  ``--profile`` adds a cProfile dump so
-the residual can be attributed inside ETL as well.
+the residual can be attributed inside evoxc as well.
 
 ``build`` times the repeated-SAME-program case (one fixture tree), which hits
 ``build_cached``'s one-slot fingerprint fast path.  The per-tree loop instead
 walks DIFFERENT programs back to back, so the probe also times one full
 population pass of ``_executable`` (``executable_cycle``) against the same pass
-straight through ``etl.build_cached`` (``build_cached_cycle``) -- the raw ETL
+straight through ``evoxc.build_cached`` (``build_cached_cycle``) -- the raw evoxc
 side of the executable memo's A/B (both passes are per-pass medians, i.e.
 per-tree values on the fixture's distinct non-constant programs).
 """
@@ -79,7 +80,7 @@ def main() -> int:
     parser.add_argument("--json-out", default=None)
     args = parser.parse_args()
 
-    from evogp.tree import Forest, etl_engine
+    from evogp.tree import Forest, evoxc_engine
 
     fixture = _load_fixture(args.fixture)
     input_len = fixture["input_len"]
@@ -114,31 +115,31 @@ def main() -> int:
     forest.SR_fitness(x, labels, True, "auto")
 
     decode_times = timed(
-        lambda: etl_engine.decode_population(
+        lambda: evoxc_engine.decode_population(
             fixture["node_value"], fixture["node_type"], fixture["subtree_size"],
             input_len, output_len,
         ),
         args.reps,
     )
-    pop = etl_engine.decode_population(
+    pop = evoxc_engine.decode_population(
         fixture["node_value"], fixture["node_type"], fixture["subtree_size"],
         input_len, output_len,
     )
-    evaluate_times = timed(lambda: etl_engine.evaluate(pop, x, per_row=False), args.reps)
+    evaluate_times = timed(lambda: evoxc_engine.evaluate(pop, x, per_row=False), args.reps)
     fitness_times = timed(lambda: forest.SR_fitness(x, labels, True, "auto"), args.reps)
 
-    backend = etl_engine._resolve_backend(None, None)
+    backend = evoxc_engine._resolve_backend(None, None)
     xt = np.ascontiguousarray(x.detach().cpu().numpy())
     n_rows = int(xt.shape[0])
     live = next(tree for tree in pop.trees if tree.const_out is None)
     run_times = timed(
-        lambda: etl_engine._run_tree(
+        lambda: evoxc_engine._run_tree(
             live, xt, 0, n_rows, input_len, backend[0], backend[1], backend[2], {}
         ),
         max(20, args.reps),
     )
     build_times = timed(
-        lambda: etl_engine._executable(
+        lambda: evoxc_engine._executable(
             live.program, n_rows, input_len, backend[0], backend[1], backend[2]
         ),
         max(20, args.reps),
@@ -151,37 +152,37 @@ def main() -> int:
     # distinct non-constant program of the fixture, i.e. what one evaluation of
     # this population costs.  ``executable_cycle`` goes through the engine's memo
     # (if present); ``build_cached_cycle`` is the same pass straight through
-    # ``etl.build_cached`` (what the engine did before the memo).
-    import etl  # local: the probe is otherwise etl-free
+    # ``evoxc.build_cached`` (what the engine did before the memo).
+    import evoxc  # local: the probe is otherwise evoxc-free
 
     cycle_programs = [tree.program for tree in pop.trees if tree.program is not None]
 
     def _executable_cycle() -> None:
         for item in cycle_programs:
-            etl_engine._executable(
+            evoxc_engine._executable(
                 item, n_rows, input_len, backend[0], backend[1], backend[2]
             )
 
     def _build_cached_cycle() -> None:
         for item in cycle_programs:
-            spec = etl.TensorSpec((n_rows, input_len), etl.float32)
+            spec = evoxc.TensorSpec((n_rows, input_len), evoxc.float32)
             if backend[0] == "numpy":
-                etl_engine.build_cached(
-                    etl_engine._eval_step,
+                evoxc_engine.build_cached(
+                    evoxc_engine._eval_step,
                     spec,
                     item,
                     backend=backend[0],
                     device=backend[1],
-                    cache=etl_engine.CACHE,
+                    cache=evoxc_engine.CACHE,
                 )
             else:
-                etl_engine.build_cached(
-                    etl_engine._eval_step,
+                evoxc_engine.build_cached(
+                    evoxc_engine._eval_step,
                     spec,
                     item,
                     backend=backend[0],
                     device=backend[1],
-                    cache=etl_engine.CACHE,
+                    cache=evoxc_engine.CACHE,
                     **backend[2],
                 )
 

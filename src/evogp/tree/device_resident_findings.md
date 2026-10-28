@@ -4,12 +4,14 @@ Measurement + evidence record for the **device-resident** work on
 `dense_engine.py`: the SR loss is folded into the compiled dense graph and the
 per-call host round trips of the dense route are counted and reduced.
 
+The engine dependency is `evoxc` (EvoX Compiler), checked out on `PYTHONPATH`
+next to `src` (`import evoxc`, `from evoxc.build_cache import build_cached`).
 The reproducible battery is `device_resident_check.py` (in this directory; a dev
 CLI, NOT pytest-collected).  Every number below was produced from the repository
 root with the project venv and
 
 ```bash
-PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
+PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
   <venv>/bin/python src/evogp/tree/device_resident_check.py
 ```
 
@@ -45,15 +47,21 @@ in-graph loss.
 | --- | --- | --- |
 | `inputs` / `labels` D2H (`_input_to_numpy` / `_as_numpy`) | 1 + 1 | 1 + 1 |
 | population tensors D2H (`prepare_dense`) | 3 | 3 |
-| payload H2D (`etl.from_numpy`) | **0** (host interpreter) | 7 columns per `p`-chunk (once each) + `x` once per `n`-chunk + `labels` + keep mask once per `n`-chunk — and **each exactly once per call** since this round's payload memo (it was one per `(p0, n0)` chunk before) |
+| payload H2D (`evoxc.core.Tensor.to`) | **0** (host interpreter) | 7 columns per `p`-chunk (once each) + `x` once per `n`-chunk + `labels` + keep mask once per `n`-chunk — and **each exactly once per call** since this round's payload memo (it was one per `(p0, n0)` chunk before) |
 | chunk result readback | 1 × `(p_chunk,)` per chunk — **`(P,)`-scale** | same |
 | host→torch + H2D of the loss | 1 × `(P,)` `torch.from_numpy` + `.to(device)` | same |
 | whole prediction H2D / torch-side reduction | **gone** (folded into the graph) | **gone** |
 
+`evoxc.from_numpy` is a ZERO-COPY host wrap, so the upload is the
+`evoxc.core.Tensor.to(device)` call that follows it; only a non-`"cpu"` target
+counts (`.to(cpu)` is the readback, a same-device `.to` a no-op), and the battery
+filters for the uploading frame, the `payload` closure in
+`dense_engine._iter_plan_chunks`.
+
 The value route (`evaluate_dense`) still assembles the `(pop_size, N, 1)`
 prediction and uploads it once; a device-resident *value* path stays blocked on
-ETL upstream (no zero-copy export: `core.Tensor.__dlpack__` raises for every
-payload-backed tensor and `etl.from_dlpack` is host-memory v1 only).
+evoxc upstream (no zero-copy export to torch: `evoxc.core.Tensor.__dlpack__`
+raises for a device payload, `evoxc.from_dlpack` is host-only).
 
 ## 3. Measurement protocol
 
@@ -77,7 +85,7 @@ from a scratch worktree at the pre-round base commit `93a783f`):
 git worktree add --detach /tmp/dr_before_wt 93a783f
 cp src/evogp/tree/device_resident_check.py /tmp/dr_before_wt/src/evogp/tree/
 cd /tmp/dr_before_wt   # or the repo root for "after"
-PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 <venv>/bin/python \
+PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 <venv>/bin/python \
   src/evogp/tree/device_resident_check.py --measure \
   --cases 16x64,16x1024,64x64,64x1024 --tree-rows 64 --repeats 7
 ```
@@ -94,8 +102,11 @@ PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 <venv>/bin/python 
 ### 4.2 The iree hot path: the loss fold pays off where the readback costs
 
 Same script, `--backend iree --gpu 0` (staged, GPU 6, one process per side), on
-the same fixture (`fixture(16, rows, seed=41)`); after the round the readback is
-`(P,)` = 16 elements instead of the whole `(P, N)` prediction:
+the same fixture (`fixture(16, rows, seed=41)`).  The device is
+`evoxc.core.Device(kind, idx)`, `kind` from `evoxc_engine._gpu_device_kind()`
+(`"rocm"` on a HIP build, else `"cuda"`), so `--gpu 0` is a *visible* index on
+this box's GPU HAL; after the round the readback is `(P,)` = 16 elements instead
+of the whole `(P, N)` prediction:
 
 | P=16, iree | before ms (median) | after ms (median) | before min | after min | readback el. |
 | --- | --- | --- | --- | --- | --- |
@@ -185,10 +196,10 @@ Readings:
 
 `dense_engine._iter_plan_chunks(plan, executable, x, labels=None, *,
 backend_name, device, device_resident=False)` — yields
-`((p0, p_chunk, n0, n_chunk), raw_etl_result)` with **zero** host readbacks and
+`((p0, p_chunk, n0, n_chunk), raw_evoxc_result)` with **zero** host readbacks and
 each distinct payload prepared AND uploaded exactly once per call (the seam the
 battery's `seam` stage pins).  `device_resident=True` refuses the numpy backend
-and any chunked plan: a chunked device-side assembly needs either an ETL
+and any chunked plan: a chunked device-side assembly needs either an evoxc
 zero-copy export or a second compiled graph, both still upstream/structural.
 
 ## 9. Task-5 follow-up: the trace cap is now 64 (+ the one warning)
@@ -219,7 +230,7 @@ non-numpy backends). Every other decline (multi-output, structural doubt, the
 `auto` rows ceiling) keeps the silent-fallback contract, and the dedupe flag is
 only consumed by a real warning (all pinned by the checks below).
 
-### Verified after the change (repo root, `PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6`)
+### Verified after the change (repo root, `PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6`)
 
 | command | result |
 | --- | --- |
@@ -284,7 +295,7 @@ between runs (a later run of the same commands: 60 vs 420 candidates, 245.6 vs 1
 Pruned and full-chain graphs are **bit-exact** on numpy (value and loss, `per_row` both ways,
 P+N-chunked, empty used set): the lever changes *which* ops are emitted, never what they compute.
 
-### Verified after the change (repo root, `PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6`)
+### Verified after the change (repo root, `PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6`)
 
 | command | result |
 | --- | --- |

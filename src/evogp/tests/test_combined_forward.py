@@ -19,7 +19,7 @@ that the loss code reads.
 
 Run from the repository root::
 
-    ETL_DISABLE_LOCATIONS=1 PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -m pytest \\
+    EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src /mnt/local-ssd/bchuang/evox/.venv/bin/python -m pytest \\
         src/evogp/tests/test_combined_forward.py -q
 """
 
@@ -31,7 +31,7 @@ import numpy as np
 import pytest
 import torch
 
-try:  # the tree layer is importable only once the ETL-based engine is in place
+try:  # the tree layer is importable only once the evoxc-based engine is in place
     from evogp.tree import CombinedForest, CombinedTree, NType, Tree
 
     _IMPORT_ERROR = None
@@ -49,7 +49,7 @@ def require_engine():
     """Fail fast (with one clear message) while the tree layer is not importable."""
     if _IMPORT_ERROR is not None:
         pytest.fail(
-            "evogp.tree is not importable (the ETL-based engine is not present in this "
+            "evogp.tree is not importable (the evoxc-based engine is not present in this "
             f"worktree yet): {_IMPORT_ERROR!r}"
         )
 

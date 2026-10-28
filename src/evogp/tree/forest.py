@@ -5,7 +5,7 @@ import numpy as np
 from .utils import *
 from .tree import Tree
 from .descriptor import GenerateDescriptor
-from . import dense_engine, etl_engine, generation, splicing
+from . import dense_engine, evoxc_engine, generation, splicing
 
 
 class Forest:
@@ -108,7 +108,7 @@ class Forest:
         ), f"x shape should be ({self.pop_size}, {self.input_len}), but got {x.shape}"
 
         # EVOGP_EVAL_MODE decides whether the whole population is evaluated by ONE
-        # dense ETL graph (dense_engine) or per tree structure (etl_engine); see
+        # dense evoxc graph (dense_engine) or per tree structure (evoxc_engine); see
         # dense_engine's module docstring for the policy.  A population the dense
         # evaluator cannot handle raises DenseUnsupported and is evaluated by the
         # specialized path below, unchanged (the fallback is deliberate and only
@@ -127,14 +127,14 @@ class Forest:
             except dense_engine.DenseUnsupported:
                 pass
 
-        pop = etl_engine.decode_population(
+        pop = evoxc_engine.decode_population(
             self.batch_node_value,
             self.batch_node_type,
             self.batch_subtree_size,
             self.input_len,
             self.output_len,
         )
-        return etl_engine.evaluate(pop, x, per_row=True)
+        return evoxc_engine.evaluate(pop, x, per_row=True)
 
     # (batch_size, input_len) -> (pop_size, batch_size, output_len)
     def batch_forward(self, x: Tensor) -> Tensor:
@@ -159,14 +159,14 @@ class Forest:
             except dense_engine.DenseUnsupported:
                 pass
 
-        pop = etl_engine.decode_population(
+        pop = evoxc_engine.decode_population(
             self.batch_node_value,
             self.batch_node_type,
             self.batch_subtree_size,
             self.input_len,
             self.output_len,
         )
-        return etl_engine.evaluate(pop, x, per_row=False)
+        return evoxc_engine.evaluate(pop, x, per_row=False)
 
     def mutate(self, replace_pos: Tensor, new_sub_forest: "Forest") -> "Forest":
         """
@@ -303,7 +303,7 @@ class Forest:
             use_MSE (bool, optional): whether to use the Mean Squared Error (MSE) as the fitness metric. Defaults to True.
             execute_mode (str, optional): one of the five accepted mode strings. They are kept for
                 backwards compatibility only: the former `kernel_type` ids are gone and every mode
-                (including "torch") evaluates through the same ETL engine path. Defaults to "auto".
+                (including "torch") evaluates through the same evoxc engine path. Defaults to "auto".
 
         Returns:
             Tensor: a tensor of shape (pop_size,) containing the fitness values
@@ -322,7 +322,7 @@ class Forest:
             self.output_len,
         ), f"outputs shape should be ({batch_size}, {self.output_len}), but got {labels.shape}"
 
-        # "torch" is the (previously rejected) alias of the same ETL engine path; the old
+        # "torch" is the (previously rejected) alias of the same evoxc engine path; the old
         # kernel_type dispatch is gone, so all five strings behave identically.
         assert execute_mode in [
             "torch",
@@ -350,7 +350,7 @@ class Forest:
             except dense_engine.DenseUnsupported:
                 pass
 
-        pop = etl_engine.decode_population(
+        pop = evoxc_engine.decode_population(
             self.batch_node_value,
             self.batch_node_type,
             self.batch_subtree_size,
@@ -358,7 +358,7 @@ class Forest:
             self.output_len,
         )
 
-        return etl_engine.sr_fitness(pop, inputs, labels, use_MSE=use_MSE)
+        return evoxc_engine.sr_fitness(pop, inputs, labels, use_MSE=use_MSE)
 
     def __getitem__(self, index):
         if isinstance(index, int) or (hasattr(index, "shape") and index.shape == ()):

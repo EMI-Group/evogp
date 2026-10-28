@@ -1,6 +1,6 @@
 """Public-API compatibility tests for EvoGP after the engine rewrite.
 
-The CUDA extension is being replaced by an ETL-based evaluation engine plus plain
+The CUDA extension is being replaced by an evoxc-based evaluation engine plus plain
 torch generation / mutation / crossover.  Everything in this file is asserted
 against the *public* surface that the rest of the library, the examples and the
 tutorials import, so that the rewrite stays drop-in:
@@ -34,7 +34,7 @@ import pytest
 import sympy as sp
 import torch
 
-try:  # importable only once the ETL-based engine has replaced the CUDA extension
+try:  # importable only once the evoxc-based engine has replaced the CUDA extension
     import evogp
     from evogp.tree import (
         CombinedForest,
@@ -63,7 +63,7 @@ def require_engine():
     """Fail fast (with one clear message) while the engine is not importable."""
     if _IMPORT_ERROR is not None:
         pytest.fail(
-            "evogp.tree is not importable (the ETL-based engine is not present in this "
+            "evogp.tree is not importable (the evoxc-based engine is not present in this "
             f"worktree yet): {_IMPORT_ERROR!r}"
         )
 

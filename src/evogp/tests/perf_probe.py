@@ -1,24 +1,25 @@
-"""perf_probe.py — ETL build/run economics probe for EvoGP's rewritten engine.
+"""perf_probe.py — evoxc build/run economics probe for EvoGP's rewritten engine.
 
 NOT a pytest module: a standalone script (run it directly) that measures what a
-per-tree "true jit" evaluation loop costs with the REAL ``etl`` package, so the
+per-tree "true jit" evaluation loop costs with the REAL ``evoxc`` package, so the
 rewritten engine's backend defaults and the ``sr_test`` scale can be chosen with
 evidence instead of guesswork.
 
 Engine shape this probe models (implemented in parallel under ``../tree/``):
 the population tensors are decoded host-side into a *static* Python structure per
-tree, that structure specializes a module-level ``@etl.defn`` step function through
-``etl.build_cached`` (shared ``etl.CompileCache``: one cache entry per distinct
+tree, that structure specializes a module-level ``@evoxc.defn`` step function through
+``evoxc.build_cached`` (shared ``evoxc.CompileCache``: one cache entry per distinct
 structure/backend/device/spec), and the resulting ``Executable`` is run per tree
 over the ``(N, input_len)`` data matrix -- exactly the meta-programming pattern
-pinned by ``/mnt/local-ssd/bchuang/etl/tests/test_meta_programming.py``.
+pinned by ``<evoxc-checkout>/tests/test_meta_programming.py`` (the evoxc source
+tree next to this project; it is the same meta-programming pattern).
 
 What is measured (all wall-clock, per tree, ms):
 
 1. cold build -- ``build_cached`` cache MISS = ``trace -> lower -> [compile ->] load``
    (``first_build_ms`` is the very first build of a backend/spec and includes the
    iree runtime/device init; the rest are steady-state per-tree builds).
-2. warm run -- ``etl.run`` on the cached executable (for iree: device-only run and
+2. warm run -- ``evoxc.run`` on the cached executable (for iree: device-only run and
    run + host readback), i.e. the inner-loop cost that every tree pays every
    generation.
 3. cache-hit call overhead -- repeating ``build_cached`` on an already-built
@@ -26,14 +27,17 @@ What is measured (all wall-clock, per tree, ms):
 4. stage breakdown -- trace / lower / compile / load split for one tree.
 5. extrapolated per-generation wall time for pop=200 and pop=1000 under an
    all-distinct (worst case) and a 50%-distinct (mixed) assumption.
-6. ``ETL_DISABLE_LOCATIONS=1`` effect on trace/build (one subprocess per setting,
+6. ``EVOXC_DISABLE_LOCATIONS=1`` effect on trace/build (one subprocess per setting,
    so no import-time or interpreter state is shared between the two runs).
 7. bounded parallel-build attempts (process pool + thread pool) -- build
    throughput only: ``Executable`` objects cannot cross process boundaries.
 
 Backends: ``"numpy"`` (cpu reference backend) and ``"iree"`` on
-``Device("cuda", 0)`` with ``target_backends=["cuda"]``, ``opt_level="O1"``
-(O2/O3 are buggy on cuda -- never used here). Data: ``x`` of shape
+``Device(HOST_GPU_KIND, 0)`` with ``opt_level="O1"`` -- ``HOST_GPU_KIND`` is the
+device kind evoxc needs on this host (``"rocm"`` on a ROCm/HIP torch build,
+else ``"cuda"``; see the comment at its definition), and ``target_backends`` is
+NOT passed because ``build_cached`` infers it from that device kind (O2/O3 are
+buggy on the GPU target -- never used here). Data: ``x`` of shape
 ``(N, input_len)`` float32 for N=100 and N=1000 (one tree over N data points, as
 EvoGP evaluates it); ``--full`` adds N=10000 as an extension row.
 
@@ -46,14 +50,17 @@ Usage
 
 A copy of the JSON report is always written under $TMPDIR (path is printed).
 The script needs no GPU when ``--backends numpy`` is used; iree sections degrade
-gracefully (recorded as an error string) when no CUDA device/iree runtime is
+gracefully (recorded as an error string) when no GPU device/iree runtime is
 present.
 
 RESULTS
 -------
+The numbers below predate this probe's port to the renamed package: they were
+taken on a CUDA box with the same library code, so they still describe the
+economics; the live tables print this host's own device kind.
 Measured with ``--full`` on 1x NVIDIA RTX A6000 (device 0) + 128 CPUs, Linux
-6.1, python 3.11.2, etl 0.1.0 (editable at /mnt/local-ssd/bchuang/etl), torch
-2.6.0+cu124. 24 GP trees, 30-60 GP nodes each (21-45 etl ops), 2 variables, data
+6.1, python 3.11.2, evoxc 0.1.0, torch 2.6.0+cu124. 24 GP trees, 30-60 GP nodes
+each (21-45 evoxc ops), 2 variables, data
 ``x`` of shape ``(N, 2)`` float32. Medians; the box is shared, so ``--full``
 ranges are shown in brackets. ``--quick`` reproduces the same picture in ~36 s
 (``--full``: ~2m20s).
@@ -84,7 +91,7 @@ ranges are shown in brackets. ``--quick`` reproduces the same picture in ~36 s
       all-cached floor (no builds at all): 0.45-0.88 s numpy, ~1.03 s iree
       build throughput: 23.7-23.9 (numpy) vs 1.97-2.29 (iree) distinct trees/s
 
-    ETL_DISABLE_LOCATIONS=1 (subprocess per setting, N=1000):
+    EVOXC_DISABLE_LOCATIONS=1 (subprocess per setting, N=1000):
       numpy trace       24.51 -> 1.67 ms  (14.7x,  delta -22.84 ms)
       numpy cold build  37.79 -> 9.88 ms  (3.8x,   delta -27.91 ms)
       numpy hit build    0.506 -> 0.500 ms (unchanged - no tracing on a hit)
@@ -106,10 +113,11 @@ per-generation extrapolation is decisive: at pop=1000/N=1000 the mixed case is
 iree only wins the all-cached floor case (1.02 s vs 0.48 s), which no realistic
 generation reaches before the population converges.
 
-Keep ``"iree"`` + ``Device("cuda", 0)`` + ``target_backends=["cuda"]`` +
-``opt_level="O1"`` as an explicit opt-in path, i.e. the engine must treat the ETL
-backend and device as configuration, never as a hard-coded constant. Two
-supporting levers, both measured here: (a) set ``ETL_DISABLE_LOCATIONS=1`` for
+Keep ``"iree"`` + ``Device(HOST_GPU_KIND, 0)`` + ``opt_level="O1"`` (the target
+backend is inferred from the device kind) as an explicit opt-in path, i.e. the
+engine must treat the evoxc backend and device as configuration, never as a
+hard-coded constant. Two
+supporting levers, both measured here: (a) set ``EVOXC_DISABLE_LOCATIONS=1`` for
 the build phase -- tracing drops 14.7x (24.5 -> 1.7 ms) and the numpy cold build
 3.8x, since location capture walks the Python stack once per op; (b) parallel
 builds are NOT a workaround for the iree build cost (2.7x at 8 processes, and
@@ -131,8 +139,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, wait
 
 import numpy as np
+import torch
 
-import etl
+import evoxc
 
 # --------------------------------------------------------------------------
 # Configuration
@@ -141,13 +150,23 @@ import etl
 #: One cache shared by every probe section, as the engine will do. Entries are
 #: keyed on (fn id, specs incl. static tree content, backend, device, options),
 #: so the two backends / every N / every tree get their own entry.
-SHARED_CACHE = etl.CompileCache()
+SHARED_CACHE = evoxc.CompileCache()
 
-CPU_DEVICE = etl.core.Device("cpu", 0)
+CPU_DEVICE = evoxc.core.Device("cpu", 0)
+
+#: The evoxc device KIND of this host's GPU. evoxc's IREE adapter loads the HAL
+#: driver matching the kind, so it cannot be hard-coded: it follows the installed
+#: torch build (``torch.version.hip`` is set on a ROCm/HIP build, ``None`` on a
+#: CUDA build) -- the same resolution ``evogp.tree.evoxc_engine._gpu_device_kind``
+#: uses. ``"cuda"`` on a CUDA box, ``"rocm"`` on a ROCm one (e.g. MI300X/gfx942).
+HOST_GPU_KIND = "rocm" if getattr(torch.version, "hip", None) else "cuda"
 
 #: iree compile knobs. ``opt_level="O1"`` is deliberate: O2/O3 are broken on the
-#: cuda target. ``--quick`` and ``--full`` only differ in iteration counts.
-IREE_OPTIONS = {"target_backends": ["cuda"], "opt_level": "O1"}
+#: GPU target. ``target_backends`` is deliberately NOT passed -- ``build_cached``
+#: infers it from the resolved device kind (``"cuda"`` -> ``["cuda"]``,
+#: ``"rocm"`` -> ``["rocm"]``), so the options carry only ``opt_level``.
+#: ``--quick`` and ``--full`` only differ in iteration counts.
+IREE_OPTIONS = {"opt_level": "O1"}
 
 NP_SPEC_OPTS: dict = {}  # numpy backend takes no extra options
 
@@ -181,24 +200,24 @@ WARMUP_BUILDS = 3   # throwaway builds per backend before any measurement: the
 # A decoded tree is a nested tuple of ints/floats ONLY (the build_cached cache
 # key must be codec-encodable -- no Enums/dataclasses/sets/strings):
 #
-#   (0, i)        leaf: variable column i            -> 1 etl op
-#   (1, c)        leaf: float constant c             -> 1 etl op
-#   (2, l, r)     add                                -> 1 etl op
+#   (0, i)        leaf: variable column i            -> 1 evoxc op
+#   (1, c)        leaf: float constant c             -> 1 evoxc op
+#   (2, l, r)     add                                -> 1 evoxc op
 #   (3, l, r)     subtract
 #   (4, l, r)     multiply
 #   (5, l, r)     divide
-#   (6, a)        sin                                -> 1 etl op
+#   (6, a)        sin                                -> 1 evoxc op
 #   (7, a)        exp
 #   (8, a)        tanh
-#   (9, l, r)     comparison GT  -> select(l > r, 1, -1)   -> 2 etl ops
+#   (9, l, r)     comparison GT  -> select(l > r, 1, -1)   -> 2 evoxc ops
 #   (10, l, r)    comparison LT  -> select(l < r, 1, -1)
-#   (11, c, a, b) IF (ternary)   -> select(c > 0, a, b)    -> 2 etl ops
+#   (11, c, a, b) IF (ternary)   -> select(c > 0, a, b)    -> 2 evoxc ops
 #   (12, l, r)    maximum
 #   (13, l, r)    minimum
 #
 # That mirrors EvoGP's real function set (ADD/SUB/MUL/DIV/MAX/MIN/LT/GT/IF +
 # SIN/EXP/TANH; see ``../tree/utils.py`` ``Func``/``FUNCS_NAMES``).
-# DIV is the unprotected ``etl.divide`` (the LOOSE_DIV guard only changes values,
+# DIV is the unprotected ``evoxc.divide`` (the LOOSE_DIV guard only changes values,
 # never op counts/timing), so a few trees can produce inf/nan values -- harmless
 # for timing, and excluded from the parity diff via ``nan_to_num``.
 LEAF_VAR = 0
@@ -206,19 +225,19 @@ LEAF_CONST = 1
 IF = 11
 
 _BINARY = {
-    2: etl.add,
-    3: etl.subtract,
-    4: etl.multiply,
-    5: etl.divide,
-    12: etl.maximum,
-    13: etl.minimum,
+    2: evoxc.add,
+    3: evoxc.subtract,
+    4: evoxc.multiply,
+    5: evoxc.divide,
+    12: evoxc.maximum,
+    13: evoxc.minimum,
 }
-_UNARY = {6: etl.sin, 7: etl.exp, 8: etl.tanh}
-_CMP = {9: etl.greater, 10: etl.less}
+_UNARY = {6: evoxc.sin, 7: evoxc.exp, 8: evoxc.tanh}
+_CMP = {9: evoxc.greater, 10: evoxc.less}
 
-# Python-side folds for all-static subtrees: etl ops need at least one
+# Python-side folds for all-static subtrees: evoxc ops need at least one
 # SymbolicTensor operand, so a subtree that is entirely constants must fold to a
-# Python scalar at trace time (exactly as the ETL meta-programming test does).
+# Python scalar at trace time (exactly as the evoxc meta-programming test does).
 _FOLD_BINARY = {
     2: lambda a, b: a + b,
     3: lambda a, b: a - b,
@@ -238,12 +257,12 @@ def _is_static(v):
 
 
 def _compose(tree, x):
-    """Decode a static tree into an etl expression over ``x`` (trace time).
+    """Decode a static tree into an evoxc expression over ``x`` (trace time).
 
     Runs as plain Python inside the trace: leaf tags are tested before any
     unpacking, so leaves (2-tuples) and nodes (n-ary tuples) never collide, and
     all-static subtrees fold to Python scalars (ops require a symbolic operand).
-    Python scalars stay scalar operands -- etl promotes them (weak scalar).
+    Python scalars stay scalar operands -- evoxc promotes them (weak scalar).
     """
     tag = tree[0]
     if tag == LEAF_VAR:
@@ -257,13 +276,13 @@ def _compose(tree, x):
         a, b = _compose(tree[1], x), _compose(tree[2], x)
         if _is_static(a) and _is_static(b):
             return _FOLD_CMP[tag](a, b)
-        return etl.select(_CMP[tag](a, b), 1.0, -1.0)
+        return evoxc.select(_CMP[tag](a, b), 1.0, -1.0)
     if tag == IF:
         c = _compose(tree[1], x)
         if _is_static(c):
             return _compose(tree[2] if c > 0 else tree[3], x)
-        return etl.select(etl.greater(c, 0.0), _compose(tree[2], x),
-                          _compose(tree[3], x))
+        return evoxc.select(evoxc.greater(c, 0.0), _compose(tree[2], x),
+                            _compose(tree[3], x))
     a, b = _compose(tree[1], x), _compose(tree[2], x)
     if _is_static(a) and _is_static(b):
         return _FOLD_BINARY[tag](a, b)
@@ -291,7 +310,7 @@ def _contains_var(tree):
     return _contains_var(tree[1]) or _contains_var(tree[2])
 
 
-@etl.defn
+@evoxc.defn
 def _step(x, tree):
     """The engine's step function: static tree program applied to ``x``.
 
@@ -316,14 +335,14 @@ def _gp_nodes(tree):
     return 1 + _gp_nodes(tree[1]) + _gp_nodes(tree[2])
 
 
-def _etl_ops(tree):
-    """Number of etl ops the tree traces into (mirrors ``_compose``: all-static
+def _evoxc_ops(tree):
+    """Number of evoxc ops the tree traces into (mirrors ``_compose``: all-static
     subtrees fold to Python scalars and emit no op)."""
     return _ops_and_static(tree)[0]
 
 
 def _ops_and_static(tree):
-    """``(etl_op_count, is_static)`` for a static tree (see ``_compose``)."""
+    """``(evoxc_op_count, is_static)`` for a static tree (see ``_compose``)."""
     tag = tree[0]
     if tag == LEAF_VAR:
         return 1, False  # x[:, i] -- a slice op
@@ -462,7 +481,7 @@ def _backend_cfg(name, device_index):
     if name == "numpy":
         return dict(backend="numpy", device=CPU_DEVICE, **NP_SPEC_OPTS), None
     if name == "iree":
-        device = etl.core.Device("cuda", device_index)
+        device = evoxc.core.Device(HOST_GPU_KIND, device_index)
         return dict(backend="iree", device=device, **IREE_OPTIONS), device
     raise ValueError(f"unknown backend {name!r}")
 
@@ -472,6 +491,39 @@ def _host(t):
     if t.device.kind != "cpu":
         t = t.to(CPU_DEVICE)
     return t.numpy()
+
+
+#: ``target_backends`` evoxc's iree family infers from a device kind (see
+#: ``evoxc.pipeline._resolve_backend_device``). ``build_cached`` does this
+#: inference itself before it lowers/compiles, so the probe passes only
+#: ``opt_level`` -- except in the hand-rolled trace/lower/compile/load split of
+#: :func:`measure_stage_breakdown`, which must spell the inferred target out or
+#: the artifact is compiled for ``llvm-cpu`` and ``evoxc.load`` then refuses the
+#: GPU device ("the iree artifact was compiled for target(s) llvm-cpu and
+#: cannot run on the requested device ... never silently recompile").
+_INFERRED_TARGET_BACKENDS = {
+    "cpu": ["llvm-cpu"],
+    "cuda": ["cuda"],
+    "rocm": ["rocm"],
+    "hip": ["rocm"],
+    "vulkan": ["vulkan-spirv"],
+}
+
+
+def _stage_options(kwargs):
+    """``lower``/``compile`` options for the manual stage decomposition.
+
+    Everything ``_backend_cfg`` set except the build-only ``backend``/``device``
+    keys, plus the ``target_backends`` a device-bearing backend gets from
+    ``build_cached``'s own resolution (the numpy path resolves to ``cpu`` and
+    passes no options at all).
+    """
+    opts = {k: v for k, v in kwargs.items() if k not in ("backend", "device")}
+    device = kwargs.get("device")
+    kind = getattr(device, "kind", None)
+    if device is not None and kind in _INFERRED_TARGET_BACKENDS:
+        opts.setdefault("target_backends", list(_INFERRED_TARGET_BACKENDS[kind]))
+    return opts
 
 
 # --------------------------------------------------------------------------
@@ -486,19 +538,23 @@ def measure_backend(backend, trees, n_values, device_index, mode_cfg, report):
 
     for n in n_values:
         key = f"N{n}"
-        spec = etl.TensorSpec((n, 2), etl.float32)
+        spec = evoxc.TensorSpec((n, 2), evoxc.float32)
         x_np = np.asarray(
             np.random.default_rng(1234 + n).uniform(-1.0, 1.0, size=(n, 2)),
             dtype=np.float32,
         )
-        x_run = x_np if device is None else etl.from_numpy(x_np).to(device)
+        # ``evoxc.from_numpy`` is a ZERO-COPY host wrap (it stages nothing); the
+        # host->device upload is the explicit ``Tensor.to(device)`` below, and
+        # ``evoxc.run`` itself never transfers (a device executable rejects host
+        # inputs), which is why it is done once here, outside the timed region.
+        x_run = x_np if device is None else evoxc.from_numpy(x_np).to(device)
 
         # A private cache per (backend, N) so miss/hit counters are unambiguous.
-        cache = etl.CompileCache(maxsize=64)
+        cache = evoxc.CompileCache(maxsize=64)
 
         # -- (a) first build: includes one-time iree runtime/device init ------
         t0 = time.perf_counter()
-        warm_exe = etl.build_cached(_step, spec, trees[0], cache=cache, **kwargs)
+        warm_exe = evoxc.build_cached(_step, spec, trees[0], cache=cache, **kwargs)
         first_build_ms = (time.perf_counter() - t0) * 1e3
 
         # -- (b) cold builds (cache misses) for the remaining distinct trees --
@@ -506,29 +562,29 @@ def measure_backend(backend, trees, n_values, device_index, mode_cfg, report):
         for tree in trees[1:]:
             misses_before = cache.misses
             t0 = time.perf_counter()
-            etl.build_cached(_step, spec, tree, cache=cache, **kwargs)
+            evoxc.build_cached(_step, spec, tree, cache=cache, **kwargs)
             cold_ms.append((time.perf_counter() - t0) * 1e3)
             if cache.misses != misses_before + 1:
                 raise RuntimeError("expected a build_cached cache miss")
             cold_nodes.append(_gp_nodes(tree))
-            cold_ops.append(_etl_ops(tree))
+            cold_ops.append(_evoxc_ops(tree))
         # The tree used for the first build counts as a miss too.
         cold_nodes.append(_gp_nodes(trees[0]))
-        cold_ops.append(_etl_ops(trees[0]))
+        cold_ops.append(_evoxc_ops(trees[0]))
         cold_all_ms = [first_build_ms] + cold_ms
 
-        # -- (c) warm run: pure etl.run on the cached executable -------------
+        # -- (c) warm run: pure evoxc.run on the cached executable -----------
         run_dev_ms, run_read_ms = [], []
         for tree in trees[: min(len(trees), mode_cfg["trees"])]:
-            exe = etl.build_cached(_step, spec, tree, cache=cache, **kwargs)
+            exe = evoxc.build_cached(_step, spec, tree, cache=cache, **kwargs)
             run_dev_ms.extend(
-                _time_call(lambda: etl.run(exe, x_run, tree), mode_cfg["reps"], 3)
+                _time_call(lambda: evoxc.run(exe, x_run, tree), mode_cfg["reps"], 3)
             )
             # "Readback" is a no-op on the cpu backend (already host memory) --
             # measured anyway so the two columns are produced by the same code.
             run_read_ms.extend(
                 _time_call(
-                    lambda: _host(etl.run(exe, x_run, tree)),
+                    lambda: _host(evoxc.run(exe, x_run, tree)),
                     mode_cfg["reps"],
                     3,
                 )
@@ -536,7 +592,7 @@ def measure_backend(backend, trees, n_values, device_index, mode_cfg, report):
 
         # -- (d) cache-hit build_cached overhead -----------------------------
         hit_ms = _time_call(
-            lambda: etl.build_cached(_step, spec, trees[0], cache=cache, **kwargs),
+            lambda: evoxc.build_cached(_step, spec, trees[0], cache=cache, **kwargs),
             mode_cfg["hit_reps"],
             3,
         )
@@ -551,7 +607,7 @@ def measure_backend(backend, trees, n_values, device_index, mode_cfg, report):
             "cache_misses": cache.misses,
             "cache_hits": cache.hits,
             "gp_nodes": cold_nodes,
-            "etl_ops": cold_ops,
+            "evoxc_ops": cold_ops,
             "spec": f"({n}, 2) float32",
         }
         report(f"  {backend:6s} {key:7s} first={first_build_ms:9.1f} ms  "
@@ -559,7 +615,7 @@ def measure_backend(backend, trees, n_values, device_index, mode_cfg, report):
                f"run(dev)={out['per_n'][key]['warm_run_device_only_ms'].get('median', float('nan')):7.3f} ms  "
                f"hit={out['per_n'][key]['hit_build_ms']['median']:7.3f} ms")
 
-        # Keep the executables alive so the shared-cache/cuda handles stay warm
+        # Keep the executables alive so the shared-cache/GPU handles stay warm
         # (they are in ``cache`` anyway; the local names just avoid a GC race).
         del warm_exe
 
@@ -574,11 +630,11 @@ def warm_up_backend(backend, trees, n, device_index):
     section if it is not paid up front. Returns the elapsed seconds.
     """
     kwargs, _ = _backend_cfg(backend, device_index)
-    spec = etl.TensorSpec((n, 2), etl.float32)
-    cache = etl.CompileCache(maxsize=8)
+    spec = evoxc.TensorSpec((n, 2), evoxc.float32)
+    cache = evoxc.CompileCache(maxsize=8)
     t0 = time.perf_counter()
     for tree in trees[:WARMUP_BUILDS]:
-        etl.build_cached(_step, spec, tree, cache=cache, **kwargs)
+        evoxc.build_cached(_step, spec, tree, cache=cache, **kwargs)
     return time.perf_counter() - t0
 
 
@@ -590,21 +646,21 @@ def measure_stage_breakdown(backend, tree, n, device_index):
     the trace stage. A throwaway build warms all four stages first.
     """
     kwargs, device = _backend_cfg(backend, device_index)
-    opts = {k: v for k, v in kwargs.items() if k not in ("backend", "device")}
-    spec = etl.TensorSpec((n, 2), etl.float32)
+    opts = _stage_options(kwargs)
+    spec = evoxc.TensorSpec((n, 2), evoxc.float32)
 
     def once():
         t0 = time.perf_counter()
-        graph = etl.trace(_step, spec, tree)
+        graph = evoxc.trace(_step, spec, tree)
         trace_ms = (time.perf_counter() - t0) * 1e3
         t0 = time.perf_counter()
-        lowered = etl.lower(graph, backend=backend, **opts)
+        lowered = evoxc.lower(graph, backend=backend, **opts)
         lower_ms = (time.perf_counter() - t0) * 1e3
         t0 = time.perf_counter()
-        artifact = etl.compile(lowered, **opts)
+        artifact = evoxc.compile(lowered, **opts)
         compile_ms = (time.perf_counter() - t0) * 1e3
         t0 = time.perf_counter()
-        etl.load(artifact, backend=backend, device=device)
+        evoxc.load(artifact, backend=backend, device=device)
         load_ms = (time.perf_counter() - t0) * 1e3
         return [trace_ms, lower_ms, compile_ms, load_ms]
 
@@ -621,21 +677,21 @@ def measure_stage_breakdown(backend, tree, n, device_index):
 
 
 # --------------------------------------------------------------------------
-# Section 4: ETL_DISABLE_LOCATIONS (one subprocess per setting)
+# Section 4: EVOXC_DISABLE_LOCATIONS (one subprocess per setting)
 # --------------------------------------------------------------------------
 
 _CHILD_MARKER = "#PERF-PROBE-JSON# "
 
 
 def child_locations(setting, trees, reps, device_index, backends):
-    """Child-process body: measure with ``ETL_DISABLE_LOCATIONS`` as set.
+    """Child-process body: measure with ``EVOXC_DISABLE_LOCATIONS`` as set.
 
     ``set(``by the parent``)``; prints one marked JSON line on stdout. A separate
     process per setting guarantees no import-time state and no shared cache leak
     between the two settings.
     """
     res = {"disable_locations": bool(setting), "trees": len(trees)}
-    spec = etl.TensorSpec((1000, 2), etl.float32)
+    spec = evoxc.TensorSpec((1000, 2), evoxc.float32)
 
     if "numpy" in backends:
         # trace-only: the location walk happens at op construction (trace time)
@@ -643,18 +699,18 @@ def child_locations(setting, trees, reps, device_index, backends):
         for tree in trees:
             for _ in range(reps):
                 t0 = time.perf_counter()
-                etl.trace(_step, spec, tree)
+                evoxc.trace(_step, spec, tree)
                 trace_ms.append((time.perf_counter() - t0) * 1e3)
-        cache = etl.CompileCache(maxsize=64)
+        cache = evoxc.CompileCache(maxsize=64)
         cold_ms = []
         for tree in trees:
             t0 = time.perf_counter()
-            etl.build_cached(_step, spec, tree, cache=cache, backend="numpy",
-                             device=CPU_DEVICE)
+            evoxc.build_cached(_step, spec, tree, cache=cache, backend="numpy",
+                               device=CPU_DEVICE)
             cold_ms.append((time.perf_counter() - t0) * 1e3)
         hit_ms = _time_call(
-            lambda: etl.build_cached(_step, spec, trees[0], cache=cache,
-                                     backend="numpy", device=CPU_DEVICE),
+            lambda: evoxc.build_cached(_step, spec, trees[0], cache=cache,
+                                       backend="numpy", device=CPU_DEVICE),
             reps, 3,
         )
         res["numpy"] = {
@@ -665,11 +721,11 @@ def child_locations(setting, trees, reps, device_index, backends):
 
     if "iree" in backends:
         kwargs, _ = _backend_cfg("iree", device_index)
-        cache = etl.CompileCache(maxsize=64)
+        cache = evoxc.CompileCache(maxsize=64)
         cold_ms = []
         for i, tree in enumerate(trees):
             t0 = time.perf_counter()
-            etl.build_cached(_step, spec, tree, cache=cache, **kwargs)
+            evoxc.build_cached(_step, spec, tree, cache=cache, **kwargs)
             dt = (time.perf_counter() - t0) * 1e3
             if i:  # drop the first build (iree runtime init)
                 cold_ms.append(dt)
@@ -684,9 +740,9 @@ def measure_locations(trees, reps, device_index, backends, probe_path, report):
     out = {"per_setting": {}}
     for setting in (False, True):
         env = dict(os.environ)
-        env.pop("ETL_DISABLE_LOCATIONS", None)
+        env.pop("EVOXC_DISABLE_LOCATIONS", None)
         if setting:
-            env["ETL_DISABLE_LOCATIONS"] = "1"
+            env["EVOXC_DISABLE_LOCATIONS"] = "1"
         cmd = [sys.executable, probe_path, "--child-locations",
                "1" if setting else "0", "--trees", str(len(trees)),
                "--reps", str(reps), "--device-index", str(device_index),
@@ -707,7 +763,7 @@ def measure_locations(trees, reps, device_index, backends, probe_path, report):
             }
         payload["wall_s"] = dt
         out["per_setting"]["disable_locations=%d" % (1 if setting else 0)] = payload
-        report(f"  ETL_DISABLE_LOCATIONS={'1' if setting else '0'}: "
+        report(f"  EVOXC_DISABLE_LOCATIONS={'1' if setting else '0'}: "
                f"{json.dumps({k: v for k, v in payload.items() if k != 'stderr_tail'})[:160]}")
 
     # Deltas between the two settings (trace + cold build, per backend).
@@ -752,12 +808,12 @@ def _build_worker(payload):
         if warmup_tree in trees or len(set(trees)) != len(trees):
             raise RuntimeError("bad payload: warmup/duplicate trees in the timed set")
         kwargs, _ = _backend_cfg(backend_name, device_index)
-        spec = etl.TensorSpec((n, 2), etl.float32)
-        cache = etl.CompileCache(maxsize=64)
-        etl.build_cached(_step, spec, warmup_tree, cache=cache, **kwargs)
+        spec = evoxc.TensorSpec((n, 2), evoxc.float32)
+        cache = evoxc.CompileCache(maxsize=64)
+        evoxc.build_cached(_step, spec, warmup_tree, cache=cache, **kwargs)
         t0 = time.perf_counter()
         for tree in trees:
-            etl.build_cached(_step, spec, tree, cache=cache, **kwargs)
+            evoxc.build_cached(_step, spec, tree, cache=cache, **kwargs)
         elapsed = time.perf_counter() - t0
         return index, len(trees), elapsed, None
     except Exception as exc:  # surfaced in the report, never swallowed silently
@@ -801,7 +857,7 @@ def measure_parallel(trees, n, device_index, backend_name, mode_cfg, report,
         out["serial_baseline"] = base
         report(f"  serial baseline: {serial_ms:.0f} ms/tree = "
                f"{base['builds_per_s']:.2f} builds/s")
-    # ---- process pool (spawn: fork + CUDA/iree state does not mix) --------
+    # ---- process pool (spawn: fork + GPU/iree state does not mix) --------
     w = mode_cfg["parallel_workers"]
     per = mode_cfg["parallel_trees_per_worker"]
     payloads = _make_payloads(trees, w, per, n, device_index, backend_name)
@@ -835,7 +891,7 @@ def measure_parallel(trees, n, device_index, backend_name, mode_cfg, report,
         }
         report(f"  process pool: SKIPPED ({type(exc).__name__}: {exc})")
 
-    # ---- thread pool (in-process; iree cuda HAL devices are thread-affine,
+    # ---- thread pool (in-process; iree GPU-HAL devices are thread-affine,
     # so failures here are a finding, not a probe bug) ---------------------
     tw = mode_cfg["thread_workers"]
     tper = mode_cfg["thread_trees_per_worker"]
@@ -933,7 +989,7 @@ def print_tables(out, pops, distinct_fraction, n_values):
     p("")
     p("=" * 88)
     p("PER-TREE COST (median ms)  " + "".join(
-        f"{b + ' (' + ('cpu' if b == 'numpy' else 'cuda:0, O1') + ')':>26s}"
+        f"{b + ' (' + ('cpu' if b == 'numpy' else f'{HOST_GPU_KIND}:0, O1') + ')':>26s}"
         for b in report) or "no backend measured")
     p("=" * 88)
     for n in n_values:
@@ -1001,7 +1057,7 @@ def print_tables(out, pops, distinct_fraction, n_values):
                   f"all-cached gen = {row['all_cached_s']:7.2f} s")
     p("")
     p("=" * 88)
-    p("ETL_DISABLE_LOCATIONS (median ms, N=1000)")
+    p("EVOXC_DISABLE_LOCATIONS (median ms, N=1000)")
     p("=" * 88)
     deltas = out.get("locations", {}).get("deltas", {})
     for backend, stages in deltas.items():
@@ -1056,9 +1112,10 @@ def _recommendation_lines(out):
             f"{ir_ex['builds_per_s']:.1f} distinct builds/s)."
         )
         lines.append(
-            "Keep iree (Device('cuda', 0), target_backends=['cuda'], opt_level='O1') "
-            "as an opt-in: the engine must take backend/device as configuration and "
-            "default to a path that runs without a GPU."
+            f"Keep iree (Device('{HOST_GPU_KIND}', 0), opt_level='O1'; the target "
+            "backend follows the device kind) as an opt-in: the engine must take "
+            "backend/device as configuration and default to a path that runs "
+            "without a GPU."
         )
         np_run = ex.get("numpy", {}).get("N1000", {}).get("warm_run_ms")
         ir_run = ex.get("iree", {}).get("N1000", {}).get("warm_run_ms")
@@ -1075,7 +1132,7 @@ def _recommendation_lines(out):
                 .get("numpy", {}).get("trace_ms"))
     if np_trace:
         lines.append(
-            "Set ETL_DISABLE_LOCATIONS=1 for the engine's build phase: tracing "
+            "Set EVOXC_DISABLE_LOCATIONS=1 for the engine's build phase: tracing "
             f"drops from {np_trace['median_with_locations_ms']:.1f} ms to "
             f"{np_trace['median_locations_disabled_ms']:.1f} ms per tree "
             f"({np_trace['speedup_x']:.1f}x) and the numpy cold build follows "
@@ -1105,7 +1162,7 @@ def _recommendation_lines(out):
 
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(
-        description="ETL build/run economics probe for EvoGP's per-tree engine."
+        description="evoxc build/run economics probe for EvoGP's per-tree engine."
     )
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--quick", action="store_true", help="fast preset (default)")
@@ -1118,13 +1175,14 @@ def parse_args(argv=None):
     ap.add_argument("--trees", type=int, default=None,
                     help="number of distinct trees (default: preset)")
     ap.add_argument("--seed", type=int, default=20240, help="tree-set seed")
-    ap.add_argument("--device-index", type=int, default=0, help="iree cuda device")
+    ap.add_argument("--device-index", type=int, default=0,
+                    help=f"iree GPU device index (device kind {HOST_GPU_KIND})")
     ap.add_argument("--skip-parallel", action="store_true",
                     help="skip the parallel-build attempt")
     ap.add_argument("--skip-locations", action="store_true",
-                    help="skip the ETL_DISABLE_LOCATIONS subprocess comparison")
+                    help="skip the EVOXC_DISABLE_LOCATIONS subprocess comparison")
     ap.add_argument("--json-out", default=None, help="also write the JSON report here")
-    # Internal: child mode for the ETL_DISABLE_LOCATIONS measurement.
+    # Internal: child mode for the EVOXC_DISABLE_LOCATIONS measurement.
     ap.add_argument("--child-locations", choices=("0", "1"), default=None,
                     help=argparse.SUPPRESS)
     ap.add_argument("--reps", type=int, default=50, help=argparse.SUPPRESS)
@@ -1159,6 +1217,7 @@ def main(argv=None):
             "python": platform.python_version(),
             "platform": platform.platform(),
             "device_index": args.device_index,
+            "host_gpu_kind": HOST_GPU_KIND,
             "seed": args.seed,
         },
         "config": {
@@ -1172,7 +1231,7 @@ def main(argv=None):
         },
         "trees": {
             "gp_nodes": [_gp_nodes(t) for t in trees],
-            "etl_ops": [_etl_ops(t) for t in trees],
+            "evoxc_ops": [_evoxc_ops(t) for t in trees],
             "shapes": ["left-deep chain", "right-deep chain"] + ["random"] * (len(trees) - 2),
         },
         "cold_build": {},
@@ -1183,30 +1242,31 @@ def main(argv=None):
     try:
         import importlib.metadata
 
-        out["probe"]["etl_version"] = importlib.metadata.version("etl")
-    except Exception:
-        pass
+        out["probe"]["evoxc_version"] = importlib.metadata.version("evoxc")
+    except Exception:  # a plain checkout on PYTHONPATH is not an installed dist
+        out["probe"]["evoxc_version"] = getattr(evoxc, "__version__", None)
 
     lines = []
     report = lines.append
 
     report("")
-    report("EvoGP ETL economics probe")
+    report("EvoGP evoxc economics probe")
     report(f"  mode={out['probe']['mode']} trees={n_trees} N={n_values} "
-           f"backends={backends} etl={out['probe'].get('etl_version')}")
+           f"backends={backends} evoxc={out['probe'].get('evoxc_version')}")
     report(f"  tree GP nodes: {out['trees']['gp_nodes']}")
-    report(f"  tree ETL ops : {out['trees']['etl_ops']}")
+    report(f"  tree evoxc ops: {out['trees']['evoxc_ops']}")
     report("")
 
     if "iree" in backends:
         try:  # cheap availability probe so a missing GPU degrades gracefully
             kwargs, dev = _backend_cfg("iree", args.device_index)
-            etl.build_cached(_step, etl.TensorSpec((4, 2), etl.float32), trees[0],
-                             cache=SHARED_CACHE, **kwargs)
-            report(f"  iree cuda available on device {args.device_index}")
+            evoxc.build_cached(_step, evoxc.TensorSpec((4, 2), evoxc.float32),
+                               trees[0], cache=SHARED_CACHE, **kwargs)
+            report(f"  iree {HOST_GPU_KIND} available on device {args.device_index}")
         except Exception as exc:
             out["errors"]["iree"] = f"{type(exc).__name__}: {exc}"
-            report(f"  iree cuda UNAVAILABLE ({type(exc).__name__}: {exc}) -> skipping")
+            report(f"  iree {HOST_GPU_KIND} UNAVAILABLE ({type(exc).__name__}: "
+                   f"{exc}) -> skipping")
             backends = [b for b in backends if b != "iree"]
 
     # ---- section 1-3 -----------------------------------------------------
@@ -1237,18 +1297,18 @@ def main(argv=None):
     for backend in backends:
         try:
             kwargs, dev = _backend_cfg(backend, args.device_index)
-            spec = etl.TensorSpec((256, 2), etl.float32)
+            spec = evoxc.TensorSpec((256, 2), evoxc.float32)
             tree = trees[0]
             x = np.asarray(
                 np.random.default_rng(99).uniform(-1.0, 1.0, size=(256, 2)),
                 dtype=np.float32,
             )
-            exe = etl.build_cached(_step, spec, tree, cache=SHARED_CACHE, **kwargs)
-            xb = x if dev is None else etl.from_numpy(x).to(dev)
-            got = _host(etl.run(exe, xb, tree)).astype(np.float64)
-            ref = _host(etl.run(
-                etl.build_cached(_step, spec, tree, cache=SHARED_CACHE,
-                                 backend="numpy", device=CPU_DEVICE),
+            exe = evoxc.build_cached(_step, spec, tree, cache=SHARED_CACHE, **kwargs)
+            xb = x if dev is None else evoxc.from_numpy(x).to(dev)
+            got = _host(evoxc.run(exe, xb, tree)).astype(np.float64)
+            ref = _host(evoxc.run(
+                evoxc.build_cached(_step, spec, tree, cache=SHARED_CACHE,
+                                   backend="numpy", device=CPU_DEVICE),
                 x, tree)).astype(np.float64)
             g = np.nan_to_num(got)
             r = np.nan_to_num(ref)
@@ -1276,9 +1336,9 @@ def main(argv=None):
             out["errors"][f"breakdown_{backend}"] = f"{type(exc).__name__}: {exc}"
             report(f"  {backend} breakdown FAILED: {type(exc).__name__}: {exc}")
 
-    # ---- section 5: ETL_DISABLE_LOCATIONS --------------------------------
+    # ---- section 5: EVOXC_DISABLE_LOCATIONS --------------------------------
     report("")
-    report("section 5: ETL_DISABLE_LOCATIONS (subprocess per setting, N=1000)")
+    report("section 5: EVOXC_DISABLE_LOCATIONS (subprocess per setting, N=1000)")
     if args.skip_locations:
         report("  skipped (--skip-locations)")
         out["locations"] = {"skipped": True}
@@ -1324,7 +1384,7 @@ def main(argv=None):
     print("\n".join(print_tables(out, out["config"]["pops"], 0.5, n_values)))
 
     ts = time.strftime("%Y%m%d-%H%M%S")
-    tmp_path = os.path.join(tempfile.gettempdir(), f"evogp_etl_perf_probe_{ts}.json")
+    tmp_path = os.path.join(tempfile.gettempdir(), f"evogp_evoxc_perf_probe_{ts}.json")
     for path in ([tmp_path] + ([args.json_out] if args.json_out else [])):
         with open(path, "w") as fh:
             json.dump(out, fh, indent=2, default=str)

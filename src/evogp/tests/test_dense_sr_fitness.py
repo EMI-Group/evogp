@@ -37,19 +37,19 @@ Hermeticity / scope
 * every knob that would change the plan (``backend`` / ``budget_mb`` /
   ``max_tree_len``) is passed EXPLICITLY, and a MODULE-scoped autouse fixture pins
   the ambient ones for the whole file -- ``EVOGP_EVAL_MODE=dense`` +
-  ``EVOGP_ETL_BACKEND=numpy`` plus the two plan-level knobs
+  ``EVOGP_EVOXC_BACKEND=numpy`` plus the two plan-level knobs
   ``EVOGP_DENSE_UPDATE_MODE`` / ``EVOGP_DENSE_PRUNE`` (at their library defaults),
   the module scope being what makes the module-scoped plan fixtures and the call
-  sites agree -- so no ambient ``EVOGP_DENSE_*`` / ``EVOGP_ETL_*`` value can change
+  sites agree -- so no ambient ``EVOGP_DENSE_*`` / ``EVOGP_EVOXC_*`` value can change
   what is measured;
 * no file outside ``src/evogp/tests/`` is touched, and ``reference_eval.py`` (the
   oracle) is used as-is -- never re-implemented here.
 
 Run it from the repository root::
 
-    ETL_DISABLE_LOCATIONS=1 PYTHONPATH=src <venv>/bin/python -m pytest \
+    EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src <venv>/bin/python -m pytest \
         src/evogp/tests/test_dense_sr_fitness.py -q -p no:cacheprovider
-    EVOGP_EVAL_MODE=dense ETL_DISABLE_LOCATIONS=1 PYTHONPATH=src <venv>/bin/python \
+    EVOGP_EVAL_MODE=dense EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src <venv>/bin/python \
         -m pytest src/evogp/tests/test_dense_sr_fitness.py -q -p no:cacheprovider
 """
 
@@ -83,10 +83,10 @@ except ImportError:  # pragma: no cover - only for the importlib import mode
     te = importlib.util.module_from_spec(_spec)
     _spec.loader.exec_module(te)
 
-import etl  # noqa: E402  (the engine dependency; only its patching sites are named)
+import evoxc  # noqa: E402  (the engine dependency; only its patching sites are named)
 from evogp.tree import Forest  # noqa: E402
 from evogp.tree import dense_engine  # noqa: E402
-from evogp.tree import etl_engine  # noqa: E402
+from evogp.tree import evoxc_engine  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # the shape grid (small by design: the whole file must stay a few seconds)
@@ -130,7 +130,7 @@ def _pinned_environment() -> Dict[str, str]:
     """The environment every test of this file runs under (see the fixture below)."""
     return {
         dense_engine.EVAL_MODE_ENV: "dense",
-        "EVOGP_ETL_BACKEND": BACKEND,
+        "EVOGP_EVOXC_BACKEND": BACKEND,
         dense_engine.UPDATE_MODE_ENV: dense_engine.DEFAULT_UPDATE_MODE,
         dense_engine.PRUNE_ENV: "1" if dense_engine.DEFAULT_PRUNE else "0",
     }
@@ -146,7 +146,7 @@ def _pin_route_and_backend() -> Iterator[None]:
     declined, so the file behaves identically under the default run and under the
     forced-dense run of the suite.
 
-    ``EVOGP_ETL_BACKEND=numpy``: the wired entry points (``Forest.SR_fitness`` in the
+    ``EVOGP_EVOXC_BACKEND=numpy``: the wired entry points (``Forest.SR_fitness`` in the
     public-route test) resolve the backend from the environment; no test in this file
     may compile an iree graph.
 
@@ -428,16 +428,19 @@ class _HostCrossings:
 
     A pytest port of ``Traffic`` in ``src/evogp/tree/device_resident_check.py``: the
     same six patched sites, one of them SWAPPED -- ``dense_engine._as_numpy`` /
-    ``_pad_rows`` / ``_to_host``, ``etl.core.Tensor.numpy``, ``etl.run``,
+    ``_pad_rows`` / ``_to_host``, ``evoxc.core.Tensor.numpy``, ``evoxc.run``,
     ``torch.from_numpy`` here against the battery's ``dense_engine._as_numpy`` /
-    ``_pad_rows``, ``etl.core.Tensor.numpy``, ``etl.run``, ``torch.from_numpy`` and
-    ``etl.from_numpy`` (the upload counter) -- because the numpy backend never
-    uploads anything: ``_to_host`` counts the readback/assembly crossing of that
-    backend instead, which is what the loss route's host traffic consists of. The
-    caller-frame names and the "the caller is always the first field" convention
-    are the battery's. ``etl.core.Tensor.numpy`` is also called thousands of times
-    inside the numpy interpreter's own arithmetic, which is why the readback view
-    filters by caller frame.
+    ``_pad_rows``, ``evoxc.core.Tensor.numpy``, ``evoxc.run``, ``torch.from_numpy``
+    and the upload counter (``evoxc.from_numpy`` + the ``.to(device)`` that follows
+    it in ``_iter_plan_chunks``'s ``payload()`` -- evoxc's ``from_numpy`` is a
+    zero-copy host wrap, so ``Tensor.to(device)`` is the real host->device UPLOAD)
+    -- because the numpy backend never uploads anything:
+    ``_to_host`` counts the readback/assembly crossing of that backend instead,
+    which is what the loss route's host traffic consists of. The caller-frame names
+    and the "the caller is always the first field" convention are the battery's.
+    ``evoxc.core.Tensor.numpy`` is also called thousands of times inside the numpy
+    interpreter's own arithmetic, which is why the readback view filters by caller
+    frame.
 
     The wrappers are installed through ``monkeypatch`` and the originals are put back
     on exit, so one test may take several independent counts. Every instance starts
@@ -450,7 +453,7 @@ class _HostCrossings:
         self._monkeypatch = monkeypatch
         #: ``(caller, payload name, elements)`` per torch -> host conversion
         self.as_numpy: List[Tuple[str, str, int]] = []
-        #: ``(caller, shape)`` per ETL -> host readback
+        #: ``(caller, shape)`` per evoxc -> host readback
         self.tensor_numpy: List[Tuple[str, Tuple[int, ...]]] = []
         #: ``(caller, shape)`` per host -> torch tensor creation
         self.torch_from_numpy: List[Tuple[str, Tuple[int, ...]]] = []
@@ -465,15 +468,15 @@ class _HostCrossings:
         origin_as_numpy = dense_engine._as_numpy
         origin_pad_rows = dense_engine._pad_rows
         origin_to_host = dense_engine._to_host
-        origin_tensor_numpy = etl.core.Tensor.numpy
-        origin_run = etl.run
+        origin_tensor_numpy = evoxc.core.Tensor.numpy
+        origin_run = evoxc.run
         origin_torch_from_numpy = torch.from_numpy
         self._originals = (
             (dense_engine, "_as_numpy", origin_as_numpy),
             (dense_engine, "_pad_rows", origin_pad_rows),
             (dense_engine, "_to_host", origin_to_host),
-            (etl.core.Tensor, "numpy", origin_tensor_numpy),
-            (etl, "run", origin_run),
+            (evoxc.core.Tensor, "numpy", origin_tensor_numpy),
+            (evoxc, "run", origin_run),
             (torch, "from_numpy", origin_torch_from_numpy),
         )
 
@@ -507,8 +510,8 @@ class _HostCrossings:
         self._monkeypatch.setattr(dense_engine, "_as_numpy", as_numpy)
         self._monkeypatch.setattr(dense_engine, "_pad_rows", pad_rows)
         self._monkeypatch.setattr(dense_engine, "_to_host", to_host)
-        self._monkeypatch.setattr(etl.core.Tensor, "numpy", tensor_numpy)
-        self._monkeypatch.setattr(etl, "run", run)
+        self._monkeypatch.setattr(evoxc.core.Tensor, "numpy", tensor_numpy)
+        self._monkeypatch.setattr(evoxc, "run", run)
         self._monkeypatch.setattr(torch, "from_numpy", torch_from_numpy)
         return self
 
@@ -524,7 +527,7 @@ class _HostCrossings:
 
     @property
     def readbacks(self) -> List[Tuple[str, Tuple[int, ...]]]:
-        """ETL -> host readbacks issued by the dense run machinery."""
+        """evoxc -> host readbacks issued by the dense run machinery."""
         return self._filtered(self.tensor_numpy, _READBACK_FRAMES)
 
     @property
@@ -632,14 +635,14 @@ def test_dense_loss_matches_the_specialized_engine(case: str, use_mse: bool) -> 
     forest, x, labels = _CASES[case]()
     context = f"dense vs specialized ({case}, use_MSE={use_mse})"
     got = _dense_loss(forest, x, labels, use_mse)
-    population = etl_engine.decode_population(
+    population = evoxc_engine.decode_population(
         forest.batch_node_value,
         forest.batch_node_type,
         forest.batch_subtree_size,
         forest.input_len,
         forest.output_len,
     )
-    want = etl_engine.sr_fitness(
+    want = evoxc_engine.sr_fitness(
         population, x, labels, use_MSE=use_mse, backend=BACKEND
     )
     assert tuple(want.shape) == (forest.pop_size,), f"{context}: shape {want.shape}"
@@ -856,7 +859,7 @@ def test_counted_call_readbacks_are_population_scale(
 
     # one compiled-graph invocation per chunk (never more, never fewer)
     assert len(traffic.runs) == chunks, (
-        f"{len(traffic.runs)} etl.run calls for {chunks} chunks: {traffic.runs}"
+        f"{len(traffic.runs)} evoxc.run calls for {chunks} chunks: {traffic.runs}"
     )
 
 
@@ -963,7 +966,7 @@ def test_public_route_forced_dense_matches_the_dense_entry_point(
 
     monkeypatch.setattr(dense_engine, "sr_fitness_dense", recording)
     monkeypatch.setenv(dense_engine.EVAL_MODE_ENV, "dense")
-    monkeypatch.setenv("EVOGP_ETL_BACKEND", BACKEND)
+    monkeypatch.setenv("EVOGP_EVOXC_BACKEND", BACKEND)
 
     got = forest.SR_fitness(x.to("cuda"), labels.to("cuda"), True, "auto")
     assert calls, "the wired route did not take the dense branch"

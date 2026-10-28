@@ -1,8 +1,10 @@
 # DENSE_EVAL.md — the dense one-graph population evaluator
 
 Design document of record for `dense_engine.py`: the evaluator that runs a **whole population through
-ONE compiled ETL executable** fed with the population's node tensors as *runtime data*, instead of one
-ETL graph per tree structure.
+ONE compiled evoxc executable** fed with the population's node tensors as *runtime data*, instead of one
+evoxc graph per tree structure.
+The engine dependency is `evoxc` (EvoX Compiler: `import evoxc` + `from evoxc.build_cache import
+CompileCache, build_cached`); the per-structure engine beside this route is `evoxc_engine.py`.
 
 **Status: integrated.** It is wired into the five public entry points (`Forest.forward`,
 `Forest.batch_forward`, `Forest.SR_fitness`, `Tree.forward`, `Tree.SR_fitness`) and selected per call
@@ -15,26 +17,26 @@ semantics of record, and both paths share the same private op emitters by constr
 
 ## 1. Why a dense evaluator exists
 
-The specialized engine (`etl_engine.py`, the default and the reference) is per structure:
+The specialized engine (`evoxc_engine.py`, the default and the reference) is per structure:
 
-* **one compile per distinct tree structure** — `etl.build_cached` trace → lower → compile → load,
+* **one compile per distinct tree structure** — `evoxc.build_cached` trace → lower → compile → load,
   measured ~0.5 s per distinct structure on IREE at the reference shape (L=32, realized tree lengths
   median 17; firm-up median of 11 direct full-population cells, `dense_bench_findings.md` §2, against
   0.34–1.23 s per tree in the earlier single-tree samples) and single-digit ms per structure on numpy
   (the grid's cold columns over 55 / 170 / 793 distinct programs). A fresh random population is a
   **cold miss per individual** (the bench's pop-1000 reference population held 793 distinct programs).
 * **one Python invocation per tree per pass** — a `pop_size` fitness pass is `pop_size` `build_cached`
-  look-ups plus `pop_size` `etl.run` calls, each re-validating its statics. Both per-lookup costs are
-  small on the ETL side now (a repeated program's key is a ~17–25 µs fingerprint replay, a 60-token
-  `etl.run` 67–71 µs — §7), but the *number* of Python invocations is unchanged.
+  look-ups plus `pop_size` `evoxc.run` calls, each re-validating its statics. Both per-lookup costs are
+  small on the evoxc side now (a repeated program's key is a ~17–25 µs fingerprint replay, a 60-token
+  `evoxc.run` 67–71 µs — §7), but the *number* of Python invocations is unchanged.
 * **one device readback per tree on a device backend** — results are assembled host-side, so a
   `pop_size` pass costs `pop_size` device invocations and `pop_size` synchronizations.
-* **no cross-tree batching** — duplicate programs hit the cache but still run one by one, and ETL has
-  no supported multi-program / "super graph" execution.
+* **no cross-tree batching** — duplicate programs hit the cache but still run one by one, and evoxc has
+  no multi-program / "super graph" execution (§7).
 
 Historical floor: the deleted compiled extension ran its CUDA kernels over the **whole population** —
 one dispatch sequence per `evaluate` call, a flat ~0.6–1.6 ms warm cost that barely reacted to
-`pop_size` (`test/benchmark/SUMMARY.md` §3). The dense path is the closest ETL equivalent of that
+`pop_size` (`test/benchmark/SUMMARY.md` §3). The dense path is the closest evoxc equivalent of that
 shape: **one executable, whole population, one readback per call**, compile amortized over every call
 of the same shape.
 
@@ -80,14 +82,14 @@ real value (pinned by the padding-invariance families of the batteries).
 
 ### 2.2 One graph, trace-time unrolled
 
-`_dense_step` (module-level `@etl.defn` — its `id()` is part of the cache key) traces, through
+`_dense_step` (module-level `@evoxc.defn` — its `id()` is part of the cache key) traces, through
 `_dense_body`, a Python `for i in range(L - 1, -1, -1)` unroll (reverse prefix order: children always
 have a larger index than their parent). Per position it reshapes the seven `(L, P)` columns' row `i`
 into `(P, 1)` symbolic tensors (`_col`), reads the three child values from the value buffer with the
 **flatten trick** (one `gather` over a flat view of the `(rows, P, N)` buffer, index
 `off * P * N + pn_off`, both clamped — `_read_buffer`), and computes the **candidate chain** for the
 population's used function ids, walked in **descending** id order (the *same* private emitters the
-specialized engine uses — `etl_engine._emit_unary` / `_emit_binary` / `_emit_ternary`, parity by
+specialized engine uses — `evoxc_engine._emit_unary` / `_emit_binary` / `_emit_ternary`, parity by
 construction; `EVOGP_DENSE_PRUNE=0` walks `FULL_FUNC_IDS` = 28…1 and reproduces the unpruned stream
 byte-for-byte — §9 item 1), selecting the node's own value with `select(pred, …)` and folding in the
 ternary / leaf cases with broadcast preds.
@@ -101,7 +103,7 @@ key), so runtime tensors of a given shape never trigger a recompile while a diff
 
 ### 2.3 Value buffer & write modes (`EVOGP_DENSE_UPDATE_MODE`)
 
-ETL has no in-place mutation primitive that is safe on every backend, so the `(rows, P, N)` value
+evoxc has no in-place mutation primitive that is safe on every backend, so the `(rows, P, N)` value
 buffer is emulated; the strategy is a compile-time choice:
 
 * **`grow`** (default) — the buffer starts as the row computed at `i = L-1` and is *prepended* to with
@@ -113,9 +115,9 @@ buffer is emulated; the strategy is a compile-time choice:
   `concatenate([head, row, tail])` over static `slice` pieces: the IREE-safe "select-mask" update
   without a boolean mask tensor; reads are plain `child` indices.
 * **`scatter`** — a full zero buffer written with `scatter(buf, [i], row, axis=0)`. **numpy only by
-  default**: on iree-cuda ETL's `scatter` mutates its input tensor in place, so a retained buffer would
-  be re-written by later invokes; without `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER=1` the mode raises
-  `DenseUnsupported` on iree (→ fallback).
+  default**: on the iree GPU HAL (CUDA or ROCm, kind read from torch) evoxc's `scatter` mutates its
+  input tensor in place, so a retained buffer would be re-written by later invokes; without
+  `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER=1` the mode raises `DenseUnsupported` on iree (→ fallback).
 
 ### 2.4 Chunking and peak memory
 
@@ -140,12 +142,12 @@ shape-control knob and watch host RSS on big grids.
 
 ### 2.5 Cache
 
-`dense_engine.DENSE_CACHE` **is** `etl_engine.CACHE` (one shared `etl.CompileCache`, default maxsize
-4096 via `EVOGP_ETL_CACHE_SIZE`, process-local, in-memory only). The key is the full spec tuple — the
-seven runtime `TensorSpec`s (shape + dtype) plus the static `cfg` — combined with backend / device /
-options, so one dense compile shows up as ONE miss in `etl_engine.cache_stats()` (against `pop_size`
-misses on the specialized path) and a later call of the same shape **and the same used-id set** is a
-pure hit (that set is a static `cfg` entry — §2.2 / §9 item 1).
+`dense_engine.DENSE_CACHE` **is** `evoxc_engine.CACHE` (one shared `evoxc.CompileCache`, default
+maxsize 4096 via `EVOGP_EVOXC_CACHE_SIZE`, process-local, in-memory only). The key is the full spec
+tuple — the seven runtime `TensorSpec`s (shape + dtype) plus the static `cfg` — combined with backend /
+device / options, so one dense compile shows up as ONE miss in `evoxc_engine.cache_stats()` (against
+`pop_size` misses on the specialized path) and a later call of the same shape **and the same used-id
+set** is a pure hit (that set is a static `cfg` entry — §2.2 / §9 item 1).
 
 ---
 
@@ -192,10 +194,12 @@ accepted and still all mapping to the same engine path.
 | `EVOGP_DENSE_UPDATE_MODE` | `grow` | `grow` / `concat` / `scatter` (unknown → `ValueError`; iree-`scatter` → `DenseUnsupported`) |
 | `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER` | unset | opt-in for `scatter` on iree |
 
-Everything else is inherited from `etl_engine.py`: `EVOGP_ETL_BACKEND` (default `numpy`),
-`EVOGP_ETL_IREE_DEVICE`, `EVOGP_ETL_IREE_OPT_LEVEL` (`O0`/`O1`, default `O1`), `EVOGP_ETL_CACHE_SIZE`
-(read at import time) and the `ETL_DISABLE_LOCATIONS=1` tracing speed-up (~4×, recommended for real
-runs, not part of the cache key).
+Everything else is inherited from `evoxc_engine.py`: `EVOGP_EVOXC_BACKEND` (default `numpy`),
+`EVOGP_EVOXC_DEVICE`, `EVOGP_EVOXC_OPT_LEVEL` (`O0`/`O1`, default `O1`), `EVOGP_EVOXC_CACHE_SIZE`
+(read at import time) and the `EVOXC_DISABLE_LOCATIONS=1` tracing speed-up (~4×, recommended for real
+runs, not part of the cache key). The iree device is `evoxc.core.Device(kind, idx)` with the kind from
+`evoxc_engine._gpu_device_kind()` — `"rocm"` when `torch.version.hip` is set, else `"cuda"` — so a
+hard-coded `Device("cuda", …)` fails at load on a ROCm box (this one is `rocm`).
 
 ### The `auto` policy, exactly
 
@@ -203,7 +207,7 @@ runs, not part of the cache key).
 `dense` → always attempt dense; `auto` → dense **iff** the resolved backend is not `numpy` **and**
 `pop_size >= EVOGP_DENSE_AUTO_MIN_POP` (16) **and** — when the caller knows the data-row count and
 passes `rows` — `rows <= EVOGP_DENSE_AUTO_MAX_ROWS` (2048) (`auto_rows_decline`, which never declines an
-explicit `dense`/`specialized`). `resolve_backend_name` delegates to `etl_engine._resolve_backend`, so
+explicit `dense`/`specialized`). `resolve_backend_name` delegates to `evoxc_engine._resolve_backend`, so
 explicit `backend=` / `iree_device_index=` arguments win over the environment.
 The wired call sites pass `pop_size` only, so the rows half of the rule is enforced inside
 `evaluate_dense`, where the row count is known — `per_row=False` calls only, which covers
@@ -253,7 +257,7 @@ specialized engine — never an error. Consequences:
   the default `auto` is unaffected (dense is never auto-selected there), and the suite's shapes (16/32
   wide rows) keep tracing their old `L`.
 * **Both backends, one policy.** `numpy` = correct but slow by design; `iree` = the intended
-  production backend for the dense path (CUDA HAL only, `O0`/`O1`).
+  production backend for the dense path (GPU HAL; `O0`/`O1`).
 * **Shapes.** `per_row=True` needs `x.shape[0] == pop_size` and returns `(pop_size, output_len)`;
   `per_row=False` returns `(pop_size, N, output_len)`. Wrong `x` ndim / column count / label shape →
   `ValueError` (the same checks as the specialized engine); non-tensor inputs → `TypeError`.
@@ -295,7 +299,7 @@ engine resolved something at *decode* time that the dense graph resolves at *run
 
 Sources: the grid in `dense_bench_results.json` (version 1, seed 0, `L=32`, reference population with
 realized tree lengths median 17 / max 31, `EVOGP_DENSE_UPDATE_MODE=grow`, GPU 4 RTX A6000,
-`EVOGP_ETL_BACKEND=iree` / default numpy) and the **firm-up round** in `dense_bench_findings.md` §1–4,
+`EVOGP_EVOXC_BACKEND=iree` / default numpy) and the **firm-up round** in `dense_bench_findings.md` §1–4,
 which root-caused a ~3× inflation in the grid's specialized-iree model (per-call overhead charged once
 per tree instead of once per population), took direct full-population iree measurements from P=16 to
 P=200 and re-derived the ratios. The numbers quoted here are the firm-up numbers.
@@ -306,7 +310,7 @@ pre-firm-up ratio wherever the specialized value was replaced (P=64/N=64: field 
 `dense.warm_ms` / `specialized.warm_ms` / their `status` + `source` fields instead of trusting the
 ratio field or the `measured` label alone.
 
-### iree-cuda: what was measured directly
+### iree, CUDA HAL: what was measured directly
 
 Same-process same-forest A/B (`dense_bench.py --stage probe` — the strongest evidence, since both sides
 pay their per-call overhead in the same process):
@@ -332,7 +336,7 @@ compiles of P=16–32 (4.6–48.6 s in the grid cells, ~0.5 s each: `dense_bench
 part of the win is orders of magnitude, and the dense compile is amortized over every later call of the
 same shape signature.
 
-### The "≥10× warm speedup on iree-cuda" headline is NOT supported
+### The "≥10× warm speedup on iree, CUDA HAL" headline is NOT supported
 
 Where **both** sides are direct, dense is 1.3–3.2× faster at N=64/1024 and 1.18× *slower* at N=10000
 (P=16); the old 16.6× at P=64/N=64 came from the inflated 3× model. The corrected P=64/N=64 value is
@@ -344,7 +348,7 @@ summary: dense wins the cold phase by orders of magnitude and the warm phase mod
 large-pop warm wins require many distinct structures (P≥200), which is plausible from per-tree scaling
 but unverified.
 
-### iree-cuda grid cells (P ≥ 64; dense cells are earlier-grid cells, this round did not re-verify them)
+### iree, CUDA HAL grid cells (P ≥ 64; dense cells are earlier-grid cells, not re-verified this round)
 
 Warm medians; `spec` provenance per cell (`direct` = measured full-population run this round,
 `anchored` = anchored-law extrapolation of it); ratio re-derived as `spec warm / dense warm`.
@@ -366,7 +370,7 @@ Two rows pair a direct specialized run with an earlier-grid dense run (P=64/N=64
 their dense side was not re-measured with the current harness — that is the boundary of the direct
 evidence, not a re-verified ≥10× claim.
 
-P=1000's specialized side was never run (793 distinct compiles ≈ 400 s plus the etl/iree teardown
+P=1000's specialized side was never run (793 distinct compiles ≈ 400 s plus the evoxc/iree teardown
 instability), so those ratios are extrapolations; P=32/N=10000 is `skipped_device_memory` (device-memory
 guard, no dense cell). The dense cold column is a one-time cost per shape signature, the specialized
 compile column is per population and grows with the number of distinct structures.
@@ -407,39 +411,44 @@ warm crossover at ≈3.4–6.8k rows (P=16), 7.5–8.4k (P=32) and ~11k (P=64) �
 roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) encodes (§3, §9).
 
 ---
-## 7. ETL / IREE constraints encountered (and the work-arounds)
+## 7. evoxc / IREE constraints encountered (and the work-arounds)
 
-* **No runtime tensor slicing.** The runtime `etl.Tensor` has no `__getitem__` (only graph-time
-  `SymbolicTensor` slicing, or a static-index `getitem` that would bake the index into the cache key),
+* **No runtime tensor slicing.** The evoxc runtime `Tensor` has no `__getitem__` (only graph-time
+  `SymbolicTensor` slicing, or a static-index `getitem`, which would bake the index into the cache key),
   so a device-resident `(pop, input_len)` block cannot be split per tree at run time. The dense path
-  sidesteps this by feeding the *whole* block and doing the per-tree row selection **in graph**
-  (`x_base` + flatten-gather); the specialized `per_row=True` path must upload one row per tree instead.
-* **No multi-program / super-graph execution** (`etl.jit` is function-entry caching for one program at
-  a time, not multi-program execution), and **no ETL GPU backend without per-graph AOT
-  compilation** (numpy = CPU interpreter, iree/xla = compile per graph, tvm = CPU only). Hence "one
-  graph for the whole population" is the only lever, and the compile budget moves from per tree to per
-  shape.
-* **`scatter` mutates its input on iree** → `grow` (default) and `concat`, plus the explicit
+  sidesteps this by feeding the *whole* block and selecting the per-tree rows **in graph** (`x_base` +
+  flatten-gather); the specialized `per_row=True` path must upload one row per tree instead.
+* **No multi-program / super-graph execution.** The only loop is one `evoxc.run` per compiled executable:
+  no "super graph" path and no function-entry / bound-runner layer either (the specialized engine's
+  `_EXECUTABLE_MEMO` is the only pre-binding layer), and **no evoxc GPU backend executes without
+  per-graph AOT compilation** (numpy = CPU interpreter, iree/xla = compile per graph, tvm = CPU only).
+  Hence "one graph for the whole population" is the only lever, and the compile budget moves from per
+  tree to per shape.
+* **`scatter` mutates its input on the iree GPU HAL** → `grow` (default) and `concat`, plus the explicit
   `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER` opt-in for experiments.
-* **Executable leak (limit corrected by the firm-up round).** The etl/iree binding leaks device buffers
+* **Executable leak (limit corrected by the firm-up round).** The evoxc/iree binding leaks device buffers
   per live executable, and the recorded failure mode is a **teardown-only** crash, not a limit on how
   many executables a run may compile: a P=64 session with 55 builds wrote its correct JSON and only then
   hit the nanobind teardown traceback, and the P=200 session with 170 builds completed cleanly (a
   single-family 338-row `dense_adversarial_check` session still SIGSEGVs outright). Protocol for iree
   work: keep sessions short, split batteries with `--only` / one family per fresh process, and use
-  `etl_engine.clear_cache()` / `cache_stats()` between stages.
+  `evoxc_engine.clear_cache()` / `cache_stats()` between stages.
 * **Process-local cache.** Nothing persists across processes: a new process re-pays one dense compile
   per shape signature. Long runs of a stable shape amortize it to nothing; short scripts and unit tests
   do not — which is why the suite runs on numpy and `auto` keeps dense off there.
-* **Per-call overheads inherited from `etl_engine`.** `build_dense` re-derives the cache key on every
-  call (hit or miss) and `etl.run` re-validates the statics — the dense path pays this once per chunk
-  instead of once per tree. Both sides are cheap ETL-side now: the multi-slot content-fingerprint memo
+* **Per-call overheads inherited from `evoxc_engine`.** `build_dense` re-derives the cache key on every
+  call (hit or miss) and `evoxc.run` re-validates the statics — the dense path pays this once per chunk
+  instead of once per tree. Both sides are cheap evoxc-side now: the multi-slot content-fingerprint memo
   in `CompileCache` turns a repeat visit into a ~17–25 µs key replay (~32 µs per call in a steady-state
   K=50 cycle of 60-token programs, against ~660 µs before) and the per-executable run-path
   static-validation fast path cut the per-call static overhead to ~7–15 µs at 60–170 tokens (~250 µs
-  before), holding a whole 60-token `etl.run` at 67–71 µs (303 before) and 170 tokens at 87–96 µs
-  (758 before). Landed ETL-side on branch `evogit-agent-T1-A160`, on top of the `main`
+  before), holding a whole 60-token `evoxc.run` at 67–71 µs (303 before) and 170 tokens at 87–96 µs
+  (758 before). Landed evoxc-side on branch `evogit-agent-T1-A160`, on top of the `main`
   checkout the venv installs (`bench_logs/hotpath/`).
+* **Compile options carry no `target_backends`.** The engine passes `{"opt_level": opt_level}` plus
+  `device=` and lets `build_cached` infer the target (passing `target_backends` mis-targets), so an
+  ambient `EVOXC_TARGET_BACKENDS` can enter `build_cached`'s resolved options on the iree route: it is a
+  process-env compile knob to pair with `clear_cache()`, like an opt-level change mid-process.
 * **Per-chunk upload cost.** Device backends upload one `(P_chunk, …)` column block per chunk
   (7 tensors + `x`) versus one row per tree on the specialized `per_row=True` path. So a chunk should be
   as large as the memory budget allows, and `per_row=False` workloads (the SR-fitness case) are the
@@ -449,23 +458,30 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
 
 ## 8. Validation evidence (recorded in the repo; not re-run for this document)
 
-* `PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 <venv>/bin/python -m pytest src/evogp/tests -q` →
-  **308 passed, 4 skipped** (~2 min), zero dense attempts (default `auto` on numpy).
+* `PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 <venv>/bin/python -m pytest src/evogp/tests -q`
+  → **443 passed, 5 skipped** (~83 s, 448 collected), zero dense attempts (default `auto` on numpy);
+  `<venv>` = `/tmp/genesis/task_967a300e3bce7f35/evogp-venv/bin/python`; the 5 skips are
+  pygraphviz/graphviz `dot` for `to_png`, two `execute_mode` export checks and two
+  `test_mujoco_problem.py` jax `importorskip` guards (that venv has no jax).
+* Heavy files alone: `test_equivalence.py` → **189 passed** (~70 s); `test_operators.py`,
+  `test_combined_forward.py`, `test_api_compat.py`, `test_convergence_smoke.py` → **118 passed /
+  3 skipped**.
 * Dense forced end to end (`EVOGP_EVAL_MODE=dense`): the cheap subset `-k "forward or fitness"` →
   **31 passed / 2 skipped**; the full dense-forced suite is no longer re-runnable at the 64-node cap on
   the 12 GB sandbox (host-memory OOM at ~23%) — the last full run (32-node cap) recorded 510 dense
   attempts, 492 evaluated densely, 18 declines, of which the 3 over-cap trees are now supported.
-* `dense_spike_check.py --backend numpy --skip-measure` → **37/37** (the compile-reuse case pins the
-  used-id-set granularity; the `EVOGP_DENSE_PRUNE=0` path is pinned separately); the `--full` → 57/57
+* `dense_spike_check.py --backend numpy --quick --skip-measure` → **37/37** (the compile-reuse case pins
+  the used-id-set granularity; the `EVOGP_DENSE_PRUNE=0` path is pinned separately); the `--full` → 57/57
   run is recorded pre-prune.
-* `dense_integration_check.py --stage numpy,fallback` → **119/119**; `--stage iree` → 7/7 (recorded
-  pre-prune).
+* `dense_integration_check.py --stage numpy` → **109/109**; `--stage iree` → 7/7 (recorded pre-prune).
 * `dense_adversarial_check.py --backend numpy` → **192/192 checks, 0 non-bit-exact finite values**;
   the staged iree leg re-checked post-prune with one family (`--only binary_var --iree-max-pop 2`,
-  `--gpu 0`) → **10/10 checks, rc=0** (the full 19-family iree sweep → 189/189 is recorded pre-prune).
-* `device_resident_check.py --stage policy,hotpath,parity,seam,prune` → **104/104** (its prune stage's
+  `--gpu 0`) → **10/10 checks, rc=0** (the full 19-family iree sweep → 189/189 is recorded pre-prune);
+  the current-box smoke `--only binary_var --skip-batch --skip-sr` → **4/4**.
+* `device_resident_check.py` → **104/104** (its prune stage's
   in-process A/B: 420→60 candidate ops; compile 1.24–1.36 s → 0.25–0.37 s; warm SR loss P=64/N=1024
-  0.30–0.57 s → 0.044–0.048 s, ranges across loaded-box re-runs); `executable_memo_check.py` → 32/32;
+  0.30–0.57 s → 0.044–0.048 s, ranges across loaded-box re-runs); `executable_memo_check.py --reps 20`
+  → 32/32;
   `runner_check.py` → 48/48 numpy / 32/32 iree.
 
 ---

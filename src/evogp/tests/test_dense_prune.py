@@ -43,7 +43,7 @@ cache explicitly, and never assume an eviction.
 
 Run (repository root)::
 
-    ETL_DISABLE_LOCATIONS=1 PYTHONPATH=src <venv>/bin/python -m pytest \\
+    EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src <venv>/bin/python -m pytest \\
         src/evogp/tests/test_dense_prune.py -q -p no:cacheprovider
 """
 
@@ -67,7 +67,7 @@ if str(_HERE) not in sys.path:
 import test_equivalence as eq  # noqa: E402
 
 from evogp.tree import dense_engine as D  # noqa: E402
-from evogp.tree import etl_engine as E  # noqa: E402
+from evogp.tree import evoxc_engine as E  # noqa: E402
 from evogp.tree.utils import Func, NType  # noqa: E402
 
 FN, VAR, CONST, RAW = eq.fn, eq.var, eq.const, eq.raw
@@ -135,7 +135,7 @@ _WIDE_SPECS = [
 _WIDE_USED = tuple(sorted(_WIDE_BFUNCS + _WIDE_UFUNCS))
 
 #: NaN/inf sources: ``DIV`` by zero and ``LOG``/``SQRT`` of a non-positive value
-#: yield NaN in this engine (see ``etl_engine._emit_binary`` / ``_emit_unary``),
+#: yield NaN in this engine (see ``evoxc_engine._emit_binary`` / ``_emit_unary``),
 #: ``LOG(0)`` is ``-inf`` and ``EXP(1e30)`` overflows to ``+inf``.
 _NAN_INF_SPECS = [
     FN(Func.LOG, CONST(0.0)),  # -inf
@@ -819,7 +819,7 @@ def test_prune_chunked_plans_are_bit_exact(monkeypatch: pytest.MonkeyPatch) -> N
             f"{kwargs}: the plan must be chunked on BOTH axes"
         )
         assert pruned_plan.p_chunks * pruned_plan.n_chunks <= 40, (
-            "keep the number of chunks (and so etl.run calls) small"
+            "keep the number of chunks (and so evoxc.run calls) small"
         )
         assert pruned_plan.p_chunk < pruned_plan.pop_size
         used = tuple(int(v) for v in pruned_plan.used_func_ids)

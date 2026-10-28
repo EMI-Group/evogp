@@ -30,7 +30,7 @@ import random
 import pytest
 import torch
 
-try:  # the tree layer is importable only once the ETL-based engine is in place
+try:  # the tree layer is importable only once the evoxc-based engine is in place
     from evogp.tree import Forest, GenerateDescriptor, NType
     _IMPORT_ERROR = None
 except Exception as exc:  # pragma: no cover - only in pre-merge worktrees
@@ -42,7 +42,7 @@ except Exception as exc:  # pragma: no cover - only in pre-merge worktrees
 def _require_engine():
     if _IMPORT_ERROR is not None:
         pytest.fail(
-            "evogp.tree is not importable (the ETL-based engine is not present in this "
+            "evogp.tree is not importable (the evoxc-based engine is not present in this "
             f"worktree yet): {_IMPORT_ERROR!r}"
         )
 
@@ -674,7 +674,7 @@ def test_crossover_index_tensors_are_read_as_integers():
 SPLICE_HOOK_MODULES = [
     "evogp.tree.splicing",  # the vectorized mutate/crossover splice primitive
     "evogp.tree.forest", "evogp.tree.tree", "evogp.tree.gp_ops", "evogp.tree.ops",
-    "evogp.tree.torch_ops", "evogp.tree.etl_engine",
+    "evogp.tree.torch_ops", "evogp.tree.evoxc_engine",
 ]
 SPLICE_HOOK_NAMES = [
     "splice", "tree_splice", "splice_subtree", "replace_subtree", "tree_replace",

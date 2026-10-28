@@ -5,7 +5,7 @@ import sympy as sp
 
 from .utils import *
 from .descriptor import GenerateDescriptor
-from . import dense_engine, etl_engine
+from . import dense_engine, evoxc_engine
 
 
 def _comparison_as_value(res):
@@ -93,7 +93,7 @@ class Tree:
             except dense_engine.DenseUnsupported:
                 pass
 
-        pop = etl_engine.decode_population(
+        pop = evoxc_engine.decode_population(
             self.node_value.unsqueeze(0),
             self.node_type.unsqueeze(0),
             self.subtree_size.unsqueeze(0),
@@ -104,7 +104,7 @@ class Tree:
         # A 1-D input is the single tree evaluated on one row (per_row); an
         # explicit 2-D input evaluates the tree on every row of the batch.  The
         # population axis (always 1 here) is dropped from the result either way.
-        res = etl_engine.evaluate(pop, x, per_row=is_expand_input)
+        res = evoxc_engine.evaluate(pop, x, per_row=is_expand_input)
 
         return res[0]
 
@@ -119,7 +119,7 @@ class Tree:
         labels = check_tensor(labels)
 
         # The former kernel_type ids are gone; every mode string (including "torch")
-        # evaluates through the same ETL engine path.
+        # evaluates through the same evoxc engine path.
         assert execute_mode in [
             "torch",
             "hybrid parallel",
@@ -157,7 +157,7 @@ class Tree:
             except dense_engine.DenseUnsupported:
                 pass
 
-        pop = etl_engine.decode_population(
+        pop = evoxc_engine.decode_population(
             self.node_value[None, :],
             self.node_type[None, :],
             self.subtree_size[None, :],
@@ -165,7 +165,7 @@ class Tree:
             self.output_len,
         )
 
-        return etl_engine.sr_fitness(pop, inputs, labels, use_MSE=use_MSE)
+        return evoxc_engine.sr_fitness(pop, inputs, labels, use_MSE=use_MSE)
 
     def to_forest(self):
         from .forest import Forest

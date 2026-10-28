@@ -61,7 +61,7 @@ Therefore a strategy MUST:
 - `crossover_rate` is annotated `int` but used as a float ratio; it is unvalidated, and `crossover_rate > 1` makes `target_cnt - crossover_cnt` negative, which makes `torch.randint` raise.
 - `choose_leaf_pos` guarantees a leaf only probabilistically: it returns `torch.argmax` of a masked random score, so if every leaf score ties at 0 the returned position 0 is a non-leaf node.
 - `MAX_STACK` is imported from `...tree` in `default.py`, `diversity.py` and `leaf_biased.py` but never used (dead import).
-- Importing this subpackage transitively imports `evogp.tree`, which needs only torch and the `etl` package — there is nothing to build, so importing always succeeds; only *executing* a strategy needs a CUDA-visible device.
+- Importing this subpackage transitively imports `evogp.tree`, which needs only torch and the `evoxc` package — there is nothing to build, so importing always succeeds; only *executing* a strategy needs a CUDA-visible device.
 
 ## Notes for Agents
 - To add a strategy: copy `default.py`, subclass `BaseCrossover`, slice `forest[survivor_indices]`, and return exactly `target_cnt` offspring (never include the elites).
