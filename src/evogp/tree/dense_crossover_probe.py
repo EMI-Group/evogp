@@ -7,8 +7,8 @@ around every sample) on a rows sweep for ONE population, so the two sides of the
 engine) can be compared on the same fixture on a device backend.
 
     cd /tmp/dr_before_wt            # or the repo root, for the other side
-    MODE=dense        EVOGP_ETL_IREE_DEVICE=0 AB_ROWS=64,1024,4096,8192,16384 \
-      PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
+    MODE=dense        EVOGP_EVOXC_DEVICE=0 AB_ROWS=64,1024,4096,8192,16384 \
+      PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
       <venv>/bin/python dense_crossover_probe.py dense-after /tmp/dense.json
     MODE=specialized  ...  dense_crossover_probe.py specialized /tmp/spec.json
 
@@ -33,7 +33,7 @@ out_path = sys.argv[2] if len(sys.argv) > 2 else None
 repeats = int(os.environ.get("AB_REPEATS", "7"))
 mode = os.environ.get("MODE", "dense")
 os.environ["EVOGP_EVAL_MODE"] = mode
-os.environ["EVOGP_ETL_BACKEND"] = "iree"
+os.environ["EVOGP_EVOXC_BACKEND"] = "iree"
 
 rows = [int(item) for item in os.environ.get("AB_ROWS", "64,1024,4096,16384").split(",")]
 pop = int(os.environ.get("AB_POP", "16"))

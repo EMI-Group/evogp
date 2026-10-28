@@ -18,13 +18,13 @@ non-bit-exact finite value (folded-constant-chain vs emitted, dense-only vs
 specialized-only vs both).
 
     # numpy battery (CPU math, but the public API's ``check_tensor`` needs a GPU)
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=3 \\
+    PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=3 \\
         /mnt/local-ssd/bchuang/evox/.venv/bin/python \\
         src/evogp/tree/dense_adversarial_check.py
 
-    # one family at a time on iree (keep each process under the etl/iree
+    # one family at a time on iree (keep each process under the evoxc/iree
     # executable-leak budget, see dense_spike_check's robustness note)
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=3 \\
+    PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=3 \\
         /mnt/local-ssd/bchuang/evox/.venv/bin/python \\
         src/evogp/tree/dense_adversarial_check.py --backend iree --only zero_denominator
 
@@ -38,7 +38,7 @@ What each family stresses
 -------------------------
 ``per_row_contract``   identity trees (``VAR 0``) on adversarial per-row ``x``:
                        every tree must see its OWN row (``+-0.0``, ``+-inf``, NaN,
-                       denormals) -- the contract the ``etl_engine per_row=True``
+                       denormals) -- the contract the ``evoxc_engine per_row=True``
                        fix implements; dense, specialized and oracle must all
                        return exactly those rows, bit for bit.
 ``unary_var`` /
@@ -126,7 +126,7 @@ if _SRC not in sys.path:
 
 from evogp.tree import Forest, GenerateDescriptor  # noqa: E402
 from evogp.tree import dense_engine as D  # noqa: E402
-from evogp.tree import etl_engine as E  # noqa: E402
+from evogp.tree import evoxc_engine as E  # noqa: E402
 
 # The tree builders are shared with the spike battery (same directory): TreeSpec
 # (prefix spec with automatic subtree sizes), pack_trees (padding/junk) and the
@@ -362,7 +362,7 @@ def fold_sensitive(nodes: Sequence[Tuple[Any, float]]) -> Tuple[bool, bool]:
     """``(const_subtree_present, root_is_const)`` for a prefix node list.
 
     A function node whose whole subtree is constant is FOLDED host-side by the
-    specialized engine (``etl_engine._decode_row``) while the dense graph emits
+    specialized engine (``evoxc_engine._decode_row``) while the dense graph emits
     it -- the only place where the two paths can legitimately differ (host libm
     vs device libm at f64, rounded to f32).  ``root_is_const`` additionally means
     the specialized path never compiles a graph at all.
@@ -1814,17 +1814,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             f"[warn] EVOGP_EVAL_MODE={os.environ['EVOGP_EVAL_MODE']!r} is set; "
             "this script forces the mode per call and restores it afterwards"
         )
-    if os.environ.get("ETL_DISABLE_LOCATIONS", "").strip() not in ("1", "true"):
-        print("[warn] ETL_DISABLE_LOCATIONS=1 is not set: tracing will be ~4x slower")
+    if os.environ.get("EVOXC_DISABLE_LOCATIONS", "").strip() not in ("1", "true"):
+        print("[warn] EVOXC_DISABLE_LOCATIONS=1 is not set: tracing will be ~4x slower")
     if not torch.cuda.is_available():
         print("[error] the public API relocates to 'cuda'; no GPU is visible")
         return 2
     if args.backend == "iree":
         # resolve the backend through the engine so the environment matches
-        os.environ["EVOGP_ETL_BACKEND"] = "iree"
-        os.environ["EVOGP_ETL_IREE_DEVICE"] = str(args.gpu)
+        os.environ["EVOGP_EVOXC_BACKEND"] = "iree"
+        os.environ["EVOGP_EVOXC_DEVICE"] = str(args.gpu)
     else:
-        os.environ.pop("EVOGP_ETL_BACKEND", None)
+        os.environ.pop("EVOGP_EVOXC_BACKEND", None)
 
     args.max_tree_len = int(D.resolve_auto_min_pop(args.max_tree_len)) if False else args.max_tree_len
     report = Report(strict_bits=args.strict_bits)

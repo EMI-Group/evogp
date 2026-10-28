@@ -16,26 +16,35 @@ payload name (where the site has one) and the payload shape:
 patched site                        direction                  what it sees
 =================================== ========================== ==========================
 ``dense_engine._as_numpy``          torch -> host              ``inputs`` / ``x`` / ``labels`` / the three population tensors
-``etl.from_numpy``                  host -> ETL tensor         every upload the library asks for (device backends)
+``evoxc.core.Tensor.to``            host -> evoxc device       every upload the library asks for (device backends only: a ``kind == "cpu"`` target is the readback path and is NOT counted)
 ``dense_engine._pad_rows``          host only                  every chunk payload it PREPARES (all backends)
-``etl.core.Tensor.numpy``           ETL -> host                every chunk readback (filtered by caller frame)
+``evoxc.core.Tensor.numpy``         evoxc -> host              every chunk readback (filtered by caller frame)
 ``torch.from_numpy``                host -> torch tensor       the host-side tensor assembly
-``etl.run``                         graph invocation           every compiled-graph call (one per chunk is the invariant)
+``evoxc.run``                       graph invocation           every compiled-graph call (one per chunk is the invariant)
 =================================== ========================== ==========================
 
-``etl.from_numpy`` is the upload site, so the "each distinct payload is moved at
-most once per call" invariant is only exercisable on a device backend; the
+``evoxc.core.Tensor.to`` is the upload site: ``evoxc.from_numpy`` is a ZERO-COPY
+HOST WRAP (it builds the host tensor and transfers nothing), so the library's
+uploads are the ``.to(device)`` calls that follow it -- and only a target whose
+``kind`` is not ``"cpu"`` counts (``.to(cpu)`` is the readback, ``.to`` to the
+same device is a no-op).  The "each distinct payload is moved at most once per
+call" invariant is therefore only exercisable on a device backend; the
 ``_pad_rows`` counter measures the same redundancy on the numpy backend, where
 the payload never leaves the host (a payload is uploaded only after being
-prepared, and the two counters agree on chunk multiplicity).  ``etl.core.Tensor.numpy``
-is ALSO called thousands of times inside the numpy interpreter's own tensor
-arithmetic, so the readback counter is filtered by caller frame -- and the
-``seam`` stage carries a positive control (the same filter must see ``run_plan``'s
-readbacks) so a filter that silently stopped matching cannot pass.
+prepared, and the two counters agree on chunk multiplicity).
+
+``evoxc.core.Tensor.numpy`` is ALSO called thousands of times inside the numpy
+interpreter's own tensor arithmetic, so the readback counter is filtered by
+caller frame -- and the ``seam`` stage carries a positive control (the same
+filter must see ``run_plan``'s readbacks) so a filter that silently stopped
+matching cannot pass.
 
 The counters are caller-frame NAMES for the readback / upload / assembly paths,
 so they also work on the pre-refactor code -- which is what makes this script
-usable as the "before" evidence instead of crashing on a missing symbol.
+usable as the "before" evidence instead of crashing on a missing symbol.  The
+frame filter is what separates the dense run machinery's calls (the memoizing
+``payload`` helper, plus the historical names of the sites before the refactor)
+from the engine's / the evoxc interpreter's own internal calls.
 Checks
 ------
 ``policy``   ``dynamic`` is accepted as an explicit alias of ``dense`` in
@@ -61,7 +70,7 @@ Checks
              control showing the counter does see ``run_plan``'s readbacks),
              moves each distinct payload (``7`` columns per ``p``-chunk, one
              ``x`` per ``n``-chunk) exactly once per call -- measured as
-             ``etl.from_numpy`` uploads on a device backend (``--backend iree``)
+             ``evoxc.core.Tensor.to`` uploads on a device backend (``--backend iree``)
              and as ``_pad_rows`` preparations on numpy -- and its chunks
              assemble into the same host array ``run_plan`` returns (bit-exact,
              NaN/±inf masks included).
@@ -82,7 +91,7 @@ Checks
 
 Usage (repo root, project venv)::
 
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
+    PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=6 \
       <venv>/bin/python src/evogp/tree/device_resident_check.py
     ... device_resident_check.py --measure --json /tmp/device_resident.json
     ... device_resident_check.py --backend iree --gpu 0 --cases 16x64
@@ -109,11 +118,11 @@ _SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
-import etl  # noqa: E402
+import evoxc  # noqa: E402
 
 from evogp.tree import Forest  # noqa: E402
 from evogp.tree import dense_engine as D  # noqa: E402
-from evogp.tree import etl_engine as E  # noqa: E402
+from evogp.tree import evoxc_engine as E  # noqa: E402
 from evogp.tree.utils import FUNCS_NAMES, Func, NType  # noqa: E402
 
 # Small helpers shared with the integration battery (same directory): the report
@@ -140,8 +149,11 @@ DEFAULT_BUDGET_MB = float(getattr(D, "DEFAULT_BUDGET_MB", 2048))
 #: ``_to_host`` inside the chunk iterator)
 _READBACK_FRAMES = ("run_plan", "run_loss_plan", "_to_host", "_iter_plan_chunks")
 #: callers that make up its UPLOAD path (pre-refactor: ``run_plan`` uploads per
-#: (p0, n0) chunk; post-refactor: the memoizing ``payload`` closure)
-_UPLOAD_FRAMES = ("run_plan", "columns", "data", "_upload", "_iter_plan_chunks")
+#: (p0, n0) chunk; post-refactor: the memoizing ``payload`` closure).  The upload
+#: SITE is ``evoxc.core.Tensor.to`` (``evoxc.from_numpy`` is a zero-copy host
+#: wrap), so ``payload`` is the frame the current code uploads from; the other
+#: names are kept so the script still reads the pre-refactor code.
+_UPLOAD_FRAMES = ("payload", "run_plan", "columns", "data", "_upload", "_iter_plan_chunks")
 #: callers that invoke the compiled graph (one call per chunk is the invariant)
 _RUN_FRAMES = ("run_plan", "run_loss_plan", "_iter_plan_chunks")
 #: callers that make up its TORCH-ASSEMBLY path (the host -> torch tensor step)
@@ -175,7 +187,7 @@ class Traffic:
 
     def __init__(self) -> None:
         self.as_numpy: List[Tuple[str, str, int]] = []
-        self.from_numpy: List[Tuple[str, Tuple[int, ...]]] = []
+        self.upload_calls: List[Tuple[str, Tuple[int, ...]]] = []
         self.tensor_numpy: List[Tuple[str, Tuple[int, ...]]] = []
         self.torch_from_numpy: List[Tuple[str, Tuple[int, ...]]] = []
         self.pad_rows: List[Tuple[str, Tuple[int, ...]]] = []
@@ -185,15 +197,15 @@ class Traffic:
     def __enter__(self) -> "Traffic":
         self._originals = (
             D._as_numpy,
-            etl.from_numpy,
-            etl.core.Tensor.numpy,
+            evoxc.core.Tensor.to,
+            evoxc.core.Tensor.numpy,
             torch.from_numpy,
             D._pad_rows,
-            etl.run,
+            evoxc.run,
         )
         (
             original_as_numpy,
-            original_from_numpy,
+            original_tensor_to,
             original_numpy,
             original_torch,
             original_pad_rows,
@@ -205,9 +217,12 @@ class Traffic:
             self.as_numpy.append((_caller(), str(name), int(array.size)))
             return array
 
-        def from_numpy(array):
-            self.from_numpy.append((_caller(), tuple(np.shape(array))))
-            return original_from_numpy(array)
+        def tensor_to(self_: Any, device: Any, *args: Any, **kwargs: Any):
+            """The host -> device upload site (``.to(cpu)`` = readback, uncounted)."""
+            result = original_tensor_to(self_, device, *args, **kwargs)
+            if getattr(device, "kind", None) != "cpu":
+                self.upload_calls.append((_caller(), tuple(self_.shape)))
+            return result
 
         def tensor_numpy(self_: Any, *args: Any, **kwargs: Any):
             result = original_numpy(self_, *args, **kwargs)
@@ -227,21 +242,21 @@ class Traffic:
             return original_run(executable, *args, **kwargs)
 
         D._as_numpy = as_numpy
-        etl.from_numpy = from_numpy
-        etl.core.Tensor.numpy = tensor_numpy
+        evoxc.core.Tensor.to = tensor_to
+        evoxc.core.Tensor.numpy = tensor_numpy
         torch.from_numpy = torch_from_numpy
         D._pad_rows = pad_rows
-        etl.run = run
+        evoxc.run = run
         return self
 
     def __exit__(self, *exc: Any) -> None:
         (
             D._as_numpy,
-            etl.from_numpy,
-            etl.core.Tensor.numpy,
+            evoxc.core.Tensor.to,
+            evoxc.core.Tensor.numpy,
             torch.from_numpy,
             D._pad_rows,
-            etl.run,
+            evoxc.run,
         ) = self._originals
         return None
     # -- views -------------------------------------------------------------
@@ -257,7 +272,7 @@ class Traffic:
     @property
     def uploads(self) -> List[Tuple[str, Tuple[int, ...]]]:
         """Host -> device uploads issued by the dense run machinery."""
-        return self._filtered(self.from_numpy, _UPLOAD_FRAMES)
+        return self._filtered(self.upload_calls, _UPLOAD_FRAMES)
 
     @property
     def torch_creations(self) -> List[Tuple[str, Tuple[int, ...]]]:
@@ -326,7 +341,7 @@ class Traffic:
                 list(shape) for _, shape in self.torch_creations
             ],
             "torch_from_host_max_elements": max(creations, default=0),
-            "etl_runs": len(self.runs),
+            "evoxc_runs": len(self.runs),
         }
 
 
@@ -371,7 +386,7 @@ def _env_mode(value: str) -> Any:
 
 
 class _backend:
-    """Set ``EVOGP_ETL_BACKEND`` (+ the IREE device index) for the block.
+    """Set ``EVOGP_EVOXC_BACKEND`` (+ the IREE device index) for the block.
 
     The seam stage needs the backend the ENGINE resolves (``_resolve_backend``
     reads the env), not just the mode switch, so it flips the env the same way
@@ -384,22 +399,22 @@ class _backend:
 
     def __enter__(self) -> "_backend":
         self.previous = (
-            os.environ.get("EVOGP_ETL_BACKEND"),
-            os.environ.get("EVOGP_ETL_IREE_DEVICE"),
+            os.environ.get("EVOGP_EVOXC_BACKEND"),
+            os.environ.get("EVOGP_EVOXC_DEVICE"),
         )
         if self.name is None:
-            os.environ.pop("EVOGP_ETL_BACKEND", None)
+            os.environ.pop("EVOGP_EVOXC_BACKEND", None)
         else:
-            os.environ["EVOGP_ETL_BACKEND"] = self.name
+            os.environ["EVOGP_EVOXC_BACKEND"] = self.name
             if self.gpu is not None:
-                os.environ["EVOGP_ETL_IREE_DEVICE"] = str(int(self.gpu))
+                os.environ["EVOGP_EVOXC_DEVICE"] = str(int(self.gpu))
         return self
 
     def __exit__(self, *exc: Any) -> None:
         backend, device = self.previous
         for key, value in (
-            ("EVOGP_ETL_BACKEND", backend),
-            ("EVOGP_ETL_IREE_DEVICE", device),
+            ("EVOGP_EVOXC_BACKEND", backend),
+            ("EVOGP_EVOXC_DEVICE", device),
         ):
             if value is None:
                 os.environ.pop(key, None)
@@ -526,7 +541,7 @@ def plan_for(
     kwargs: Dict[str, Any] = {
         "per_row": False,
         "budget_mb": budget_mb,
-        "backend": os.environ.get("EVOGP_ETL_BACKEND"),
+        "backend": os.environ.get("EVOGP_EVOXC_BACKEND"),
     }
     try:
         return D.plan_dense(*args, variant=variant, **kwargs)
@@ -819,7 +834,7 @@ def _hotpath_case(
     report.add(
         f"[{label}] one compiled-graph invocation per chunk",
         len(traffic.runs) == plan.p_chunks * plan.n_chunks,
-        f"{len(traffic.runs)} etl.run calls for "
+        f"{len(traffic.runs)} evoxc.run calls for "
         f"{plan.p_chunks}x{plan.n_chunks} chunks",
     )
     creations = [int(np.prod(shape)) for _, shape in traffic.torch_creations]
@@ -880,7 +895,7 @@ def _hotpath_case(
         report.add(
             f"[{label}] (numpy backend: no uploads to count; preparation counts above)",
             True,
-            "etl.from_numpy is only used on device backends",
+            "an evoxc upload (Tensor.to) only happens on device backends",
         )
 
     check_contract(f"dense SR loss contract ({label})", loss, report)
@@ -1166,7 +1181,7 @@ def stage_seam(args: Any, report: Report) -> None:
         report.add(
             "the seam performs ZERO host readbacks",
             len(traffic.readbacks) == 0,
-            f"{len(traffic.readbacks)} ETL->host reads issued by "
+            f"{len(traffic.readbacks)} evoxc->host reads issued by "
             f"{_READBACK_FRAMES} while iterating "
             f"({len(traffic.tensor_numpy)} .numpy() calls in total, the rest are "
             "the numpy interpreter's internal tensor handling)",
@@ -1174,7 +1189,7 @@ def stage_seam(args: Any, report: Report) -> None:
         report.add(
             "one compiled-graph invocation per chunk",
             len(traffic.runs) == plan.p_chunks * plan.n_chunks,
-            f"{len(traffic.runs)} etl.run calls for "
+            f"{len(traffic.runs)} evoxc.run calls for "
             f"{plan.p_chunks}x{plan.n_chunks} chunks",
         )
         # Positive control: the counters above only mean something if the same
@@ -1187,7 +1202,7 @@ def stage_seam(args: Any, report: Report) -> None:
             len(control.readbacks) == plan.p_chunks * plan.n_chunks
             and len(control.runs) == plan.p_chunks * plan.n_chunks,
             f"run_plan: {len(control.readbacks)} readbacks, "
-            f"{len(control.runs)} etl.run calls for "
+            f"{len(control.runs)} evoxc.run calls for "
             f"{plan.p_chunks}x{plan.n_chunks} chunks",
         )
 
@@ -1212,7 +1227,7 @@ def stage_seam(args: Any, report: Report) -> None:
                 "the seam uploads each distinct payload once per call",
                 counts == {},
                 "numpy backend: _pad_rows preparation counts above; "
-                "etl.from_numpy is only used on device backends",
+                "an evoxc upload (Tensor.to) only happens on device backends",
             )
         else:
             report.add(
@@ -1227,8 +1242,8 @@ def stage_seam(args: Any, report: Report) -> None:
             f"{len(chunks)} results for {plan.p_chunks}x{plan.n_chunks} chunks",
         )
         report.add(
-            "the raw results are ETL tensors (device-resident on a device backend)",
-            all(isinstance(chunk[1], etl.core.Tensor) for chunk in chunks),
+            "the raw results are evoxc tensors (device-resident on a device backend)",
+            all(isinstance(chunk[1], evoxc.core.Tensor) for chunk in chunks),
             f"types={sorted({type(chunk[1]).__name__ for chunk in chunks})}",
         )
         assembled = np.empty((plan.pop_size, plan.n_rows), dtype=np.float32)
@@ -1332,7 +1347,7 @@ def _counted_build(plan: Any) -> Tuple[Any, Dict[str, Any]]:
     The trace runs INSIDE ``build_cached``, so the compile cache is cleared
     first: the counts are the graph's *emitted* op counts, not a hit.  The patched
     names are the module-level ``D._emit_*`` that ``_dense_body`` resolves while
-    tracing (:mod:`etl_engine`'s emitters, parity by construction), so the count
+    tracing (:mod:`evoxc_engine`'s emitters, parity by construction), so the count
     is exactly the emitted candidate chain.
     """
     counts: Dict[str, Any] = {"unary": 0, "binary": 0, "ternary": 0}
@@ -1391,7 +1406,7 @@ def stage_prune(args: Any, report: Report, results: Dict[str, Any]) -> None:
         kwargs: Dict[str, Any] = {
             "per_row": per_row,
             "budget_mb": budget_mb,
-            "backend": os.environ.get("EVOGP_ETL_BACKEND"),
+            "backend": os.environ.get("EVOGP_EVOXC_BACKEND"),
             "variant": variant,
             "use_mse": use_mse,
         }
@@ -1727,7 +1742,7 @@ def stage_measure(args: Any, results: Dict[str, Any]) -> None:
     cases = _parse_cases(args.cases)
     set_mode("dense", backend=args.backend)
     if args.backend == "iree" and args.gpu is not None:
-        os.environ["EVOGP_ETL_IREE_DEVICE"] = str(args.gpu)
+        os.environ["EVOGP_EVOXC_DEVICE"] = str(args.gpu)
 
     print(
         f"{'case':>24} {'median_ms':>10} {'readback':>9} {'uploads':>8} "
@@ -1838,13 +1853,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if unknown:
         print(f"unknown stage(s) {unknown}: pick from {list(_STAGES)}")
         return 2
-    if os.environ.get("ETL_DISABLE_LOCATIONS", "").strip() not in ("1", "true"):
-        print("[warn] ETL_DISABLE_LOCATIONS=1 is not set: tracing will be ~4x slower")
+    if os.environ.get("EVOXC_DISABLE_LOCATIONS", "").strip() not in ("1", "true"):
+        print("[warn] EVOXC_DISABLE_LOCATIONS=1 is not set: tracing will be ~4x slower")
     results: Dict[str, Any] = {
         "env": {
             "CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES"),
-            "EVOGP_ETL_BACKEND": os.environ.get("EVOGP_ETL_BACKEND"),
-            "ETL_DISABLE_LOCATIONS": os.environ.get("ETL_DISABLE_LOCATIONS"),
+            "EVOGP_EVOXC_BACKEND": os.environ.get("EVOGP_EVOXC_BACKEND"),
+            "EVOXC_DISABLE_LOCATIONS": os.environ.get("EVOXC_DISABLE_LOCATIONS"),
         }
     }
     print(
