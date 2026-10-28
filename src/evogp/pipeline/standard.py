@@ -39,8 +39,10 @@ class StandardPipeline(BasePipeline):
         # evaluate fitness
         fitnesses = self.problem.evaluate(self.algorithm.forest)
         
-        # transfer nan value in fitnesses to -inf
-        fitnesses[torch.isnan(fitnesses)] = -torch.inf
+        # transfer nan value in fitnesses to -inf (one in-place device op: a
+        # boolean-mask assignment would route through an index put, and
+        # `nan_to_num_` also clamps +-inf, which the old code left untouched)
+        fitnesses.masked_fill_(torch.isnan(fitnesses), -torch.inf)
 
         # update best tree info
         cpu_fitness = fitnesses.cpu()

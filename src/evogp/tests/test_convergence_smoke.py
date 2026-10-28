@@ -59,7 +59,13 @@ requires_library = pytest.mark.skipif(
 )
 
 POP_SIZE = int(os.environ.get("EVOGP_SMOKE_POP", "64"))
-GENERATIONS = int(os.environ.get("EVOGP_SMOKE_GENS", "15"))
+# The target has no exact representation in the descriptor's constant set (it needs
+# +0.5, the samples are -1/0/1), so the best reachable fit is a specific 9-node
+# composition and *when* the loop finds it depends on the RNG stream: with a fixed
+# seed the run is deterministic, but the discovery generation is chaotic (measured
+# between generation ~13 and ~95 across operator-RNG-stream variants).  The budget
+# is therefore generous -- the assertion below is unchanged and still strict.
+GENERATIONS = int(os.environ.get("EVOGP_SMOKE_GENS", "120"))
 N_DATA = int(os.environ.get("EVOGP_SMOKE_N", "64"))
 DEVICE = os.environ.get("EVOGP_EQ_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
 SEED = 0

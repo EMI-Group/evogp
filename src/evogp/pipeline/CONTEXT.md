@@ -56,7 +56,7 @@ Instance attributes / results a caller reads:
 ### `step()` — one generation
 
 1. `fitnesses = self.problem.evaluate(self.algorithm.forest)` — a CUDA tensor of shape `(pop_size,)`.
-2. NaN fitnesses are overwritten with `-inf` **in place** on that returned tensor.
+2. NaN fitnesses are overwritten with `-inf` **in place** on that returned tensor with a single `fitnesses.masked_fill_(torch.isnan(fitnesses), -torch.inf)`; a boolean-mask assignment would route through an index put, and `nan_to_num_` would additionally clamp `+inf`/`-inf` (which must stay untouched).
 3. `cpu_fitness = fitnesses.cpu()` — the single, unconditional device→host readback per generation (blocking CUDA copy; runs even with `is_show_details=False`). All best-tracking runs on this host copy: `best_idx = int(torch.argmax(cpu_fitness))` (Python-int extraction via host `.item()`); if `torch.max(cpu_fitness) > self.best_fitness` (0-dim CPU-tensor comparison coerced by `if`), update `self.best_fitness` (0-dim CPU tensor) and set `self.best_tree = self.algorithm.forest[best_idx]`.
 4. `self.algorithm.step(fitnesses)` — the **GPU** tensor is handed to the algorithm (selection/crossover/mutation/pareto update).
 5. Returns `cpu_fitness` (CPU copy) — the GPU tensor is not returned.
@@ -86,6 +86,7 @@ Instance attributes / results a caller reads:
 ### Device→host readback inventory (fitness path, per generation)
 
 - The only bulk readback is `cpu_fitness = fitnesses.cpu()` (`standard.py:46`) — a blocking D2H copy that also stream-synchronizes; it is what makes `step()`'s return value, `pipeline.fitness` and `best_fitness` host-side.
+- `step()` is the second-largest per-generation host cost after the evaluation itself (~0.06 ms of a ~4.7 ms generation at pop 64 on the validation box: the NaN sanitization, the readback and the best-tracking): keep `is_show_details=False` and never format/`repr` a tree or a fitness on this path.
 - Lines 47-50 are host-only today because they run on that CPU copy: `int(torch.argmax(...))`, `torch.max(...)`, the `if best_fitness > self.best_fitness` test (0-dim CPU bool → `__bool__`, no device sync) and `forest[best_idx]` with a Python int (a `Tree` VIEW of the population tensors, no copy, no sync).
 - On a device-resident fitness tensor each of those turns into a sync: `int()` and `if` on 0-dim CUDA tensors, and a 0-dim CUDA index passed to `Forest.__getitem__` (PyTorch's `applySelect` calls `.item()` internally — the `Tree` is still a view, but the select blocks; a 0-dim CPU tensor or Python int index does not).
 - `show_details` (`standard.py:88-106`) is host-only today but pathological on device: `max()`/`min()` are Python builtins iterating element-by-element (one `bool()` sync per element) and `{...:.4f}` goes through `Tensor.__format__` → `.item()` (`torch/_tensor.py:1096-1097`), so ~4 more syncs.

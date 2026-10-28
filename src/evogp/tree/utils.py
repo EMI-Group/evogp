@@ -280,6 +280,13 @@ def check_tensor(x):
             f"check_tensor expects a torch.Tensor, but got {type(x).__name__}; "
             "convert lists / numpy arrays with torch.tensor(...) first"
         )
+    # Fast path: the tensor already lives on the engine device and carries no
+    # autograd graph, so `to` / `detach` / `requires_grad_` would only add three
+    # dispatches per call - and the operators call this dozens of times per
+    # generation.  The contract (a `"cuda"` tensor with `requires_grad=False`,
+    # same storage) is unchanged, only the redundant alias is skipped.
+    if x.device.type == "cuda" and not x.requires_grad:
+        return x
     return x.to("cuda").detach().requires_grad_(False)
 
 

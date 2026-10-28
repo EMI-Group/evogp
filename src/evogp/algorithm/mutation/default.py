@@ -42,12 +42,18 @@ class DefaultMutation(BaseMutation):
         # Determine which trees need to mutate based on the mutation rate
         mutate_indices = torch.rand(forest.pop_size) < self.mutation_rate
 
+        # `nonzero` is the only host round trip of this operator: it both tests
+        # for an empty selection and yields the row ids that the gather/scatter
+        # below reuse.  Applying the boolean mask to the tree tensors instead
+        # would run one extra `nonzero` per tensor.
+        mutate_rows = mutate_indices.nonzero().squeeze(1)
+
         # If no trees are selected for mutation, return the original forest
-        if mutate_indices.sum() == 0:
+        if mutate_rows.numel() == 0:
             return forest
 
         # Extract the subset of trees that need to mutate
-        forest_to_mutate = forest[mutate_indices]
+        forest_to_mutate = forest[mutate_rows]
 
         # Generate random subtrees to replace parts of the trees
         sub_forest = Forest.random_generate(
@@ -70,6 +76,6 @@ class DefaultMutation(BaseMutation):
         )
 
         # Perform the mutation by replacing the selected positions with the generated subtrees
-        forest[mutate_indices] = forest_to_mutate.mutate(mutate_positions, sub_forest)
+        forest[mutate_rows] = forest_to_mutate.mutate(mutate_positions, sub_forest)
 
         return forest

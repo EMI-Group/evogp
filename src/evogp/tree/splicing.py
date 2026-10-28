@@ -83,6 +83,21 @@ __all__ = ["mutate", "crossover"]
 # integer dtypes accepted for the index tensors
 _INDEX_DTYPES = (torch.int8, torch.int16, torch.int32, torch.int64, torch.uint8)
 
+# ``[1, max_tree_len]`` column-index rows, one per (length, device).  They are
+# read-only: every use below either compares against them or derives a new
+# tensor from them, never writes through them.
+_COLS_CACHE = {}
+
+
+def _cols(max_tree_len: int, device: torch.device) -> Tensor:
+    """Return the cached ``[1, max_tree_len]`` ``long`` column-index row."""
+    key = (max_tree_len, device.type, device.index)
+    cols = _COLS_CACHE.get(key)
+    if cols is None:
+        cols = torch.arange(max_tree_len, device=device, dtype=torch.long).unsqueeze(0)
+        _COLS_CACHE[key] = cols
+    return cols
+
 
 def _normalize_tree(
     node_value: Tensor,
@@ -175,12 +190,10 @@ def _splice(
     Returns freshly allocated ``(value, type, size)`` tensors.
     """
     max_tree_len = target_value.shape[1]
-    device = target_value.device
 
-    cols = torch.arange(max_tree_len, device=device, dtype=torch.long).unsqueeze(0)
+    cols = _cols(max_tree_len, target_value.device)
     # out-of-range positions are clamped for the gathers and dropped by `valid`
     pos = target_pos.clamp(0, max_tree_len - 1).unsqueeze(1)
-    donor_start = donor_pos.clamp(0, max_tree_len - 1).unsqueeze(1)
     new_sub = new_subtree_size.unsqueeze(1).to(torch.long)
 
     size_old = target_size.to(torch.long)
@@ -190,18 +203,20 @@ def _splice(
     new_size = old_size + size_diff
 
     valid = (target_pos >= 0) & (target_pos < old_size.squeeze(1))
-    valid = valid & (new_size.squeeze(1) <= max_tree_len)
+    valid &= new_size.squeeze(1) <= max_tree_len
     if extra_valid is not None:
         valid = valid & extra_valid
     keep = valid.unsqueeze(1) & (cols < new_size)
 
-    # index maps: donor block vs. (shifted) target tail
+    # index maps: donor block vs. (shifted) target tail.  The tail map is also
+    # used for the columns covered by the donor block; those gathers read in
+    # range but are discarded by the `in_donor` selects below.
     in_donor = (cols >= pos) & (cols < pos + new_sub)
-    donor_col = torch.clamp(donor_start + cols - pos, 0, max_tree_len - 1)
-    old_col = torch.clamp(
-        torch.where(cols < pos + new_sub, cols, cols - size_diff),
-        0,
-        max_tree_len - 1,
+    donor_col = (
+        cols + (donor_pos.clamp(0, max_tree_len - 1).unsqueeze(1) - pos)
+    ).clamp_(0, max_tree_len - 1)
+    old_col = torch.where(cols < pos + new_sub, cols, cols - size_diff).clamp_(
+        0, max_tree_len - 1
     )
 
     value = torch.where(
@@ -217,7 +232,7 @@ def _splice(
     # (`old_col`); the replaced node itself comes from the donor block.
     ancestors = (cols < pos) & (cols + size_old > pos)
     subtree_size = size_old.gather(1, old_col)
-    subtree_size = torch.where(ancestors, subtree_size + size_diff, subtree_size)
+    subtree_size = torch.where(ancestors, size_old + size_diff, subtree_size)
     subtree_size = torch.where(
         in_donor, donor_size.to(torch.long).gather(1, donor_col), subtree_size
     )
@@ -379,7 +394,8 @@ def crossover(
                 f"(the same as left_indices), but got {tuple(tensor.shape)}"
             )
 
-    if bool((left_idx < 0).any()) or bool((left_idx >= pop_size).any()):
+    # one host round trip for the whole range check (was two)
+    if not bool(((left_idx >= 0) & (left_idx < pop_size)).all()):
         raise ValueError(
             f"left_indices must be in range [0, {pop_size}), but got "
             f"{left_idx.tolist()}"
@@ -402,12 +418,10 @@ def crossover(
         donor_size.gather(1, pos_safe).squeeze(1).to(torch.long)
     )
 
+    # `lpos` is checked against the left parent's real length by `_splice`
+    # itself, so only the donor-side bounds are added here.
     extra_valid = (
-        right_valid
-        & (lpos >= 0)
-        & (lpos < target_size[:, 0].to(torch.long))
-        & (rpos >= 0)
-        & (rpos < donor_size[:, 0].to(torch.long))
+        right_valid & (rpos >= 0) & (rpos < donor_size[:, 0].to(torch.long))
     )
 
     return _splice(

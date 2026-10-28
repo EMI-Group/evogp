@@ -14,10 +14,9 @@ Public interface
 the three tensors ``Forest`` stores (float32 / int16 / int16, shaped
 ``[pop_size, max_tree_len]``).
 
-How the legacy kernel decides (reproduced here, ``ENGINE_SPEC.md`` §6)
----------------------------------------------------------------------
-The kernel walks one tree at a time with an explicit stack, in prefix
-(pre-order) order. For every node it draws, with ``r ~ U[0, 1)``:
+Two layouts, one decision structure
+-----------------------------------
+Every node is decided by the very same draws (``ENGINE_SPEC.md`` §6):
 
 * ``r >= depth2leaf_probs[depth]`` -> *function* node, otherwise a *leaf*;
 * function id ``k`` from the ``roulette_funcs`` cdf: ``k`` is the number of cdf
@@ -33,26 +32,43 @@ The kernel walks one tree at a time with an explicit stack, in prefix
 * ``subtree_size[i] = 1 + sum(children sizes)`` and ``subtree_size[0]`` is the
   tree length.
 
+What differs is only *how* the cell grid is laid out while a tree grows, and
+there are two implementations:
+
+``_generate_padded`` (the hot path)
+    The cells are the slots of a **padded complete tree**: level ``d`` has
+    ``arity_max ** d`` slots, where ``arity_max`` is the largest arity any
+    function of the descriptor can produce, so slot ``j`` of level ``d`` always
+    has parent ``j // arity_max`` and child rank ``j % arity_max``.  The parent /
+    child relation is therefore *static* (no compaction, no per-row windows, no
+    cumsum over a "first child" column), the node decisions of the whole
+    population are drawn in one batch, and the whole thing needs a handful of
+    kernels per level and -- crucially on the operator hot path, where the
+    mutation operators call this once per generation -- exactly ONE host
+    synchronisation (the tree-length overflow check).  A slot that does not
+    exist (its parent is not a real function node, or its rank exceeds the
+    parent's arity) is simply dropped by the scatter at the end.
+``_generate_compact`` (the fallback)
+    The level-wise compact layout kept from the original implementation: one
+    grid cell per live node, a per-individual ``[first, last)`` cell range per
+    level and the two reordering passes (bottom-up sizes, top-down prefix
+    indices).  It stays in place for descriptors whose padded layout would be
+    exponentially large (``PADDED_SLOT_BUDGET``); both layouts implement the
+    same decision structure and produce the same *distribution*.
+
 Vectorization strategy
 ----------------------
 Instead of one thread per tree following the DFS, the whole population is grown
-**level by level**: one grid cell per live node, all nodes of the same depth are
-decided with batched ops, and their children form the next level. A node's depth
--- and therefore every probability it is drawn with -- does not depend on the
-traversal order, so the level-wise variant is *distributionally* identical to
-the DFS kernel (the RNG stream itself differs by construction; the kernel seeds
-a private taus88 per tree while this module consumes torch's global RNG, which
-makes ``torch.manual_seed``/``torch.cuda.manual_seed`` reproducible).
-
-Level-wise cells are in breadth-first order while the rest of the library
-requires the prefix (pre-order) encoding, so two level-wise passes over the
-(bounded, ``MAX_FULL_DEPTH`` at most) level list finish the job:
-
-1. bottom-up: ``subtree_size`` of every cell from its children's sizes;
-2. top-down: the prefix index of every cell, i.e. ``parent index + 1 + sizes of
-   the preceding siblings`` (children of one parent occupy consecutive cells, so
-   the needed sibling sizes are plain gathers; the result is scattered into the
-   output rows with unique indices).
+**level by level**: all nodes of the same depth are decided with batched ops,
+and their children form the next level. A node's depth -- and therefore every
+probability it is drawn with -- does not depend on the traversal order, so the
+level-wise variant is *distributionally* identical to the DFS kernel (the RNG
+stream itself differs by construction; the kernel seeds a private taus88 per
+tree while this module consumes torch's global RNG, which makes
+``torch.manual_seed``/``torch.cuda.manual_seed`` reproducible).  The padded
+layout additionally draws the decisions of the slots that turn out not to exist;
+those draws are discarded, which is again distributionally irrelevant because
+every draw is independent.
 
 Only three Python loops are involved: over levels (<= ``MAX_FULL_DEPTH + 1``),
 over the three possible child ranks, and over the small level list. No Python
@@ -98,6 +114,48 @@ MAX_ARITY = 3
 #: Mask of the function id stored in the low half of an out-node value.
 _OUT_INDEX_SHIFT = 16
 
+#: Padded-layout slot budget.  ``_generate_padded`` lays the tree out as a
+#: complete tree of ``arity_max`` children per node, i.e. it needs
+#: ``(arity_max ** levels - 1) / (arity_max - 1)`` slots per row; above this
+#: budget the compact layout is used instead (it only ever needs ``max_tree_len``
+#: columns).  Every descriptor ``check_tree_length`` accepts fits in the budget.
+PADDED_SLOT_BUDGET = 1024
+
+
+class _Spec:
+    """The descriptor parameters a generation run needs, resolved once."""
+
+    __slots__ = (
+        "device",
+        "gp_len",
+        "input_len",
+        "output_len",
+        "const_prob",
+        "out_prob",
+        "leaf_probs",
+        "roulette",
+        "const_samples",
+        "levels",
+        "max_arity",
+    )
+
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+class _PaddedLayout:
+    """Static index structure of the padded complete-tree layout."""
+
+    __slots__ = ("max_arity", "levels", "widths", "offsets", "total", "rank_pattern", "slot_level")
+
+
+#: ``(max_arity, levels, device) -> _PaddedLayout``.
+_LAYOUT_CACHE = {}
+
+#: ``device -> (arity table, base node type table)``, both indexed by function id.
+_FUNC_TABLE_CACHE = {}
+
 
 def _resolve_device(descriptor, device: Optional[object]) -> torch.device:
     """Device of the descriptor parameters, or the explicitly requested one."""
@@ -113,12 +171,301 @@ def _resolve_device(descriptor, device: Optional[object]) -> torch.device:
     )
 
 
+def _func_tables(device: torch.device) -> Tuple[Tensor, Tensor]:
+    """Arity and base ``NType`` of every function id (``[Func.END]`` ``int64``)."""
+    key = str(device)
+    tables = _FUNC_TABLE_CACHE.get(key)
+    if tables is None:
+        arity = torch.ones((Func.END,), dtype=torch.int64, device=device)
+        arity[Func.TF_START : Func.BF_START] = 3
+        arity[Func.BF_START : Func.UF_START] = 2
+        node_type = torch.full((Func.END,), NType.UFUNC, dtype=torch.int64, device=device)
+        node_type[Func.TF_START : Func.BF_START] = NType.TFUNC
+        node_type[Func.BF_START : Func.UF_START] = NType.BFUNC
+        tables = (arity, node_type)
+        _FUNC_TABLE_CACHE[key] = tables
+    return tables
+
+
+def _descriptor_plan(descriptor, roulette: Tensor, leaf_probs: Tensor) -> Tuple[int, int]:
+    """``(max_arity, levels)`` of a descriptor, memoized on the descriptor.
+
+    ``max_arity`` bounds the number of children a single node can have over the
+    functions the descriptor can actually draw (a descriptor without ``if`` can
+    never produce a ternary node), which is what keeps the padded layout small.
+    ``levels`` is the number of depth levels a tree can reach: the first depth
+    whose leaf probability is ``1.0`` ends the schedule (``depth2leaf_probs`` has
+    ``MAX_FULL_DEPTH`` entries, so that is also the hard cap).
+    """
+    key = (
+        roulette.data_ptr(),
+        roulette._version,
+        leaf_probs.data_ptr(),
+        leaf_probs._version,
+    )
+    cached = getattr(descriptor, "_evogp_generation_plan", None)
+    if cached is not None and cached[0] == key:
+        return cached[1], cached[2]
+
+    n_probs = int(leaf_probs.numel())
+    terminator = (leaf_probs >= 1.0).nonzero()
+    last_level = n_probs if terminator.numel() == 0 else int(terminator[0, 0])
+    levels = min(last_level, n_probs) + 1
+
+    used = torch.diff(roulette, prepend=roulette.new_zeros(1)) > 0
+    arity_table = _func_tables(roulette.device)[0]
+    max_arity = int(arity_table[used].max()) if bool(used.any()) else 1
+    max_arity = max(1, max_arity)
+
+    try:  # a descriptor that does not allow attributes just pays the re-derivation
+        object.__setattr__(descriptor, "_evogp_generation_plan", (key, max_arity, levels))
+    except Exception:  # noqa: BLE001 - caching is best effort
+        pass
+    return max_arity, levels
+
+
+def _padded_total(max_arity: int, levels: int) -> int:
+    """Number of padded slots of a complete ``max_arity``-ary tree of ``levels``."""
+    if max_arity > 1:
+        return (max_arity**levels - 1) // (max_arity - 1)
+    return levels
+
+
+def _padded_layout(max_arity: int, levels: int, device: torch.device) -> _PaddedLayout:
+    """Static (cached) index structure of the padded layout."""
+    key = (max_arity, levels, str(device))
+    layout = _LAYOUT_CACHE.get(key)
+    if layout is None:
+        widths = [max_arity**depth for depth in range(levels)]
+        offsets = [0] * levels
+        for depth in range(1, levels):
+            offsets[depth] = offsets[depth - 1] + widths[depth - 1]
+        layout = _PaddedLayout()
+        layout.max_arity = max_arity
+        layout.levels = levels
+        layout.widths = widths
+        layout.offsets = offsets
+        layout.total = sum(widths)
+        # slot -> (level, child rank of the slot inside its parent)
+        layout.slot_level = torch.repeat_interleave(
+            torch.arange(levels, dtype=torch.int64, device=device),
+            torch.tensor(widths, dtype=torch.int64, device=device),
+        )
+        layout.rank_pattern = torch.arange(max_arity, dtype=torch.int64, device=device)
+        if len(_LAYOUT_CACHE) > 64:
+            _LAYOUT_CACHE.clear()
+        _LAYOUT_CACHE[key] = layout
+    return layout
+
+
+def _resolve_spec(descriptor, device: Optional[object]) -> _Spec:
+    """Validate a descriptor and resolve everything a generation run needs."""
+    dev = _resolve_device(descriptor, device)
+
+    gp_len = int(descriptor.max_tree_len)
+    input_len = int(descriptor.input_len)
+    output_len = int(descriptor.output_len)
+    const_prob = float(descriptor.const_prob)
+    out_prob = float(descriptor.out_prob)
+
+    assert (
+        0 < gp_len <= MAX_STACK
+    ), f"max_tree_len must be in range (0, {MAX_STACK}], but got {gp_len}"
+    assert input_len > 0, f"input_len must be positive, but got {input_len}"
+    assert output_len > 0, f"output_len must be positive, but got {output_len}"
+    assert 0.0 <= const_prob <= 1.0, "const_prob should be in [0.0, 1.0]"
+    assert 0.0 <= out_prob <= 1.0, "out_prob should be in [0.0, 1.0]"
+
+    leaf_probs = (
+        descriptor.depth2leaf_probs.detach().to(device=dev, dtype=torch.float32).flatten()
+    )
+    roulette = (
+        descriptor.roulette_funcs.detach().to(device=dev, dtype=torch.float32).flatten()
+    )
+    const_samples = (
+        descriptor.const_samples.detach().to(device=dev, dtype=torch.float32).flatten()
+    )
+    assert leaf_probs.numel() == MAX_FULL_DEPTH, (
+        f"depth2leaf_probs should have {MAX_FULL_DEPTH} entries, "
+        f"but got {leaf_probs.numel()}"
+    )
+    assert (
+        roulette.numel() == Func.END
+    ), f"roulette_funcs should have {Func.END} entries, but got {roulette.numel()}"
+    assert const_samples.numel() > 0, "const_samples should not be empty"
+
+    max_arity, levels = _descriptor_plan(descriptor, roulette, leaf_probs)
+    return _Spec(
+        device=dev,
+        gp_len=gp_len,
+        input_len=input_len,
+        output_len=output_len,
+        const_prob=const_prob,
+        out_prob=out_prob,
+        leaf_probs=leaf_probs,
+        roulette=roulette,
+        const_samples=const_samples,
+        levels=levels,
+        max_arity=max_arity,
+    )
+
+
+def _overflow_error(gp_len: int, needed: int, depth: Optional[int] = None) -> RuntimeError:
+    where = f"after depth {depth} " if depth is not None else ""
+    return RuntimeError(
+        f"generate_population: the generated tree does not fit in "
+        f"max_tree_len={gp_len}: {where}up to {needed} nodes are needed.\n"
+        "This descriptor lets trees grow deeper than max_tree_len "
+        "allows. Check max_layer_cnt/max_tree_len against the maximum "
+        "arity of using_funcs, and make sure depth2leaf_probs contains "
+        "a 1.0 terminator at max_layer_cnt - 1 (check_tree_length does "
+        "that for max_layer_cnt <= MAX_FULL_DEPTH)."
+    )
+
+
+def _decide_nodes(
+    pop_size: int, cells: int, spec: _Spec, leaf_prob: Tensor
+) -> Tuple[Tensor, Tensor, Tensor]:
+    """Draw the leaf/function decision of every cell of a ``[pop, cells]`` grid.
+
+    ``leaf_prob`` is the broadcastable leaf probability of every cell (the
+    depth schedule of the cell's level).  Returns ``(arity, node_type,
+    node_value)``, each ``[pop_size, cells]`` (``int64`` / ``int64`` /
+    ``float32``): the arity a function node asks for (0 for a leaf), the
+    ``NType`` of the node -- including the ``OUT_NODE`` tag -- and its value.
+    Cells that do not correspond to a real node are decided too and simply
+    dropped later; a node's draws are independent of every other's, so that is
+    distributionally identical to drawing only the real ones (this is what lets
+    the padded layout batch the whole population).
+    """
+    dev = spec.device
+    shape = (pop_size, cells)
+
+    arity_table, type_table = _func_tables(dev)
+
+    r_leaf = torch.rand(shape, dtype=torch.float32, device=dev)
+    is_func = r_leaf >= leaf_prob
+    r_func = torch.rand(shape, dtype=torch.float32, device=dev)
+    # kernel: `k = 1 + max{i : roulette_funcs[i] <= r}` (0 if none)
+    func_id = torch.searchsorted(spec.roulette, r_func, right=True).clamp_max(
+        Func.END - 1
+    )
+    func_value = func_id.to(torch.float32)
+
+    r_const = torch.rand(shape, dtype=torch.float32, device=dev)
+    is_const = r_const <= spec.const_prob
+    const_index = torch.randint(
+        0, spec.const_samples.numel(), shape, dtype=torch.int64, device=dev
+    )
+    var_index = torch.randint(0, spec.input_len, shape, dtype=torch.int64, device=dev)
+    leaf_value = torch.where(
+        is_const, spec.const_samples[const_index], var_index.to(torch.float32)
+    )
+    # NType.CONST == 1, NType.VAR == 0, so the leaf type is the const flag
+    leaf_type = is_const.to(torch.int64)
+
+    node_value = torch.where(is_func, func_value, leaf_value)
+    node_type = torch.where(is_func, type_table[func_id], leaf_type)
+    arity = torch.where(is_func, arity_table[func_id], torch.zeros((), dtype=torch.int64, device=dev))
+
+    if spec.output_len > 1:
+        # kernel: `rand() <= outProb` on function nodes only
+        r_out = torch.rand(shape, dtype=torch.float32, device=dev)
+        is_out = is_func & (r_out <= spec.out_prob)
+        out_index = torch.randint(0, spec.output_len, shape, dtype=torch.int64, device=dev)
+        packed = (out_index.to(torch.int32) << _OUT_INDEX_SHIFT) | func_id.to(torch.int32)
+        node_value = torch.where(is_out, packed.view(torch.float32), node_value)
+        node_type = torch.where(is_out, node_type + NType.OUT_NODE, node_type)
+
+    return arity, node_type, node_value
+
+
+def _generate_padded(pop_size: int, spec: _Spec, layout: _PaddedLayout):
+    """Generate a population on the padded complete-tree layout (the hot path)."""
+    dev = spec.device
+    gp_len = spec.gp_len
+    total = layout.total
+    arity_max = layout.max_arity
+
+    # ---- depth schedule, one leaf probability per padded slot --------------
+    n_probs = spec.leaf_probs.numel()
+    slot_level = layout.slot_level
+    leaf_prob = spec.leaf_probs[slot_level.clamp_max(n_probs - 1)]
+    if layout.levels > n_probs:
+        # depths >= len(depth2leaf_probs) are leaves (the schedule never indexes
+        # out of bounds); only the last level can be that deep
+        leaf_prob = torch.where(
+            slot_level < n_probs,
+            leaf_prob,
+            torch.ones((), dtype=torch.float32, device=dev),
+        )
+
+    # ---- node decisions of the whole padded population, in one batch -------
+    arity, node_type, node_value = _decide_nodes(pop_size, total, spec, leaf_prob)
+
+    # ---- which padded slots hold a real node -------------------------------
+    # a slot exists iff its parent is real and its rank is inside the parent's
+    # arity; the root always exists.
+    rank_pattern = layout.rank_pattern
+    real_levels: List[Tensor] = [torch.ones((pop_size, 1), dtype=torch.bool, device=dev)]
+    arity_levels: List[Tensor] = [arity[:, :1]]
+    for depth in range(1, layout.levels):
+        rank_ok = rank_pattern < arity_levels[-1].unsqueeze(2)
+        real = (real_levels[-1].unsqueeze(2) & rank_ok).reshape(pop_size, -1)
+        real_levels.append(real)
+        lo = layout.offsets[depth]
+        hi = lo + layout.widths[depth]
+        arity_levels.append(arity[:, lo:hi] * real)
+    del arity, arity_levels
+
+    # ---- bottom-up subtree sizes (children of a slot are consecutive) ------
+    sizes: List[Tensor] = [None] * layout.levels
+    sizes[-1] = real_levels[-1].to(torch.int64)
+    for depth in range(layout.levels - 2, -1, -1):
+        children = sizes[depth + 1].view(pop_size, -1, arity_max)
+        sizes[depth] = (children.sum(dim=2) + 1) * real_levels[depth].to(torch.int64)
+
+    # ---- top-down prefix (pre-order) indices -------------------------------
+    # prefix(child of rank r) = prefix(parent) + 1 + sizes of the smaller ranks
+    scratch = gp_len  # column that absorbs the slots of the padded layout
+    prefixes: List[Tensor] = [torch.zeros((pop_size, 1), dtype=torch.int64, device=dev)]
+    for depth in range(1, layout.levels):
+        siblings = sizes[depth].view(pop_size, -1, arity_max)
+        smaller = siblings.cumsum(dim=2) - siblings
+        prefix = prefixes[depth - 1].unsqueeze(2) + 1 + smaller
+        prefixes.append(
+            torch.where(real_levels[depth], prefix.reshape(pop_size, -1), scratch)
+        )
+
+    sizes_all = torch.cat(sizes, dim=1)
+    prefix_all = torch.cat(prefixes, dim=1)
+
+    # the root's subtree size is the tree length and bounds every other size,
+    # so this one reduction covers the whole population (one host sync)
+    needed = int(sizes_all.max())
+    if needed > gp_len:
+        raise _overflow_error(gp_len, needed)
+    prefix_all = prefix_all.clamp_max(scratch)
+
+    # ---- scatter the padded slots into the prefix encoding -----------------
+    batch_node_value = torch.zeros((pop_size, scratch + 1), dtype=torch.float32, device=dev)
+    batch_node_value.scatter_(1, prefix_all, node_value)
+    batch_node_type = torch.zeros((pop_size, scratch + 1), dtype=torch.int16, device=dev)
+    batch_node_type.scatter_(1, prefix_all, node_type.to(torch.int16))
+    batch_subtree_size = torch.zeros((pop_size, scratch + 1), dtype=torch.int16, device=dev)
+    batch_subtree_size.scatter_(1, prefix_all, sizes_all.to(torch.int16))
+
+    return (
+        batch_node_value[:, :scratch].contiguous(),
+        batch_node_type[:, :scratch].contiguous(),
+        batch_subtree_size[:, :scratch].contiguous(),
+    )
+
+
 def _arity_from_type(node_type: Tensor) -> Tensor:
     """Number of children of every node, from its (possibly out-tagged) type."""
     base = (node_type & NType.TYPE_MASK).to(torch.int64)
-    return torch.where(
-        base <= NType.CONST, torch.zeros_like(base), base - 1
-    )
+    return torch.where(base <= NType.CONST, torch.zeros_like(base), base - 1)
 
 
 def _level_active(ls: Tensor, le: Tensor, lo: int, hi: int, device) -> Tensor:
@@ -153,82 +500,20 @@ def _child_base(
     return le.unsqueeze(1) + preceding, arity
 
 
-def generate_population(
-    pop_size: int,
-    descriptor,
-    device: Optional[object] = None,
-) -> Tuple[Tensor, Tensor, Tensor]:
-    """Randomly generate a population of GP trees from ``descriptor``.
+def _generate_compact(pop_size: int, spec: _Spec):
+    """Generate a population on the level-wise compact layout (the fallback)."""
+    dev = spec.device
+    gp_len = spec.gp_len
+    input_len = spec.input_len
+    output_len = spec.output_len
+    const_prob = spec.const_prob
+    out_prob = spec.out_prob
+    leaf_probs = spec.leaf_probs
+    roulette = spec.roulette
+    const_samples = spec.const_samples
 
-    Reproduction of the legacy extension's ``tree_generate`` op in vectorized
-    torch (see the module docstring for the exact decision structure and the
-    documented deviations). Draws from torch's global RNG, therefore
-    ``torch.manual_seed(seed)`` (+ ``torch.cuda.manual_seed(seed)`` for CUDA)
-    reproduces the same population.
-
-    Args:
-        pop_size: number of trees to generate, a positive integer.
-        descriptor: a :class:`GenerateDescriptor`-like object providing
-            ``max_tree_len``, ``input_len``, ``output_len``, ``const_prob``,
-            ``out_prob``, ``depth2leaf_probs``, ``roulette_funcs`` and
-            ``const_samples``.
-        device: torch device for the generated tensors. ``None`` (default) uses
-            the device of the descriptor's parameter tensors.
-
-    Returns:
-        ``(batch_node_value, batch_node_type, batch_subtree_size)`` with shapes
-        ``[pop_size, max_tree_len]`` and dtypes float32 / int16 / int16, every
-        row being a valid prefix (pre-order) encoding of length
-        ``batch_subtree_size[:, 0]`` and zeros afterwards.
-    """
-    assert (
-        isinstance(pop_size, int) and pop_size > 0
-    ), "pop_size should be a positive integer"
-
-    dev = _resolve_device(descriptor, device)
-
-    gp_len = int(descriptor.max_tree_len)
-    input_len = int(descriptor.input_len)
-    output_len = int(descriptor.output_len)
-    const_prob = float(descriptor.const_prob)
-    out_prob = float(descriptor.out_prob)
-
-    assert (
-        0 < gp_len <= MAX_STACK
-    ), f"max_tree_len must be in range (0, {MAX_STACK}], but got {gp_len}"
-    assert input_len > 0, f"input_len must be positive, but got {input_len}"
-    assert output_len > 0, f"output_len must be positive, but got {output_len}"
-    assert 0.0 <= const_prob <= 1.0, "const_prob should be in [0.0, 1.0]"
-    assert 0.0 <= out_prob <= 1.0, "out_prob should be in [0.0, 1.0]"
-
-    depth2leaf_probs = (
-        descriptor.depth2leaf_probs.detach()
-        .to(device=dev, dtype=torch.float32)
-        .flatten()
-    )
-    roulette_funcs = (
-        descriptor.roulette_funcs.detach().to(device=dev, dtype=torch.float32).flatten()
-    )
-    const_samples = (
-        descriptor.const_samples.detach().to(device=dev, dtype=torch.float32).flatten()
-    )
-    assert depth2leaf_probs.numel() == MAX_FULL_DEPTH, (
-        f"depth2leaf_probs should have {MAX_FULL_DEPTH} entries, "
-        f"but got {depth2leaf_probs.numel()}"
-    )
-    assert (
-        roulette_funcs.numel() == Func.END
-    ), f"roulette_funcs should have {Func.END} entries, but got {roulette_funcs.numel()}"
-    assert const_samples.numel() > 0, "const_samples should not be empty"
-
-    n_probs = int(depth2leaf_probs.numel())
-    # Depths at/after the first 1.0 entry can only produce leaves: the schedule
-    # has a terminator there, which bounds the number of levels (and, together
-    # with `check_tree_length`, the tree length). `n_probs` bounds it as well
-    # since depths >= n_probs are always treated as leaves.
-    terminator = (depth2leaf_probs >= 1.0).nonzero()
-    last_level = n_probs if terminator.numel() == 0 else int(terminator[0, 0])
-    last_level = min(last_level, n_probs)
+    n_probs = int(leaf_probs.numel())
+    last_level = spec.levels - 1
 
     # ---- level-wise growth -------------------------------------------------
     # `value_grid` / `type_grid` are in breadth-first (level) order while they
@@ -246,7 +531,7 @@ def generate_population(
     for depth in range(last_level + 1):
         width = hi - lo
         active = _level_active(ls, le, lo, hi, dev)
-        leaf_prob = float(depth2leaf_probs[depth]) if depth < n_probs else 1.0
+        leaf_prob = float(leaf_probs[depth]) if depth < n_probs else 1.0
 
         # ---- decide every node of this level (masked to `active`) ------
         # kernel: `rand >= leafProbs[depth]` -> function node
@@ -255,7 +540,7 @@ def generate_population(
 
         r_func = torch.rand((pop_size, width), dtype=torch.float32, device=dev)
         # kernel: `k = 1 + max{i : roulette_funcs[i] <= r}` (0 if none)
-        func_id = torch.searchsorted(roulette_funcs, r_func, right=True).clamp_max(
+        func_id = torch.searchsorted(roulette, r_func, right=True).clamp_max(
             Func.END - 1
         )
         func_type = torch.where(
@@ -316,16 +601,7 @@ def generate_population(
         children = arity.sum(dim=1)
         next_le = le + children
         if int(next_le.max()) > gp_len:
-            raise RuntimeError(
-                f"generate_population: the generated tree does not fit in "
-                f"max_tree_len={gp_len}: after depth {depth} up to "
-                f"{int(next_le.max())} nodes are needed.\n"
-                "This descriptor lets trees grow deeper than max_tree_len "
-                "allows. Check max_layer_cnt/max_tree_len against the maximum "
-                "arity of using_funcs, and make sure depth2leaf_probs contains "
-                "a 1.0 terminator at max_layer_cnt - 1 (check_tree_length does "
-                "that for max_layer_cnt <= MAX_FULL_DEPTH)."
-            )
+            raise _overflow_error(gp_len, int(next_le.max()), depth)
         if int(children.max()) == 0:
             break  # every node of this level is a leaf -> the tree is complete
 
@@ -384,3 +660,43 @@ def generate_population(
     batch_subtree_size.view(-1).index_put_((dst,), size_grid.to(torch.int16)[valid])
 
     return batch_node_value, batch_node_type, batch_subtree_size
+
+
+def generate_population(
+    pop_size: int,
+    descriptor,
+    device: Optional[object] = None,
+) -> Tuple[Tensor, Tensor, Tensor]:
+    """Randomly generate a population of GP trees from ``descriptor``.
+
+    Reproduction of the legacy extension's ``tree_generate`` op in vectorized
+    torch (see the module docstring for the exact decision structure and the
+    documented deviations). Draws from torch's global RNG, therefore
+    ``torch.manual_seed(seed)`` (+ ``torch.cuda.manual_seed(seed)`` for CUDA)
+    reproduces the same population.
+
+    Args:
+        pop_size: number of trees to generate, a positive integer.
+        descriptor: a :class:`GenerateDescriptor`-like object providing
+            ``max_tree_len``, ``input_len``, ``output_len``, ``const_prob``,
+            ``out_prob``, ``depth2leaf_probs``, ``roulette_funcs`` and
+            ``const_samples``.
+        device: torch device for the generated tensors. ``None`` (default) uses
+            the device of the descriptor's parameter tensors.
+
+    Returns:
+        ``(batch_node_value, batch_node_type, batch_subtree_size)`` with shapes
+        ``[pop_size, max_tree_len]`` and dtypes float32 / int16 / int16, every
+        row being a valid prefix (pre-order) encoding of length
+        ``batch_subtree_size[:, 0]`` and zeros afterwards.
+    """
+    assert (
+        isinstance(pop_size, int) and pop_size > 0
+    ), "pop_size should be a positive integer"
+
+    spec = _resolve_spec(descriptor, device)
+    if _padded_total(spec.max_arity, spec.levels) <= PADDED_SLOT_BUDGET:
+        return _generate_padded(
+            pop_size, spec, _padded_layout(spec.max_arity, spec.levels, spec.device)
+        )
+    return _generate_compact(pop_size, spec)
