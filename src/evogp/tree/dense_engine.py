@@ -183,12 +183,21 @@ Environment knobs
 ``EVOGP_DENSE_BUDGET_MB``       2048        chunking memory budget (MiB)
 ``EVOGP_DENSE_UPDATE_MODE``     grow        ``grow`` / ``concat`` / ``scatter``
 ``EVOGP_DENSE_ALLOW_UNSAFE_SCATTER``        unset  permits ``scatter`` on iree
+``EVOGP_DENSE_HOST_MEMO``       16          entries in the plan/input front
+                                            tables (``0`` disables them)
+``EVOGP_EVOXC_ARTIFACT_DIR``    unset       opt-in on-disk executable artifact
+                                            cache, shared with the specialized
+                                            route (off when unset/empty)
 =============================== =========== ==================================
 Every knob is read per call (see the module's configuration section), so a
 process can change strategy between calls.  Backend/device/opt-level knobs, the
 shared compile cache (:data:`DENSE_CACHE` is the very same
 :data:`evoxc_engine.CACHE`) and the ``EVOXC_DISABLE_LOCATIONS=1`` tracing speedup
 are inherited unchanged from :mod:`evogp.tree.evoxc_engine`.
+The disk layer (:mod:`evogp.tree.artifact_cache`) is the only thing here that
+survives a process: one artifact per (shape, used-id set) for this route, loaded
+instead of compiled by a later process; see :func:`build_dense` and
+:func:`evoxc_engine.artifact_cache_stats`.
 
 Parity notes / known numeric deviations
 ---------------------------------------

@@ -68,10 +68,17 @@ this module's counters without touching the in-memory tables.  :func:`stats`
 it never reuses a :func:`evogp.tree.evoxc_engine.cache_stats` key.
 
 What the layer is worth (measured on this box, ``Forest.SR_fitness``, dense+iree,
-``EVOXC_DISABLE_LOCATIONS=1``): a ``p256``/``L=32``/``i8``/``N=1024`` compile is
-3.34 s and its artifact 1.01 MiB, a second process loads it in 91 ms; a
-``p64``/``L=64``/``i32``/``N=1024`` compile is 6.1 s and loads in ~0.1 s.  The load
-is dominated by iree's own runtime/driver import, which any process pays anyway.
+``EVOXC_DISABLE_LOCATIONS=1``, cache off -- first call with the switch on -- second
+process with the same cell): a ``p256``/``L=32``/``i8``/``N=1024`` compile is
+3.28 s (3.31 s with the save) and its artifact 1 056 791 B, and the second
+process' first call is 160 ms (20.5x, of which 48-53 ms is
+:func:`evoxc.Executable.load` itself); a ``p64``/``L=64``/``i32``/``N=1024``
+compile is 6.23 s (6.41 s with the save) and 2 747 325 B, and its second-process
+first call is 174 ms (35.8x, 60-62 ms of it the load).  The rest of the second
+call is the one-off iree runtime/driver import plus the first real
+``evoxc.run``; warm calls are unchanged (1.1-1.3 ms / 1.5-1.8 ms).  A truncated
+artifact is detected by the load itself (``load_failures`` +1) and costs exactly
+one rebuild.
 """
 
 from __future__ import annotations

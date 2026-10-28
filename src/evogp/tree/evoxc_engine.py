@@ -101,8 +101,22 @@ signature + static program) -- measured (tracemalloc, released by
 only costs memory, never correctness.  Eviction is plain LRU: one-off probes
 with unusual shapes (e.g. every ``N`` in ``per_row=False``) can push out hot
 entries.  :func:`cache_stats` / :func:`clear_cache` expose and reset the table.
-The cache is **in-memory only** -- no artifact is written to disk and nothing
-is shared across processes (documented evoxc limitation).
+The cache itself is **in-memory only**: it never writes to disk and nothing is
+shared across processes, so every fresh process re-pays the per-structure
+compile.  The OPT-IN disk layer in :mod:`.artifact_cache` closes that gap and
+nothing else: set ``EVOGP_EVOXC_ARTIFACT_DIR`` (:data:`ARTIFACT_DIR_ENV`) to a
+directory and each built executable is saved as ``<key>.evoxcart`` (a stable
+content key, see :func:`.artifact_cache.artifact_key`) and loaded back by a
+later process instead of being compiled again; unset/empty -- the default --
+keeps exactly the in-memory behaviour above (no key derived, no directory
+created, no file touched).  A load that fails for ANY reason (corrupt or
+truncated file, version/signature mismatch, no persist support, wrong device,
+signature mismatch against the route's specs) drops the file and falls through
+to a real :func:`evoxc.build_cached`; a save is best effort and never fails the
+call.  :func:`clear_cache` keeps its meaning (in-memory tables + the evoxc
+cache, disk untouched); use :func:`artifact_cache_stats` to inspect the disk
+counters and :func:`clear_artifacts` to delete the artifacts.  The knob is read
+per call, so it can be toggled at runtime.
 
 Per-tree executable memo (in-process front table)
 -------------------------------------------------
