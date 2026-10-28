@@ -23,6 +23,10 @@ validate.py     numeric validation of every arm against reference_eval.py
 decompose.py    per-call phase breakdown of one cell on both routes
 summarize.py    renders the records into one markdown report (stdlib only)
 check.py        the gate over a result directory (stdlib only, exit 1 on failure)
+cold_start.py   cold-start column: import -> first fitness on the default route,
+                one process per population; --artifact-dir = populate + reload
+training_run.py end-to-end training run: per-generation wall ms + best-fitness
+                trajectory for the engine, the plain-torch evaluator and a snapshot
 results/        raw per-cell JSON records + logs + campaign.json (the evidence)
 ```
 
@@ -112,7 +116,51 @@ $PY test/benchmark/evoxc/decompose.py --cell p256-L64-i32-N1024 \
 git archive HEAD | tar -x -C /tmp/evogp_preopt
 $PY test/benchmark/evoxc/campaign.py --tree-root /tmp/evogp_preopt \
     --out test/benchmark/evoxc/results/replay --cells main --arms all
+
+# 6. cold-start column: module import -> first fitness, ONE process per population
+$PY test/benchmark/evoxc/cold_start.py --cell p256-L64-i32-N1024
+$PY test/benchmark/evoxc/cold_start.py --artifact-dir "$TMPDIR/evogp_artifacts"
+
+# 7. one whole training run per arm (same ship, same seed, same problem)
+$PY test/benchmark/evoxc/training_run.py --arm engine
+$PY test/benchmark/evoxc/training_run.py --arm torch-per-tree
+$PY test/benchmark/evoxc/training_run.py --arm preopt --tree-root /tmp/evogp_preopt
 ```
+
+## Final campaign: cold start and a whole training run
+
+Two questions the per-call grid above cannot answer, each measured by its own
+script (records under `results/final/`, which is NOT gated by `check.py`):
+
+* `cold_start.py` — what a user feels: wall time from module import to the first
+  synchronized fitness value on the DEFAULT route, on an empty in-memory compile
+  cache. One cell and **one population per process** (the compile cache and
+  executable memo are per process, so `--pop` replaces a loop); the record keeps
+  `wall_to_first_fitness_ms` plus its visible breakdown (`import_ms`,
+  `workload_build_ms`, `first_call_ms`), `evoxc_engine.cache_stats()` compile
+  misses around the first call, the resolved route, and `--repeat` repeats that
+  run on the already-warm process cache (`cold: false`, never averaged with the
+  cold one). `--artifact-dir DIR` turns on the opt-in disk layer
+  (`EVOGP_EVOXC_ARTIFACT_DIR`, `src/evogp/tree/artifact_cache.py`) and drives it
+  as **two child processes** — `populate` (cold artifact write) then `reload`
+  (warm artifact) — recording the directory's file count/bytes before and after;
+  its record's `wall_to_first_fitness_ms` is a per-phase dict, and a tree without
+  the feature (the pre-optimization snapshot) records `artifact_cache: "absent"`
+  and skips that half.
+* `training_run.py` — one complete `StandardPipeline`/`GeneticProgramming`
+  training run on the in-process `src/evogp/sr_test.py` symbolic-regression
+  problem (synthetic, no dataset, no network), one process per `--arm`:
+  `engine` (the shipped pipeline and route), `torch-per-tree` (the same GP loop
+  and operators with `arms_torch.PerTreeEvaluator` substituted as the problem's
+  fitness) and `preopt` (the engine arm against a caller-supplied `--tree-root`
+  snapshot). Every generation is a sync-bracketed sample and the full
+  `best_fitness_by_generation` trajectory, `best_fitness_at` (gens 10/25/50),
+  `trajectory_digest` and `final_pop_size` are recorded next to the timings:
+  a faster arm that converges worse is not a win.
+
+The driver in both cases is the library's own loop — `StandardPipeline.step()`
+(what `run()` executes) for training, the public `Forest.SR_fitness` for cold
+start — so no private call path or monkeypatch is being timed.
 
 `--tree-root <dir>` (or a `src/` inside it) makes `worker.py` import `evogp` from
 that tree and puts it first on the worker's `PYTHONPATH`; the record's `env.tree_root`
