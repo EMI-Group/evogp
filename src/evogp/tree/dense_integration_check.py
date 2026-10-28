@@ -8,13 +8,13 @@ engine-level battery is ``dense_spike_check.py``).
 
     # 1. numpy public-API parity + auto-policy check (no GPU needed for the math,
     #    but the tensors go through check_tensor -> "cuda", so a GPU must be visible)
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=3 \\
+    PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=3 \\
         /mnt/local-ssd/bchuang/evox/.venv/bin/python \\
         src/evogp/tree/dense_integration_check.py --stage numpy,fallback
 
-    # 2. iree smoke: P=32/N=32, EVOGP_EVAL_MODE=auto + EVOGP_ETL_BACKEND=iree,
+    # 2. iree smoke: P=32/N=32, EVOGP_EVAL_MODE=auto + EVOGP_EVOXC_BACKEND=iree,
     #    one dense compile per call (cache_stats deltas) -- keep the process short
-    PYTHONPATH=src ETL_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=3 \\
+    PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 CUDA_VISIBLE_DEVICES=3 \\
         /mnt/local-ssd/bchuang/evox/.venv/bin/python \\
         src/evogp/tree/dense_integration_check.py --stage iree
 
@@ -36,9 +36,9 @@ Stages
               must fall back silently and produce exactly the specialized result
               (and the analytic out-node values).
 ``iree``      P=32, N=32 on the CUDA HAL: a numpy+specialized reference, then
-              ``EVOGP_EVAL_MODE=auto`` + ``EVOGP_ETL_BACKEND=iree`` through
+              ``EVOGP_EVAL_MODE=auto`` + ``EVOGP_EVOXC_BACKEND=iree`` through
               ``Forest.SR_fitness``; prints the compile/run/warm times and the
-              ``etl_engine.cache_stats()`` deltas that prove ONE dense compile for
+              ``evoxc_engine.cache_stats()`` deltas that prove ONE dense compile for
               the whole population.
 
 Exit code 0 = every check passed, 1 = at least one mismatch, 2 = a hard error.
@@ -61,7 +61,7 @@ if _SRC not in sys.path:
 
 from evogp.tree import CombinedForest, Forest, GenerateDescriptor  # noqa: E402
 from evogp.tree import dense_engine as D  # noqa: E402
-from evogp.tree import etl_engine as E  # noqa: E402
+from evogp.tree import evoxc_engine as E  # noqa: E402
 from evogp.tree.utils import FUNCS_NAMES, Func, NType  # noqa: E402
 
 # Comparison conventions mirror dense_spike_check.py: masks exact, finite values
@@ -175,9 +175,9 @@ def set_mode(mode: str, backend: Optional[str] = None) -> None:
     """Flip the master switch (and optionally the engine backend) in-process."""
     os.environ["EVOGP_EVAL_MODE"] = mode
     if backend is None:
-        os.environ.pop("EVOGP_ETL_BACKEND", None)
+        os.environ.pop("EVOGP_EVOXC_BACKEND", None)
     else:
-        os.environ["EVOGP_ETL_BACKEND"] = backend
+        os.environ["EVOGP_EVOXC_BACKEND"] = backend
 
 
 # ---------------------------------------------------------------------------
@@ -659,7 +659,7 @@ def stage_iree(args, report: Report) -> None:
     # the call under test: auto + iree through the standard public API
     set_mode("auto", backend="iree")
     if args.gpu is not None:
-        os.environ["EVOGP_ETL_IREE_DEVICE"] = str(args.gpu)
+        os.environ["EVOGP_EVOXC_DEVICE"] = str(args.gpu)
     policy = D.should_use_dense(pop)
     report.add(
         "auto+iree selects dense for P=32",
@@ -732,8 +732,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if unknown:
         print(f"unknown stage(s) {unknown}: pick from {list(_STAGES)}")
         return 2
-    if os.environ.get("ETL_DISABLE_LOCATIONS", "").strip() not in ("1", "true"):
-        print("[warn] ETL_DISABLE_LOCATIONS=1 is not set: tracing will be ~4x slower")
+    if os.environ.get("EVOXC_DISABLE_LOCATIONS", "").strip() not in ("1", "true"):
+        print("[warn] EVOXC_DISABLE_LOCATIONS=1 is not set: tracing will be ~4x slower")
     print(
         f"== dense integration check: stages={stages} "
         f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')} =="
