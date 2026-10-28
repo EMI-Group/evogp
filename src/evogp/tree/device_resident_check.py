@@ -53,7 +53,10 @@ Checks
              rule.
 ``hotpath``  one FORCED-CHUNKED dense ``Forest.SR_fitness`` call (small
              ``EVOGP_DENSE_BUDGET_MB``, so ``p_chunks, n_chunks > 1``) must:
-             convert ``inputs`` exactly once and ``labels`` exactly once, read
+             convert ``inputs`` and ``labels`` to the host AT MOST once -- the
+             cold call (right after ``clear_cache()``, i.e. an empty
+             ``dense_engine.DENSE_INPUT_MEMO``) exactly once, a repeat of the
+             same tensors not at all (the memo serves their host copies), read
              back only ``(P,)-``scale chunk losses (never a full prediction),
              create no torch tensor from a host array larger than ``pop_size``,
              and upload each distinct payload at most once per call (``x`` and
@@ -81,8 +84,10 @@ Checks
              below the ``EVOGP_DENSE_PRUNE=0`` full chain's ``L x 28``), the
              pruned and full-chain graphs agree BIT-EXACTLY (value/loss variants,
              ``per_row`` both ways, chunked and unchunked, an empty used set and
-             a leaf-only population), and the set joins the compile-cache key
-             (same shape + different set = a second compile, same set = a hit).
+             a leaf-only population), and the set joins the executable identity
+             (same shape + different set = a second compile, same set = a repeat
+             served by ``dense_engine.DENSE_EXECUTABLE_MEMO`` that returns the
+             very same executable without reaching ``build_cached``).
              The warm A/B medians are recorded, never asserted.
 ``measure``  (``--measure``) warm per-call medians for the dense SR path at the
              ``P/N`` grid points, the pop=1 ``Tree`` path and the value path
@@ -772,6 +777,23 @@ def _counted_call(
     return loss, traffic
 
 
+def _inputs_resident(inputs: torch.Tensor, labels: torch.Tensor) -> bool:
+    """True when ``DENSE_INPUT_MEMO`` already holds the host copy of BOTH tensors.
+
+    ``evogp.tree.dense_engine`` keys the resident ``x``/``labels`` arrays on
+    :func:`evogp.tree.dense_memo.token`, so the very same tensors on a later call
+    do no torch->host conversion at all.  A plain membership test keeps the
+    counters untouched, and it is what makes the per-case expectation exact
+    (``1`` on the cold call, ``0`` once the memo is warm) instead of an
+    assumption about the order the cases run in.
+    """
+    for tensor in (inputs, labels):
+        token = D.dense_memo.token(tensor)
+        if token is None or (str(np.float32), token) not in D.DENSE_INPUT_MEMO:
+            return False
+    return True
+
+
 def _hotpath_case(
     label: str,
     report: Report,
@@ -784,6 +806,7 @@ def _hotpath_case(
     pop: int,
     rows: int,
     input_len: int,
+    cold: bool,
 ) -> None:
     """The per-config host-crossing invariants (see the module docstring)."""
     print(f"-- {label}: plan {_plan_line(plan)}")
@@ -791,19 +814,31 @@ def _hotpath_case(
     results.setdefault("hotpath", {})[label] = {
         "budget_mb": budget,
         "plan": _plan_line(plan),
+        "cold": bool(cold),
         **traffic.summary(pop),
     }
+    # ``x`` / ``labels`` cross to the host AT MOST once per call: the COLD call
+    # (an empty ``DENSE_INPUT_MEMO``) converts each exactly once, and a repeat of
+    # the very same tensors is served by the memo -- zero conversions, which is
+    # the point of the table in a training loop.  Anything above one is the
+    # per-chunk re-conversion this stage exists to forbid.
+    expected_moves = 1 if cold else 0
     moves = traffic.conversions("inputs", "x")
     report.add(
-        f"[{label}] inputs converted to host exactly ONCE",
-        len(moves) == 1,
-        f"torch->host conversions named inputs/x: {len(moves)} "
+        f"[{label}] inputs converted to host "
+        f"{'exactly ONCE (cold)' if cold else 'NOT at all (memo-warm)'}",
+        len(moves) == expected_moves,
+        f"torch->host conversions named inputs/x: {len(moves)} (expected "
+        f"{expected_moves}), memo_entries={len(D.DENSE_INPUT_MEMO)} "
         f"(all conversions: {[(n, s) for _, n, s in traffic.as_numpy]})",
     )
+    label_moves = traffic.conversions("labels")
     report.add(
-        f"[{label}] labels converted to host exactly ONCE",
-        len(traffic.conversions("labels")) == 1,
-        f"{len(traffic.conversions('labels'))} conversions",
+        f"[{label}] labels converted to host "
+        f"{'exactly ONCE (cold)' if cold else 'NOT at all (memo-warm)'}",
+        len(label_moves) == expected_moves,
+        f"{len(label_moves)} conversions (expected {expected_moves}), "
+        f"memo_entries={len(D.DENSE_INPUT_MEMO)}",
     )
     report.add(
         f"[{label}] the three population tensors converted to host once each",
@@ -923,6 +958,11 @@ def stage_hotpath(args: Any, report: Report, results: Dict[str, Any]) -> None:
         f"tried budgets {_CANDIDATE_BUDGETS}",
     )
     if plan is not None:
+        # A COLD call: ``clear_cache()`` empties the dense front tables, so the
+        # ``x``/``labels`` host copy is paid here (exactly once each) and the
+        # later cases measure the memo-warm side of the same invariant.
+        E.clear_cache()
+        cold = not _inputs_resident(inputs, labels)
         loss, traffic = _counted_call(forest, inputs, labels, budget)
         _hotpath_case(
             "both-chunked",
@@ -935,6 +975,7 @@ def stage_hotpath(args: Any, report: Report, results: Dict[str, Any]) -> None:
             pop=pop,
             rows=rows,
             input_len=input_len,
+            cold=cold,
         )
 
     # (b) row-chunked only (p_chunks == 1): here the x payload preparation
@@ -948,6 +989,7 @@ def stage_hotpath(args: Any, report: Report, results: Dict[str, Any]) -> None:
         f"tried budgets {_CANDIDATE_BUDGETS}",
     )
     if plan is not None:
+        cold = not _inputs_resident(inputs, labels)
         loss, traffic = _counted_call(forest, inputs, labels, budget)
         _hotpath_case(
             "row-chunked",
@@ -960,6 +1002,7 @@ def stage_hotpath(args: Any, report: Report, results: Dict[str, Any]) -> None:
             pop=pop,
             rows=rows,
             input_len=input_len,
+            cold=cold,
         )
         set_mode("dense", backend="numpy")
         with _budget(budget):
@@ -973,6 +1016,7 @@ def stage_hotpath(args: Any, report: Report, results: Dict[str, Any]) -> None:
     # (c) the DEFAULT budget (2048 MiB): one unchunked graph -- the realistic
     #     regime, where a full-prediction readback is (P, N) instead of (P,).
     plan = plan_for(forest, rows, budget_mb=None, variant="loss")
+    cold = not _inputs_resident(inputs, labels)
     loss, traffic = _counted_call(forest, inputs, labels, DEFAULT_BUDGET_MB)
     _hotpath_case(
         "unchunked (default budget)",
@@ -985,6 +1029,7 @@ def stage_hotpath(args: Any, report: Report, results: Dict[str, Any]) -> None:
         pop=pop,
         rows=rows,
         input_len=input_len,
+        cold=cold,
     )
     set_mode("auto", backend="numpy")
 
@@ -1645,8 +1690,10 @@ def stage_prune(args: Any, report: Report, results: Dict[str, Any]) -> None:
     stats_a = E.cache_stats()
     exe_b = D.build_dense(plan_b)
     stats_b = E.cache_stats()
+    memo_before = D.dense_cache_stats()
     exe_a2 = D.build_dense(plan_a)
     stats_c = E.cache_stats()
+    memo_after = D.dense_cache_stats()
     report.add(
         "a different used set recompiles (the set is part of the cache key)",
         stats_a["misses"] == 1
@@ -1656,11 +1703,19 @@ def stage_prune(args: Any, report: Report, results: Dict[str, Any]) -> None:
         f"misses {stats_a['misses']} -> {stats_b['misses']}, "
         f"distinct executables={exe_b is not exe_a}",
     )
+    # A repeated build of the SAME plan is served by the dense front table
+    # (``DENSE_EXECUTABLE_MEMO``), so it never reaches ``build_cached``: the
+    # observable is the identical executable plus one front-table hit and NO
+    # extra compile-cache miss (``CACHE.hits`` deliberately stays put).
     report.add(
-        "the same used set hits the same executable",
-        stats_c["hits"] == 1 and stats_c["misses"] == 2 and exe_a2 is exe_a,
-        f"hits={stats_c['hits']} misses={stats_c['misses']} "
-        f"same executable={exe_a2 is exe_a}",
+        "the same used set returns the same executable without recompiling",
+        exe_a2 is exe_a
+        and stats_c["misses"] == 2
+        and memo_after["dense_exec_hits"] == memo_before["dense_exec_hits"] + 1,
+        f"same executable={exe_a2 is exe_a}, compile-cache misses "
+        f"{stats_b['misses']} -> {stats_c['misses']} (hits {stats_c['hits']}), "
+        f"dense_exec hits {memo_before['dense_exec_hits']} -> "
+        f"{memo_after['dense_exec_hits']}",
     )
 
     # -- warm A/B timing (recorded, never asserted: the box may be loaded) ------
