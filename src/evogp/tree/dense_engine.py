@@ -332,6 +332,7 @@ twin, ``evoxc_engine.build_specialized_runner`` -- in ``RUNNER_HOOKS.md``.
 from __future__ import annotations
 
 import os
+import threading
 import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -342,6 +343,7 @@ import torch
 import evoxc
 
 from .utils import NType
+from . import dense_memo
 from .evoxc_engine import (  # private but deliberately reused: parity by construction
     BACKEND_ENV,
     CACHE,
@@ -351,9 +353,11 @@ from .evoxc_engine import (  # private but deliberately reused: parity by constr
     _emit_ternary,
     _emit_unary,
     _env_int,
+    _freeze_options,
     _operand,
     _population_inputs,
     _quiet,
+    _register_cache_reset,
     _resolve_backend,
     _trace_const,
 )
@@ -368,8 +372,13 @@ __all__ = [
     "DEFAULT_BUDGET_MB",
     "DEFAULT_EVAL_MODE",
     "DEFAULT_MAX_TREE_LEN",
+    "DEFAULT_HOST_MEMO",
     "DEFAULT_PRUNE",
     "DENSE_CACHE",
+    "DENSE_EXECUTABLE_MEMO",
+    "DENSE_INPUT_MEMO",
+    "DENSE_PLAN_MEMO",
+    "DenseEntry",
     "DensePlan",
     "DensePrep",
     "DenseRunner",
@@ -377,6 +386,7 @@ __all__ = [
     "EVAL_MODES",
     "EVAL_MODE_ENV",
     "FULL_FUNC_IDS",
+    "HOST_MEMO_ENV",
     "MAX_TREE_LEN_ENV",
     "PRUNE_ENV",
     "OP_BFUNC",
@@ -391,6 +401,7 @@ __all__ = [
     "auto_rows_decline",
     "build_dense",
     "build_dense_runner",
+    "dense_cache_stats",
     "dense_peak_bytes",
     "describe_plan",
     "device_available",
@@ -499,6 +510,66 @@ DEFAULT_PRUNE = True
 
 #: The dense graphs live in the *same* compile cache as the specialized ones.
 DENSE_CACHE = CACHE
+
+#: Entries of the population/input front tables (``EVOGP_DENSE_HOST_MEMO``).
+#: Deliberately small: a plan entry holds the decoded host columns of a whole
+#: population (``8 * L * P`` float32/int32 bytes) and its staged device payloads,
+#: and a training loop presents a NEW population every generation -- only the
+#: repeated evaluation of an unchanged population (elites, benchmarks, a
+#: ``forward`` followed by ``sr_fitness``) benefits, so a large table would only
+#: pin memory.  ``0`` disables both tables (every call then does the full host
+#: work, i.e. the pre-memo behaviour).
+HOST_MEMO_ENV = "EVOGP_DENSE_HOST_MEMO"
+DEFAULT_HOST_MEMO = 16
+
+
+def _resolve_host_memo_entries(value: Optional[int] = None) -> int:
+    """Resolve ``EVOGP_DENSE_HOST_MEMO`` (explicit argument wins)."""
+    if value is None:
+        raw = os.environ.get(HOST_MEMO_ENV, "").strip()
+        if not raw:
+            return DEFAULT_HOST_MEMO
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"{HOST_MEMO_ENV}={raw!r} is not an integer"
+            ) from exc
+    entries = int(value)
+    if entries < 0:
+        raise ValueError(f"{HOST_MEMO_ENV}={entries} must be >= 0")
+    return entries
+
+
+#: Dense executables: everything ``evoxc.build_cached`` keys on, sized like the
+#: compile cache itself (an entry is the executable plus a small key tuple).
+DENSE_EXECUTABLE_MEMO = dense_memo.register(
+    dense_memo.DenseMemo("dense_exec", DENSE_CACHE.maxsize)
+)
+#: :class:`DensePlan` (+ executable + staged payloads) of an unchanged population.
+DENSE_PLAN_MEMO = dense_memo.register(
+    dense_memo.DenseMemo("dense_plan", _resolve_host_memo_entries())
+)
+#: Host copy of an unchanged ``x`` / ``labels`` tensor (skips the per-call D2H).
+DENSE_INPUT_MEMO = dense_memo.register(
+    dense_memo.DenseMemo("dense_input", _resolve_host_memo_entries())
+)
+#: :func:`evoxc_engine.clear_cache` owns the invalidation of all three.
+_register_cache_reset(dense_memo.clear)
+
+
+def dense_cache_stats() -> Dict[str, int]:
+    """Counters of the dense route's three front tables (see :mod:`dense_memo`).
+
+    Deliberately NOT folded into :func:`evoxc_engine.cache_stats`, whose eight
+    keys describe the compile cache and the specialized executable memo and are
+    pinned by the test suite: ``dense_exec_*`` are the dense executables (a memo
+    hit never reaches ``build_cached``, so ``CACHE.hits`` no longer grows with a
+    repeated ``build_dense``), ``dense_plan_*`` the per-population plan/payload
+    table and ``dense_input_*`` the resident ``x``/``labels`` host copies.
+    """
+    return dense_memo.stats()
+
 
 #: ``opcode`` values (mirroring ``NType`` base values, plus 5 for padding).
 OP_VAR = int(NType.VAR)  # 0
@@ -1688,6 +1759,33 @@ def describe_plan(plan: DensePlan) -> Dict[str, Any]:
     }
 
 
+def _dense_executable_key(
+    fn: Any,
+    specs: Tuple[Any, ...],
+    backend_name: str,
+    device: Any,
+    options: Dict[str, Any],
+) -> Tuple[Any, ...]:
+    """Memo key of one dense executable: everything ``build_cached`` keys on.
+
+    ``(id(fn), plan.specs, backend name, device, frozen options)`` -- ``id(fn)``
+    is the module-level ``@evoxc.defn`` body (``_dense_step`` / ``_dense_loss_step``,
+    i.e. the variant), ``plan.specs`` is the whole traced spec tuple (the seven
+    runtime columns, ``x``, the loss variant's ``labels``/``keep`` and the static
+    ``cfg``), so two plans share an entry exactly when ``build_cached`` would
+    share one.  On the numpy backend ``device`` is the frozen ``Device("cpu", 0)``
+    and ``options`` is empty (documented as accepted-and-ignored there), so the
+    effective key reduces to ``(id(fn), specs, "numpy")``.
+    """
+    return (
+        id(fn),
+        specs,
+        backend_name,
+        device,
+        _freeze_options(options),
+    )
+
+
 def build_dense(
     plan: DensePlan,
     *,
@@ -1702,30 +1800,319 @@ def build_dense(
     inputs are keyed once on their ``TensorSpec``, so new populations of the same
     shape never recompile, and ``plan.variant`` picks the graph
     (:func:`_dense_step` or :func:`_dense_loss_step`) -- one cache entry each.
+
+    In front of ``build_cached`` sits :data:`DENSE_EXECUTABLE_MEMO`
+    (:func:`_dense_executable_key`, an :class:`evogp.tree.dense_memo.DenseMemo`
+    sized like :data:`DENSE_CACHE`): a repeated build of the same plan -- what
+    every warm call of the route does -- is one dict lookup instead of a
+    re-derived cache key, exactly like the specialized route's
+    ``_EXECUTABLE_MEMO``.  A hit returns the very executable ``build_cached``
+    holds (identity: an executable is immutable and its static program is
+    re-passed by value at every ``evoxc.run``), and
+    :func:`evoxc_engine.clear_cache` resets the table.
     """
     backend_name, device, options = _resolve_backend(backend, iree_device_index)
     fn = _dense_loss_step if plan.variant == LOSS_VARIANT else _dense_step
+    try:
+        key: Optional[Tuple[Any, ...]] = _dense_executable_key(
+            fn, plan.specs, backend_name, device, options
+        )
+    except TypeError:  # pragma: no cover - an unhashable spec component
+        key = None
+    if key is not None:
+        memoized = DENSE_EXECUTABLE_MEMO.lookup(key)
+        if memoized is not None:
+            return memoized
     if backend_name == "numpy":
-        return evoxc.build_cached(
+        executable = evoxc.build_cached(
             fn,
             *plan.specs,
             backend=backend_name,
             device=device,
             cache=DENSE_CACHE,
         )
-    return evoxc.build_cached(
-        fn,
-        *plan.specs,
-        backend=backend_name,
-        device=device,
-        cache=DENSE_CACHE,
-        **options,
-    )
+    else:
+        executable = evoxc.build_cached(
+            fn,
+            *plan.specs,
+            backend=backend_name,
+            device=device,
+            cache=DENSE_CACHE,
+            **options,
+        )
+    if key is not None:
+        DENSE_EXECUTABLE_MEMO.store(key, executable)
+    return executable
 
 
 # ---------------------------------------------------------------------------
 # runtime: chunked execution
 # ---------------------------------------------------------------------------
+
+
+def _decline_rows(x: Any) -> Optional[int]:
+    """``x``'s row count when it is cheaply known (shape only), else ``None``.
+
+    Used to enforce :func:`auto_rows_decline` BEFORE the host conversion of
+    ``x``: a declined call must not pay a D2H (and, on a device backend, must not
+    pay anything at all) just to learn that the dense route is not used.
+    """
+    shape = getattr(x, "shape", None)
+    try:
+        if shape is not None and len(shape) == 2:
+            return int(shape[0])
+    except (TypeError, ValueError):  # pragma: no cover - exotic shape objects
+        return None
+    return None
+
+
+def _resident_array(tensor: Any, dtype: Any, name: str) -> np.ndarray:
+    """Memoized :func:`evoxc_engine._as_numpy`: the host copy of an unchanged tensor.
+
+    ``x`` / ``labels`` are the same tensors on every call of a training loop, so
+    the per-call device-to-host copy is pure waste; :data:`DENSE_INPUT_MEMO`
+    keeps the host array of a tensor keyed by :func:`dense_memo.token`
+    (``data_ptr`` + shape + dtype + device + ``_version``), which a torch
+    in-place write bumps and ``clear_cache()`` drops.  Anything that is not a
+    torch tensor (a numpy ``x``) is simply not memoized, and every value/type
+    error still comes from :func:`_as_numpy` itself, on the miss that produced
+    the array.
+    """
+    key = dense_memo.token(tensor)
+    if key is not None:
+        cached = DENSE_INPUT_MEMO.lookup((str(dtype), key))
+        if cached is not None:
+            return cached
+    array = _as_numpy(tensor, dtype, name)
+    if key is not None:
+        DENSE_INPUT_MEMO.store((str(dtype), key), array)
+    return array
+
+
+def _resident_input(tensor: Any, input_len: int, name: str) -> np.ndarray:
+    """``(N, input_len)`` float32 host copy of ``tensor`` (memoized, same checks)."""
+    array = _resident_array(tensor, np.float32, name)
+    if array.ndim != 2:
+        raise ValueError(
+            f"{name} must be 2-D (rows, {input_len}), got shape {array.shape}"
+        )
+    if array.shape[1] != input_len:
+        raise ValueError(
+            f"{name} has {array.shape[1]} columns but the population expects "
+            f"input_len={input_len}"
+        )
+    return array
+
+
+@dataclass
+class DenseEntry:
+    """One call's worth of dense state: the plan, its executable, its payloads.
+
+    The value :data:`DENSE_PLAN_MEMO` holds, keyed on the (unchanged) population
+    tensors plus the resolved plan parameters.  It bundles the three things the
+    warm path would otherwise recompute:
+
+    * ``plan`` -- the host decode (:func:`prepare_dense`), the chunk shape and
+      the traced specs; a repeated evaluation of the same population is the same
+      plan, bit for bit;
+    * ``executable`` -- a strong reference to the compiled (or memo-hit) graph,
+      so the entry never re-derives a ``build_cached`` key either;
+    * ``payloads`` -- the ``staged`` memo of :func:`_iter_plan_chunks`: the host
+      blocks AND the device tensors of every runtime input, re-used by
+      reference.  They are only valid for the ``x`` / ``labels`` they were
+      staged from, which ``payload_key`` (their :func:`dense_memo.token` pair)
+      pins; a different ``x`` clears them and stages again.
+
+    ``pins`` holds the storages of the population tensors, so the ``data_ptr``
+    the key was derived from cannot be recycled while the entry lives (see
+    :func:`evogp.tree.dense_memo.pin`).  The lock serializes concurrent calls
+    that share one entry (they would otherwise race on the payload table).
+    """
+
+    plan: DensePlan
+    executable: Any
+    backend_name: str
+    device: Any
+    pins: Tuple[Any, ...] = ()
+    payload_key: Optional[Tuple[Any, ...]] = None
+    payload_pins: Tuple[Any, ...] = ()
+    payloads: Dict[Any, Tuple[np.ndarray, Any]] = field(default_factory=dict)
+    lock: Any = field(default_factory=threading.RLock, repr=False)
+
+
+def _normalize_variant(variant: str, per_row: bool) -> None:
+    """The variant rules :func:`plan_dense` enforces (checked before the memo)."""
+    if variant not in PLAN_VARIANTS:
+        raise ValueError(
+            f"unsupported plan variant {variant!r}: dense_engine supports "
+            f"{list(PLAN_VARIANTS)}"
+        )
+    if variant == LOSS_VARIANT and per_row:
+        raise ValueError(
+            "the loss variant implements sr_fitness only (per_row=False): a "
+            "per_row=True loss would need one label row per tree, which is not "
+            "the SR contract"
+        )
+
+
+def _entry_key(
+    values: Any,
+    types: Any,
+    sizes: Any,
+    *,
+    input_len: int,
+    output_len: int,
+    n_rows: int,
+    per_row: bool,
+    variant: str,
+    use_mse: bool,
+    cap: int,
+    budget: float,
+    mode: str,
+    pruned: bool,
+    backend_name: str,
+    device: Any,
+    options: Dict[str, Any],
+) -> Optional[Tuple[Any, ...]]:
+    """Memo key of one :class:`DenseEntry`, or ``None`` (not identifiable).
+
+    The RESOLVED plan parameters enter the key, not the raw arguments, so an
+    ``EVOGP_DENSE_UPDATE_MODE`` / ``EVOGP_DENSE_BUDGET_MB`` / ``EVOGP_DENSE_PRUNE``
+    / trace-cap change between two calls can never be served from a plan built
+    under the old value.  A population tensor that cannot be tokenized (a numpy
+    array) simply is not memoized.
+    """
+    tokens = tuple(dense_memo.token(tensor) for tensor in (values, types, sizes))
+    if any(item is None for item in tokens):
+        return None
+    try:
+        return (
+            tokens,
+            int(input_len),
+            int(output_len),
+            int(n_rows),
+            bool(per_row),
+            str(variant),
+            bool(use_mse),
+            int(cap),
+            float(budget),
+            str(mode),
+            bool(pruned),
+            backend_name,
+            device,
+            _freeze_options(options),
+        )
+    except TypeError:  # pragma: no cover - an unhashable option value
+        return None
+
+
+def _plan_entry(
+    batch_node_value: Any,
+    batch_node_type: Any,
+    batch_subtree_size: Any,
+    input_len: int,
+    output_len: int,
+    n_rows: int,
+    *,
+    per_row: bool,
+    variant: str,
+    use_mse: bool,
+    max_tree_len: Optional[int],
+    budget_mb: Optional[float],
+    update_mode: Optional[str],
+    backend: Optional[str],
+    iree_device_index: Optional[int],
+) -> DenseEntry:
+    """Plan + executable + staged payloads of this (population, data) call.
+
+    :func:`plan_dense` and :func:`build_dense` on a miss, one dict lookup on a
+    hit -- the host decode (3 D2H + the whole vectorized decode/validate pass)
+    and the ``build_cached`` key derivation are both skipped for a population
+    that has not changed since the previous call (elites, a ``forward`` followed
+    by ``sr_fitness``, a repeated benchmark).  A different population, an
+    in-place mutated one (``_version`` bump), a different shape/variant/knob or
+    ``clear_cache()`` is a miss, by construction.
+    """
+    _normalize_variant(variant, per_row)
+    backend_name, device, options = _resolve_backend(backend, iree_device_index)
+    key = _entry_key(
+        batch_node_value,
+        batch_node_type,
+        batch_subtree_size,
+        input_len=input_len,
+        output_len=output_len,
+        n_rows=n_rows,
+        per_row=per_row,
+        variant=variant,
+        use_mse=use_mse,
+        cap=_resolve_max_tree_len(max_tree_len),
+        budget=_resolve_budget_mb(budget_mb),
+        mode=resolve_update_mode(update_mode, backend_name),
+        pruned=resolve_prune(None),
+        backend_name=backend_name,
+        device=device,
+        options=options,
+    )
+    if key is not None:
+        entry = DENSE_PLAN_MEMO.lookup(key)
+        if entry is not None:
+            return entry
+    plan = plan_dense(
+        batch_node_value,
+        batch_node_type,
+        batch_subtree_size,
+        input_len,
+        output_len,
+        n_rows,
+        per_row=per_row,
+        variant=variant,
+        use_mse=use_mse,
+        max_tree_len=max_tree_len,
+        budget_mb=budget_mb,
+        update_mode=update_mode,
+        backend=backend,
+    )
+    executable = build_dense(
+        plan, backend=backend, iree_device_index=iree_device_index
+    )
+    entry = DenseEntry(
+        plan=plan,
+        executable=executable,
+        backend_name=backend_name,
+        device=device,
+        pins=dense_memo.pin((batch_node_value, batch_node_type, batch_subtree_size)),
+    )
+    if key is not None:
+        DENSE_PLAN_MEMO.store(key, entry)
+    return entry
+
+
+def _entry_payloads(
+    entry: DenseEntry, x: Any, labels: Any = None
+) -> Optional[Dict[Any, Tuple[np.ndarray, Any]]]:
+    """The staged payload table for ``x`` / ``labels``, or ``None`` (stage per call).
+
+    Returns the entry's persistent ``staged`` dict when both payload tensors are
+    identifiable (:func:`dense_memo.token`, so ``x`` / ``labels`` must be the
+    CALLER's tensors, never their numpy copies); it is cleared whenever the token
+    pair changes, so a payload can never outlive the data it was read from.
+    The storages of ``x`` / ``labels`` are pinned while their payloads are held
+    (``payload_pins``), which makes those tokens ABA-proof exactly like the
+    population's pins.  A numpy ``x`` / ``labels`` yields ``None`` -- the call
+    then stages privately, exactly as before the memo existed.
+    """
+    x_token = dense_memo.token(x)
+    if x_token is None:
+        return None
+    label_token = dense_memo.token(labels) if labels is not None else None
+    if labels is not None and label_token is None:
+        return None
+    key = (x_token, label_token)
+    if entry.payload_key != key:
+        entry.payloads.clear()
+        entry.payload_key = key
+        entry.payload_pins = dense_memo.pin((x, labels))
+    return entry.payloads
 
 
 def _pad_rows(array: np.ndarray, rows: int) -> np.ndarray:
@@ -1788,17 +2175,24 @@ def run_plan(
     *,
     backend_name: str,
     device: Any,
+    staged: Optional[Dict[Any, Tuple[np.ndarray, Any]]] = None,
 ) -> np.ndarray:
     """Run every chunk of ``plan`` and assemble the ``(P, N)`` result (host).
 
     The result is the transposed / per-tree layout of
     :func:`evoxc_engine.evaluate`'s return value: ``(P, 1)`` rows for
     ``per_row=True``, ``(P, N)`` otherwise.
+
+    ``staged`` is the persistent payload memo of a repeated call
+    (:attr:`DenseEntry.payloads`, injected by :func:`evaluate_dense`): with it,
+    an unchanged population/data pair re-uses the host blocks and the uploaded
+    device tensors by reference, so a warm call does no preparation and no
+    upload at all.  ``None`` stages privately, exactly as before.
     """
     prep = plan.prep
     out = np.empty((prep.pop_size, plan.n_rows), dtype=np.float32)
     for (p0, p_chunk, n0, n_chunk), raw in _iter_plan_chunks(
-        plan, executable, x, backend_name=backend_name, device=device
+        plan, executable, x, backend_name=backend_name, device=device, staged=staged
     ):
         host = _to_host(raw, backend_name).reshape(plan.p_chunk, plan.n_chunk)
         if plan.per_row:
@@ -1950,13 +2344,15 @@ def _iter_plan_chunks(
                 yield (p0, p_chunk, n0, n_chunk), evoxc.run(executable, *args)
 
 
-def run_loss_plan(    plan: DensePlan,
+def run_loss_plan(
+    plan: DensePlan,
     executable: Any,
     x: np.ndarray,
     labels: np.ndarray,
     *,
     backend_name: str,
     device: Any,
+    staged: Optional[Dict[Any, Tuple[np.ndarray, Any]]] = None,
 ) -> np.ndarray:
     """Run the loss variant and assemble the ``(pop_size,)`` loss (host).
 
@@ -1965,6 +2361,14 @@ def run_loss_plan(    plan: DensePlan,
     the result is ``sum_N sum_out err / N`` -- the same formula, and the same
     float32 "sum then divide" order, as :func:`evoxc_engine.sr_fitness` (the
     in-graph reduction order differs, ~1e-7 relative on the fixtures).
+
+    The returned array is FRESH (a new ``np.zeros``) and owned by the caller, so
+    converting it to a torch tensor never hands out a memoized buffer; the
+    pipeline mutates the tensor it gets in place (``NaN -> -inf``).
+
+    ``staged`` is :func:`run_plan`'s payload memo (see there): the repeated
+    ``SR_fitness`` of an unchanged population and dataset re-uses the prepared
+    host blocks and the uploaded device tensors by reference.
     """
     if plan.variant != LOSS_VARIANT:
         raise ValueError(
@@ -1972,7 +2376,13 @@ def run_loss_plan(    plan: DensePlan,
         )
     totals = np.zeros((plan.prep.pop_size,), dtype=np.float32)
     for (p0, p_chunk, _n0, _n_chunk), raw in _iter_plan_chunks(
-        plan, executable, x, labels, backend_name=backend_name, device=device
+        plan,
+        executable,
+        x,
+        labels,
+        backend_name=backend_name,
+        device=device,
+        staged=staged,
     ):
         host = _to_host(raw, backend_name).reshape(plan.p_chunk)
         totals[p0 : p0 + p_chunk] += host[:p_chunk]
@@ -2022,36 +2432,49 @@ def evaluate_dense(
       device (``out_device`` overrides).  ``x`` and the population tensors are
       never modified.
 
-    Host crossings: ``x`` is converted to host ONCE and the assembled prediction
-    is created as a torch tensor ONCE; the chunk results come back through
-    :func:`run_plan` (one readback per chunk -- exactly one for the default
-    unchunked plan).  A fully device-resident VALUE path (no readback, no H2D at
-    all) is **blocked on evoxc upstream**: a payload-backed ``core.Tensor`` cannot
-    be exported zero-copy (``__dlpack__`` raises; ``evoxc.from_dlpack`` is
-    host-memory v1 only), and assembling chunk results on the device would need a
-    second compiled graph per call.  :func:`_iter_plan_chunks` is the seam a
-    future runner uses once that lands (see its docstring); the SR loss -- the
-    hot path -- already avoids the round trip entirely
-    (:func:`sr_fitness_dense`).
+    Host crossings: ``x`` is converted to host ONCE -- and not at all when the
+    caller passes the same tensor again, which :data:`DENSE_INPUT_MEMO` serves
+    -- the population's host decode and its ``build_cached`` key derivation are
+    skipped entirely for an unchanged population (:func:`_plan_entry`), the
+    graph inputs are uploaded once and then re-used by reference for an
+    unchanged ``x`` (:func:`_entry_payloads`), and the assembled prediction is
+    created as a torch tensor ONCE with no extra copy.  The chunk results still
+    come back through :func:`run_plan` (one readback per chunk -- exactly one for
+    the default unchunked plan).  A fully device-resident VALUE path (no
+    readback, no H2D at all) is **blocked on evoxc upstream**: a payload-backed
+    ``core.Tensor`` cannot be exported zero-copy (``__dlpack__`` raises;
+    ``evoxc.from_dlpack`` is host-memory v1 only), and assembling chunk results
+    on the device would need a second compiled graph per call.
+    :func:`_iter_plan_chunks` is the seam a future runner uses once that lands
+    (see its docstring); the SR loss -- the hot path -- already avoids the round
+    trip entirely (:func:`sr_fitness_dense`).
 
     Raises:
         DenseUnsupported: the population cannot be handled densely -- callers
             fall back to ``evoxc_engine.decode_population`` + ``evaluate``.
     """
-    query = _as_numpy(x, np.float32, "x")
-    if query.ndim != 2:
-        raise ValueError(
-            f"x must be 2-D (rows, {int(input_len)}), got shape {query.shape}"
-        )
     # The wired call sites hand us only ``pop_size``, so the ``auto`` rows rule
     # (``EVOGP_DENSE_AUTO_MAX_ROWS``) is enforced here, where the row count is
     # known: a decline is reported the way every other "do not use dense" answer
     # is, i.e. as DenseUnsupported, and the caller falls back to the specialized
-    # engine.  ``per_row=True`` sees one row per tree and is never gated.
-    decline = auto_rows_decline(None if per_row else int(query.shape[0]))
-    if decline:
-        raise DenseUnsupported(decline)
-    plan = plan_dense(
+    # engine.  ``per_row=True`` sees one row per tree and is never gated.  The
+    # check runs BEFORE the host conversion of ``x``, so a declined call pays
+    # neither the D2H nor (on the memoized path) anything else.
+    rows = None if per_row else _decline_rows(x)
+    if rows is not None:
+        decline = auto_rows_decline(rows)
+        if decline:
+            raise DenseUnsupported(decline)
+    query = _resident_array(x, np.float32, "x")
+    if query.ndim != 2:
+        raise ValueError(
+            f"x must be 2-D (rows, {int(input_len)}), got shape {query.shape}"
+        )
+    if rows is None and not per_row:  # row count known only after the conversion
+        decline = auto_rows_decline(int(query.shape[0]))
+        if decline:
+            raise DenseUnsupported(decline)
+    entry = _plan_entry(
         batch_node_value,
         batch_node_type,
         batch_subtree_size,
@@ -2059,11 +2482,15 @@ def evaluate_dense(
         output_len,
         int(query.shape[0]),
         per_row=per_row,
+        variant=VALUE_VARIANT,
+        use_mse=True,
         max_tree_len=max_tree_len,
         budget_mb=budget_mb,
         update_mode=update_mode,
         backend=backend,
+        iree_device_index=iree_device_index,
     )
+    plan = entry.plan
     if query.shape[1] != plan.input_len:
         raise ValueError(
             f"x has {query.shape[1]} columns but the population expects "
@@ -2074,16 +2501,23 @@ def evaluate_dense(
             f"per_row=True needs x.shape[0] == {plan.pop_size} (pop_size), got "
             f"{query.shape[0]}"
         )
-    executable = build_dense(
-        plan, backend=backend, iree_device_index=iree_device_index
-    )
-    backend_name, device, _ = _resolve_backend(backend, iree_device_index)
-    rows = run_plan(plan, executable, query, backend_name=backend_name, device=device)
+    with entry.lock:
+        rows = run_plan(
+            plan,
+            entry.executable,
+            query,
+            backend_name=entry.backend_name,
+            device=entry.device,
+            staged=_entry_payloads(entry, x),
+        )
     if per_row:
         rows = np.ascontiguousarray(rows[:, :1])
     else:
         rows = rows[:, :, None]
-    tensor = torch.from_numpy(rows).contiguous().detach().requires_grad_(False)
+    # ONE conversion, no copy: ``run_plan`` hands back a fresh contiguous
+    # float32 array, so ``from_numpy`` wraps it as the result (fresh, writable,
+    # requires_grad=False) and the only upload is the caller-facing device copy.
+    tensor = torch.from_numpy(rows).requires_grad_(False)
     target = out_device if out_device is not None else getattr(x, "device", None)
     if target is not None and torch.device(target) != tensor.device:
         tensor = tensor.to(target)
@@ -2115,28 +2549,39 @@ def sr_fitness_dense(
     on ``inputs``' device unless ``out_device``; NaN/inf propagate unsanitized.
 
     Host crossings: ``inputs`` and ``labels`` are each converted to host ONCE
-    (never twice -- this path does not go through :func:`evaluate_dense`), both
-    are uploaded once per data chunk, and the ONLY engine result is the
-    ``(pop_size,)`` per-chunk loss sum, assembled in float32 and divided by ``N``
-    host-side (:func:`run_loss_plan`): no prediction crosses back.  ``use_MSE``
-    is a static cfg entry, so MSE and MAE are two compiled graphs per shape
-    signature.
+    per distinct tensor (:data:`DENSE_INPUT_MEMO` -- a training loop passes the
+    same dataset every generation, so the steady state does no D2H at all), the
+    population's decode/plan and the ``build_cached`` key derivation are skipped
+    for an unchanged population (:func:`_plan_entry`), and the payloads are
+    uploaded once and re-used by reference while ``inputs``/``labels`` stay put
+    (:func:`_entry_payloads`).  The ONLY engine result is the ``(pop_size,)``
+    per-chunk loss sum, assembled in float32 and divided by ``N`` host-side
+    (:func:`run_loss_plan`): no prediction crosses back.  ``use_MSE`` is a static
+    cfg entry, so MSE and MAE are two compiled graphs per shape signature.
+
+    A call that is going to decline (:func:`auto_rows_decline`) now declines
+    from ``inputs.shape`` BEFORE any host conversion, so a declined attempt pays
+    nothing at all.
     """
-    xt = _input_to_numpy(inputs, int(input_len), "inputs")
+    rows = _decline_rows(inputs)
+    if rows is not None:
+        decline = auto_rows_decline(rows)
+        if decline:
+            raise DenseUnsupported(decline)
+    xt = _resident_input(inputs, int(input_len), "inputs")
     if xt.shape[0] <= 0:
         raise ValueError("sr_fitness needs at least one data point, got 0 rows")
-    label = _as_numpy(labels, np.float32, "labels")
+    if rows is None:  # not a torch-tensor-shaped input: gate after the conversion
+        decline = auto_rows_decline(int(xt.shape[0]))
+        if decline:
+            raise DenseUnsupported(decline)
+    label = _resident_array(labels, np.float32, "labels")
     if label.ndim != 2 or label.shape != (xt.shape[0], int(output_len)):
         raise ValueError(
             f"labels must have shape ({xt.shape[0]}, {int(output_len)}), got "
             f"{label.shape}"
         )
-    # The wired call sites hand us only ``pop_size``, so the ``auto`` rows rule is
-    # enforced here (same decline -> DenseUnsupported as evaluate_dense).
-    decline = auto_rows_decline(int(xt.shape[0]))
-    if decline:
-        raise DenseUnsupported(decline)
-    plan = plan_dense(
+    entry = _plan_entry(
         batch_node_value,
         batch_node_type,
         batch_subtree_size,
@@ -2150,15 +2595,22 @@ def sr_fitness_dense(
         budget_mb=budget_mb,
         update_mode=update_mode,
         backend=backend,
+        iree_device_index=iree_device_index,
     )
-    executable = build_dense(
-        plan, backend=backend, iree_device_index=iree_device_index
-    )
-    backend_name, device, _ = _resolve_backend(backend, iree_device_index)
-    totals = run_loss_plan(
-        plan, executable, xt, label, backend_name=backend_name, device=device
-    )
-    tensor = torch.from_numpy(totals).contiguous().detach().requires_grad_(False)
+    with entry.lock:
+        totals = run_loss_plan(
+            entry.plan,
+            entry.executable,
+            xt,
+            label,
+            backend_name=entry.backend_name,
+            device=entry.device,
+            staged=_entry_payloads(entry, inputs, labels),
+        )
+    # ONE conversion, no copy: ``run_loss_plan`` returns a FRESH float32 array
+    # (never a memoized buffer), so the tensor the pipeline mutates in place is
+    # this call's own.
+    tensor = torch.from_numpy(totals).requires_grad_(False)
     target = out_device if out_device is not None else getattr(inputs, "device", None)
     if target is not None and torch.device(target) != tensor.device:
         tensor = tensor.to(target)

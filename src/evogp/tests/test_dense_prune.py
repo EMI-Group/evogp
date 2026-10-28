@@ -334,10 +334,12 @@ def _api_call_compiles_the_full_chain(
     The evidence is the compile cache, mirroring the pruned-side bracket of
     ``test_default_env_route_builds_the_pruned_graph``: from a cleared cache the API
     call must leave exactly ONE cold miss, and the EXPLICIT full-chain plan
-    (``FULL_FUNC_IDS`` cfg) of the same shape must then be a HIT on it.  A rebuild
-    instead means the public call did not resolve ``EVOGP_DENSE_PRUNE`` /
-    ``resolve_prune()`` into ``plan_dense`` -- i.e. both sides of the A/B were
-    pruned and the comparison would pass vacuously.
+    (``FULL_FUNC_IDS`` cfg) of the same shape must then be served WITHOUT a compile
+    -- a hit on the dense executable front table (``D.DENSE_EXECUTABLE_MEMO``,
+    ``dense_exec_hits``) and no new compile-cache miss.  A rebuild instead means
+    the public call did not resolve ``EVOGP_DENSE_PRUNE`` / ``resolve_prune()``
+    into ``plan_dense`` -- i.e. both sides of the A/B were pruned and the
+    comparison would pass vacuously.
     """
     monkeypatch.setenv(D.PRUNE_ENV, "0")
     E.clear_cache()
@@ -346,12 +348,20 @@ def _api_call_compiles_the_full_chain(
     assert (after_api["misses"], after_api["hits"]) == (1, 0), (
         f"{label}: the {D.PRUNE_ENV}=0 API call must compile exactly one graph, got {after_api}"
     )
+    memo_before = D.dense_cache_stats()
     _build(full_plan)
     after_plan = E.cache_stats()
-    assert (after_plan["misses"], after_plan["hits"]) == (1, 1), (
+    memo_after = D.dense_cache_stats()
+    assert memo_after["dense_exec_hits"] - memo_before["dense_exec_hits"] == 1, (
+        f"{label}: the explicit full-chain plan (used ids "
+        f"{tuple(full_plan.used_func_ids)}) did not hit the executable front table "
+        f"(dense_exec_hits {memo_before['dense_exec_hits']} -> "
+        f"{memo_after['dense_exec_hits']}); the public API must forward "
+        "resolve_prune() into plan_dense"
+    )
+    assert after_plan["misses"] == 1, (
         f"{label}: the {D.PRUNE_ENV}=0 API call did not compile the FULL chain -- the "
-        f"explicit full-chain plan rebuilt instead of hitting it ({after_plan}); the "
-        "public API must forward resolve_prune() into plan_dense"
+        f"explicit full-chain plan compiled instead ({after_plan})"
     )
     return result
 
@@ -654,7 +664,9 @@ def test_default_env_route_builds_the_pruned_graph(monkeypatch: pytest.MonkeyPat
     Values cannot show this (pruning is bit-exact by design), so the evidence is
     the compile cache: after a cold clear, ``evaluate_dense`` with
     ``EVOGP_DENSE_PRUNE`` unset must leave the explicit pruned plan of the same
-    shape as a HIT -- a full-chain default would have left a second miss here.
+    shape served without a compile (a ``dense_exec_hits`` hit on the dense
+    executable front table) -- a full-chain default would have left a second
+    compile miss here.
     """
     rows3 = _rows(_MAIN_SPECS)
     x = _x(N_ROWS, seed=19)
@@ -669,12 +681,20 @@ def test_default_env_route_builds_the_pruned_graph(monkeypatch: pytest.MonkeyPat
     assert after_api["misses"] == 1, (
         f"the env-unset API call must compile exactly one graph, got {after_api}"
     )
-    _build(pruned_plan)
+    memo_before = D.dense_cache_stats()
+    pruned_executable = _build(pruned_plan)
     after_plan = E.cache_stats()
-    assert after_plan["misses"] == 1 and after_plan["hits"] == 1, (
+    memo_after = D.dense_cache_stats()
+    assert memo_after["dense_exec_hits"] - memo_before["dense_exec_hits"] == 1, (
         "the env-unset evaluate_dense did not use the PRUNED cfg: the explicit pruned "
-        f"plan rebuilt instead of hitting ({after_plan}) -- is DEFAULT_PRUNE still on?"
+        f"plan missed the executable front table (dense_exec_hits "
+        f"{memo_before['dense_exec_hits']} -> {memo_after['dense_exec_hits']}) -- is "
+        "DEFAULT_PRUNE still on?"
     )
+    assert after_plan["misses"] == 1, (
+        f"the explicit pruned plan compiled instead of being reused ({after_plan})"
+    )
+    assert pruned_executable is not None
     assert_bit_exact(result, _run_value(pruned_plan, x)[:, :, None], "env-unset API route")
 
 
@@ -919,7 +939,16 @@ def test_used_id_set_is_part_of_the_compile_cache_key() -> None:
     assert after_full["misses"] == 2 and executable_b_full is not executable_b
     assert tuple(plan_b_full.used_func_ids) == _full_func_ids()
 
+    memo_before_rehit = D.dense_cache_stats()
     executable_b2 = _build(plan_b)
     after_rehit = E.cache_stats()
-    assert after_rehit["misses"] == 2 and after_rehit["hits"] == 1, after_rehit
+    memo_after_rehit = D.dense_cache_stats()
+    assert after_rehit["misses"] == 2, after_rehit
+    assert (
+        memo_after_rehit["dense_exec_hits"] - memo_before_rehit["dense_exec_hits"] == 1
+    ), (
+        "re-building a plan that is already memoized must be a front-table hit "
+        f"(dense_exec_hits {memo_before_rehit['dense_exec_hits']} -> "
+        f"{memo_after_rehit['dense_exec_hits']})"
+    )
     assert executable_b2 is executable_b

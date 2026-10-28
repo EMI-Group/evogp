@@ -406,6 +406,21 @@ class _ExecutableMemo(OrderedDict):
 #: populated by :func:`_executable`, keyed by :func:`_executable_key`.
 _EXECUTABLE_MEMO = _ExecutableMemo(CACHE.maxsize)
 
+#: Extra resets run by :func:`clear_cache` after the two tables above.
+#: ``evogp.tree.dense_engine`` registers its own front tables here
+#: (``dense_memo.clear``) so that this function stays the ONE invalidation point
+#: of the engine -- the dense route's executable/plan/input tables must be
+#: flushed by the same call that flushes :data:`CACHE`, exactly like
+#: :data:`_EXECUTABLE_MEMO`.  Registered rather than imported to keep the
+#: dependency direction one-way (``dense_engine`` -> ``evoxc_engine``).
+_CACHE_RESET_HOOKS: List[Any] = []
+
+
+def _register_cache_reset(hook: Any) -> None:
+    """Register a zero-argument callable to run on :func:`clear_cache`."""
+    if hook not in _CACHE_RESET_HOOKS:
+        _CACHE_RESET_HOOKS.append(hook)
+
 
 def cache_stats() -> Dict[str, int]:
     """Snapshot of the shared :data:`CACHE` and the executable front memo.
@@ -438,10 +453,14 @@ def clear_cache() -> None:
     Both tables are reset: the :data:`CACHE` compile cache and the
     :data:`_EXECUTABLE_MEMO` front table, in lockstep (see the module docstring:
     that is what makes evoxc's "clear the cache after changing a process-env
-    compile knob" advice hold for the memo too).
+    compile knob" advice hold for the memo too).  Every front table the dense
+    route registered (:data:`_CACHE_RESET_HOOKS`, i.e. ``dense_memo.clear``) is
+    reset by the same call, so this stays the single invalidation point.
     """
     CACHE.clear()
     _EXECUTABLE_MEMO.reset()
+    for hook in list(_CACHE_RESET_HOOKS):
+        hook()
 
 
 # ---------------------------------------------------------------------------
