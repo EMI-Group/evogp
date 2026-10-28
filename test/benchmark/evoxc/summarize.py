@@ -13,6 +13,20 @@ record, so a missing record, a ``status != "ok"`` config or a contaminated guard
 stays visible instead of being averaged away), and it never needs torch, the GPU or
 ``evogp`` -- the records are plain JSON and the only import is :mod:`common`.
 
+One deliberate exception to the first rule: the ``gp_step`` block is read from its
+own ``median_total_ms`` / ``median_eval_ms`` / ``median_ops_ms`` fields, and when a
+record carries ``steps[]`` but not those aggregate keys (a schema drift, a
+hand-trimmed record) the value is re-derived from the upper median of
+``steps[].total_ms`` / ``steps[].eval_ms`` -- exactly the statistic
+:mod:`worker` computes -- and marked with ``*`` in the cell and in the caption.
+A record with raw steps must never blank a ``gp_step`` cell.
+
+``--compare-results DIR --compare-label NAME`` (default label ``before``) renders one
+extra table per workload plus one for the ``gp_step`` total: the ratio of the
+primary directory's median to the compare directory's median for the same cell and
+arm, both directories measured in the same session.  Without the flag the document
+is byte-identical to the single-directory render.
+
 Usage (repository root, stdlib only, GPU-free)::
 
     python3 test/benchmark/evoxc/summarize.py \\
@@ -23,8 +37,13 @@ Usage (repository root, stdlib only, GPU-free)::
     python3 test/benchmark/evoxc/summarize.py --results results/w1 --out /tmp/w1.md \\
         --workloads sr_fitness --markdown-tables workloads,speedup
 
+    # before/after: the primary dir against a second dir from the same session
+    python3 test/benchmark/evoxc/summarize.py --results results/final/after \\
+        --compare-results results/final/before --compare-label before \\
+        --out results/final/SUMMARY.md
+
 ``--markdown-tables`` takes ``all`` (default) or a comma-separated subset of
-``env,workloads,speedup,gp_step,cold,digest``.  A partially populated result
+``env,workloads,speedup,gp_step,cold,digest,compare``.  A partially populated result
 directory is the normal state while a campaign runs: absent records render as
 ``-`` and are listed under ``## Caveats``.
 """
@@ -47,7 +66,7 @@ MISSING = "-"
 DEFAULT_WORKLOADS = ("sr_fitness", "batch_forward", "forward")
 #: the value paths whose digests must agree bitwise across arms
 VALUE_WORKLOADS = ("batch_forward", "forward")
-SECTIONS = ("env", "workloads", "speedup", "gp_step", "cold", "digest")
+SECTIONS = ("env", "workloads", "speedup", "gp_step", "cold", "digest", "compare")
 
 
 # --- small formatting / file helpers -------------------------------------------
@@ -82,6 +101,32 @@ def as_number(value: Any) -> Optional[float]:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value)
+
+
+def fmt_fitness(value: Any) -> str:
+    """6 decimals for a fitness value, ``-`` when absent."""
+    number = as_number(value)
+    return MISSING if number is None else f"{number:.6f}"
+
+
+def share_pct(part: Any, whole: Any) -> Optional[float]:
+    """``100 * part / whole`` when both are usable numbers, else ``None``."""
+    part, whole = as_number(part), as_number(whole)
+    if part is None or whole is None or whole <= 0:
+        return None
+    return 100.0 * part / whole
+
+
+def step_median(steps: List[Dict[str, Any]], key: str) -> Optional[float]:
+    """Upper median of one ``gp_step.steps[]`` field -- the statistic ``worker.py`` stores.
+
+    ``worker.py`` takes ``sorted(values)[len(values) // 2]`` (the upper median, not
+    the mean of the two middle values), so a fallback that uses this rule reproduces
+    what the record's own ``median_*_ms`` aggregate would have said.
+    """
+    ordered = sorted(number for number in (as_number(step.get(key)) for step in steps)
+                     if number is not None)
+    return ordered[len(ordered) // 2] if ordered else None
 
 
 def table(header: List[str], rows: List[List[Any]]) -> List[str]:
@@ -340,28 +385,175 @@ def speedup_lines(name, cells, arms, records) -> List[str]:
     return lines
 
 
+def gp_step_values(record: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """``total``/``eval``/``ops``/``fitness``/``source`` for one ``gp_step`` block.
+
+    The aggregates ``median_total_ms`` / ``median_eval_ms`` / ``median_ops_ms`` are
+    the record's own numbers and win whenever they are present.  Whatever is absent
+    is re-derived from ``steps[]`` (:func:`step_median`, the same upper-median rule
+    ``worker.py`` uses; ``ops`` from ``total - eval``), and ``source`` becomes
+    ``"steps"`` so the caller can mark the cell instead of blanking it.
+    """
+    if not record:
+        return None
+    block = record.get("gp_step")
+    if not isinstance(block, dict):
+        return None
+    steps = [step for step in (block.get("steps") or []) if isinstance(step, dict)]
+    total = as_number(block.get("median_total_ms"))
+    eval_ms = as_number(block.get("median_eval_ms"))
+    ops_ms = as_number(block.get("median_ops_ms"))
+    source = "median"
+    if steps:
+        if total is None:
+            total = step_median(steps, "total_ms")
+            source = "steps" if total is not None else source
+        if eval_ms is None:
+            eval_ms = step_median(steps, "eval_ms")
+            source = "steps" if eval_ms is not None else source
+        if ops_ms is None and total is not None and eval_ms is not None:
+            ops_ms = total - eval_ms
+            source = "steps"
+    if total is None and eval_ms is None and ops_ms is None:
+        return None
+    return {"total": total, "eval": eval_ms, "ops": ops_ms,
+            "fitness": as_number(block.get("best_fitness")), "source": source}
+
+
+def gp_step_total_of(records, cell: str, arm: str) -> Optional[float]:
+    values = gp_step_values(records.get((cell, arm)))
+    return None if values is None else values["total"]
+
+
+def gp_step_mark(values: Optional[Dict[str, Any]]) -> str:
+    """``*`` when the cell was re-derived from ``steps[]`` (a footnote marker)."""
+    return "*" if values is not None and values["source"] == "steps" else ""
+
+
 def gp_step_lines(cells, arms, records) -> List[str]:
     totals: List[List[Any]] = []
     splits: List[List[Any]] = []
+    fitness: List[List[Any]] = []
+    speedups: List[List[Any]] = []
+    any_fitness = False
     for cell in cells:
         total_row: List[Any] = [f"`{cell}`"]
         split_row: List[Any] = [f"`{cell}`"]
+        fitness_row: List[Any] = [f"`{cell}`"]
         for arm in arms:
-            block = (records.get((cell, arm)) or {}).get("gp_step") or {}
-            total_row.append(fmt_ms(block.get("median_total_ms")))
-            split_row.append(MISSING if not block else
-                             f"{fmt_ms(block.get('median_eval_ms'))} / "
-                             f"{fmt_ms(block.get('median_ops_ms'))}")
+            values = gp_step_values(records.get((cell, arm)))
+            mark = gp_step_mark(values)
+            total_row.append(MISSING if values is None else f"{fmt_ms(values['total'])}{mark}")
+            if values is None:
+                split_row.append(MISSING)
+            else:
+                split = f"{fmt_ms(values['eval'])} / {fmt_ms(values['ops'])}{mark}"
+                share = share_pct(values["ops"], values["total"])
+                split_row.append(split if share is None else f"{split} (op {share:.0f}%)")
+            fitness_row.append(fmt_fitness(None if values is None else values["fitness"]))
+            any_fitness = any_fitness or (values is not None and values["fitness"] is not None)
         totals.append(total_row)
         splits.append(split_row)
+        fitness.append(fitness_row)
+        per_tree = gp_step_total_of(records, cell, "torch-per-tree")
+        batched = gp_step_total_of(records, cell, "torch-batched")
+        for arm in arms:
+            if not is_evoxc_arm(arm):
+                continue
+            total = gp_step_total_of(records, cell, arm)
+            speedups.append([f"`{cell}`", arm, fmt_ratio(per_tree, total),
+                             fmt_ratio(batched, total)])
     lines = ["## gp_step", "",
              "One full GP generation (evaluate + select + crossover + mutate), warm.", "",
-             "### Total", ""]
+             "### Total", "",
+             "Every cell is the record's own `median_total_ms`.  A `*` marks a cell the "
+             "aggregate key could not supply, re-derived from the upper median of that "
+             "record's `gp_step.steps[].total_ms` (the statistic `worker.py` stores), "
+             "so a record with raw steps is never blanked.", ""]
     lines.extend(table(["cell"] + list(arms), totals))
     lines.extend(["", "### Eval / ops split", "",
-                  "`median_eval_ms / median_ops_ms` (the operator part is the in-place difference "
-                  "on the same step, not a cross-population comparison).", ""])
+                  "`median_eval_ms / median_ops_ms` with the operator share of the generation "
+                  "in parentheses (`ops / total`); the operator part is the in-place difference "
+                  "on the same step, not a cross-population comparison.  A `*` marks a value "
+                  "re-derived from `gp_step.steps[]` (a missing `median_*` aggregate key).", ""])
     lines.extend(table(["cell"] + list(arms), splits))
+    lines.extend(["", "### Speedup vs torch (gp_step)", "",
+                  "`torch-*` `gp_step` total divided by the arm's total, same cell, same session "
+                  "(>1 = the torch baseline is slower, i.e. the arm is faster).", ""])
+    lines.extend(table(["cell", "arm", "torch-per-tree / arm", "torch-batched / arm"], speedups))
+    if any_fitness:
+        lines.extend(["", "### Best fitness after the timed steps", "",
+                      "`gp_step.best_fitness` of the pipeline that ran the timed steps "
+                      "(higher is better; `-` when the record has none).", ""])
+        lines.extend(table(["cell"] + list(arms), fitness))
+    lines.append("")
+    return lines
+
+
+# --- before/after comparison against a second result directory ------------------
+def shared_cells(cells, other_records) -> List[str]:
+    """The cells this document and the compare directory both measured."""
+    other_cells = {cell for cell, _ in other_records}
+    return [cell for cell in cells if cell in other_cells]
+
+
+def compare_source_line(primary_dir: str, compare: Dict[str, Any]) -> str:
+    return (f"primary `{primary_dir}` / `{compare['label']}` `{compare['dir']}` "
+            "(both measured in the same session; one process per config on each side).")
+
+
+def compare_rows(cells, arms, primary_records, other_records, value_of, label) -> List[List[Any]]:
+    rows: List[List[Any]] = []
+    for cell in cells:
+        row: List[Any] = [f"`{cell}`"]
+        for arm in arms:
+            now = value_of(primary_records, cell, arm)
+            was = value_of(other_records, cell, arm)
+            if now is not None and was is not None:
+                row.append(fmt_ratio(now, was))
+            elif was is not None:
+                # the primary directory has no such arm: quote the compare side, marked
+                row.append(f"{MISSING} ({label} {fmt_ms(was)})")
+            else:
+                row.append(MISSING)
+        rows.append(row)
+    return rows
+
+
+def compare_workload_lines(name, cells, arms, records, primary_dir, compare) -> List[str]:
+    """Ratio of this directory's median to the compare directory's, per cell and arm."""
+    other = compare["records"]
+    label = compare["label"]
+    cells = shared_cells(cells, other)
+    if not cells:
+        return []
+    rows = compare_rows(cells, arms, records, other,
+                        lambda src, cell, arm: as_number(median_of(src, cell, arm, name)), label)
+    lines = [f"### Compare vs {label}: {name}", "", compare_source_line(primary_dir, compare), "",
+             f"Median ratio `primary / {label}` per arm, same cell: >1 means the {label} run was "
+             f"faster (the primary got slower), <1 means it was slower.  A pair missing on the "
+             f"primary side is quoted as `- ({label} <ms>)`; a pair missing on the {label} side "
+             f"stays `-`.  Only cells present in both directories are listed.", ""]
+    lines.extend(table(["cell"] + [f"{arm} / {arm}({label})" for arm in arms], rows))
+    lines.append("")
+    return lines
+
+
+def compare_gp_step_lines(cells, arms, records, primary_dir, compare) -> List[str]:
+    """Same ratio table for the ``gp_step`` total (the full generation)."""
+    other = compare["records"]
+    label = compare["label"]
+    cells = shared_cells(cells, other)
+    if not cells:
+        return []
+    rows = compare_rows(cells, arms, records, other, gp_step_total_of, label)
+    lines = [f"### Compare vs {label}: gp_step total", "",
+             compare_source_line(primary_dir, compare), "",
+             f"`gp_step` total ratio `primary / {label}` per arm, same cell (>1 = the {label} "
+             f"generation was faster).  Values carry the `gp_step` fallback: a record without "
+             f"`median_total_ms` is read from the upper median of its `steps[].total_ms` on "
+             f"either side.  Only cells present in both directories are listed.", ""]
+    lines.extend(table(["cell"] + [f"{arm} / {arm}({label})" for arm in arms], rows))
     lines.append("")
     return lines
 
@@ -501,6 +693,15 @@ def parse_sections(text: str) -> List[str]:
     return [name for name in SECTIONS if name in wanted]
 
 
+def load_compare(compare_dir: str, label: str) -> Dict[str, Any]:
+    """The second result directory of a before/after render (records only)."""
+    if not os.path.isdir(compare_dir):
+        raise SystemExit(f"--compare-results {compare_dir!r} is not a directory")
+    _, error, _, records, problems = load_results(compare_dir)
+    return {"dir": compare_dir, "label": label, "records": records,
+            "error": error, "problems": problems}
+
+
 def build(args) -> Tuple[List[str], Dict[str, Any]]:
     """Render the document and hand the loaded data back for the console summary."""
     campaign, campaign_error, configs, records, problems = load_results(args.results)
@@ -509,18 +710,32 @@ def build(args) -> Tuple[List[str], Dict[str, Any]]:
     workloads = [name.strip() for name in (args.workloads or "").split(",")
                  if name.strip() and name.strip() != "gp_step"]
     sections = parse_sections(args.markdown_tables)
+    compare = (load_compare(args.compare_results, args.compare_label)
+               if args.compare_results else None)
+    compare_arms = arms if compare is None else order_arms(
+        set(arms) | {arm for _, arm in compare["records"]})
 
     lines = ["# evoxc benchmark summary: " + os.path.basename(os.path.normpath(args.results)), ""]
     lines.extend(protocol_lines(args.results, campaign, campaign_error, configs, records, cells, arms))
     if "env" in sections:
         lines.extend(env_lines(campaign, records))
+    if "compare" in sections and compare is not None and not shared_cells(cells, compare["records"]):
+        lines.extend([f"## Compare vs {compare['label']}", "",
+                      f"No cell is present in both `{args.results}` and "
+                      f"`{compare['dir']}`, so no compare table is rendered.", ""])
     for name in workloads:
         if "workloads" in sections:
             lines.extend(workload_lines(name, cells, arms, records))
         if "speedup" in sections:
             lines.extend(speedup_lines(name, cells, arms, records))
+        if "compare" in sections and compare is not None:
+            lines.extend(compare_workload_lines(name, cells, compare_arms, records,
+                                                args.results, compare))
     if "gp_step" in sections:
         lines.extend(gp_step_lines(cells, arms, records))
+        if "compare" in sections and compare is not None:
+            lines.extend(compare_gp_step_lines(cells, compare_arms, records,
+                                               args.results, compare))
     if "cold" in sections:
         lines.extend(cold_lines(cells, arms, records))
     if "digest" in sections:
@@ -528,7 +743,8 @@ def build(args) -> Tuple[List[str], Dict[str, Any]]:
     # caveats are never optional: they are the honesty of the report
     lines.extend(caveat_lines(campaign, configs, problems))
     data = {"campaign": campaign, "campaign_error": campaign_error, "configs": configs,
-            "records": records, "problems": problems, "cells": cells, "arms": arms}
+            "records": records, "problems": problems, "cells": cells, "arms": arms,
+            "compare": compare}
     return lines, data
 
 
@@ -547,6 +763,12 @@ def console_summary(args, data: Dict[str, Any], line_count: int) -> List[str]:
                     if isinstance(entry.get("guard"), dict) and entry["guard"].get("contaminated")]
     out.append(f"[summarize] caveats: {len(bad)} non-ok config(s), {len(data['problems'])} absent "
                f"record(s), {len(contaminated)} contaminated guard(s)")
+    compare = data.get("compare")
+    if compare is not None:
+        shared = shared_cells(cells, compare["records"])
+        out.append(f"[summarize] compare vs {compare['label']} ({compare['dir']}): "
+                   f"{len(compare['records'])} records, {len(shared)}/{len(cells)} cell(s) shared"
+                   + (" — no cell in both, compare tables skipped" if not shared else ""))
     for name in DEFAULT_WORKLOADS:
         counts: Dict[str, int] = {}
         for cell in cells:
@@ -571,6 +793,11 @@ def main(argv=None) -> int:
                         help=f"comma-separated workload sections (default {','.join(DEFAULT_WORKLOADS)})")
     parser.add_argument("--markdown-tables", default="all",
                         help=f"'all' or a comma-separated subset of {','.join(SECTIONS)}")
+    parser.add_argument("--compare-results", default=None,
+                        help="second result directory to render the before/after ratio tables "
+                             "against (same session; the primary is --results)")
+    parser.add_argument("--compare-label", default="before",
+                        help="name the compare directory carries in the tables (default 'before')")
     args = parser.parse_args(argv)
 
     if not os.path.isdir(args.results):

@@ -21,8 +21,10 @@ campaign.py     sequential driver: one subprocess per config, idle-device guard,
                 `--tree-root` switch, per-config logs + `campaign.json`
 validate.py     numeric validation of every arm against reference_eval.py
 decompose.py    per-call phase breakdown of one cell on both routes
-summarize.py    renders the records into one markdown report (stdlib only)
-check.py        the gate over a result directory (stdlib only, exit 1 on failure)
+summarize.py    renders the records into one markdown report (stdlib only; gp_step
+                falls back to steps[], before/after via --compare-results)
+check.py        the gate over a result directory or a {after,before} container
+                (stdlib only, exit 1 on failure)
 results/        raw per-cell JSON records + logs + campaign.json (the evidence)
 ```
 
@@ -104,6 +106,12 @@ $PY test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/baselin
 $PY test/benchmark/evoxc/summarize.py --results test/benchmark/evoxc/results/baseline \
     --out test/benchmark/evoxc/SUMMARY.md
 
+# 3b. a before/after round: gate every subdirectory, then render both sides
+$PY test/benchmark/evoxc/check.py --results results/final --allow-snapshot
+$PY test/benchmark/evoxc/summarize.py --results results/final/after \
+    --compare-results results/final/before --compare-label before \
+    --out results/final/SUMMARY.md
+
 # 4. per-call decomposition of the representative cell
 $PY test/benchmark/evoxc/decompose.py --cell p256-L64-i32-N1024 \
     --out test/benchmark/evoxc/results/decompose
@@ -118,6 +126,42 @@ $PY test/benchmark/evoxc/campaign.py --tree-root /tmp/evogp_preopt \
 that tree and puts it first on the worker's `PYTHONPATH`; the record's `env.tree_root`
 and `env.tree_root_sha` say which checkout produced the numbers (`tree_root_sha` is
 `null` for a snapshot, which has no `.git` — record the archived SHA next to it).
+
+## Report and gate (`summarize.py` / `check.py`)
+
+`summarize.py --results DIR --out FILE.md` renders one document from the records:
+protocol statement, environment, one warm table + one speedup table per workload,
+the `gp_step` section, the cold-compile exclusion, digest agreement and caveats.
+Every table cell is a field of a record; a missing record or a contaminated guard
+stays visible instead of being averaged away.
+
+* `gp_step` is read from `median_total_ms` / `median_eval_ms` / `median_ops_ms`, and
+  the eval/ops split carries the operator share of the generation
+  (`X.XX / Y.YY (op ZZ%)`). A record that carries `steps[]` but not those aggregate
+  keys is read from the upper median of `steps[].total_ms` / `steps[].eval_ms` -- the
+  statistic `worker.py` stores -- and marked `*`; a raw-steps record never blanks a
+  cell. The section also renders the per-cell `gp_step` speedup against both torch
+  arms and the `best_fitness` the timed pipeline reached.
+* `--compare-results DIR --compare-label NAME` (default `before`) adds one table per
+  workload plus one for the `gp_step` total: the ratio of the primary directory's
+  median to the compare directory's, per cell and arm, both from the same session.
+  Only cells present in both directories are listed; an arm the primary side lacks is
+  quoted from the compare side as `- (before <ms>)`. Without the flag the render is
+  byte-identical to the single-directory one.
+
+`check.py --results DIR` enforces the record contract (schema, provenance, >= 5 warm
+samples with `len(samples_ms) == reps`, `first_call_ms > 0`, a re-derived median,
+evoxc route + compile-miss fields, cross-arm digest agreement, `gp_step` sanity
+including `median_total_ms` == the upper median of `steps[].total_ms`, guard
+honesty) and exits 1 on any failure. It gates a single result directory, or a
+directory that groups them (`results/final/{after,before}/`) directory by directory —
+so one command covers both halves of a before/after round.
+
+* `--allow-snapshot` turns a null `env.tree_root_sha` into a warning, but only when
+  the recorded `env.tree_root` really has no `.git` (a `git archive` export has no
+  HEAD, so the archived SHA has to be quoted next to the numbers).
+* The gate still demands the `gp_step` aggregate keys: the renderer's `steps[]`
+  fallback is a reporting safety net, not a licence for a record to drop them.
 
 ## Numeric validation (`validate.py`)
 

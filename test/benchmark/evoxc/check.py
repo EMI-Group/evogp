@@ -18,8 +18,9 @@ protocol cannot slip into a table.  It verifies:
 * digest agreement: all arms of one cell share one ``batch_forward`` and one
   ``forward`` sha256, and every workload's ``nan``/``finite`` counts agree across
   arms (``--allow-digest-mismatch`` downgrades the sha256 half to a warning);
-* ``gp_step`` sanity: ``median_total_ms >= median_eval_ms``, ``median_ops_ms >= 0``
-  and ``reps == len(steps)``;
+* ``gp_step`` sanity: ``median_total_ms >= median_eval_ms``, ``median_ops_ms >= 0``,
+  ``reps == len(steps)`` and ``median_total_ms`` re-derived as the upper median of
+  ``steps[].total_ms`` (the statistic ``worker.py`` stores) matches the stored value;
 * guard honesty: a config whose ``guard.contaminated`` is true is reported as a
   ``WARN`` (never a failure -- the box is shared) and the number of configs that
   ran on an idle device is printed.
@@ -28,7 +29,13 @@ Two things it deliberately does not soften: the ``median_ms`` re-computation all
 only the 4-decimal rounding ``worker.py`` applies to ``samples_ms``/``median_ms``
 (1e-6 relative, floored at 1.5e-4 ms), and an empty ``env.tree_root_sha`` fails --
 a ``git-archive`` snapshot tree root has no HEAD, so a replay campaign must be
-quoted with that known caveat.
+quoted with that known caveat, or gated with ``--allow-snapshot`` (warn instead of
+fail, but only when the recorded ``env.tree_root`` really has no ``.git``).
+
+``--results`` takes either a single result directory (``<results>/<cell>/<arm>.json``
+plus ``campaign.json``) or one that groups them: a directory whose subdirectories are
+themselves result directories (``results/final/{after,before}/``) is gated directory
+by directory in one run, and the exit code is 1 if any of them fails.
 
 Usage (repository root, stdlib only, GPU-free)::
 
@@ -37,6 +44,9 @@ Usage (repository root, stdlib only, GPU-free)::
     python3 test/benchmark/evoxc/check.py --results results/w1 \\
         --expect-arms torch-per-tree,torch-batched,evoxc-auto,evoxc-dense-iree \\
         --require-digest-agreement
+
+    # a before/after round: every subdirectory that holds records is gated
+    python3 test/benchmark/evoxc/check.py --results results/final --allow-snapshot
 
 A partially populated result directory is the normal state while a campaign is
 still running: pass ``--allow-missing`` to only warn about the records the driver
@@ -112,6 +122,24 @@ def median(samples: List[float]) -> Optional[float]:
     return 0.5 * (ordered[mid - 1] + ordered[mid])
 
 
+def upper_median(values) -> Optional[float]:
+    """``sorted(values)[len(values) // 2]`` -- the median statistic ``worker.py`` stores.
+
+    ``gp_step``'s ``median_*_ms`` fields (and the warm ``median_ms``) are the upper
+    median of the per-step values, not the mean of the two middle ones, so the
+    re-derivation has to use the same rule.
+    """
+    ordered = sorted(value for value in values if is_number(value))
+    return ordered[len(ordered) // 2] if ordered else None
+
+
+def tree_root_is_snapshot(tree_root: Any) -> bool:
+    """A ``git archive`` export has no ``.git``, so it has no HEAD to name."""
+    if not isinstance(tree_root, str) or not tree_root:
+        return False
+    return not os.path.exists(os.path.join(tree_root, ".git"))
+
+
 # ---------------------------------------------------------------------------
 # discovery
 # ---------------------------------------------------------------------------
@@ -151,14 +179,76 @@ def record_path(results_dir: str, cell: str, arm: str, entry: Optional[Dict[str,
     return path
 
 
+def holds_records(path: str) -> bool:
+    """``<cell>/<arm>.json`` under ``path``: a subdirectory that is not itself a result dir."""
+    try:
+        names = sorted(os.listdir(path))
+    except OSError:
+        return False
+    for name in names:
+        sub = os.path.join(path, name)
+        if not os.path.isdir(sub) or os.path.isfile(os.path.join(sub, "campaign.json")):
+            continue
+        try:
+            if any(fname.endswith(".json") for fname in os.listdir(sub)):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def is_result_dir(path: str) -> bool:
+    """A result directory holds ``campaign.json`` or ``<cell>/<arm>.json`` records.
+
+    A ``<results>/<cell>/`` directory holds ``<arm>.json`` files directly and no
+    subdirectories, and a directory that only groups result directories
+    (``results/final/{after,before}/``) holds no records of its own, so this is what
+    tells a result directory apart from its cells and from its container.
+    """
+    if not os.path.isdir(path):
+        return False
+    return os.path.isfile(os.path.join(path, "campaign.json")) or holds_records(path)
+
+
+def gate_targets(results_dir: str) -> List[str]:
+    """The directories one ``--results`` argument gates.
+
+    ``<results>`` itself when it is a result directory (the single-directory layout,
+    today's behaviour).  A directory that merely *groups* result directories
+    (``results/final/{after,before}/``) is not gated itself -- it holds no records --
+    and every immediate subdirectory that is a result directory is gated instead.
+    """
+    children = [os.path.join(results_dir, name)
+                for name in sorted(os.listdir(results_dir))
+                if is_result_dir(os.path.join(results_dir, name))]
+    if is_result_dir(results_dir) or not children:
+        return [results_dir]
+    return children
+
+
 # ---------------------------------------------------------------------------
 # per-record checks
 # ---------------------------------------------------------------------------
-def check_env(checker: Checker, card: str, record: Dict[str, Any]) -> None:
+def check_env(checker: Checker, card: str, record: Dict[str, Any],
+              allow_snapshot: bool = False) -> None:
     env = record.get("env") or {}
     checker.check(env.get("schema") == SCHEMA,
                   f"{card}: env.schema={env.get('schema')!r} != {SCHEMA!r}")
-    for key in ("tree_root_sha", "torch", "gpu"):
+    tree_root, sha = env.get("tree_root"), env.get("tree_root_sha")
+    if sha:
+        checker.check(True, f"{card}: env.tree_root_sha={sha}")
+    elif allow_snapshot and tree_root_is_snapshot(tree_root):
+        # a git-archive export has no HEAD: the provenance is the archived SHA,
+        # which the record cannot know -- warn so it is quoted, never fail it
+        checker.check(True, f"{card}: env.tree_root_sha is null for the snapshot tree root")
+        checker.warn(f"{card}: no env.tree_root_sha (tree_root={tree_root!r} has no .git) — "
+                     "a snapshot's numbers must be quoted with the archived SHA "
+                     "(--allow-snapshot)")
+    else:
+        hint = (" — the tree root is a git-archive snapshot, rerun with --allow-snapshot"
+                if tree_root_is_snapshot(tree_root) else "")
+        checker.check(False, f"{card}: env.tree_root_sha is empty ({sha!r}){hint}")
+    for key in ("torch", "gpu"):
         value = env.get(key)
         checker.check(bool(value), f"{card}: env.{key} is empty ({value!r})")
 
@@ -226,6 +316,16 @@ def check_gp_step(checker: Checker, card: str, record: Dict[str, Any]) -> None:
     steps = steps if isinstance(steps, list) else []
     checker.check(block.get("reps") == len(steps),
                   f"{card}/gp_step: reps={block.get('reps')!r} != len(steps)={len(steps)}")
+    derived_total = upper_median(step.get("total_ms") for step in steps if isinstance(step, dict))
+    if derived_total is None:
+        checker.check(False, f"{card}/gp_step: no numeric steps[].total_ms to re-derive "
+                             "median_total_ms from")
+    elif is_number(total):
+        tolerance = max(MEDIAN_RTOL * abs(derived_total), ROUNDING_FLOOR_MS)
+        checker.check(abs(total - derived_total) <= tolerance,
+                      f"{card}/gp_step: median_total_ms={total!r} != "
+                      f"median(steps[].total_ms)={derived_total!r} "
+                      f"(tolerance {tolerance:.2e} ms)")
 
 
 def check_digests(checker: Checker, cells, records, allow_mismatch: bool,
@@ -276,27 +376,10 @@ def check_digests(checker: Checker, cells, records, allow_mismatch: bool,
 # ---------------------------------------------------------------------------
 # driver
 # ---------------------------------------------------------------------------
-def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("--results", required=True, help="result directory to gate")
-    parser.add_argument("--expect-arms", default=None,
-                        help="comma-separated arms every cell must have "
-                             "(default: the arms in campaign.json)")
-    parser.add_argument("--require-digest-agreement", action="store_true",
-                        help="demand >= 2 arms per cell so agreement is demonstrated, not vacuous")
-    parser.add_argument("--allow-missing", action="store_true",
-                        help="warn instead of failing on a scheduled record that is not written yet")
-    parser.add_argument("--allow-digest-mismatch", action="store_true",
-                        help="warn instead of failing when arms disagree on a value-path sha256")
-    args = parser.parse_args(argv)
-
-    if not os.path.isdir(args.results):
-        raise SystemExit(f"--results {args.results!r} is not a directory")
-
+def gate_dir(results_dir: str, args) -> Tuple[Checker, Dict[str, Any]]:
+    """Run every check over ONE result directory; return its checker and its facts."""
     checker = Checker()
-    campaign, campaign_error, configs, pairs = discover(args.results)
+    campaign, campaign_error, configs, pairs = discover(results_dir)
     checker.check(campaign is not None,
                   f"campaign.json unreadable or absent ({campaign_error or 'missing'})")
     if campaign_error:
@@ -313,7 +396,7 @@ def main(argv=None) -> int:
     for cell, arm in sorted(pairs):
         entry = configs.get((cell, arm))
         status = (entry or {}).get("status")
-        path = record_path(args.results, cell, arm, entry)
+        path = record_path(results_dir, cell, arm, entry)
         if not os.path.isfile(path):
             message = f"{cell}/{arm}: record file missing ({path})"
             if (cell, arm) in scheduled and not args.allow_missing:
@@ -334,7 +417,7 @@ def main(argv=None) -> int:
         if status and status != "ok":
             checker.warn(f"{cell}/{arm}: a record exists although campaign status is {status!r}")
 
-    checker.check(bool(records), f"no records in {args.results}")
+    checker.check(bool(records), f"no records in {results_dir}")
 
     # -- every expected arm, per cell ---------------------------------------
     expected = None
@@ -364,7 +447,7 @@ def main(argv=None) -> int:
     # -- per record ---------------------------------------------------------
     for (cell, arm), record in sorted(records.items()):
         card = f"{cell}/{arm}"
-        check_env(checker, card, record)
+        check_env(checker, card, record, args.allow_snapshot)
         workloads = record.get("workloads") or {}
         if not workloads:
             checker.check(False, f"{card}: no workloads recorded")
@@ -391,19 +474,73 @@ def main(argv=None) -> int:
     guarded = [entry for entry in configs.values() if isinstance(entry.get("guard"), dict)]
     idle = [entry for entry in guarded if entry["guard"].get("ok")]
 
+    facts = {"campaign": campaign is not None, "configs": len(configs),
+             "scheduled": len(scheduled), "not_ok": len(not_ok),
+             "campaign_failures": (campaign or {}).get("failures"),
+             "elapsed_s": (campaign or {}).get("elapsed_s"),
+             "guarded": len(guarded), "idle": len(idle), "contaminated": len(contaminated),
+             "records": len(records)}
+    return checker, facts
+
+
+def print_block(results_dir: str, checker: Checker, facts: Dict[str, Any],
+                header: Optional[str] = None) -> None:
+    """One directory's WARN/FAIL lines and its summary (the single-dir output format)."""
+    if header:
+        print(header)
     for message in checker.warnings:
         print(f"WARN {message}")
     for message in checker.failures:
         print(f"FAIL {message}")
-    print(f"[check] results={args.results}")
-    if campaign is not None:
-        print(f"[check] campaign: {len(configs)} configs, {len(scheduled)} ok, "
-              f"{len(not_ok)} not ok, failures={campaign.get('failures')}, "
-              f"elapsed={campaign.get('elapsed_s')} s")
-    print(f"[check] guard: {len(idle)}/{len(guarded)} configs on an idle device, "
-          f"{len(contaminated)} contaminated")
-    print(f"{len(records)} records / {checker.checks} checks / {len(checker.failures)} failures")
-    return 0 if not checker.failures else 1
+    print(f"[check] results={results_dir}")
+    if facts["campaign"]:
+        print(f"[check] campaign: {facts['configs']} configs, {facts['scheduled']} ok, "
+              f"{facts['not_ok']} not ok, failures={facts['campaign_failures']}, "
+              f"elapsed={facts['elapsed_s']} s")
+    print(f"[check] guard: {facts['idle']}/{facts['guarded']} configs on an idle device, "
+          f"{facts['contaminated']} contaminated")
+    print(f"{facts['records']} records / {checker.checks} checks / "
+          f"{len(checker.failures)} failures")
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--results", required=True,
+                        help="result directory to gate (a directory grouping result "
+                             "directories is gated subdirectory by subdirectory)")
+    parser.add_argument("--expect-arms", default=None,
+                        help="comma-separated arms every cell must have "
+                             "(default: the arms in campaign.json)")
+    parser.add_argument("--require-digest-agreement", action="store_true",
+                        help="demand >= 2 arms per cell so agreement is demonstrated, not vacuous")
+    parser.add_argument("--allow-missing", action="store_true",
+                        help="warn instead of failing on a scheduled record that is not written yet")
+    parser.add_argument("--allow-digest-mismatch", action="store_true",
+                        help="warn instead of failing when arms disagree on a value-path sha256")
+    parser.add_argument("--allow-snapshot", action="store_true",
+                        help="warn instead of failing on a null env.tree_root_sha when the "
+                             "recorded tree root is a git-archive snapshot (no .git)")
+    args = parser.parse_args(argv)
+
+    if not os.path.isdir(args.results):
+        raise SystemExit(f"--results {args.results!r} is not a directory")
+
+    targets = gate_targets(args.results)
+    multi = len(targets) > 1
+    total_checks = total_records = total_failures = 0
+    for target in targets:
+        checker, facts = gate_dir(target, args)
+        total_checks += checker.checks
+        total_records += facts["records"]
+        total_failures += len(checker.failures)
+        print_block(target, checker, facts,
+                    header=f"[check] == {target}" if multi else None)
+    if multi:
+        print(f"[check] {len(targets)} directories under {args.results} gated: "
+              f"{total_records} records / {total_checks} checks / {total_failures} failures")
+    return 0 if not total_failures else 1
 
 
 if __name__ == "__main__":

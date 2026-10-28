@@ -13,8 +13,8 @@ Every arm is validated numerically against `src/evogp/tests/reference_eval.py` b
 - `campaign.py` — the sequential driver: one subprocess per config, idle-device guard (`rocm-smi --showpids`, excluding the driver's own ancestor chain), `--tree-root`/`--resume`/scope policy, per-config `.log` + `campaign.json` with the guard verdict per config.
 - `validate.py` — every arm vs the oracle and vs the engine, three function sets (`arith` bitwise-mandatory, `rich` transcendental spread, `ternary` for the `if` operand order).
 - `decompose.py` — per-call phase breakdown of one cell on both routes (inclusive `perf_counter_ns` timers on the engine's own functions, residual row for host glue, seam counters for dispatches/uploads/readbacks, cold compile separate).
-- `summarize.py` — stdlib-only renderer: environment block, per-workload tables (median with min in parentheses), `auto` route per cell, speedup vs both torch arms, `gp_step` eval/ops split, cold-compile table, digest agreement, caveats.
-- `check.py` — stdlib-only gate over a result directory: record presence/schema, `len(samples_ms) == reps >= 5`, medians re-derived from samples, `first_call_ms > 0`, evoxc route + compile-miss fields, cross-arm digest agreement, `gp_step` sanity, contaminated-guard warnings. Exits 1 on failure.
+- `summarize.py` — stdlib-only renderer: environment block, per-workload tables (median with min in parentheses), `auto` route per cell, speedup vs both torch arms, the `gp_step` section (total, eval/ops split with the operator share, speedup vs both torch arms, `best_fitness`), cold-compile table, digest agreement, caveats; `gp_step` cells fall back to the upper median of `steps[].total_ms` / `steps[].eval_ms` (marked `*`) when a record lacks the aggregate keys, and `--compare-results DIR --compare-label NAME` adds one before/after ratio table per workload plus one for the `gp_step` total.
+- `check.py` — stdlib-only gate over a result directory or a `{after,before}` container: record presence/schema, `len(samples_ms) == reps >= 5`, medians re-derived from samples and `gp_step`'s `median_total_ms` from `steps[].total_ms`, `first_call_ms > 0`, evoxc route + compile-miss fields, cross-arm digest agreement, `gp_step` sanity, contaminated-guard warnings, and `--allow-snapshot` (a null `env.tree_root_sha` warns instead of failing when the recorded tree root has no `.git`); exits 1 on failure.
 - `results/` — the evidence: `baseline/<cell>/<arm>.json` + `.log`, `campaign.json` (driver record incl. guard verdicts and scope exclusions), `validation.json`, `decompose/<cell>.json`.
 
 ## Constraints
@@ -25,9 +25,13 @@ Every arm is validated numerically against `src/evogp/tests/reference_eval.py` b
 - Records are written verbatim: a contaminated or re-run cell is annotated (`--note`, guard block), never smoothed.
 - This subtree is not collected by pytest and is not part of the `src/evogp/tests/` suite.
 
+## Known Issues
+- `check.py --results results/baseline` without allow flags reports 39 failures: 10 missing `evoxc-specialized-iree` arms on the `pop ≥ 256` cells (the compile-cost scope rule) and 29 cross-arm `batch_forward`/`forward` sha256 spreads between the numpy and iree routes; `--allow-missing --allow-digest-mismatch` turns all 39 into warnings and exits 0.
+- The committed `SUMMARY.md` predates the current `summarize.py` (no `gp_step` speedup / `best_fitness` / operator-share tables); re-render it with the `README.md` command once the campaign's final records exist.
+
 ## Routing Table
 - `results/` → data only (records, logs, driver record); the summary of record is `SUMMARY.md` at this node.
-- `README.md` → methodology, arms, grid, commands, validation and decomposition notes.
+- `README.md` → methodology, arms, grid, commands, the report/gate rules (`summarize.py` / `check.py`), validation and decomposition notes.
 - `SUMMARY.md` → the headline tables (per workload × pop × route vs torch), the decomposition profile, the `auto`-route table, the validation results and the pre-optimization SHA.
 - `../r4/`, `../r5/`, `../r6/` → the historical legacy-CUDA-engine comparison; read-only from here.
 - `../../../src/evogp/tests/reference_eval.py` → the oracle every arm is validated against.
