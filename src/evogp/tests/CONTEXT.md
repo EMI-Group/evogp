@@ -95,3 +95,6 @@ Fixture policy (do not regress this):
 ## Routing Table
 No code subdirectories — `goldens/` is a data directory only (see its `README.md`), so do not look for sub-nodes to delegate to.
 Sibling paths (read-only from here — escalate writes to this node's parent): `../tree/` (the engine these tests exercise), `../algorithm/`, `../problem/`, `../pipeline/`; repo-root `../../../test/` (holds `goldens/` + `golden_capture.py`), `../../../example/`, `../../../tutorial/` are sibling tasks' domains.
+
+`conftest.py` pins `EVOGP_EVOXC_BACKEND=numpy` for the whole session (session-scoped autouse `hermetic_backend`, `EVOGP_TESTS_ALLOW_DEVICE=1` disables it) so the suite always exercises the CPU reference route even on a GPU box where the default route policy would pick dense+iree.
+`test_route_policy.py` covers the route policy itself: the memoized device probe, `auto` -> dense+iree at `pop_size >= 64` on a device box, `auto` -> specialized+numpy below it / on `DenseUnsupported` / without a device, explicit backend precedence, explicit `specialized`/`dense`, the rows rule, and a `resolve_route` <-> `should_use_dense` consistency matrix.
