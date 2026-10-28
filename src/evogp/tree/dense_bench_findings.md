@@ -1,12 +1,16 @@
-# Dense vs specialized on iree-cuda — FIRM-UP measurements and corrected verdict
+# Dense vs specialized on the iree GPU HAL (measured on CUDA) — FIRM-UP measurements and corrected verdict
 
 Scope: the numbers in `dense_bench_results.json`. All dense cells and all numpy
 specialized cells were already direct; the iree specialized cells at pop
 64/200/1000 were extrapolated from `_sample_model`. This round root-caused a ~3x
 discrepancy in that model, took direct full-population iree measurements, corrected
 the extrapolations, and re-derived the dense-vs-specialized ratios.
-Box: RTX A6000 (GPU 4, `CUDA_VISIBLE_DEVICES=4`), `PYTHONPATH=src`,
-`ETL_DISABLE_LOCATIONS=1`, iree backend, `L=32`, seed 0, one row count per process.
+Box: RTX A6000 (GPU 4, `CUDA_VISIBLE_DEVICES=4`), `PYTHONPATH=src:/root/evoxc`
+(`evoxc`, the EvoX Compiler — the evaluation-engine dependency),
+`EVOXC_DISABLE_LOCATIONS=1`, iree backend, `L=32`, seed 0, one row count per process.
+The iree device kind is read from torch (`evoxc_engine._gpu_device_kind()`: `"rocm"` when
+`torch.version.hip` is set, else `"cuda"`); every cell below was measured on the CUDA HAL of
+this box, and the labels name the `iree` backend rather than a HAL kind.
 
 ## 1. Root cause: per-call overhead amortization (decisive, order-independent)
 
@@ -93,11 +97,11 @@ specialized values at higher pops: P64 ~1.556×64 = 99.6 ms / dense 15.96 (grid)
 P≥64 come from the earlier grid (partly unit-cost fits), so they are **not
 independently verified** this round.
 
-**Verdict on the ">=10x dense warm speedup on iree-cuda" headline: NOT supported.**
+**Verdict on the ">=10x dense warm speedup on iree" headline: NOT supported.**
 The old 16.6x at P64/N64 was produced by the inflated 3x model; the corrected value
 is ~5–6x and even that uses a fitted dense cell. Where BOTH sides are direct, dense
 is 1.3–3.2x faster at N=64/1024 and 1.18x *slower* at N=10000. The honest claim is:
-on iree-cuda dense wins the *cold* phase by orders of magnitude (one compile for the
+on the iree GPU HAL dense wins the *cold* phase by orders of magnitude (one compile for the
 whole population vs 0.5 s per distinct tree: 13.8 s vs 3.5–48.6 s at P16–P32) and
 wins the *warm* phase modestly at small N; >=10x warm requires large pops
 (P>=200) with many distinct trees, which is plausible from per-tree scaling but not
