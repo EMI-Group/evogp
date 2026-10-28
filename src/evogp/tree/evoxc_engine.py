@@ -260,16 +260,21 @@ import torch
 import evoxc
 from evoxc.build_cache import CompileCache, build_cached
 
+from . import artifact_cache
 from .utils import Func, NType
 
 __all__ = [
+    "ARTIFACT_DIR_ENV",
+    "ARTIFACT_SUFFIX",
     "CACHE",
     "DEFAULT_CACHE_SIZE",
     "DecodedTree",
     "Population",
     "SpecializedRunner",
+    "artifact_cache_stats",
     "build_specialized_runner",
     "cache_stats",
+    "clear_artifacts",
     "clear_cache",
     "decode_population",
     "evaluate",
@@ -284,6 +289,15 @@ CACHE_SIZE_ENV = "EVOGP_EVOXC_CACHE_SIZE"
 BACKEND_ENV = "EVOGP_EVOXC_BACKEND"
 IREE_DEVICE_ENV = "EVOGP_EVOXC_DEVICE"
 IREE_OPT_LEVEL_ENV = "EVOGP_EVOXC_OPT_LEVEL"
+#: Opt-in on-disk executable artifacts (``artifact_cache``): the directory, empty
+#: or unset = off (the default), which leaves the engine exactly as it was.
+ARTIFACT_DIR_ENV = artifact_cache.DIR_ENV
+#: Suffix of the files the artifact layer writes and :func:`clear_artifacts` deletes.
+ARTIFACT_SUFFIX = artifact_cache.SUFFIX
+#: Canonical graph name of this route's single ``@evoxc.defn`` body in an artifact
+#: key -- the process-stable stand-in for its ``id()``; the program itself is part of
+#: the key's spec tuple, so distinct structures stay distinct files.
+ARTIFACT_NAME = "specialized"
 
 #: Default ``maxsize`` of :data:`CACHE` (>= pop_size + headroom).
 DEFAULT_CACHE_SIZE = 4096
@@ -461,6 +475,31 @@ def clear_cache() -> None:
     _EXECUTABLE_MEMO.reset()
     for hook in list(_CACHE_RESET_HOOKS):
         hook()
+
+
+def artifact_cache_stats() -> Dict[str, int]:
+    """Snapshot of the DISK layer (``EVOGP_EVOXC_ARTIFACT_DIR``), never of memory.
+
+    ``artifact_enabled`` is 1 when the switch is set, ``artifact_files`` the number
+    of artifacts in the directory, and ``artifact_hits`` / ``artifact_misses`` /
+    ``artifact_load_failures`` / ``artifact_stores`` / ``artifact_save_failures``
+    count the load/save outcomes of both routes (see
+    :func:`evogp.tree.artifact_cache.stats`).  The keys are disjoint from
+    :func:`cache_stats` and from ``dense_engine.dense_cache_stats`` on purpose: the
+    disk layer has its own lifetime.
+    """
+    return artifact_cache.stats()
+
+
+def clear_artifacts() -> None:
+    """Delete the on-disk artifacts and reset their counters (disk layer only).
+
+    Deliberately separate from :func:`clear_cache`: this call leaves the in-memory
+    tables (:data:`CACHE`, :data:`_EXECUTABLE_MEMO`, the dense front tables)
+    untouched, and :func:`clear_cache` never deletes a file.  A no-op when
+    ``EVOGP_EVOXC_ARTIFACT_DIR`` is unset.
+    """
+    artifact_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -1194,12 +1233,28 @@ def _executable(
     expensive path (~17-25 us for a fingerprint-replay hit against this memo's
     ~2.4-2.8 us).  ``_ExecutableMemo`` documents the contract and
     ``executable_memo_check.py`` pins it.
+
+    A memo miss also consults the opt-in DISK layer
+    (:mod:`evogp.tree.artifact_cache`, ``EVOGP_EVOXC_ARTIFACT_DIR``): the artifact
+    of this exact program/shape/backend/device/options is loaded instead of being
+    compiled, and a real build is saved best-effort afterwards.  With the switch
+    off both steps are a single environment read and nothing else, so the warm and
+    the cold in-process behaviour are unchanged.
     """
     key = _executable_key(program, n_rows, input_len, backend_name, device, options)
     executable = _EXECUTABLE_MEMO.lookup(key)
     if executable is not None:
         return executable
     spec = evoxc.TensorSpec((int(n_rows), int(input_len)), evoxc.float32)
+    specs = (spec, program)
+    artifact = artifact_cache.artifact_path(
+        ARTIFACT_NAME, specs, backend_name, device, _freeze_options(options)
+    )
+    if artifact is not None:
+        loaded = artifact_cache.load(artifact, specs, backend_name, device)
+        if loaded is not None:
+            _EXECUTABLE_MEMO.store(key, loaded)
+            return loaded
     if backend_name == "numpy":
         executable = build_cached(
             _eval_step, spec, program, backend=backend_name, device=device, cache=CACHE
@@ -1214,6 +1269,8 @@ def _executable(
             cache=CACHE,
             **options,
         )
+    if artifact is not None:
+        artifact_cache.save(executable, artifact)
     _EXECUTABLE_MEMO.store(key, executable)
     return executable
 

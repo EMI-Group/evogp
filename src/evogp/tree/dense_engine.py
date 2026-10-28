@@ -343,7 +343,7 @@ import torch
 import evoxc
 
 from .utils import NType
-from . import dense_memo
+from . import artifact_cache, dense_memo
 from .evoxc_engine import (  # private but deliberately reused: parity by construction
     BACKEND_ENV,
     CACHE,
@@ -374,6 +374,7 @@ __all__ = [
     "DEFAULT_MAX_TREE_LEN",
     "DEFAULT_HOST_MEMO",
     "DEFAULT_PRUNE",
+    "DENSE_ARTIFACT_NAMES",
     "DENSE_CACHE",
     "DENSE_EXECUTABLE_MEMO",
     "DENSE_INPUT_MEMO",
@@ -469,6 +470,13 @@ EVAL_MODE_ALIASES = {"dynamic": "dense"}
 VALUE_VARIANT = "value"
 LOSS_VARIANT = "loss"
 PLAN_VARIANTS = (VALUE_VARIANT, LOSS_VARIANT)
+
+#: Canonical graph name of each variant in an on-disk artifact key
+#: (``evogp.tree.artifact_cache``): the process-stable stand-in for the ``id()`` of
+#: :func:`_dense_step` / :func:`_dense_loss_step`.  The plan's whole spec tuple
+#: (shapes, ``x``, the loss's ``labels``/``keep`` and the static ``cfg``) is part of
+#: the key, so one variant keeps one artifact per (shape, used-id set).
+DENSE_ARTIFACT_NAMES = {VALUE_VARIANT: "dense:value", LOSS_VARIANT: "dense:loss"}
 
 #: Pop-size threshold of the ``auto`` policy, measured on the current pruned
 #: dense chain (one dense compile at ``L=32`` on iree is 3.1-3.4 s / 6.1 s at
@@ -1810,6 +1818,13 @@ def build_dense(
     holds (identity: an executable is immutable and its static program is
     re-passed by value at every ``evoxc.run``), and
     :func:`evoxc_engine.clear_cache` resets the table.
+
+    A memo miss also consults the opt-in DISK layer
+    (:mod:`evogp.tree.artifact_cache`, ``EVOGP_EVOXC_ARTIFACT_DIR``): the artifact
+    of this exact graph/plan/backend/device/options is loaded instead of being
+    compiled (3.1-3.4 s at ``L=32``, 6.1 s at ``L=64`` on iree) and a real build is
+    saved best-effort afterwards.  With the switch off both steps are one
+    environment read and nothing else.
     """
     backend_name, device, options = _resolve_backend(backend, iree_device_index)
     fn = _dense_loss_step if plan.variant == LOSS_VARIANT else _dense_step
@@ -1823,6 +1838,16 @@ def build_dense(
         memoized = DENSE_EXECUTABLE_MEMO.lookup(key)
         if memoized is not None:
             return memoized
+    name = DENSE_ARTIFACT_NAMES[plan.variant]
+    artifact = artifact_cache.artifact_path(
+        name, plan.specs, backend_name, device, _freeze_options(options)
+    )
+    if artifact is not None:
+        loaded = artifact_cache.load(artifact, plan.specs, backend_name, device)
+        if loaded is not None:
+            if key is not None:
+                DENSE_EXECUTABLE_MEMO.store(key, loaded)
+            return loaded
     if backend_name == "numpy":
         executable = evoxc.build_cached(
             fn,
@@ -1840,6 +1865,8 @@ def build_dense(
             cache=DENSE_CACHE,
             **options,
         )
+    if artifact is not None:
+        artifact_cache.save(executable, artifact)
     if key is not None:
         DENSE_EXECUTABLE_MEMO.store(key, executable)
     return executable
