@@ -69,7 +69,8 @@ A route with extra knobs should route them through `common.BATCH_*`-style single
 - Coverage limits: `evoxc-specialized-iree` is measured on pop ∈ {16, 64} only (272-284 ms of compile per tree structure makes a dense-scale cell unaffordable), and no `CustomLoss`/multi-output or robotics workload is validated or timed.
 
 ## Routing Table
-- `FINAL.md` → the report of record for the post-optimization campaign; its §11 holds the exact reproduce commands and §12 the caveats worth carrying forward.
+- `BATCH.md` → the report of record for the `batch` evaluation route (`EVOGP_EVAL_MODE=batch`): what the route is, the `EVOGP_BATCH_*` knob table, the warm per-call and `gp_step` tables at every measured cell, the compile-economics/break-even table, the one regime where it wins, numeric validation, gates and the exact reproduce commands.
+- `FINAL.md` → the report of record for the post-optimization dense/specialized campaign; its §11 holds the exact reproduce commands and §12 the caveats worth carrying forward.
 - `SUMMARY.md` → the rendered baseline round (protocol statement, per-workload tables, `gp_step`, cold compile, digest agreement, caveats) with a header pointing at `FINAL.md`.
 - `VALIDATION.md` → the 12-case oracle validation and the cross-arm digest-group finding.
 - `README.md` → the entry point: the question, the arms, the grid/protocol, the final-campaign section (measured grid, commands, verdicts), the report/gate rules and the rules for this subtree.
