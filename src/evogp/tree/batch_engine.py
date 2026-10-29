@@ -142,6 +142,37 @@ fresh population object still hit.  Both tables are dropped by
 :func:`evogp.tree.evoxc_engine.clear_cache` (the engine's single invalidation
 point) and counted by :func:`batch_cache_stats` -- a separate function, because
 ``cache_stats()`` (8 keys) and ``dense_cache_stats()`` are pinned by the suite.
+
+Reuse across populations (the re-binding contract)
+--------------------------------------------------
+:data:`BATCH_EXEC_MEMO` is keyed by the compiled body only -- the merged function
+multiset plus the variant, the merge shape, the I/O shape and the
+backend/device/options (see :func:`_executable_key`) -- and deliberately NOT by
+the population that first built it, because one compiled merged graph really does
+serve every population with that same function multiset: the function axis IS the
+graph's leading axis, so which population row maps to which function is the
+caller's business, not the graph's.  That makes the population size, the row
+mapping and the staged inputs *per-call* data, so an executable hit is
+**re-bound**: the returned :class:`BatchExecutable` pairs the memoized
+``executable`` (and the ``backend`` / ``device`` it was built for) with the plan
+the CURRENT call built (or hit in :data:`BATCH_PLAN_MEMO`), never with the first
+population's ``pop_size``, ``row_index``, ``function_rows`` or ``programs``.
+
+The rebinding is structural, not incidental: :func:`build_batch` is the ONLY
+reader of :data:`BATCH_EXEC_MEMO` and it always constructs a fresh
+:class:`BatchExecutable` around the caller's plan, so every per-population field
+on the running path (:func:`_inputs` staging, :func:`_map_rows` row expansion,
+the ``(pop_size, ...)`` / ``(pop_size,)`` output shapes and the ``pop_size`` row
+check) is read from that plan.  :func:`_check_executable_matches` is the cheap
+safety net for the one thing the key cannot re-derive: the compiled body's
+recorded tensor specs (merged function count, rows, input width, outputs) must
+fit the caller's plan, and a mismatch is a :class:`BatchUnsupported` decline --
+never a silently wrong row mapping.
+
+No variant is excluded from that reuse: ``per_row=True`` puts the function count
+in the merged INPUT spec's leading dimension and ``per_row=False`` puts it in the
+OUTPUT spec's, but both are part of the key, so a hit is reusable in both layouts
+(and the invariant check above verifies exactly those dimensions).
 """
 
 from __future__ import annotations
@@ -405,7 +436,10 @@ def _default_cache_size() -> int:
 
 #: Compiled merged executables, keyed by the actual program multiset + shape +
 #: backend/device/options (see :func:`_executable_key`).  The key holds the REAL
-#: programs, never a digest: a hash collision would serve wrong numbers.
+#: programs, never a digest: a hash collision would serve wrong numbers.  The
+#: value's ``plan`` belongs to the population that FIRST built it, so it must
+#: never be handed to another population -- :func:`build_batch` re-binds a hit to
+#: the caller's plan (see the module docstring).
 BATCH_EXEC_MEMO = dense_memo.DenseMemo("batch_exec", _default_cache_size())
 #: :class:`BatchExecutable` (plan + executable) of an unchanged population, keyed
 #: by the three population identity tokens + every resolved plan parameter.
@@ -434,6 +468,13 @@ def batch_cache_stats() -> Dict[str, int]:
     :data:`BATCH_PLAN_MEMO` (a hit skips the host decode, the traces and the
     merge).  Deliberately a separate function: ``cache_stats()`` (exactly 8 keys),
     ``dense_cache_stats()`` and ``artifact_cache_stats()`` are pinned by the suite.
+
+    The executable contract those counters describe: an executable is keyed by
+    the merged function multiset and shapes -- a hit is REBOUND to the current
+    population's plan, never returned with another population's row mapping.  So
+    a rising ``batch_exec_hits`` on a differently-sized population is reuse, not
+    staleness: the compile is shared, the ``pop_size`` / ``row_index`` /
+    ``function_rows`` staging is always the caller's.
     """
     stats: Dict[str, int] = {}
     stats.update(BATCH_EXEC_MEMO.stats())
@@ -1024,6 +1065,61 @@ def _executable_key(
     )
 
 
+def _spec_shapes(specs: Sequence[Any]) -> Tuple[Tuple[Tuple[int, ...], str], ...]:
+    """``((shape, dtype), ...)`` of a sequence of ``evoxc.TensorSpec`` objects."""
+    return tuple(
+        (tuple(int(dim) for dim in spec.shape), str(spec.dtype)) for spec in specs
+    )
+
+
+def _check_executable_matches(plan: BatchPlan, executable: Any) -> None:
+    """Decline when a memoized executable does not fit the CALLER's plan.
+
+    The executable key (:func:`_executable_key`) already pins the compiled body's
+    inputs -- program multiset, variant/loss metric, merge shape, rows, input
+    width, outputs, backend/device -- so this check is an invariant, not the
+    mechanism: it re-derives the two things the caller is about to rely on from
+    the executable's own ``evoxc`` signature (:attr:`evoxc.Executable.signature`,
+    recorded at ``lower`` time) and compares them with the plan:
+
+    * the merged INPUT specs must equal the plan's ``evoxc.TensorSpec`` objects
+      (shape + dtype) -- on ``per_row=True`` that leading dimension is the merged
+      function count;
+    * the merged OUTPUT spec must be ``(n_functions, n_rows, output_len)`` for the
+      value variant and ``(n_functions,)`` for the loss variant, i.e. the merged
+      function axis plus the rows/outputs the plan stages.
+
+    A mismatch means the table served a body built for a different function
+    multiset or shape; that is a :class:`BatchUnsupported` decline (the caller
+    falls back to the specialized engine) rather than a silently wrong row
+    mapping.  Nothing is checked when the executable records no signature at all
+    (an executable we cannot introspect is still the one the key selected).
+    """
+    signature = getattr(executable, "signature", None)
+    if signature is None:  # pragma: no cover - evoxc always records a signature
+        return
+    actual_in = _spec_shapes(getattr(signature, "input_specs", ()) or ())
+    expected_in = _spec_shapes(plan.specs)
+    if actual_in and actual_in != expected_in:
+        raise BatchUnsupported(
+            f"batch_engine: the memoized executable was compiled for inputs "
+            f"{actual_in}, but this population's plan needs {expected_in}"
+        )
+    n_functions = len(plan.functions)
+    if plan.variant == LOSS_VARIANT:
+        expected_out: Tuple[int, ...] = (n_functions,)
+    else:
+        expected_out = (n_functions, int(plan.n_rows), int(plan.output_len))
+    actual_out = tuple(shape for shape, _ in _spec_shapes(
+        getattr(signature, "output_specs", ()) or ()))
+    if len(actual_out) == 1 and actual_out[0] != expected_out:
+        raise BatchUnsupported(
+            f"batch_engine: the memoized executable has {len(plan.functions)} "
+            f"merged function(s) and was compiled for output "
+            f"{actual_out[0]}, but this population's plan needs {expected_out}"
+        )
+
+
 def build_batch(
     plan: BatchPlan,
     *,
@@ -1033,10 +1129,18 @@ def build_batch(
     """Compile (or reuse) the merged graph of ``plan``; the ONLY build site.
 
     ``backend`` / ``iree_device_index`` default to the values the plan was resolved
-    with, so ``build_batch(plan_batch(...))`` works without repeating them.  A hit
-    in :data:`BATCH_EXEC_MEMO` returns the SAME :class:`BatchExecutable` (identity),
-    so a repeated evaluation of an unchanged population never re-lowers,
-    re-compiles or re-loads.
+    with, so ``build_batch(plan_batch(...))`` works without repeating them.
+
+    Contract of :data:`BATCH_EXEC_MEMO` (the only table this function reads): an
+    executable is keyed by the merged function multiset and shapes -- a HIT is
+    REBOUND to the current population's plan, never returned with another
+    population's row mapping.  Only the compiled ``executable`` (and the backend /
+    device it was built for) crosses between populations; the returned
+    :class:`BatchExecutable` always carries ``plan``, so ``pop_size``,
+    ``row_index``, ``function_rows``, ``programs`` and the staged specs are this
+    call's.  A repeated evaluation of an unchanged population therefore still does
+    no re-lower, re-compile or re-load, and a same-multiset population of a
+    different size shares the compile WITHOUT sharing its staging.
 
     The build path is the explicit evoxc staging sequence --
     ``evoxc.lower`` -> ``evoxc.compile`` -> ``evoxc.load`` -- because
@@ -1045,7 +1149,9 @@ def build_batch(
     on iree and omitted on numpy; the compile options carry ``opt_level`` only.
 
     Raises:
-        BatchUnsupported: the resolved backend is not one this route builds.
+        BatchUnsupported: the resolved backend is not one this route builds, or a
+            memoized executable does not fit ``plan``
+            (:func:`_check_executable_matches`).
         evoxc errors from ``lower`` / ``compile`` / ``load``: propagated (a backend
             failure is not a decline -- there is nothing safer to fall back to).
     """
@@ -1056,7 +1162,21 @@ def build_batch(
     key = _executable_key(plan, backend_name, device, options)
     cached = BATCH_EXEC_MEMO.lookup(key)
     if cached is not None:
-        return cached
+        # RE-BIND: the compiled body is shared, the caller's plan is not.  Only
+        # ``executable`` / ``backend`` / ``device`` may travel across populations
+        # (and ``backend``/``device`` are equal by key); the returned value is a
+        # FRESH BatchExecutable around the CURRENT plan, so no downstream read of
+        # ``.plan`` can see the first population's row mapping.  ``pins`` stays
+        # empty: pins belong to the plan-memo entry that holds the population
+        # storages (``_plan_entry`` attaches this call's pins), and a
+        # cross-population pin would only keep a foreign buffer alive.
+        _check_executable_matches(plan, cached.executable)
+        return BatchExecutable(
+            plan=plan,
+            executable=cached.executable,
+            backend=backend_name,
+            device=device,
+        )
     lowered = evoxc.lower(plan.merged, backend=backend_name)
     if backend_name == "iree":
         artifact = evoxc.compile(
@@ -1108,7 +1228,14 @@ def _plan_entry(
     A hit re-uses the executable by reference and needs no host work at all; a
     miss pays one ``decode_population``, the dedup, one trace per distinct program,
     the merge, and one compile (unless :data:`BATCH_EXEC_MEMO` already holds that
-    program multiset for this shape).
+    program multiset for this shape -- in which case the compile is skipped and
+    :func:`build_batch` re-binds the memoized executable to the plan built here).
+
+    Both hits are safe by construction: a plan-table key holds the population's
+    identity tokens (``data_ptr`` + shape + dtype + device + ``_version``, pinned
+    so the address cannot be recycled), so its entry's plan WAS decoded from this
+    very population -- a plan entry can never carry another population's row
+    mapping, while an executable entry always can and is re-bound above.
     """
     if x is None:
         raise BatchUnsupported("batch_engine: an input tensor x is required")
