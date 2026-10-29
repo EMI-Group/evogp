@@ -63,8 +63,9 @@ can be split into ``W`` contiguous chunks whose bodies are staged in a thread po
 mean it -- is the ORIGINAL single-executable plan verbatim: one merged graph, one
 executable, and ``plan.merged`` / ``plan.graphs`` / ``plan.specs`` /
 ``plan.report`` describe it.  A chunked plan (``W > 1``, at least
-``batch_knobs.MIN_CHUNK_FUNCTIONS`` functions, and neither an explicit band count
-nor ``switch_ops``) instead carries one :class:`BatchChunk` per contiguous slice:
+``batch_knobs.MIN_CHUNK_FUNCTIONS`` functions, no ``switch_ops``, and -- unless
+``EVOGP_BATCH_CHUNK_BANDS`` is on -- no explicit band count or ``bands="auto"``)
+instead carries one :class:`BatchChunk` per contiguous slice:
 ``plan.chunks`` is authoritative, ``plan.merged is None``, ``plan.executable is
 None`` and ``plan.executables`` holds one body per chunk.  ``chunks`` holds one
 record per compiled body in BOTH shapes -- the single-body plan's ``chunks[0]``
