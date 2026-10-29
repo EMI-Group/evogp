@@ -308,7 +308,8 @@ dispatch), band size 1 never loads", the safe band size for n = 225–245 functi
 i.e. the clamp itself lands on K = 15, exactly the region the measurement crowns, and one band above the
 ceiling only on the per-row plan (K = 16, which measured as the argmin at `p256-L32` and within 2 % of it at
 `p256-L64`). So the policy and the measurement agree; what does *not* follow from the policy floor alone is
-today's 32 (K = 8), which gives up 12–14 % on the band-sensitive workload at `p256-L32`.
+today's 32 (K = 8), which gives up 14 % on the band-sensitive workload at `p256-L32` (0.9078 vs 0.7942 ms,
+and 0.304 vs 0.232 ms in its `run` stage).
 
 **Caveat on scope:** all of this is a power-of-two grid (`8/16/32/64`) on three cells. The optimum could sit
 at 12 or 24; the measured evidence only supports "K ≈ 15, band size ≈ 16", and it says nothing about
