@@ -12,6 +12,16 @@ then warmup + reps -> median/min/max/samples), the cache deltas (compile
 misses), value digests (cross-process numeric agreement) and the GP generation
 step split into eval / operator parts with its per-generation cache misses.
 
+What a BATCH arm (``EVOGP_EVAL_MODE=batch``) adds on top of that -- and only a
+batch arm: ``batch_policy`` (whether the tree under test ships the module and
+declares the mode, plus the band knobs and where each value came from),
+``batch_cache`` (the merged-graph cache counters before the workloads and after
+the whole config, with the first-call and total compile misses) and, per
+workload / per generation, the batch deltas next to the evoxc ones.  That route
+compiles ONE merged graph per population structure multiset, so a multi-second
+``first_call_ms`` and a large ``compile_misses_first_call`` are the expected
+cost of the route -- recorded as measured, never retried away as a failure.
+
 Usage (the driver sets ``PYTHONPATH``; run it from the repository root)::
 
     python test/benchmark/evoxc/worker.py \
@@ -63,30 +73,77 @@ class TimedFitness:
         return loss
 
 
-def forest_stats(forest) -> Dict[str, Any]:
-    """Structure context the compile counts are read against."""
-    import hashlib
+def _stat_value(stats: Any, key: str) -> Optional[int]:
+    """One int counter out of an OPTIONAL stats dict (``None`` when unavailable).
 
+    The batch engine owns its counter contract, so this is deliberately tolerant:
+    an absent key reads as ``0`` instead of raising, because a benchmark record must
+    never be lost to a counter the route renamed or has not implemented yet.
+    """
+    if not isinstance(stats, dict):
+        return None
+    try:
+        return int(stats.get(key, 0) or 0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _stats_delta(before: Any, after: Any, key: str) -> Optional[int]:
+    """``after[key] - before[key]`` across two optional snapshots (``None`` if unknown)."""
+    start, end = _stat_value(before, key), _stat_value(after, key)
+    if start is None or end is None:
+        return None
+    return end - start
+
+
+def _has_stat_key(before: Any, after: Any, key: str) -> bool:
+    """Does at least one of the two snapshots actually carry ``key``?"""
+    return any(isinstance(stats, dict) and key in stats for stats in (before, after))
+
+
+class BatchStatsProbe:
+    """Sample the batch cache the moment ``time_call``'s untimed first call returns.
+
+    ``common.time_call`` only exposes one post-sequence sample point (it samples the
+    ``stats`` callable right after the cold call), and the batch route's compile
+    lands entirely in that first call -- so wrapping the callable is the only way to
+    report ``compile_misses_first_call`` separately from the warmup+reps total.  When
+    the route has no stats callable the snapshot stays ``None``; every other arm is
+    handed the arm's own bound method, i.e. unchanged behaviour.
+    """
+
+    def __init__(self, fn, stats):
+        self.fn = fn
+        self.stats = stats
+        self.first: Optional[Dict[str, Any]] = None
+
+    def __call__(self):
+        out = self.fn()
+        if self.first is None and self.stats is not None:
+            self.first = self.stats()
+        return out
+
+
+def forest_stats(forest) -> Dict[str, Any]:
+    """Structure context the compile counts are read against.
+
+    ``distinct_structures`` / ``structure_signature`` come from
+    ``common.population_signature`` -- the structure-multiset fingerprint the batch
+    route's merged-graph cache is keyed on -- so a record states the compile story in
+    the cache's own terms instead of maintaining a second, subtly different hash.
+    """
     import numpy as np
 
+    signature = common.population_signature(forest)
     sizes = forest.batch_subtree_size[:, 0].detach().to("cpu").numpy().astype(np.int64)
-    values = forest.batch_node_value.detach().to("cpu").numpy()
-    types = forest.batch_node_type.detach().to("cpu").numpy()
-    lengths = forest.batch_subtree_size.detach().to("cpu").numpy()
-    digests = set()
-    for row in range(forest.pop_size):
-        length = int(lengths[row, 0])
-        payload = (
-            values[row, :length].tobytes() + types[row, :length].tobytes() + lengths[row, :length].tobytes()
-        )
-        digests.add(hashlib.sha256(payload).hexdigest()[:16])
     return {
         "pop_size": int(forest.pop_size),
         "max_tree_len": int(forest.max_tree_len),
         "tree_len_mean": float(sizes.mean()),
         "tree_len_median": float(np.median(sizes)),
         "tree_len_max": int(sizes.max()),
-        "distinct_structures": len(digests),
+        "distinct_structures": int(signature["distinct_structures"]),
+        "structure_signature": signature["signature"],
     }
 
 
@@ -116,7 +173,45 @@ def main() -> int:
 
     cell = common.parse_cell(args.cell)
     knobs = arms_mod.apply_arm_env(args.arm)
+
+    # -- batch support preflight ---------------------------------------------
+    # EVOGP_EVAL_MODE=batch is only meaningful when the tree under test ships the
+    # module AND its policy declares the mode.  A missing route must fail here, with
+    # one readable paragraph, instead of writing a record that silently measured some
+    # other route (or dying deep inside the tree layer): the driver logs
+    # ``status: failed`` plus this message, and no record exists for the cell.
+    is_batch = common.is_batch_arm(args.arm)
+    batch_policy = common.batch_policy(src) if is_batch else None
+    if is_batch and not (batch_policy["module_present"] and batch_policy["mode_supported"]):
+        raise SystemExit(
+            f"arm {args.arm}: EVOGP_EVAL_MODE=batch needs BOTH a "
+            f"<src>/evogp/tree/batch_engine.py module and 'batch' declared in "
+            f"evogp.tree.dense_engine.EVAL_MODES, and this tree does not provide the "
+            f"pair -- found module_present={batch_policy['module_present']} "
+            f"(expected {batch_policy['module']}), "
+            f"declared_modes={batch_policy['declared_modes']!r} "
+            f"(mode_supported={batch_policy['mode_supported']}) for src={src}. "
+            f"NO record was written for cell {args.cell} arm {args.arm}: the batch "
+            f"route cannot run here, and a record of a different route would be worse "
+            f"than a missing one."
+        )
+
     common.import_evogp()
+
+    # -- the batch route's own cache counters (optional, batch arms only) -----
+    # The merged-graph cache may or may not be evoxc_engine's, so ask the batch
+    # engine itself.  Resolved only for batch arms: importing that module can then
+    # never break a torch/evoxc arm, and a missing ``batch_cache_stats`` is a
+    # reportable state (recorded as null), not a crash.
+    batch_stats = None
+    if is_batch:
+        try:
+            from evogp.tree import batch_engine as _batch_engine_probe
+        except ImportError:  # noqa: F401 - the route is optional on older trees
+            _batch_engine_probe = None
+        batch_stats = getattr(_batch_engine_probe, "batch_cache_stats", None)
+        if not callable(batch_stats):
+            batch_stats = None
 
     import torch
     from evogp.tree import dense_engine, evoxc_engine
@@ -152,6 +247,31 @@ def main() -> int:
     if args.note:
         record["notes"].append(args.note)
 
+    # -- batch route provenance / merged-graph cache counters ------------------
+    # These keys exist ONLY for batch arms: "not a batch route" must stay
+    # distinguishable from "batch route whose counters are unavailable", so no
+    # None-noise is added to the existing record schema.
+    if is_batch:
+        record["batch_policy"] = batch_policy
+        record["batch_cache"] = {
+            "available": batch_stats is not None,
+            "stats_before_workloads": batch_stats() if batch_stats is not None else None,
+            "stats_after": None,
+            "compile_misses_first_call": None,
+            "compile_misses_total": None,
+        }
+        record["notes"].append(
+            "batch arm: one merged graph per population structure multiset, so a "
+            "multi-second first_call_ms and a large compile_misses_first_call are the "
+            "expected cold cost of the route and are recorded as measured, never retried"
+        )
+        if batch_stats is None:
+            record["notes"].append(
+                "batch arm: evogp.tree.batch_engine.batch_cache_stats() is unavailable on "
+                "this tree, so every merged-graph cache counter is null (NOT zero) and "
+                "the compile cost can only be read off first_call_ms"
+            )
+
     # -- what the policy resolves for this cell (per workload row count) -----
     for name, rows in (
         ("sr_fitness", cell["rows"]),
@@ -172,13 +292,27 @@ def main() -> int:
         )
 
     requested = [name for name in args.workloads.split(",") if name]
+    batch_first_call_misses = None
     for name in requested:
         if name == "gp_step":
             continue
         fn = getattr(arm_obj, name)
         cache_before = evoxc_engine.cache_stats()
+        batch_before = batch_stats() if batch_stats is not None else None
+        # A batch arm's compile lands in time_call's untimed first call; the probe
+        # snapshots the merged-graph cache the instant that call returns.  Every other
+        # arm (and a batch arm with no stats callable) gets its own bound method
+        # untouched, i.e. no extra call in the timed loop.
+        probe = (
+            BatchStatsProbe(fn, batch_stats)
+            if is_batch and batch_stats is not None
+            else None
+        )
         timing = common.time_call(
-            fn, warmup=args.warmup, reps=args.reps, stats=evoxc_engine.cache_stats
+            probe if probe is not None else fn,
+            warmup=args.warmup,
+            reps=args.reps,
+            stats=evoxc_engine.cache_stats,
         )
         cache_after = evoxc_engine.cache_stats()
         result = timing.pop("_out")
@@ -196,6 +330,21 @@ def main() -> int:
                 after_first["misses"] - cache_before["misses"] if after_first else None
             ),
         }
+        if is_batch:
+            # the existing keys above stay the evoxc-engine view (check.py reads them);
+            # the batch counters sit next to it so the two caches are never conflated
+            batch_after_first = probe.first if probe is not None else None
+            batch_after = batch_stats() if batch_stats is not None else None
+            entry["cache"]["batch_after_first_call"] = batch_after_first
+            entry["cache"]["batch_after"] = batch_after
+            entry["cache"]["batch_compile_misses_first_call"] = _stats_delta(
+                batch_before, batch_after_first, "misses"
+            )
+            entry["cache"]["batch_compile_misses_this_workload"] = _stats_delta(
+                batch_before, batch_after, "misses"
+            )
+            if batch_first_call_misses is None:
+                batch_first_call_misses = entry["cache"]["batch_compile_misses_first_call"]
         entry["digest"] = common.digest(result)
         record["workloads"][name] = entry
         del result
@@ -210,22 +359,29 @@ def main() -> int:
         steps = []
         for _ in range(args.gp_reps):
             cache_before = evoxc_engine.cache_stats()
+            batch_before = batch_stats() if batch_stats is not None else None
             torch.cuda.synchronize()
             start = time.perf_counter()
             pipeline.step()
             torch.cuda.synchronize()
             total_ms = (time.perf_counter() - start) * 1e3
             cache_after = evoxc_engine.cache_stats()
-            steps.append(
-                {
-                    "total_ms": round(total_ms, 4),
-                    "eval_ms": round(timed.last_ms, 4),
-                    "ops_ms": round(total_ms - timed.last_ms, 4),
-                    "torch_setup_ms": round(timed.last_setup_ms, 4),
-                    "compile_misses": cache_after["misses"] - cache_before["misses"],
-                    "memo_hits": cache_after["memo_hits"] - cache_before["memo_hits"],
-                }
-            )
+            batch_after = batch_stats() if batch_stats is not None else None
+            step = {
+                "total_ms": round(total_ms, 4),
+                "eval_ms": round(timed.last_ms, 4),
+                "ops_ms": round(total_ms - timed.last_ms, 4),
+                "torch_setup_ms": round(timed.last_setup_ms, 4),
+                "compile_misses": cache_after["misses"] - cache_before["misses"],
+                "memo_hits": cache_after["memo_hits"] - cache_before["memo_hits"],
+            }
+            if is_batch:
+                # a fresh population is a new structure multiset, i.e. a new merged
+                # graph: this is the counter that explains a slow batch GP step
+                step["batch_compile_misses"] = _stats_delta(batch_before, batch_after, "misses")
+                if _has_stat_key(batch_before, batch_after, "memo_hits"):
+                    step["batch_memo_hits"] = _stats_delta(batch_before, batch_after, "memo_hits")
+            steps.append(step)
         totals = sorted(step["total_ms"] for step in steps)
         evals = sorted(step["eval_ms"] for step in steps)
         mid = len(totals) // 2
@@ -242,6 +398,21 @@ def main() -> int:
             "final_pop_size": int(pipeline.algorithm.forest.pop_size),
             "best_fitness": float(pipeline.best_fitness),
         }
+        if is_batch:
+            misses = [step["batch_compile_misses"] for step in steps]
+            record["gp_step"]["batch_compile_misses_total"] = (
+                None if any(value is None for value in misses) else sum(misses)
+            )
+
+    if is_batch:
+        # close the batch cache story for the whole config: the deltas above are per
+        # workload, this is the one number a reader can price the process against
+        stats_after = batch_stats() if batch_stats is not None else None
+        record["batch_cache"]["stats_after"] = stats_after
+        record["batch_cache"]["compile_misses_first_call"] = batch_first_call_misses
+        record["batch_cache"]["compile_misses_total"] = _stats_delta(
+            record["batch_cache"]["stats_before_workloads"], stats_after, "misses"
+        )
 
     record["engine_cache_final"] = evoxc_engine.cache_stats()
     record["dense_policy"] = {

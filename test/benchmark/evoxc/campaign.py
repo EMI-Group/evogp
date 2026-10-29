@@ -21,6 +21,11 @@ Usage (from the repository root, project venv)::
     # the same campaign against a git-archive snapshot, apples to apples
     $PY test/benchmark/evoxc/campaign.py --tree-root /tmp/evogp_preopt/src \\
         --out test/benchmark/evoxc/results/replay
+
+    # what the batch route would do on the tree under test, BEFORE launching it
+    # (torch-free: resolves the policy from the files, no device, no evogp import)
+    python3 test/benchmark/evoxc/campaign.py --out "$TMPDIR/dry" \\
+        --cells main --arms batch --dry-run
 """
 
 from __future__ import annotations
@@ -179,6 +184,12 @@ def guard(wait_s: float, poll_s: float = 5.0) -> Dict[str, Any]:
 #: re-pays it every generation.  That route is therefore timed on the small
 #: populations only (where it is affordable) and the excluded cells are stated in
 #: the driver record instead of being silently dropped.
+#:
+#: The BATCH arms (``evoxc-batch-iree`` / ``-flat``) deliberately get NO rule here:
+#: nobody has measured the merged-graph compile yet, so excluding cells would be an
+#: unfounded guess (and a wrong exclusion silently hides the route's real cost).
+#: The first measurement round decides the scoping FROM the ``first_call_ms`` and
+#: ``batch_compile_misses_first_call`` it records; until then every cell is timed.
 SCOPE = {"evoxc-specialized-iree": {"pops": (16, 64)}}
 
 
@@ -209,7 +220,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--evoxc-root", default="/root/evoxc", help="foreign repo holding the evoxc package")
     ap.add_argument("--out", required=True, help="result directory (per-cell subdirs of JSON)")
     ap.add_argument("--cells", default="main,n64", help="'main', 'n64', or a comma-separated cell list")
-    ap.add_argument("--arms", default="all", help="'all', 'torch', 'evoxc', or a comma-separated arm list")
+    ap.add_argument("--arms", default="all",
+                    help="'all', 'torch', 'evoxc', 'batch' (the batch-route arms only, in "
+                         "registry order), or a comma-separated arm list")
     ap.add_argument("--workloads", default="sr_fitness,batch_forward,forward,gp_step")
     ap.add_argument("--warmup", type=int, default=2)
     ap.add_argument("--reps", type=int, default=5)
@@ -243,6 +256,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             arms.extend(a for a in common.TORCH_ARMS if a not in arms)
         elif token == "evoxc":
             arms.extend(a for a in common.EVOXC_ARMS if a not in arms)
+        elif token == "batch":
+            # registry order, driven by the ONE predicate -- a future batch variant
+            # (another band policy) is picked up with no edit here
+            arms.extend(
+                a for a in common.EVOXC_ARMS if common.is_batch_arm(a) and a not in arms
+            )
         elif token:
             arms.append(token)
 
@@ -265,6 +284,48 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "EVOGP_DENSE_AUTO_MIN_POP", "EVOGP_DENSE_AUTO_MAX_ROWS"):
         if key in os.environ:
             env[key] = os.environ[key]
+    # the batch route's knobs travel the same way, so an operator's explicit override
+    # reaches the worker and is visible in its record.  This only forwards what the
+    # caller exported: inside the child, ``arms.apply_arm_env`` clears every batch
+    # knob for every arm and then writes the arm's own ``knobs`` spec, which wins.
+    for key in common.BATCH_ENV_VARS:
+        if key in os.environ:
+            env[key] = os.environ[key]
+
+    os.makedirs(args.out, exist_ok=True)
+    driver_path = os.path.join(args.out, "campaign.json")
+
+    if args.dry_run:
+        for cfg in configs:
+            print("would run", cfg["cell"]["id"], cfg["arm"])
+        # ... and for the batch arms, WHERE the route resolves on the tree being
+        # measured -- the point of the dry run is to see that before a multi-minute
+        # merged-graph compile is paid.  The arm's own knob spec is applied around the
+        # resolution (restored afterwards) so the ``-flat`` variant reports bands=flat.
+        for arm in [a for a in arms if common.is_batch_arm(a)]:
+            arm_knobs = dict((common.EVOXC_ARMS.get(arm) or {}).get("knobs") or {})
+            previous = {key: os.environ.get(key) for key in arm_knobs}
+            os.environ.update({key: str(value) for key, value in arm_knobs.items()})
+            try:
+                policy = common.batch_policy(src)
+            finally:
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+            print(
+                "batch policy", arm,
+                f"band_size={policy['band_size']}",
+                f"bands={policy['bands']}",
+                f"alignment={policy['alignment']}",
+                f"switch_ops={policy['switch_ops']}",
+                f"min_pop={policy['min_pop']}",
+                f"declared_modes={policy['declared_modes']!r}",
+                f"module_present={policy['module_present']}",
+                f"mode_supported={policy['mode_supported']}",
+            )
+        return 0
 
     driver_record = {
         "schema": common.SCHEMA + "-campaign",
@@ -284,18 +345,22 @@ def main(argv: Optional[List[str]] = None) -> int:
             "scope_dropped": [{"cell": cfg["cell"]["id"], "arm": cfg["arm"]} for cfg in dropped],
             "specialized_iree_compile_ms_per_structure": {"measured_range": [271.6, 283.9],
                                                           "source": "probe p16/p64, this box"},
+            "batch_arms": {
+                arm: dict(common.EVOXC_ARMS[arm])
+                for arm in common.ALL_ARMS
+                if common.is_batch_arm(arm)
+            },
+            "batch_engine_present": common.batch_engine_present(src),
+            "batch_route_note": (
+                "the batch route compiles ONE merged graph per population structure "
+                "multiset, so its compile is expected to take minutes and a batch-arm "
+                "overrun shows up as status 'timeout' with the worker log as evidence, "
+                "not as a defect to be retried away"
+            ),
         },
         "configs": [],
     }
-    os.makedirs(args.out, exist_ok=True)
-    driver_path = os.path.join(args.out, "campaign.json")
-    if not args.dry_run:
-        common.write_json(driver_path, driver_record)
-
-    if args.dry_run:
-        for cfg in configs:
-            print("would run", cfg["cell"]["id"], cfg["arm"])
-        return 0
+    common.write_json(driver_path, driver_record)
 
     t_start = time.time()
     failures = 0
