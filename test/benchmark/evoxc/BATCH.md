@@ -1,16 +1,20 @@
 # The opt-in `batch` evaluation route — measurement report of record
 
 Verdict in one paragraph: the `EVOGP_EVAL_MODE=batch` route (one merged `evoxc` graph per population
-structure multiset) is **not the best arm anywhere except one narrow corner**, and it is **dominated by
-the shipped `dense` route at every pop ≥ 64 cell we measured**. Warm it is 1.0–2.7× slower than
-`dense+iree` at pop 256–1000 (0.55× / 0.995× / 0.37× / 0.94× of dense's speed) while still being
-18–30× faster than `specialized+numpy`; cold its merged-graph compile is 10.9–12.2 s at pop 256 and
-91–162 s at pop 1000 against dense's 3.4–6.5 s; and in a real generation loop a crossover/mutation-
-updated population is a **new structure multiset**, so the merged graph is rebuilt almost every
-generation (1 hit in 8 generations, 99.4–99.7 % of generation time inside the compile), which makes
-`gp_step` 193–2355× slower than `dense`. The one cell where it wins is pop 64 with 64 data rows
+structure multiset) is **not the best arm on the main grid** (pop 16–1000 × `tree_len` 32/64) except one
+narrow corner, and it is **dominated by the shipped `dense` route at every pop ≥ 64 cell of that grid**.
+Warm it is 1.0–2.7× slower than `dense+iree` at pop 256–1000 (0.55× / 0.995× / 0.37× / 0.94× of dense's
+speed) while still being 18–30× faster than `specialized+numpy`; cold its merged-graph compile is 10.9–12.2 s
+at pop 256 and 91–162 s at pop 1000 against dense's 3.4–6.5 s; and in a real generation loop a
+crossover/mutation-updated population is a **new structure multiset**, so the merged graph is rebuilt almost
+every generation (1 hit in 8 generations, 99.4–99.7 % of generation time inside the compile), which makes
+`gp_step` 193–2355× slower than `dense`. The one cell where it wins on that grid is pop 64 with 64 data rows
 (`0.979 ms` vs dense's `1.410 ms`, and a *cheaper* cold call: 2.17 s vs 6.18 s) — and even there it
 loses in a generation loop. `auto` never selects the route, so nothing on the default path changes.
+
+A second regime does beat dense and is measured in **§11**: long-tree populations whose longest tree exceeds
+the dense trace cap, where batch is 1.5–4.2× faster than dense with the cap raised and 23.5–25× faster than
+the per-tree fallback the shipped cap forces. It is a fixed-population win only (§11.6).
 
 This document is the batch route's report of record; `FINAL.md` remains the report of record for the
 dense/specialized engine-vs-torch campaign and is untouched.
@@ -266,7 +270,7 @@ compile up front and is *also* slower per warm call, so no number of calls recov
 is both cheaper to compile and faster per call. In the only comparison that governs the shipped policy
 (batch vs dense), the route is dominated in all three dimensions: cold compile, warm call and loop cost.
 
-## 7. The one regime where the route wins
+## 7. The first regime where the route wins
 
 `pop 64 × 64 data rows`, fixed population (`results/batch/small-r5/p64-L64-i32-N64`):
 
@@ -286,6 +290,11 @@ vs 5.31 ms for dense) and it does not extend to larger populations: at p256/N=64
 at p1000/N=64 0.27×. The rule the numbers support: *a fixed population of ~64 trees over few rows* is
 the route's niche — e.g. repeated scoring of an evolved elite set, a hyper-parameter sweep re-evaluating
 one population, or a study that holds the population still. A GP loop is never that.
+
+A **second regime** is measured in §11: a fixed population whose longest tree exceeds the dense trace cap
+(`EVOGP_DENSE_MAX_TREE_LEN`, default 64). There batch is 1.5–4.2× faster than dense with the cap raised and
+23.5–25× faster than the per-tree `specialized` fallback the shipped cap forces. §11.6 states the limits of
+that win — it is a fixed-population win only, and it pays the largest cold compile of any arm measured here.
 
 ## 8. Numeric validation
 
@@ -335,6 +344,7 @@ EVOGP_EVOXC_BACKEND=iree`, so the records prove the route was actually taken (`e
 | `results/batch/small-r5` | 36 | 1022 | **0** |
 | `results/batch/flat-r5` | 4 | 126 | **0** |
 | `results/batch/flat1000-3w-r5` | 1 | 36 | **0** |
+| `results/batch/long-trees` (§11, the four sub-directories in one run) | 38 | 1000 | **0** (380 / 254 / 128 / 238 per directory) |
 | `results/batch/flat1000-r5` | 1 | 22 | 2 — *"batch_forward: no digest anywhere in the cell"*, *"forward: no digest anywhere in the cell"* (that directory scheduled `--workloads sr_fitness` only; the 3-workload sibling `flat1000-3w-r5` is the gateable record) |
 | pilot `warm`/`small`/`flat`/`flat1000` | 24/36/4/1 | – | one *"warm samples, need >= 5"* per workload entry (recorded at `--reps 3`) |
 
@@ -399,7 +409,232 @@ done
 # expected: 24/682, 36/1022, 4/126, 1/36 checks, 0 failures (see §9)
 ```
 
-## 11. Caveats and known issues
+## 11. Long trees: the scaling crossover
+
+Every cell in §4–§6 holds 15–17-node trees (the stock `max_layer_cnt = 5`) against a row stride of 32 or
+64. The long-tree round asks the question that grid cannot answer: **does a route's cost track the trees
+the population actually holds, or the trace length the route is allowed to emit?**
+
+The two routes sit on different axes:
+
+- `batch` traces each distinct program once and merges the population into one graph, so its emitted op
+  count is a function of the population's node total and nothing else — §11.3 makes that literal
+  (5200 → 17757 emitted ops as the mean tree grows 15.9 → 66.6 nodes, and 5200 for the same population at
+  either stride).
+- `dense` emits the all-ops chain over the whole row stride (`EVOGP_DENSE_MAX_TREE_LEN`), independent of
+  what the population contains, so its per-call cost is proportional to the cap rather than to the trees.
+
+The trap is that `tree_len` is the **row stride of the tensor schema, not the size of the trees**. With the
+stock generation recipe a `tree_len = 128` cell still holds 15.9-node trees with a 31-node maximum — the
+same population the `tree_len = 64` cells hold. A full tree is `2**d − 1` nodes, so tree size is
+depth-driven. This round therefore pins both axes: `tree_len` 128/256 — plus the `evoxc-dense-iree-raised`
+arm, which pins `EVOGP_DENSE_MAX_TREE_LEN` to the cell's stride — is the stride axis, and the `-d<k>`
+cells raise the generation depth (mean/max 26.1/61 nodes at d6, 41.8/111 at d7, 66.6/187 at d8) as the
+node-count axis. **A "long-tree" cell left at the stock depth cap measures nothing but stride.**
+
+### 11.1 Warm per-call cost at long trees
+
+`sr_fitness` median in ms, N=1024 rows, seed 0, `--reps 5`, one process per config; the parenthesised
+value is that arm's cold first call in s (omitted for `torch-per-tree`, which compiles nothing — its first
+call is 0.15–0.27 s). `evoxc-dense-iree` is the shipped cap of 64; `evoxc-dense-iree-raised` is the same
+route with `EVOGP_DENSE_MAX_TREE_LEN` pinned to the cell's `tree_len` (128 or 256).
+
+| cell | nodes mean / med / max | distinct programs | torch-per-tree | specialized-numpy | dense, cap 64 | dense, cap = tree_len | batch-iree |
+|---|---|---|---|---|---|---|---|
+| `p256-L128-i32-N1024` (d5) | 15.9 / 17 / 31 | 232/256 | 32.203 | 37.606 (0.83) | **2.030** (6.61) | 5.277 (14.44) | 2.167 (13.22) |
+| `p256-L128-i32-N1024-d6` | 26.1 / 27 / 61 | 226/256 | 46.444 | 56.056 (1.17) | **2.040** (6.52) | 5.379 (14.28) | 2.881 (22.76) |
+| `p256-L128-i32-N1024-d7` | 41.8 / 43 / 111 | 230/256 | 67.882 | 91.122 (1.84) | 88.020 (68.99, *declined*) | **5.343** (14.48) | 3.518 (37.92) |
+| `p256-L256-i32-N1024` (d5) | 15.9 / 17 / 31 | 232/256 | 29.815 | 41.449 (0.91) | **2.126** (7.22) | 19.497 (41.87) | 2.237 (12.04) |
+| `p256-L256-i32-N1024-d8` | 66.6 / 66 / 187 | 225/256 | 108.797 | 158.373 (3.30) | 110.118 (81.07, *declined*) | **19.662** (43.91) | 4.676 (74.73) |
+| `p1000-L128-i32-N1024` (d5, pop 1000) | 16.2 / 17 / 31 | 841/1000 | 131.325 | 164.386 (3.66) | **5.715** (7.00) | 19.576 (15.78) | 6.503 (178.54) |
+
+The two *declined* rows are the reading that matters: at d7 and d8 the population's longest tree (111 and
+187 nodes) exceeds the shipped cap, so `evoxc-dense-iree` is not measuring dense at all. Its `dense_route`
+block records `supported: false` with the reason *"longest tree is 111 nodes but the dense trace cap is 64
+(EVOGP_DENSE_MAX_TREE_LEN=64, row length 128); raise the cap or fall back to the specialized engine"*, and
+its 88.020 / 110.118 ms are the per-tree `specialized` fallback the public API degrades to silently.
+
+`batch_forward` and `forward` tell the same story (at d8: batch 3.955 / 1.607 ms against 20.548 / 2.108 ms
+for the raised-cap dense and 108.937 / 151.452 ms for the fallback), so the crossover is not an artefact of
+the loss assembly. `evoxc-auto` was not scheduled in this round, so the renders' `auto route` column falls
+back to the arm it read (`evoxc-specialized-numpy`); on the shipped policy these pop-256/1000 cells resolve
+to dense+iree, and at d7/d8 that dense graph declines exactly as the cap-64 arm does.
+
+### 11.2 Does batch win?
+
+Ratios against three dense variants: the **need-capped** one (cap 64 where it covers the population, the
+raised cap where it does not), the **same-stride** one (always the raised cap), and the **fallback** the
+shipped cap degrades to.
+
+| cell | batch ÷ need-capped dense (dense faster if > 1) | same-stride dense ÷ batch (batch faster if > 1) | cap-64 fallback ÷ batch | faster arm |
+|---|---|---|---|---|
+| `p256-L128-i32-N1024` (d5) | 1.07 | 2.44 | – (dense served the cell) | dense, 1.07× |
+| `p256-L128-i32-N1024-d6` | 1.41 | 1.87 | – | dense, 1.41× |
+| `p256-L128-i32-N1024-d7` | 0.66 | 1.52 | 25.0 | **batch, 1.52×** |
+| `p256-L256-i32-N1024` (d5) | 1.05 | 8.72 | – | dense, 1.05× |
+| `p256-L256-i32-N1024-d8` | 0.24 | 4.20 | 23.5 | **batch, 4.20×** |
+| `p1000-L128-i32-N1024` (d5) | 1.14 | 3.01 | – | dense, 1.14× |
+
+**While the population's longest tree fits inside the cap, need-capped dense wins every measured cell** —
+1.05–1.41×, including at pop 1000 (1.14×), and there is no crossover below that boundary anywhere in these
+records. **Past the cap the ordering flips and batch wins decisively**: 1.52× over the raised-cap dense at
+111 nodes, 4.20× at 187 nodes, and 25.0× / 23.5× over the only other compiled option, the per-tree
+`specialized` fallback the shipped route silently degrades to.
+
+The same-stride column prices the hypothesis directly: dense pinned to the population's own stride is
+1.52–8.72× slower than batch on every cell, and the gap grows with the stride (2.44× at stride 128 vs 8.72×
+at stride 256 on the *same* population).
+
+**The stride cost is measurable inside one population**, which is the mechanistic confirmation.
+`p256-L128-i32-N1024` and `p256-L256-i32-N1024` hold the identical structure signature
+(`0a0dee3fec0cfb9c`: 232 distinct programs, 5200 merged ops, 4082 nodes) and differ only in the row stride:
+
+- batch moves 2.167 → 2.237 ms (1.03×, i.e. unchanged) — its plan is the same graph;
+- dense at the shipped cap moves 2.030 → 2.126 ms (1.05×) — both trace 64 rows;
+- dense at the raised cap moves 5.277 → 19.497 ms — **3.7× for doubling the stride.**
+
+Raising the cap to keep dense alive on the *same 31-node trees* costs 2.6× (64 → 128) and 9.2× (64 → 256).
+Dense's per-call cost is stride-driven and batch's is node-count-driven, exactly as predicted.
+
+### 11.3 Plan facts
+
+`batch_plan_summary` of the batch record — compile-free introspection of the merged plan, loss variant.
+
+| cell | nodes mean / med / max | distinct programs | emitted ops | bands × size | functions | row-index collisions |
+|---|---|---|---|---|---|---|
+| `p256-L128-i32-N1024` (d5) | 15.9 / 17 / 31 | 232 | 5200 | 8 × 29 | 232 | 24 |
+| `p256-L128-i32-N1024-d6` | 26.1 / 27 / 61 | 226 | 7827 | 8 × 29/28 | 226 | 30 |
+| `p256-L128-i32-N1024-d7` | 41.8 / 43 / 111 | 230 | 11639 | 8 × 29/28 | 230 | 26 |
+| `p256-L256-i32-N1024` (d5) | 15.9 / 17 / 31 | 232 | 5200 | 8 × 29 | 232 | 24 |
+| `p256-L256-i32-N1024-d8` | 66.6 / 66 / 187 | 225 | 17757 | 8 × 29/28 | 225 | 31 |
+| `p1000-L128-i32-N1024` (d5) | 16.2 / 17 / 31 | 841 | 20253 | 27 × 32/31 | 841 | 159 |
+
+The ops series is the hypothesis in one line: **5200 → 7827 → 11639 → 17757 emitted ops as the mean tree
+grows 15.9 → 26.1 → 41.8 → 66.6 nodes** (22.4 / 34.6 / 50.6 / 78.9 ops per distinct program), i.e. 1.27 /
+1.17 / 1.09 / 1.04× the population's own node total (4082 → 6676 → 10704 → 17040 nodes; the mean is exact,
+so the total is `tree_len_mean × pop`). The merge adds
+roughly a constant per program on top of each program's nodes, which is why the ratio falls as trees grow.
+Population, not tree size, is the other axis: the pop-1000 cell holds the same 15–17-node trees as the pop-256
+d5 cell and emits 20253 ops for 841 programs (24.1 ops per program, 1.25× its 16210 nodes), i.e. the plan
+grows linearly in programs and the per-program constant is unchanged. Row-index collisions are the duplicate
+row indices the merge has to reconcile inside a band (24–31 at pop 256, 159 at pop 1000).
+
+The variants differ only in what the output side has to compute: `value[per_row=0]` is the smallest in
+every cell (4309 ops at d5, 16888 at d8), and the per-row value variant is the widest plan — at pop 1000
+`value[per_row=1]` carries 29 bands and 920 functions at 19904 emitted ops against the loss graph's 27
+bands / 841 functions / 20253 ops.
+
+### 11.4 Generation level
+
+`gp_step` medians in ms over `--gp-reps 5`, eval half in parentheses (`results/batch/long-trees/gp`).
+
+| cell | torch-per-tree | specialized-numpy | dense, cap = tree_len | batch-iree |
+|---|---|---|---|---|
+| `p256-L128-i32-N1024` (d5) | 22.710 (19.930) | 395.474 (392.311, 671 per-structure misses) | **11.552** (8.830, 0 misses) | 5317.995 (5314.776, 5 merged-graph compiles) |
+| `p256-L128-i32-N1024-d7` | 13.959 (11.263) | 102.934 (100.078, 346) | **11.182** (8.446, 0) | 2177.223 (2173.981, 5) |
+
+Only the raised-cap dense arm was scheduled in this directory, deliberately: at d7 the shipped cap-64 route
+would be the same per-tree `specialized` fallback the neighbouring column already is. The operator layer is
+identical across arms (2.7–3.2 ms), so the whole difference is the evaluation half.
+
+**The long-tree warm win does not survive a GP loop.** A fresh population re-forms the structure multiset,
+so all five timed generations paid a fresh merged-graph compile (`batch_compile_misses_total` 5, 5/5 plan
+misses): 5318.0 ms per generation at d5 and 2177.2 ms at d7 against 11.6 / 11.2 ms for dense — **460× and
+195×**. Even `torch-per-tree` beats it by 156–234× per generation, and the per-tree `specialized+numpy` by
+13–21×. The route stays a fixed-population tool, whatever the tree length.
+
+### 11.5 Numeric agreement at long trees
+
+- **dense, either cap, is value-identical to `specialized`-numpy and `torch-per-tree`** in every cell where
+  it actually runs: at d5 and d6 those arms — dense, the raised cap, `specialized`-numpy and the tree walk —
+  carry one and the same sha256 on `batch_forward` and on `forward`. Where dense forms a group of its own
+  (pop 1000 at d5, and the raised-cap arm at d7/d8) the only difference is the NaN payload bit on `sub` with
+  NaN as the second operand (`0xffc00000` for dense vs `0x7fc00000` for numpy). The `nan` / `finite` counts
+  and their placement agree exactly across every arm of a cell (0 at d5, 4096 at d6, 7168 at d7, 5120 at d8,
+  3072 at pop 1000 on `batch_forward`), so none of this is a loss-path divergence.
+- **`specialized`+iree — exactly the route the cap-64 arm falls back to at d7/d8 — is the numeric outlier**:
+  FMA contraction of a `mul` feeding an `add`/`sub`, per-op ≤1 ulp, ≤2.2e-3 relative at d7 and ≤6.1e-3 at
+  d8 after deep-tree cancellation. A 5-node tree `add(mul(x0,x1), x0)` reproduces it bit-for-bit, and
+  `add`/`sub`/`mul`/`div` alone are exact on both backends. It is the §8 finding one backend over.
+- **batch forms its own digest group**, as §8 already documents for this route, which is why all four
+  directories are gated with `--allow-digest-mismatch` (§9). At d5 and d6 the split is two groups (`batch`
+  against the other four arms); at d7/d8 it widens to four (`torch-per-tree`+`specialized-numpy`, the cap-64
+  arm's `specialized`+iree fallback, the raised-cap dense, `batch`); the pop-1000 cell splits into three
+  (`dense` and `dense-raised` share one).
+
+### 11.6 Verdict and recommendation
+
+- **(a) The route's second win is real, and it is the long-tree corner.** At pop ≥ 64 with a fixed
+  population whose longest tree exceeds the dense trace cap, batch is 23.5–25.0× faster than the only other
+  compiled option (the per-tree `specialized` fallback the shipped route silently degrades to) and 1.5–4.2×
+  faster than dense with the cap raised to cover the population.
+- **(b) That win does not survive a generation loop.** Every generation re-forms the structure multiset and
+  recompiles the merged graph, so batch is 190–460× behind dense per generation and 156–234× behind the
+  plain-torch tree walk. Long trees move the crossover, not the loop economics.
+- **(c) Keep `DEFAULT_MAX_TREE_LEN = 64`.** If a run needs deeper trees, raise the cap to the depth actually
+  generated — pinning 256 for 31-node trees costs 9.2× — rather than switching routes, and reach for
+  `EVOGP_EVAL_MODE=batch` only for one-shot / fixed-population evaluation of long-tree populations (an
+  elite set re-scored, a sweep over one population), never as the evaluator of a loop.
+- **(d) Cold start is the second cost.** The merged compile is 13.2 / 22.8 / 37.9 / 12.0 / 74.7 / 178.5 s
+  per cell against 6.6 / 6.5 / 7.2 / 7.0 s for cap-64 dense where dense actually runs (the 69.0 / 81.1 s in
+  the two declined cells is the fallback's per-structure compile, not dense) and 14.4 / 14.3 / 14.5 / 41.9 /
+  43.9 / 15.8 s for the raised cap — which is itself stride-driven (14.4 s at stride 128 vs 41.9 s at 256).
+  At pop 1000 that 178.5 s compile is 25× dense's 7.0 s cold compile and buys ≈31 000 of batch's own 5.7 ms
+  warm calls — the break-even argument in one number.
+
+### 11.7 Reproduce
+
+From the repository root, with the project venv, one process per timed config, never two campaigns at once:
+
+```bash
+PY=/tmp/genesis/task_a996674198ffbcee/evogp-venv/bin/python
+export PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1
+
+# 1. tree_len 128, generation depth d5/d6/d7 (the node-count axis at a 128-row stride)
+$PY test/benchmark/evoxc/campaign.py --out test/benchmark/evoxc/results/batch/long-trees/l128 \
+  --cells p256-L128-i32-N1024,p256-L128-i32-N1024-d6,p256-L128-i32-N1024-d7 \
+  --arms torch-per-tree,evoxc-batch-iree,evoxc-dense-iree,evoxc-dense-iree-raised,evoxc-specialized-numpy \
+  --workloads sr_fitness,batch_forward,forward --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 \
+  --timeout 1200
+
+# 2. tree_len 256, generation depth d5/d8 (the stride axis at two strides)
+$PY test/benchmark/evoxc/campaign.py --out test/benchmark/evoxc/results/batch/long-trees/l256 \
+  --cells p256-L256-i32-N1024,p256-L256-i32-N1024-d8 \
+  --arms torch-per-tree,evoxc-batch-iree,evoxc-dense-iree,evoxc-dense-iree-raised,evoxc-specialized-numpy \
+  --workloads sr_fitness,batch_forward,forward --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 \
+  --timeout 1200
+
+# 3. the population axis at d5
+$PY test/benchmark/evoxc/campaign.py --out test/benchmark/evoxc/results/batch/long-trees/p1000 \
+  --cells p1000-L128-i32-N1024 \
+  --arms torch-per-tree,evoxc-batch-iree,evoxc-dense-iree,evoxc-dense-iree-raised,evoxc-specialized-numpy \
+  --workloads sr_fitness,batch_forward,forward --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 \
+  --timeout 1200
+
+# 4. generation level (§11.4): stride (d5) vs node count (d7), raised-cap dense only
+$PY test/benchmark/evoxc/campaign.py --out test/benchmark/evoxc/results/batch/long-trees/gp \
+  --cells p256-L128-i32-N1024,p256-L128-i32-N1024-d7 \
+  --arms torch-per-tree,evoxc-batch-iree,evoxc-dense-iree-raised,evoxc-specialized-numpy \
+  --workloads sr_fitness,batch_forward,forward,gp_step --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 \
+  --timeout 1200
+
+# 5. gate the four directories as one container, then render each
+python3 test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/batch/long-trees \
+  --allow-missing --allow-digest-mismatch --allow-snapshot
+# expected: 4 directories gated, 38 records / 1000 checks, 0 failures (380 / 254 / 128 / 238 per directory)
+for d in l128 l256 p1000 gp; do
+  $PY test/benchmark/evoxc/summarize.py --results test/benchmark/evoxc/results/batch/long-trees/$d \
+    --out test/benchmark/evoxc/results/batch/long-trees/RENDERED-$d.md
+done
+```
+
+The protocol recorded in each `campaign.json` is `warmup 2`, `reps 5`, `gp_warmup 1`, `gp_reps 5`, seed 0,
+one process per config, `EVOXC_DISABLE_LOCATIONS=1`; the per-config cap was 20 minutes (`--timeout 1200`,
+which `campaign.json` does not store — its largest recorded `wall_s` is 260.0 s, the p1000 batch arm), and the
+two cells dropped for exceeding the cap are listed in §12. The four directories took 563.2 + 657.5 + 371.6 +
+322.1 s = 1914 s (≈32 min) of wall time in total, plus the idle-device guard's waits.
+
+## 12. Caveats and known issues
 
 - **Box/session scoped.** Absolute ms belong to this MI300X session (ROCm 7.1, torch 2.13); warm medians
   move ±10 % on a shared box. Use the ratios, and re-measure before quoting a number against another
@@ -422,5 +657,19 @@ done
   ungateable by the `MIN_SAMPLES` rule and are kept verbatim as the pilot, not as evidence.
 - **No `CustomLoss`/multi-output and no robotics workload was timed or validated** on this route; the
   `batch` engine's multi-output path is untested here.
+- **Two long-tree cells were dropped from the schedule** (§11): `p1000` × `tree_len 256` and `p1000` × `d7`.
+  Their merged-graph compile exceeded a 20-minute budget with no output, so they are recorded as dropped
+  rather than measured; the p256 `-d7` cell carries the high-node-count point at pop 256, and the p1000
+  cell carries the population axis at d5.
+- **`evoxc-dense-iree-raised` is a measurement of dense's stride cost, not a recommended setting.** It pins
+  `EVOGP_DENSE_MAX_TREE_LEN` to the cell's stride, which is 2.6–9.2× slower than the shipped cap on
+  populations that already fit (§11.2), so its numbers may only be compared inside their own cell.
+- **Long-tree node counts are depth-driven, so `tree_len` alone does not make trees long** (§11). A cell at
+  `tree_len 128` with the stock `max_layer_cnt = 5` still holds 15.9-node / 31-max trees — raising only the
+  stride buys no long trees and costs dense directly.
+- **The d7/d8 cells need `--allow-digest-mismatch`**: they split into four sha256 groups per value workload
+  because `specialized`+iree contracts a `mul` into the following `add`/`sub` (FMA, ≤6.1e-3 relative after
+  deep-tree cancellation) while dense differs from numpy only in the NaN payload bit on `sub`. dense's
+  values are identical to `specialized`-numpy and `torch-per-tree` (see §11.5, §8).
 - The commit-era history of the `test/benchmark/evoxc` harness (`results/final/**`, `results/baseline/`,
   the R1–R6 rounds) is untouched by this round; a re-run of the batch grid writes a fresh directory.
