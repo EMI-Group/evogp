@@ -4,9 +4,10 @@ Verdict in one paragraph: the `EVOGP_EVAL_MODE=batch` route (one merged `evoxc` 
 structure multiset) is **not the best arm on the main grid** (pop 16–1000 × `tree_len` 32/64) except one
 narrow corner, and it is **dominated by the shipped `dense` route at every pop ≥ 64 cell of that grid**.
 Warm it is 1.0–2.7× slower than `dense+iree` at pop 256–1000 (0.55× / 0.995× / 0.37× / 0.94× of dense's
-speed) while still being 18–30× faster than `specialized+numpy`; cold its merged-graph compile is 10.9–12.2 s
-at pop 256 and 91–162 s at pop 1000 against dense's 3.4–6.5 s; and in a real generation loop a
-crossover/mutation-updated population is a **new structure multiset**, so the merged graph is rebuilt almost
+speed) while still being 18–30× faster than `specialized+numpy`; cold its merged-graph compile was 10.9–12.2 s
+at pop 256 and 91–162 s at pop 1000 against dense's 3.4–6.5 s on the pre-round single-executable path, and is
+4.4 s at pop 256 with the shipped chunked pool (§13); and in a real generation loop a crossover/mutation-
+updated population is a **new structure multiset**, so the merged graph is rebuilt almost
 every generation (1 hit in 8 generations, 99.4–99.7 % of generation time inside the compile), which makes
 `gp_step` 193–2355× slower than `dense`. The one cell where it wins on that grid is pop 64 with 64 data rows
 (`0.979 ms` vs dense's `1.410 ms`, and a *cheaper* cold call: 2.17 s vs 6.18 s) — and even there it
@@ -673,3 +674,127 @@ two cells dropped for exceeding the cap are listed in §12. The four directories
   values are identical to `specialized`-numpy and `torch-per-tree` (see §11.5, §8).
 - The commit-era history of the `test/benchmark/evoxc` harness (`results/final/**`, `results/baseline/`,
   the R1–R6 rounds) is untouched by this round; a re-run of the batch grid writes a fresh directory.
+
+## 13. Round 1: chunked parallel compile, the stage split and reuse (results/batch_opt_round1/)
+
+This round prices the batch route's chunked compile pool, its per-stage counters and its reuse behaviour in one window: HEAD against the pre-round tree `619cbf738af0bf839085879193f163d383bd9fbc` (via `--tree-root`), 6 generations, one process per config, on the cells `p256-L32-i8-N1024` (225 distinct structures) and `p64-L64-i32-N64` (the fixed-population niche cell of §3).
+The records are `results/batch_opt_round1/{base,after_w1,after_default,after_w8,after_dense}/` and the detailed report is `results/batch_opt_round1/SUMMARY.md`; this section is its digest.
+
+### 13.1 What the route does now
+
+`EVOGP_BATCH_COMPILE_WORKERS` (default `4`) splits the deduped function list into contiguous chunks and stages their `lower` / `compile` / `load` bodies in a thread pool, one device executable per live chunk.
+The chunk count is `min(requested, n_functions // batch_knobs.MIN_CHUNK_FUNCTIONS)` with `MIN_CHUNK_FUNCTIONS = 32`, and the plan stays single-bodied for `W <= 1`, below 32 functions, for an explicit `EVOGP_BATCH_BANDS` spelling (the flat one included) and for `EVOGP_BATCH_SWITCH_OPS=1`.
+`evogp.tree.batch_engine.batch_stage_stats()` / `batch_stage_reset()` expose the ten stages (`decode`, `dedup`, `trace`, `merge`, `lower`, `compile`, `load`, `upload`, `run`, `gather`) plus the pool's own `batch_compile_wall_ms` and `batch_compile_jobs`.
+`evogp.tree.batch_engine.describe_plan()` reports the resolved shape as `compile_workers` / `chunk_count` / `chunk_sizes`.
+The stage counters are SUMS over pool threads, so a `batch_<stage>_total_ms` is compared against `batch_compile_wall_ms` and never read as wall time.
+
+### 13.2 Cold compile: 11065.6 ms → 4444.2 ms at the shipped default
+
+`p256-L32-i8-N1024`, `first_call_ms` (the untimed first call, one process per config):
+
+| record | `EVOGP_BATCH_COMPILE_WORKERS` | chunks (`chunk_sizes`) | `first_call_ms` | vs pre-round |
+|---|---|---|---|---|
+| `base/` (pre-round tree) | absent | 1 (whole graph) | 11065.6 | 1.00× |
+| `after_w1/` | `1` | 1 `[225]` | 11054.3 | 1.00× |
+| `after_default/` | `4` (shipped) | 4 `[57, 56, 56, 56]` | **4444.2** | **2.49×** |
+| `after_w8/` | `8` | 7 `[33, 32, 32, 32, 32, 32, 32]` | 3782.2 | 2.93× |
+
+`W=1` reproduces the pre-round single-executable path — one chunk, one executable, cold within 0.1 % — so the sweep isolates the pool and nothing else.
+The shipped default buys a 2.49× cold reduction and the 7-chunk request a further 1.18× on top of it.
+
+### 13.3 Parallel efficiency of the pool
+
+Per-chunk compile sum (`batch_compile_total_ms`) against the pool's own wall time, same cell:
+
+| record | compile sum (thread sum) | `batch_compile_wall_ms` | `batch_compile_jobs` | efficiency |
+|---|---|---|---|---|
+| `after_w1/` | 9946.0 | 10600.7 | 1 | 0.94× |
+| `after_default/` | 13057.4 | 4028.5 | 4 | 3.24× (81 % of 4 workers) |
+| `after_w8/` | 18217.5 | 3354.9 | 7 | 5.43× (78 % of 7 chunks) |
+
+The compile stage therefore scales close to the worker count but not linearly — the per-body fixed cost (one lower + one iree compile + one load) and the pool's own overhead are what the missing 19–22 % is.
+
+### 13.4 Where the cold call goes at W=4
+
+Inside the 4444.2 ms call:
+
+- compile-pool wall 4028.5 ms = **90.6 %** of the call, over 4 jobs;
+- trace + merge 363.3 ms ≈ 8.2 %, decode 4.7 ms ≈ 0.1 %, upload + run + gather 45.0 ms ≈ 1.0 % — all outside the pool, so the part of the cold call outside it stays under a tenth;
+- the thread-summed counters INSIDE the pool are lower 1818.8 ms, compile 13057.4 ms and load 277.6 ms (6.2 % of the call as a thread sum), and their sum spread over the 4 threads (3788.5 ms) accounts for most of the 4028.5 ms pool wall.
+
+Lower is inside the pool at 1818.8 ms because each chunk lowers its own merged graph; the cold call is a compile problem, and the chunk that lowers is the unit of that problem.
+
+### 13.5 The warm call pays for it, and the knee sits at 4
+
+`sr_fitness` at `p256-L32-i8-N1024`, with the warm stage split (`run` / `upload` / `gather`, per-call medians from the stage counters):
+
+| record | `sr_fitness` median | vs pre-round | run / upload / gather | vs `dense` |
+|---|---|---|---|---|
+| `base/` | 2.011 ms | 1.00× | not instrumented | 1.86× |
+| `after_w1/` | 2.013 ms | 1.00× | 1.198 / 0.212 / 0.318 ms | 1.86× |
+| `after_default/` | **3.628 ms** | **1.80×** | 1.949 / 0.752 / 0.622 ms | 3.35× |
+| `after_w8/` | 5.033 ms | 2.50× | 2.405 / 1.247 / 0.997 ms | 4.65× |
+| `after_dense/` | 1.082 ms | 0.54× | no stage counters | 1.00× |
+
+A warm call now dispatches one invocation per chunk, which is the whole of the 1.80×: run 1.198 → 1.949 ms, upload 0.212 → 0.752 ms and gather 0.318 → 0.622 ms.
+Break-even for a FIXED population in one process is ≈4100 warm calls — the 6621.4 ms of cold saved divided by the 1.617 ms of warm added — and a generation loop never gets there upward: the 6-generation loop total (`sum_total_ms`) is 12773 ms at `W=4` against 25134 ms at `W=1` and 24803 ms pre-round, i.e. the cold saving dominates (still 45× dense's 281 ms).
+Going 4 → 7 chunks buys only a further 1.18× cold (4444.2 → 3782.2 ms) while costing 1.39× more warm (3.628 → 5.033 ms), so the shipped default of 4 sits on the right side of the knee at this cell and stays.
+
+### 13.6 Chunking is inert on the fixed-population niche cell
+
+`p64-L64-i32-N64` has 63 deduped functions, and `63 // 32 = 1` forces one chunk and one worker at every requested width:
+
+| record | chunks | `first_call_ms` | `sr_fitness` median |
+|---|---|---|---|
+| `base/` | 1 | 2248.0 | 1.041 ms |
+| `after_w1/` | 1 `[63]` | 2257.4 | 1.107 ms |
+| `after_default/` | 1 `[63]` | 2240.8 | 1.127 ms |
+| `after_w8/` | 1 `[63]` | 2279.0 | 1.121 ms |
+| `after_dense/` | — | 6437.1 | 1.385 ms |
+
+Cold (2240.8 vs 2248.0 ms pre-round) and warm (1.127 vs 1.041 ms) are unchanged within noise, and the route still beats dense there (warm 1.127 vs 1.385 ms, cold 2.2 s vs 6.4 s), so §3's niche verdict is unaffected by the pool.
+The plan shape must be read from `first_call.stage_ms.plan` (`compile_workers` / `chunk_count` / `chunk_sizes`), never from `batch_policy.compile_workers`: on this cell the policy reports the requested 4 while the plan holds one chunk of 63 functions.
+
+### 13.7 Reuse: the plan key is a no-op in a generation loop, the exec table is per chunk
+
+The plan counters are identical pre-round and at `W=4` after one cold call plus 6 generations — `batch_plan_hits` 9, `batch_plan_misses` 6, `batch_plan_entries` 6, `batch_exec_hits` 0 — so the content-addressed plan key buys nothing in a GP loop: 6 generations present 6 distinct structure multisets (`generation_hit_rate` 1/6, the single hit being the starting population the warm workload had already evaluated).
+The exec table is per chunk: a chunked plan stores one executable per chunk, so the cold call occupies 4 entries, the 6-generation loop records 22 exec misses and the table saturates `EVOGP_BATCH_CACHE_SIZE = 8` (two merged populations), where the pre-round path recorded 6 entries (one per graph).
+A generation loop therefore evicts the previous population's chunks by construction at `W=4`, which is a second, independent reason the chunked pool is a cold-start lever rather than a loop lever.
+
+### 13.8 Open items this round did not settle
+
+- `EVOGP_BATCH_BAND_SIZE` / `EVOGP_BATCH_BANDS` against `chunk_count`: an explicit band count and `switch_ops` both force the single-body path, so no cell here separates the two knobs.
+- Whether `EVOGP_BATCH_CACHE_SIZE` should scale with the chunk count, given that one population now needs `ceil(chunks / cache)` of the table.
+- The long-tree and pop-1000 cells of §11 (`tree_len` 128/256, pop 1000): none measured here, because the box is shared and one merged-graph compile at pop 1000 costs minutes.
+
+### 13.9 Reproduce and gate
+
+From the repository root, with the project venv, one process per config (`batch_economics.py` writes `<out-dir>/<cell>/<route>.json` plus one `economics.json` per directory):
+
+```bash
+PY=/tmp/genesis/task_a996674198ffbcee/evogp-venv/bin/python
+export PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1
+CELLS=p256-L32-i8-N1024,p64-L64-i32-N64
+OUT=test/benchmark/evoxc/results/batch_opt_round1
+
+# 1. HEAD, shipped default (the knob unset)
+$PY test/benchmark/evoxc/batch_economics.py --cells $CELLS --routes batch --generations 6 --out-dir $OUT/after_default
+
+# 2. the W sweep: one knob value per process, one process per config
+$PY test/benchmark/evoxc/batch_economics.py --cells $CELLS --routes batch --generations 6 \
+  --knob EVOGP_BATCH_COMPILE_WORKERS=1 --out-dir $OUT/after_w1
+$PY test/benchmark/evoxc/batch_economics.py --cells $CELLS --routes batch --generations 6 \
+  --knob EVOGP_BATCH_COMPILE_WORKERS=8 --out-dir $OUT/after_w8
+
+# 3. the pre-round column (the tree at 619cbf7 checked out elsewhere) and the dense column
+$PY test/benchmark/evoxc/batch_economics.py --cells $CELLS --routes batch --generations 6 \
+  --tree-root <checkout of 619cbf738af0bf839085879193f163d383bd9fbc> --out-dir $OUT/base
+$PY test/benchmark/evoxc/batch_economics.py --cells $CELLS --routes dense --generations 6 --out-dir $OUT/after_dense
+
+# 4. gate the round through its campaign-format record
+python3 test/benchmark/evoxc/check.py --results $OUT/campaign \
+  --allow-snapshot --allow-missing --allow-digest-mismatch
+# expected: 3 records / 88 checks / 0 failures
+```
+
+`batch_economics.py` records carry the `evogp-bench-evoxc-v1-batch-economics` schema, so `check.py` gates a campaign-format directory only — `results/batch_opt_round1/campaign/` is that directory for this round, and the economics directories are evidence next to it, not gateable units.
