@@ -1194,6 +1194,9 @@ def test_the_batch_tables_are_disjoint_from_every_other_stats_surface() -> None:
     (``batch_content_stats()``, all ``batch_content_*``) is the fifth surface and is
     disjoint from all of them as well -- a ``batch_content_*`` key in the cache
     counters (or a cache counter in the content table) is a regression.
+    The content surface is compared against the three NON-content surfaces only
+    (comparing it with itself would be vacuous); its disjointness from
+    ``batch_cache_stats()`` is the explicit assertion above.
     """
     batch_keys = set(B.batch_cache_stats())
     dense_keys = set(D.dense_cache_stats())
@@ -1212,12 +1215,11 @@ def test_the_batch_tables_are_disjoint_from_every_other_stats_surface() -> None:
         ("dense_cache_stats", dense_keys),
         ("cache_stats", engine_keys),
         ("artifact_cache_stats", artifact_keys),
-        ("batch_content_stats", content_keys),
     ):
         assert content_keys.isdisjoint(keys), (name, sorted(content_keys & keys))
     leaked = sorted(
         key
-        for key in dense_keys | engine_keys | artifact_keys | content_keys
+        for key in dense_keys | engine_keys | artifact_keys
         if key.startswith("batch_")
     )
     assert not leaked, f"a batch table leaked into another stats surface: {leaked}"

@@ -48,8 +48,9 @@ Mechanics
   ``EVOGP_BATCH_MIN_POP=1``; the front tables are bracketed with
   ``evoxc_engine.clear_cache()`` and the knobs are deleted per test.
 * No wall-clock assertion: the checks are counters, ``torch.equal`` and the
-  independent oracle (``reference_eval.sr_fitness_from_rows`` via
-  ``test_equivalence``).
+  independent oracle (``test_equivalence.reference_sr_fitness`` over a ``Forest``
+  built from the rows under test -- ``reference_eval`` has no rows-level
+  re-export there).
 * The digest helper is located through a small candidate list at CALL time (the
   tree layer that defines it is landing in parallel): a module-level reference
   would break this whole file's collection instead of failing one test.
@@ -79,6 +80,7 @@ if str(_HERE) not in sys.path:
 
 import test_equivalence as te  # noqa: E402  (the shared spec DSL)
 
+from evogp.tree import Forest  # noqa: E402
 from evogp.tree import batch_engine as B  # noqa: E402
 from evogp.tree import batch_knobs  # noqa: E402
 from evogp.tree import batch_programs  # noqa: E402
@@ -280,6 +282,19 @@ def _content_stats() -> Dict[str, int]:
     return B.batch_content_stats()
 
 
+def _oracle_forest(
+    values: torch.Tensor,
+    types: torch.Tensor,
+    sizes: torch.Tensor,
+) -> Forest:
+    """A CPU ``Forest`` of exactly the rows under test (the oracle needs the container).
+
+    Built from the SAME tensors the engine is handed (never regenerated from the
+    specs), so a mismatch can only come from the engine.
+    """
+    return Forest(INPUT_LEN, 1, values, types, sizes)
+
+
 def _oracle(
     values: torch.Tensor,
     types: torch.Tensor,
@@ -288,9 +303,14 @@ def _oracle(
     labels: torch.Tensor,
     use_mse: bool = True,
 ) -> torch.Tensor:
-    """The independent plain-torch loss (``reference_eval``) of the same rows."""
-    return te.sr_fitness_from_rows(
-        values, types, sizes, inputs, labels, use_mse=use_mse, out_len=1
+    """The independent plain-torch loss (``reference_eval``) of the same rows.
+
+    The repo's oracle recipe is the container-based one (``test_batch_engine.py``'s
+    ``_forest`` + ``te.reference_sr_fitness``); ``test_equivalence`` has no
+    rows-level ``sr_fitness_from_rows`` re-export.
+    """
+    return te.reference_sr_fitness(
+        _oracle_forest(values, types, sizes), inputs, labels, use_mse
     )
 
 
