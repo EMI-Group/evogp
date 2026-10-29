@@ -100,7 +100,7 @@ resolver > the documented default (`batch_policy.knobs_source` says which applie
 
 | knob | documented default | meaning |
 |---|---|---|
-| `EVOGP_BATCH_BAND_SIZE` | `32` | programs per band: the population is merged one band of trees at a time |
+| `EVOGP_BATCH_BAND_SIZE` | `16` | programs per band: the merge splits the population's deduped function count into `K = ceil(n / size)` bands, clamped by the binding policy (ROCm/HIP: `K ≤ 15`, and `≥ 8` functions per band) |
 | `EVOGP_BATCH_BANDS` | engine default (unset) | an explicit band count `K`, or `none`/`flat` for one unbanded merge (O(N²) in the population — what the `-flat` arm times) |
 | `EVOGP_BATCH_SWITCH_OPS` | `off` | whether the merged graph may use switch ops (read from the engine's own resolver) |
 | `EVOGP_BATCH_ALIGNMENT` | `variant` | band variants are aligned before the merge instead of being padded per call |
@@ -240,13 +240,18 @@ holds for every cell above.
   p1000-L32-i8-N1024 and 162.0 s at p1000-L64-i32-N1024 in the gateable
   `results/batch/warm-r5` records, 166.9 s in the `--reps 3` pilot
   `results/batch/warm`), plus 102.7 s for a flat, K=1 merge at pop 1000 — i.e.
-  exactly the numbers a scoping rule would be built from. The shipped default of
-  4 chunk compiles (`EVOGP_BATCH_COMPILE_WORKERS`) compiles pop 256 cold in
-  4.44 s (3.78 s at 7 chunks) against 1.80× the warm call (2.011 → 3.628 ms),
-  and chunking is inert below 32 deduped functions, so the pop-64 cells stay at
-  2.2–2.9 s per workload — see
-  [`BATCH.md`](BATCH.md) §6 and §13 and
-  [`results/batch_opt_round1/SUMMARY.md`](results/batch_opt_round1/SUMMARY.md).
+  exactly the numbers a scoping rule would be built from. The shipped default — band
+  size 16, `EVOGP_BATCH_COMPILE_WORKERS` 4, no band request — is the **chunked** shape
+  at pop 256 (`chunk_sizes` `[57, 56, 56, 56]`: 4 180.6 ms cold and 3.5736 ms warm on
+  `p256-L32-i8-N1024` `sr_fitness`, against the pool-1 single-body control's
+  11 049.4 / 2.0331 ms), and chunking is inert below 32 deduped functions, so the pop-64
+  cells stay on the single-body path (the pool-1 control's 2 298.7 / 1 675.9 / 1 059.2 ms
+  cold per workload at `p64-L64-i32-N64` are the shapes the shipped default runs there).
+  The same shape at the previous band size of 32 read 4.44 s cold and
+  1.80× the warm call (2.011 → 3.628 ms; 3.78 s at 7 chunks) — see
+  [`BATCH.md`](BATCH.md) §6, §13 and §14,
+  [`results/batch_opt_round1/SUMMARY.md`](results/batch_opt_round1/SUMMARY.md) and
+  [`results/batch_opt_round2/`](results/batch_opt_round2/).
   `--timeout` (default 1800 s per
   config) bounds a runaway config, and a batch-arm config that exceeds it is
   recorded as `status: "timeout"` with its worker log as evidence, never retried
@@ -475,7 +480,9 @@ driver run. On top of `batch` / `batch-flat` / `dense` (each still exactly its r
 arm), round 2's generation-loop column registers `batch-banded`
 (`EVOGP_BATCH_BANDS=auto`, `EVOGP_BATCH_COMPILE_WORKERS=1`), `batch-flat-chunked`
 (`EVOGP_BATCH_BANDS=none`, `EVOGP_BATCH_COMPILE_WORKERS=4`, `EVOGP_BATCH_CHUNK_BANDS`
-deliberately **unset**: off, a band request forces the single-body path) and
+deliberately **unset**: the chunk gate refuses an explicit `EVOGP_BATCH_BANDS` spelling —
+`none`/`flat` included — without that opt-in, so this route stays single-body despite its
+pool) and
 `batch-auto-chunked` (`EVOGP_BATCH_BANDS=auto`, `EVOGP_BATCH_CHUNK_BANDS=1`,
 `EVOGP_BATCH_COMPILE_WORKERS=4`).
 The env layers are applied in one order, the same one the dry run reports:
@@ -513,12 +520,17 @@ Consequently the route is **dominated by the shipped `dense+iree` route at every
 dense's warm `sr_fitness`, and a `gp_step` 193–2355× slower than dense (5.36 vs 3446.20 ms at p256-L32, 12.35 vs
 17524.31 ms at p1000-L64). Its merged compile against dense's 3.4–6.5 s depends on the compile path: the
 single-executable arm (`EVOGP_BATCH_COMPILE_WORKERS=1`) pays 10.9–12.2 s at pop 256 and 91.0–162.0 s at
-pop 1000, while the shipped default of 4 chunk compiles compiles pop 256 cold in 4.44 s (3.78 s at 7 chunks)
-at 1.80× the warm call — [`BATCH.md`](BATCH.md) §13. It beats `specialized+numpy` warm by 8.7–29.6× but `auto` never selects it.
+pop 1000, while the shipped default (band size 16, 4 chunk compiles) compiles pop 256 cold in 4.18 s
+at 1.76× the warm single-body call (2.0331 → 3.5736 ms) — [`BATCH.md`](BATCH.md) §13 and §14. It beats
+`specialized+numpy` warm by 8.7–29.6× but `auto` never selects it.
 Its one win on this grid is a **fixed** population of ~64 trees over few data rows — p64-L64-i32-N64:
 0.979 ms vs dense's 1.410 ms, cold 2.17 s vs 6.18 s — a per-call win that a generation loop still loses.
 The loss and per-row paths match the oracle to ~1e-7 rel; `batch_forward` on the arithmetic set is
 non-bitwise where dense is exact, which is why the batch arms form their own digest group.
+
+The band-policy decision and its evidence are [`BATCH.md`](BATCH.md) §14 — band size 16, `EVOGP_BATCH_BANDS=auto`
+opt-in only, `EVOGP_BATCH_CHUNK_BANDS` off — and the round-2 band/composition records live in
+[`results/batch_opt_round2/`](results/batch_opt_round2/).
 
 ### Long trees: where the route actually wins
 

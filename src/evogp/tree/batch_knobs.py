@@ -50,11 +50,17 @@ from .evoxc_engine import _env_int
 #: :data:`evogp.tree.dense_engine.EVAL_MODES` and calls the two entry points here.
 EVAL_MODE = "batch"
 #: Band SIZE of the merge (``EVOGP_BATCH_BAND_SIZE``): ``K = ceil(n / size)``
-#: bands, clamped to ``1 <= K <= n``.  32 measured as a sound default: it keeps
-#: the per-band variant count low without splitting a small population into
-#: bands that each re-pay their own input slice and output concatenate.
+#: bands, clamped to ``1 <= K <= n``.  16 is the measured minimax default: over the
+#: nine warm columns of the band sweep it is the only setting never more than ~6 %
+#: off any column (pooled geomean 1.0185, worst column 1.061 -- against 1.0223 /
+#: 1.137 for 32 and 1.529 for the flat merge), and at the 225-245 deduped function
+#: count of a pop-256 population it lands on ``K = 15-16``, i.e. right at the
+#: ``K <= 15`` dispatch-binding cap, whose 8-functions-per-band floor also makes a
+#: band size below 8 pointless on a GPU HAL.  Fewer/larger bands lose on the
+#: per-row ``forward`` path (up to 1.5x against the flat merge), which is the
+#: workload that decides the default; the wide-row loss path is flat in ``K``.
 BAND_SIZE_ENV = "EVOGP_BATCH_BAND_SIZE"
-DEFAULT_BAND_SIZE = 32
+DEFAULT_BAND_SIZE = 16
 #: Explicit band count (``EVOGP_BATCH_BANDS``): an int ``K`` with
 #: ``1 <= K <= n_functions``, the ``auto`` spelling (let evoxc's static cost model
 #: pick the partition), or one of the flat spellings ``none`` / ``flat`` / ``0``,

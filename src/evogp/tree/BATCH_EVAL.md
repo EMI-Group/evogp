@@ -80,9 +80,9 @@ Two variants exist: `value` (`(pop, N, out_len)`; `per_row` selects the `(pop, i
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `EVOGP_BATCH_MIN_POP` | `64` | `pop_size` threshold; below it the route declines (measured break-even, §5) |
-| `EVOGP_BATCH_BAND_SIZE` | `32` | band **size**: `K = ceil(n_functions / size)`, clamped to `1 <= K <= n`, then to the device's binding cap (§9.6) |
+| `EVOGP_BATCH_BAND_SIZE` | `16` | band **size**: `K = ceil(n_functions / size)`, clamped to `1 <= K <= n`, then to the device's binding cap (§9.6); `16` is the measured minimax setting (never more than ~6 % off any of the 9 warm sweep columns, and `K = 15–16` at a pop-256 population's 225–245 functions, i.e. at the `K <= 15` binding cap) |
 | `EVOGP_BATCH_BANDS` | unset | explicit band count `K`, the `auto` spelling (evoxc's cost model picks the partition, §9.6), or a flat spelling (`none` / `flat` / `0`), which means an explicit single band (`K = 1`, byte-identical to `=1`); an out-of-range `K` raises `ValueError`, and so does a `K` the device cannot LOAD |
-| `EVOGP_BATCH_CHUNK_BANDS` | off | compose the band request with the chunked compile (§9.6); off keeps round 1's rule that a band request forces `W == 1` |
+| `EVOGP_BATCH_CHUNK_BANDS` | off | compose the band request with the chunked compile (§9.6); off keeps round 1's rule that a band request forces `W == 1`; on it wins 2.6–2.8× cold but loses 1.6–2.5× warm, so it stays a fixed-population lever |
 | `EVOGP_BATCH_SWITCH_OPS` | off | op-switching transform; forces the flat merge (`K = 1`) and is **not** combined with banding |
 | `EVOGP_BATCH_ALIGNMENT` | `variant` | `variant` / `occurrence` / `auto`; a pure evoxc performance heuristic, can never change the numbers |
 | `EVOGP_BATCH_CACHE_SIZE` | `8` | entries of both front tables; read at **import** time like `EVOGP_EVOXC_CACHE_SIZE` |
@@ -90,7 +90,7 @@ Two variants exist: `value` (`(pop, N, out_len)`; `per_row` selects the `(pop, i
 
 Banding trades dispatches for wasted work: `K` bands means `K` `select` cascades instead of one per
 population. `bands="auto"` hands the partition to evoxc's static cost model; the shipped DEFAULT stays the
-band-SIZE model, because whether `auto` beats it is the measurement campaign's question (§9.6). Only
+band-SIZE model at size 16, because `auto` is measured slower than the numeric default (§9.6). Only
 unset/empty hands the decision to the band-size model; the flat spellings are an explicit `K = 1` (§9.1).
 Every resolved band count is vetted against the device's dispatch-binding cap before the merge: the model
 and `auto` are clamped with a recorded note, an explicit `K` that cannot load raises (§9.6).
@@ -165,7 +165,7 @@ route is not a GP-loop route.** Its win is the lowest per-call host cost and a 7
 specialized+numpy at `pop >= 64` — it pays when the SAME population/dataset is evaluated many times
 (repeated fitness passes, a frozen population being benchmarked, an analysis sweep), not per generation.
 
-`batch_report` / `describe_plan` on the loss graph: pop 64 / `L=32` / `il=8` → 59 unique functions
+`batch_report` / `describe_plan` on the loss graph (at the round-1 band-size model 32): pop 64 / `L=32` / `il=8` → 59 unique functions
 (64 rows → 59 after dedup), `bands=2` with sizes `[30, 29]`, `emitted_ops=920`, 672 value classes /
 70 shared / 12 stacked constants / 2 output muxes; pop 256 / `L=32` / `il=8` → 222 unique, `bands=7`
 `[32,32,32,32,32,31,31]`, 3756 ops; pop 256 / `L=32` / `il=32` → 234 unique, `bands=8` (sizes 29–30),
@@ -173,7 +173,7 @@ specialized+numpy at `pop >= 64` — it pays when the SAME population/dataset is
 
 ### 5.1 Scale envelope / limits
 
-Measured on the same box (loss variant, `per_row=False`, default band-size model 32,
+Measured on the same box (loss variant, `per_row=False`, the round-1 band-size model 32,
 `using_funcs=["+","-","*","/","sin","cos","exp","log","sqrt","max","min"]`, `max_layer_cnt=5`,
 `L=32`, `il=8`, `N=128`):
 
@@ -195,9 +195,9 @@ binding_flags count 22 exceeds maximum of 16` — a hard IREE ROCm HAL limit on 
 executable, not a bug in this route.
 That wall is now a POLICY rather than a load failure (§9.6): the band-size model and `auto` are clamped to
 the device's safe band count and an explicit `K` above it raises before the merge.
-On the ROCm HAL the clamp is `K <= 15`, so re-applying the default band SIZE of 32 to the pop-2048 row
-above (1443 functions → 46 bands) now resolves to 15 bands, while numpy and Vulkan are uncapped and keep
-the modelled count.
+On the ROCm HAL the clamp is `K <= 15`, so the pop-2048 row above (1443 functions) resolves to 15 bands at
+the shipped band size of 16 (91 modelled) and at the round-1 size of 32 (46 modelled), while numpy and
+Vulkan are uncapped and keep the modelled count.
 
 ## 6. Numerics
 
@@ -303,7 +303,7 @@ each); `batch_engine` stays the public facade and re-exports everything, so no c
 
 `bands` splits the population into contiguous bands and merges each band separately (one `select`
 cascade per band instead of one per population), which trades dispatches for wasted work. The knob is a
-band **size** (`EVOGP_BATCH_BAND_SIZE`, default 32): `K = ceil(n_functions / band_size)`, clamped to
+band **size** (`EVOGP_BATCH_BAND_SIZE`, default 16): `K = ceil(n_functions / band_size)`, clamped to
 `1 <= K <= n_functions`; `K == 1` reduces to the flat merge. `EVOGP_BATCH_BANDS` overrides the model with
 an explicit `K`; the flat spellings `none` / `flat` / `0` are an explicit `K = 1` (same plan as
 `EVOGP_BATCH_BANDS=1`: `band_sizes == [n_functions]`, `band_strategy == "flat"`), NOT a hand-back to the
@@ -395,7 +395,7 @@ So 200 functions cap at 15 bands on a GPU HAL and at 31 on the CPU HAL, while 8 
 
 **Clamp vs refuse.** The band-SIZE model and an `auto` resolution can both exceed the cap (the cost model is CPU-calibrated and knows nothing about bindings), so they are CLAMPED and the clamp is recorded: `plan_band_spec` lowers a modelled count to `policy.cap(n)` before the merge, and `merge_with_spec` lowers an `auto` answer AFTER the merge by re-merging ONCE at the clamped count (both merges stay inside the `merge` stage), keeping the auto merge's `cost_estimate` / `flat_cost_estimate` so a record still shows what the model chose.
 The report then carries `band_clamped=True` and a `band_note` naming the requested `K`, the cap, the 16-binding reason and the remedy, e.g.
-`the band-size model (EVOGP_BATCH_BAND_SIZE=32) chose 46 bands but iree/rocm can only load 15: a banded merge emits one exported dispatch per band and one exported dispatch may bind at most 16 tensors on the ROCm/HIP HAL (iree runtime src/iree/hal/drivers/hip/native_executable.c), so at most 15 bands can load here; the merge was clamped to 15 bands. Raise EVOGP_BATCH_BAND_SIZE so fewer bands are chosen, or pass an explicit EVOGP_BATCH_BANDS=K with K <= 15 to pick the partition yourself.`
+`the band-size model (EVOGP_BATCH_BAND_SIZE=16) chose 16 bands but iree/rocm can only load 15: a banded merge emits one exported dispatch per band and one exported dispatch may bind at most 16 tensors on the ROCm/HIP HAL (iree runtime src/iree/hal/drivers/hip/native_executable.c), so at most 15 bands can load here; the merge was clamped to 15 bands. Raise EVOGP_BATCH_BAND_SIZE so fewer bands are chosen, or pass an explicit EVOGP_BATCH_BANDS=K with K <= 15 to pick the partition yourself.` (that is the shipped default at a pop-256 per-row plan: 245 deduped functions).
 An EXPLICIT `EVOGP_BATCH_BANDS=K` is never clamped: a `K` the device provably cannot load raises `ValueError` naming the variable, the backend/device kind, the real limit, the runtime source and the remedy, instead of letting an iree `BackendError` escape at load — a plausible band count that cannot load is a configuration bug, not a preference.
 The message shapes (quoted at 200 functions with `K = 48`, plus the size-floor case):
 
@@ -408,9 +408,14 @@ numpy and vulkan never clamp and never raise (no binding cap), and `resolve_band
 **`EVOGP_BATCH_BANDS=auto`.** The spelling passes `bands="auto"` to `evoxc.batch_functions`, whose static cost model scores the flat partition, the two structural candidates (the fingerprint partition — programs that would share every class — and that partition with its singleton groups coalesced into one trailing band) and the geometric ladder `k` in `(2, 4, 8, 16, 32, 64)` clipped to `2..n-1` plus `k = n`, then reports the choice on the merged graph's `batch_report` (`band_strategy == "auto"`, `band_sizes`, `cost_estimate`, `flat_cost_estimate`).
 Flat is candidate 0, so the chosen cost can never exceed the flat cost, and a resolved `K == 1` delegates to the flat emitter (byte-identical to `bands=None`).
 The merged compile time is flat in `K` (upstream measurement), so the binding clamp costs no compile time and the model's choice is a WARM-cost choice.
-The shipped DEFAULT is still the band-SIZE model (`EVOGP_BATCH_BAND_SIZE=32`, `K = ceil(n / size)`): `auto` is opt-in and the measurement campaign decides whether it becomes the default — on a GP population the fingerprints are nearly all distinct, which is exactly the case the ladder exists for.
+The shipped DEFAULT is the band-SIZE model at size 16 (`EVOGP_BATCH_BAND_SIZE=16`, `K = ceil(n / size)`); `auto` stays an OPT-IN spelling and is measured slower than the numeric default (round-2 verdicts in `test/benchmark/evoxc/results/batch_opt_round2/`).
+On the warm sweep of the three cells × three workloads (9 columns, `test/benchmark/evoxc/results/batch_opt_round2/warm/`) band size 16 is the only setting ranked 1st or 2nd in every cell and has the best worst column (pooled geomean 1.0185 / worst 1.061, against 1.0223 / 1.137 for 32 and 1.529 for the flat merge), which is why 16 and not 32 is the numeric default.
+`auto` never won a column (0/9 warm): the model is CPU-calibrated and knows nothing about a device's dispatch-binding cap, so on the wide-row (loss / population-batched value) plans it overshoots by 14.2–14.7× at pop 256 (213 / 220 bands for 225 / 232 functions) and is then clamped, while on the per-row `forward` plan it undershoots to 4 bands (pop 256) or the flat merge (pop 64) where it is not clamped at all; the clamp's re-merge costs a further 0.18–1.11 s of host merge per cold call (`test/benchmark/evoxc/results/batch_opt_round2/auto/`).
+`EVOGP_BATCH_BANDS=auto` therefore remains a spelling a caller can ask for (and its report shows what the model chose), never the default.
+The binding caps still bound the model (`K <= 15` with at least 8 functions per band on CUDA/ROCm, `K <= 31` on the local-task CPU HAL, uncapped on numpy/Vulkan), and the size model is CLAMPED to them with a recorded note — at 225–245 functions band size 16 lands on `K = 15–16`, i.e. exactly on that ceiling.
 
 **Chunked compile composed with banding (`EVOGP_BATCH_CHUNK_BANDS`, default off).** Round 1 measured the band sweep on the single-body path, so by default a band request (an explicit count, a flat spelling or `auto`) forces `W == 1` and `EVOGP_BATCH_COMPILE_WORKERS` is ignored.
+Round 2 measured the composition (`test/benchmark/evoxc/results/batch_opt_round2/composition/`) and it stays OFF: `b16` + composition is 0.35–0.40× the single-body arm's COLD call on the two wide-row plans and 0.54× on the per-row one (2.6–2.8× cheaper cold), but 1.61–2.47× the same arm WARM, because four separate upload / run / read-back trios pay per call where one body pays one; the warm loss is the composition itself, not the band policy.
 With the knob on, each of the `W` contiguous chunks is merged with the SAME request sized to the chunk: `auto` per chunk (clamped per chunk against the chunk's own function count), an explicit global `K` split proportionally by `chunk_band_count(global_k, chunk_n, n, policy) = max(1, min(chunk_n, policy.cap(chunk_n), ceil(global_k * chunk_n / n)))`, and the band-SIZE model re-applied to the chunk.
 Chunks stay contiguous slices of the global function order, so `functions` / `row_index` / `function_rows` and the assembled rows are unchanged and the numbers equal the unchunked plan's (bitwise on numpy, measured).
 `switch_ops` still always forces `W == 1`, and the setting is part of BOTH plan memo keys, so flipping it in one process re-plans instead of serving the other plan.

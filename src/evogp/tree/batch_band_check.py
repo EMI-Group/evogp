@@ -201,7 +201,7 @@ def case_default(report: Report) -> None:
     info = B.describe_plan(_plan(_population(40)))
     expected = -(-info["n_functions"] // K.DEFAULT_BAND_SIZE)
     report.add("default: 40 distinct functions, so the size model really bands",
-               info["n_functions"] == 40 and expected == 2,
+               info["n_functions"] == 40 and expected >= 2,
                f"n_functions={info['n_functions']} expected_K={expected}")
     report.add("default: requested 'size' and bands == ceil(n / band size)",
                info["band_requested"] == "size" and info["bands"] == expected

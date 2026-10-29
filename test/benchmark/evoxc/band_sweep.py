@@ -53,7 +53,7 @@ Reproduce on the GPU box
     PY=/tmp/rocvenv/bin/python
     export EVOXC_DISABLE_LOCATIONS=1
     $PY test/benchmark/evoxc/band_sweep.py --dry-run     # planned env of every (cell, config, workload)
-    $PY test/benchmark/evoxc/band_sweep.py               # the full sweep: 3 cells x 8 configs
+    $PY test/benchmark/evoxc/band_sweep.py               # the full sweep: 3 cells x 9 configs
     $PY test/benchmark/evoxc/band_sweep.py --cold-only --cells p64-L64-i32-N64 --configs auto
     $PY test/benchmark/evoxc/band_sweep.py --child p64-L64-i32-N64 --config b32 \
         --workloads sr_fitness --warmup 1 --reps 2 --out "$TMPDIR/band.json"
@@ -103,7 +103,7 @@ from cold_start import install_tree_root  # noqa: E402  (the one tree-switch hel
 #: merged graph is expensive enough to price) and one cheap pop-64 cell (the fixed-population
 #: regime the route is documented to win, and exactly ON the ``EVOGP_BATCH_MIN_POP`` floor).
 DEFAULT_CELLS = "p256-L32-i8-N1024,p256-L64-i32-N1024,p64-L64-i32-N64"
-DEFAULT_CONFIGS = "b8,b16,b32,b64,flat,auto,auto-cw4,flat-cw4"
+DEFAULT_CONFIGS = "b8,b16,b32,b64,flat,auto,auto-cw4,b16-cw4,flat-cw4"
 DEFAULT_WORKLOADS = "sr_fitness,batch_forward,forward"
 #: The measurement order is FIXED (never the caller's order): every record of a cell then
 #: pays for its three plans in the same sequence, so two configs are comparable call by call.
@@ -145,7 +145,8 @@ SCHEMA_DRIVER = SCHEMA + "-driver"
 #: ``auto-cw4`` hand the partition to evoxc's static cost model (``band_requested == "auto"``,
 #: then possibly clamped).  ``EVOGP_BATCH_CHUNK_BANDS`` is set by ``auto-cw4`` and ``b16-cw4``
 #: (the two banded+chunked compositions): an unbanded chunked plan needs no composition opt-in,
-#: and a band request without it would force the single-body path.
+#: and an explicit ``EVOGP_BATCH_BANDS`` spelling without it forces the single-body path (a band
+#: SIZE does not: a chunked plan keeps its band size per chunk).
 CONFIG_KNOBS: Dict[str, Dict[str, str]] = {
     "b8": {"EVOGP_BATCH_BAND_SIZE": "8", "EVOGP_BATCH_COMPILE_WORKERS": "1"},
     "b16": {"EVOGP_BATCH_BAND_SIZE": "16", "EVOGP_BATCH_COMPILE_WORKERS": "1"},
@@ -237,7 +238,7 @@ def check_workers(workers: int) -> int:
 
     The pool width is a CONFIG knob now, so this flag describes only the band-partition set (whose
     whole point is that the band partition alone differs between its records); ``auto-cw4`` /
-    ``flat-cw4`` run the pool and take their width from their own knob spec.
+    ``b16-cw4`` / ``flat-cw4`` run the pool and take their width from their own knob spec.
     """
     if int(workers) != 1:
         pools = ", ".join(f"{token}={CONFIG_KNOBS[token]['EVOGP_BATCH_COMPILE_WORKERS']}"
