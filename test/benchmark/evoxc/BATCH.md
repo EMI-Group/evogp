@@ -389,11 +389,14 @@ EVOGP_EVAL_MODE=dense EVOGP_EVOXC_BACKEND=iree $PY test/benchmark/evoxc/validate
   --cells p256-L32-i8-N1024,p256-L64-i32-N1024 --func-sets arith,rich,ternary \
   --out test/benchmark/evoxc/results/batch/validation-dense.json
 
-# 6. gates and renders
-$PY test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/batch/warm-r5 \
-  --allow-missing --allow-digest-mismatch --allow-snapshot
-$PY test/benchmark/evoxc/summarize.py --results test/benchmark/evoxc/results/batch/warm-r5 \
-  --out test/benchmark/evoxc/results/batch/RENDERED-warm-r5.md
+# 6. gates and renders (one directory at a time; the gate is per campaign directory)
+for d in warm-r5 small-r5 flat-r5 flat1000-3w-r5; do
+  $PY test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/batch/$d \
+    --allow-missing --allow-digest-mismatch --allow-snapshot
+  $PY test/benchmark/evoxc/summarize.py --results test/benchmark/evoxc/results/batch/$d \
+    --out test/benchmark/evoxc/results/batch/RENDERED-$d.md
+done
+# expected: 24/682, 36/1022, 4/126, 1/36 checks, 0 failures (see §9)
 ```
 
 ## 11. Caveats and known issues
