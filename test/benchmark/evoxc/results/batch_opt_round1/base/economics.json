@@ -1,0 +1,91 @@
+{
+ "schema": "evogp-bench-evoxc-v1-batch-economics",
+ "created_utc": "2026-10-29T19:33:23Z",
+ "measurement": "batch-compile-economics",
+ "driver_env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-29T19:33:29Z",
+  "tree_root": "/tmp/genesis/task_702c79ebc6d412af/evogp_preopt_619cbf7",
+  "tree_root_sha": null,
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A36",
+  "arm": "driver",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "2b289f034f6f8e16b6c9b55932dfed76cc54690e",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A36/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "note": "batch_opt_round1 BEFORE column: pre-round tree 619cbf7 (619cbf738af0bf839085879193f163d383bd9fbc), batch route, single-executable compile path (no chunking, no stage timers), 6 generations; shared MI300X, one config at a time; rocm-smi --showpids read 'No KFD PIDs currently running' immediately before this run",
+  "pythonpath": "/tmp/genesis/task_702c79ebc6d412af/evogp_preopt_619cbf7/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A36/test/benchmark/evoxc"
+ },
+ "protocol": {
+  "one_process_per_config": true,
+  "one_cell_per_process": true,
+  "sequential": true,
+  "cells": [
+   "p256-L32-i8-N1024",
+   "p64-L64-i32-N64"
+  ],
+  "routes": [
+   "batch"
+  ],
+  "route_arms": {
+   "batch": "evoxc-batch-iree"
+  },
+  "generations": 6,
+  "warmup": 2,
+  "reps": 5,
+  "seed": 0,
+  "timeout_s": 900,
+  "tree_root": "/tmp/genesis/task_702c79ebc6d412af/evogp_preopt_619cbf7",
+  "src": "/tmp/genesis/task_702c79ebc6d412af/evogp_preopt_619cbf7/src",
+  "pythonpath": "/tmp/genesis/task_702c79ebc6d412af/evogp_preopt_619cbf7/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A36/test/benchmark/evoxc",
+  "evoxc_disable_locations": {
+   "env": "EVOXC_DISABLE_LOCATIONS",
+   "value": "1",
+   "source": "caller",
+   "note": "honoured by every child: it speeds evoxc tracing up ~4x and is not part of the engine's cache key"
+  },
+  "batch_engine_present": true,
+  "knobs_override": {},
+  "out_dir": "/root/evogp/.genesis/workers/worker_T1_A36/test/benchmark/evoxc/results/batch_opt_round1/base"
+ },
+ "configs": [
+  {
+   "cell": "p256-L32-i8-N1024",
+   "route": "batch",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 44.24,
+   "record": "test/benchmark/evoxc/results/batch_opt_round1/base/p256-L32-i8-N1024/batch.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round1/base/p256-L32-i8-N1024/batch.log",
+   "detail": ""
+  },
+  {
+   "cell": "p64-L64-i32-N64",
+   "route": "batch",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 14.76,
+   "record": "test/benchmark/evoxc/results/batch_opt_round1/base/p64-L64-i32-N64/batch.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round1/base/p64-L64-i32-N64/batch.log",
+   "detail": ""
+  }
+ ],
+ "notes": [
+  "one child process per (cell, route): the merged-graph cache, the evoxc compile cache and the executable memo are per process, so a route loop inside one process would measure warm caches only",
+  "batch_opt_round1 BEFORE column: pre-round tree 619cbf7 (619cbf738af0bf839085879193f163d383bd9fbc), batch route, single-executable compile path (no chunking, no stage timers), 6 generations; shared MI300X, one config at a time; rocm-smi --showpids read 'No KFD PIDs currently running' immediately before this run"
+ ]
+}
