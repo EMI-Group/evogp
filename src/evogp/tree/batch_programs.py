@@ -7,8 +7,9 @@ per-function graph bodies, the structural dedup, the ``evoxc.trace`` /
 into :class:`evogp.tree.batch_knobs.BatchUnsupported`, :func:`plan_digest` (the
 content key of a plan), and :func:`_plan_host`, which produces the
 :class:`BatchPlan` of one call (the frozen programs, the row mapping, the traced
-graphs, and either the ONE merged graph of the single-body plan or one
-:class:`BatchChunk` per contiguous chunk of the deduped functions).
+graphs, and one :class:`BatchChunk` per compiled body -- the single-body plan's one
+chunk mirrors its whole-graph merged graph, a chunked plan's chunks are contiguous
+slices of the deduped functions).
 
 No compile, no front table and no torch tensor assembly happen here -- that is
 :mod:`evogp.tree.batch_engine` (front tables, run path) and
@@ -236,11 +237,14 @@ def _scalar(value: float) -> Any:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class BatchChunk:
-    """One compiled body of a CHUNKED plan (a contiguous slice of the functions).
+    """One compiled body of a plan (a contiguous slice of the deduped functions).
 
-    Only a plan with ``compile_workers > 1`` carries chunks; the single-body plan
-    keeps ``chunks == ()`` and describes itself through :attr:`BatchPlan.merged` /
-    :attr:`BatchPlan.graphs` / :attr:`BatchPlan.specs` instead.
+    EVERY plan carries one chunk per compiled body (:attr:`BatchPlan.chunks`), so
+    the record is always the authoritative read surface: a single-chunk plan's
+    ``chunks[0]`` covers the whole function list and its ``graphs`` / ``merged`` /
+    ``specs`` / ``report`` ARE the plan's whole-graph fields (same objects), while a
+    chunked plan's chunks are proper contiguous slices and the plan's whole-graph
+    fields stay empty.
 
     Attributes:
         index: the chunk's position (``0 <= index < chunk_count``); it is also the
@@ -256,7 +260,8 @@ class BatchChunk:
             population row each function was first seen at, i.e. the ``x`` row a
             ``per_row`` plan feeds it).
         graphs: the traced per-function :class:`evoxc.Graph` objects of this chunk.
-        merged: this chunk's merged :class:`evoxc.Graph`.
+        merged: this chunk's merged :class:`evoxc.Graph` (the plan's own graph for a
+            single-chunk plan).
         specs: the chunk's merged tensor input specs (``evoxc.TensorSpec``).
         report: ``merged.batch_report.as_dict()`` of this chunk.
         band_count: the chunk's own band count, resolved with
@@ -305,17 +310,20 @@ class BatchPlan:
             :attr:`BatchChunk.band_count`.
         switch_ops: whether op-switching was requested (forces ``band_count == 1``).
         alignment: the ``switch_ops`` class-alignment mode.
-        graphs: the traced per-function :class:`evoxc.Graph` objects -- SINGLE-body
-            plan only (``()`` when chunked).
-        merged: the merged :class:`evoxc.Graph` -- SINGLE-body plan only (``None``
-            when chunked).  ``merged.batch_report`` describes it.
+        graphs: the traced per-function :class:`evoxc.Graph` objects of the plan --
+            populated only when ``len(chunks) == 1`` (``()`` on a chunked plan, whose
+            per-chunk graphs live in :attr:`BatchChunk.graphs`).
+        merged: the merged :class:`evoxc.Graph` -- populated only when
+            ``len(chunks) == 1`` (``None`` on a chunked plan).  ``merged.batch_report``
+            describes it, and it IS ``chunks[0].merged``.
         specs: the merged graph's tensor input specs (``evoxc.TensorSpec``) --
-            SINGLE-body plan only (``()`` when chunked).
-        report: ``merged.batch_report.as_dict()`` of the single-body plan; for a
-            chunked plan an honest aggregate (``chunk_count`` / ``chunk_sizes`` /
-            ``n_functions`` / the summed ``emitted_ops``, with ``bands`` /
-            ``band_sizes`` / ``band_strategy`` = ``None``), because no single graph
-            describes the build.
+            populated only when ``len(chunks) == 1`` (``()`` on a chunked plan), and
+            equal to ``chunks[0].specs``.
+        report: ``merged.batch_report.as_dict()`` when ``len(chunks) == 1`` (the same
+            dict as ``chunks[0].report``); for a chunked plan an honest aggregate
+            (``chunk_count`` / ``chunk_sizes`` / ``n_functions`` / the summed
+            ``emitted_ops``, with ``bands`` / ``band_sizes`` / ``band_strategy`` =
+            ``None``), because no single graph describes the build.
         backend_name: the backend the plan was resolved for (the default of
             :func:`build_batch`).
         device: the resolved ``evoxc.core.Device``.
@@ -326,14 +334,17 @@ class BatchPlan:
             worker count ACTUALLY used (``1`` for the single-body path, including
             ``EVOGP_BATCH_COMPILE_WORKERS=0``).
         chunk_sizes: per compiled body, its function count (``(len(functions),)``
-            for the single-body path).
-        chunks: the :class:`BatchChunk` records of a chunked plan (``()`` for the
-            single-body path, whose authoritative graph is :attr:`merged`).
+            for the single-body path); equal to
+            ``tuple(len(chunk.functions) for chunk in chunks)``.
+        chunks: one :class:`BatchChunk` per compiled body -- ALWAYS populated
+            (``len(chunks) >= 1``) and the authoritative read surface of the plan,
+            with ``chunk_count == len(chunks) >= 1``.
 
-    The whole-graph fields (:attr:`graphs` / :attr:`merged` / :attr:`specs` /
-    :attr:`report`'s band keys) describe the SINGLE-body plan only;
-    :attr:`chunks` is authoritative whenever it is non-empty, and ``chunk_sizes``
-    says how many bodies this plan holds in both shapes.
+    :attr:`chunks` is the authoritative read surface for both plan shapes; the
+    whole-graph fields (:attr:`graphs` / :attr:`merged` / :attr:`specs` /
+    :attr:`report`'s band keys) are populated only when ``len(chunks) == 1``, where
+    ``chunks[0]`` mirrors them object-for-object, and ``chunk_sizes`` says how many
+    bodies this plan holds in both shapes.
     """
 
     input_len: int
@@ -368,8 +379,9 @@ class BatchExecutable:
 
     Attributes:
         plan: the :class:`BatchPlan` this build is for.
-        executable: the single merged body's loaded ``evoxc.Executable`` -- ``None``
-            when the plan is CHUNKED (then :attr:`executables` is authoritative).
+        executable: the single merged body's loaded ``evoxc.Executable`` --
+            ``executables[0]`` when ``len(plan.chunks) == 1`` and ``None`` on a
+            chunked plan (then :attr:`executables` is authoritative).
             The single-body path is the default, so this field keeps its original
             meaning; every internal read site goes through :attr:`executables` (or
             ``plan.chunks``) and never assumes one body.
@@ -647,7 +659,10 @@ def _plan_host(
     nor ``switch_ops`` is in play.  A chunked plan keeps the GLOBAL function order
     (``functions`` / ``row_index`` / ``function_rows`` are unchanged and each chunk
     is a contiguous slice with an ``offset``), so the assembled output order is
-    exactly the single-body plan's.
+    exactly the single-body plan's.  Both shapes store one
+    :class:`BatchChunk` per compiled body in ``chunks`` (the single-body plan's one
+    chunk mirrors the whole-graph fields), so ``len(plan.chunks)`` is the plan's
+    chunk count.
     """
     timer = batch_stages.StageTimer()
     input_len = int(input_len)
@@ -705,6 +720,23 @@ def _plan_host(
                 alignment=alignment,
             )
         report = merged.batch_report.as_dict()
+        plan_band_count = int(report.get("bands", band_count) or 1)
+        plan_graphs = tuple(graphs)
+        plan_specs = tuple(merged.tensor_specs)
+        # One chunk per BODY in both plan shapes: the single-chunk chunk mirrors the
+        # whole-graph fields (same objects) so ``plan.chunks`` is always the
+        # authoritative read surface, while the top-level fields stay populated.
+        chunk = BatchChunk(
+            index=0,
+            offset=0,
+            functions=functions,
+            function_rows=function_rows,
+            graphs=plan_graphs,
+            merged=merged,
+            specs=plan_specs,
+            report=report,
+            band_count=plan_band_count,
+        )
         plan = BatchPlan(
             input_len=input_len,
             output_len=output_len,
@@ -717,19 +749,19 @@ def _plan_host(
             functions=functions,
             row_index=row_index,
             function_rows=function_rows,
-            band_count=int(report.get("bands", band_count) or 1),
+            band_count=plan_band_count,
             switch_ops=bool(switch_ops),
             alignment=alignment,
-            graphs=tuple(graphs),
+            graphs=plan_graphs,
             merged=merged,
-            specs=tuple(merged.tensor_specs),
+            specs=plan_specs,
             report=report,
             backend_name=backend_name,
             device=device,
             stage_ms=timer.stage_ms,
             compile_workers=1,
             chunk_sizes=(n_functions,),
-            chunks=(),
+            chunks=(chunk,),
         )
         timer.fold()
         return plan

@@ -61,7 +61,11 @@ executable, and ``plan.merged`` / ``plan.graphs`` / ``plan.specs`` /
 ``batch_knobs.MIN_CHUNK_FUNCTIONS`` functions, and neither an explicit band count
 nor ``switch_ops``) instead carries one :class:`BatchChunk` per contiguous slice:
 ``plan.chunks`` is authoritative, ``plan.merged is None``, ``plan.executable is
-None`` and ``plan.executables`` holds one body per chunk.  ``row_index`` values stay
+None`` and ``plan.executables`` holds one body per chunk.  ``chunks`` holds one
+record per compiled body in BOTH shapes -- the single-body plan's ``chunks[0]``
+mirrors its whole-graph fields object-for-object -- so ``len(plan.chunks)`` is the
+plan's chunk count and the build/run paths take the single-body branch exactly when
+it is ``1``.  ``row_index`` values stay
 GLOBAL indices into ``plan.functions``, runs stay sequential (one device, one
 stream, ordered readbacks) and each chunk's rows are written back at its ``offset``,
 so the assembled numbers are the single-body plan's.
@@ -537,17 +541,18 @@ def _chunk_executable_key(
 ) -> Tuple[Any, ...]:
     """Memo key of ONE chunk body: the body key plus the partition triple.
 
-    The partition ``(chunk_count, chunk_sizes, chunk_index)`` is appended so a body
-    built for one ``W`` can never be served to a plan with another ``W``: the two
-    bodies would compute the same functions but the readback offsets of the caller's
-    plan belong to the caller's partition, and an accidental cross-partition hit
-    would be a structural mismatch nothing else checks.
+    The partition ``(chunk_count, chunk_sizes, chunk_index)`` -- read off
+    ``plan.chunks``, the authoritative read surface -- is appended so a body built
+    for one ``W`` can never be served to a plan with another ``W``: the two bodies
+    would compute the same functions but the readback offsets of the caller's plan
+    belong to the caller's partition, and an accidental cross-partition hit would be
+    a structural mismatch nothing else checks.
     """
     return _body_key(
         plan, chunk.functions, chunk.band_count, backend_name, device, options
     ) + (
-        int(len(plan.chunk_sizes)),
-        tuple(int(size) for size in plan.chunk_sizes),
+        int(len(plan.chunks)),
+        tuple(int(len(other.functions)) for other in plan.chunks),
         int(chunk.index),
     )
 
@@ -641,12 +646,14 @@ def build_batch(
     same-multiset population of a different size shares the compile WITHOUT sharing
     its staging.
 
-    Two shapes of build, decided by the PLAN (:func:`_plan_host`), never here:
+    Two shapes of build, decided by the PLAN (:func:`_plan_host`), never here
+    (``len(plan.chunks)`` is the chunk count in both shapes):
 
-    * ``plan.chunks == ()`` -- the original single body: one ``lower``/``compile``/
-      ``load`` of ``plan.merged``, stored in :data:`BATCH_EXEC_MEMO` as the whole
-      :class:`BatchExecutable`, and ``executable`` / ``executables`` both set.
-    * ``plan.chunks`` non-empty -- one body per chunk: every body not already in
+    * ``len(plan.chunks) == 1`` -- the original single body: one ``lower``/
+      ``compile``/``load`` of ``plan.merged`` (which is that chunk's graph), stored
+      in :data:`BATCH_EXEC_MEMO` as the whole :class:`BatchExecutable`, and
+      ``executable`` / ``executables`` both set.
+    * ``len(plan.chunks) > 1`` -- one body per chunk: every body not already in
       :data:`BATCH_EXEC_MEMO` (keyed with the partition triple, see
       :func:`_chunk_executable_key`) is built by
       :func:`evogp.tree.batch_chunks.build_bodies` in a thread pool of
@@ -673,7 +680,7 @@ def build_batch(
         backend if backend is not None else plan.backend_name,
         iree_device_index,
     )
-    if not plan.chunks:
+    if len(plan.chunks) <= 1:
         key = _executable_key(plan, backend_name, device, options)
         cached = BATCH_EXEC_MEMO.lookup(key)
         if cached is not None:
@@ -1001,11 +1008,12 @@ def _run(entry: BatchExecutable, x_host: np.ndarray,
          label_host: Optional[np.ndarray]) -> np.ndarray:
     """One ``evoxc.run`` per compiled body; the raw host result in FUNCTION order.
 
-    The single-body plan (``plan.chunks == ()``) is the original statement: one
+    A single-chunk plan (``len(plan.chunks) == 1``) is the original statement: one
     staged input tuple, one ``evoxc.run`` of :attr:`BatchExecutable.executable`, one
     readback, returned as-is.
 
-    A chunked plan runs its bodies in ASCENDING chunk order and writes each result
+    A chunked plan (``len(plan.chunks) > 1``) runs its bodies in ASCENDING chunk
+    order and writes each result
     into a preallocated ``(n_functions, ...)`` block at the chunk's ``offset``, so
     the rows come back in the GLOBAL function order that ``plan.row_index`` indexes
     (the readback order never decides the output order).  The runs stay SEQUENTIAL:
@@ -1017,7 +1025,7 @@ def _run(entry: BatchExecutable, x_host: np.ndarray,
     the readback (the caller stages ``_map_rows`` / the output tensor).
     """
     plan = entry.plan
-    if not plan.chunks:
+    if len(plan.chunks) <= 1:
         with batch_stages.stage("upload"):
             staged = _inputs(entry, x_host, label_host)
         with batch_stages.stage("run"):
@@ -1229,12 +1237,13 @@ def describe_plan(plan: BatchPlan) -> Dict[str, Any]:
     emitted ops, class counters), the graph input shapes, the route
     (backend/device), and the plan's build shape: ``compile_workers`` (the chunk
     count actually used, ``1`` for the single-body plan), ``chunk_count`` /
-    ``chunk_sizes`` and the plan-side ``stage_ms`` split.  It reads the stored
-    report only -- nothing is decoded, traced or compiled.
+    ``chunk_sizes`` (read off ``plan.chunks``, which holds one record per compiled
+    body in both plan shapes) and the plan-side ``stage_ms`` split.  It reads the
+    stored report only -- nothing is decoded, traced or compiled.
 
-    A CHUNKED plan reports its whole-graph keys from the aggregate report:
-    ``specs`` / ``spec_dtypes`` are empty (no single graph exists),
-    ``band_sizes`` is empty and ``band_strategy`` / the class counters are
+    A CHUNKED plan (``chunk_count > 1``) reports its whole-graph keys from the
+    aggregate report: ``specs`` / ``spec_dtypes`` are empty (no single graph
+    exists), ``band_sizes`` is empty and ``band_strategy`` / the class counters are
     ``None``; ``emitted_ops`` is the summed value and ``n_functions`` the global
     count.
     """
@@ -1263,8 +1272,8 @@ def describe_plan(plan: BatchPlan) -> Dict[str, Any]:
         "output_muxes": report.get("output_muxes"),
         "n_functions": report.get("n_functions"),
         "compile_workers": int(plan.compile_workers),
-        "chunk_count": len(plan.chunk_sizes),
-        "chunk_sizes": [int(size) for size in plan.chunk_sizes],
+        "chunk_count": len(plan.chunks),
+        "chunk_sizes": [int(len(chunk.functions)) for chunk in plan.chunks],
         "stage_ms": dict(plan.stage_ms),
         "specs": shapes,
         "spec_dtypes": [str(spec.dtype) for spec in plan.specs],

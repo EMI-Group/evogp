@@ -324,8 +324,10 @@ Chunks carry GLOBAL function indices (`BatchChunk.offset` is the chunk's first i
 Per-chunk band counts come from the band-SIZE model only (`resolve_band_count(chunk_len, bands=None, band_size=..., switch_ops=False)`); `BatchPlan.band_count` is `1` for a chunked plan and the truth lives in `BatchChunk.band_count`.
 Trace and merge stay SEQUENTIAL in the calling thread (evoxc's transforms are only proven thread-safe for the compile triple); only `evoxc.lower` / `evoxc.compile` / `evoxc.load` run in a `ThreadPoolExecutor(max_workers=W)` -- the iree compile is a subprocess and releases the GIL.
 Pool jobs each own a `batch_stages.StageTimer` and fold it once under the module lock; a chunk failure PROPAGATES (it is a bug, not a `BatchUnsupported` decline) and the first exception is re-raised.
-Chunked plans set `plan.graphs = ()`, `plan.merged = None`, `plan.specs = ()` and an aggregate `plan.report` (`chunk_count`, `chunk_sizes`, `n_functions`, summed `emitted_ops`, `bands`/`band_sizes`/`band_strategy` `None`): those whole-graph fields describe the single-body plan only and `plan.chunks` is authoritative.
-`BatchExecutable.executable` is `executables[0]` for a single-body plan and `None` when chunked; every internal read site goes through `executables`/`chunks`.
+`plan.chunks` holds exactly one `BatchChunk` per compiled body in BOTH plan shapes, so `len(plan.chunks) == describe_plan(plan)["chunk_count"] >= 1` is always the chunk count and `plan.chunks` is always the authoritative read surface.
+A single-chunk plan's `chunks[0]` (`index=0`, `offset=0`) mirrors the whole-graph fields object-for-object: `plan.chunks[0].merged is plan.merged`, `plan.chunks[0].report is plan.report` and `plan.chunks[0].specs == plan.specs`.
+`plan.merged` / `plan.graphs` / `plan.specs` are populated only when `chunk_count == 1`; a chunked plan sets them empty (`()` / `None`) with an aggregate `plan.report` (`chunk_count`, `chunk_sizes`, `n_functions`, summed `emitted_ops`, `bands`/`band_sizes`/`band_strategy` `None`), and its per-chunk graphs/specs/reports live in `plan.chunks`.
+`BatchExecutable.executable` is `executables[0]` for a single-chunk plan and `None` when chunked; every internal read site goes through `executables`/`chunks`, and the build/run paths take the single-body branch exactly when `len(plan.chunks) == 1`.
 
 ### 8.2 Stage timer surface (`batch_stages.py`)
 Ten stages: `decode`, `dedup`, `trace`, `merge`, `lower`, `compile`, `load`, `upload`, `run`, `gather`.
