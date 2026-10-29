@@ -1,0 +1,1018 @@
+{
+ "schema": "evogp-bench-evoxc-v1-campaign",
+ "driver_env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-29T07:49:09Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A30/src",
+  "tree_root_sha": "94e9e7a00382e5bbfbe2428b2556d33f29b00222",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A30",
+  "arm": "driver",
+  "python": "3.14.8",
+  "python_executable": "/tmp/genesis/task_a996674198ffbcee/evogp-venv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "2b289f034f6f8e16b6c9b55932dfed76cc54690e",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A30/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "note": "batch route round: non-flat arms, large cells",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A30/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A30/test/benchmark/evoxc"
+ },
+ "protocol": {
+  "one_process_per_config": true,
+  "sequential": true,
+  "workloads": [
+   "sr_fitness",
+   "batch_forward",
+   "forward",
+   "gp_step"
+  ],
+  "warmup": 1,
+  "reps": 3,
+  "gp_warmup": 1,
+  "gp_reps": 3,
+  "seed": 0,
+  "guard_wait": 120.0,
+  "scope_rule": {
+   "evoxc-specialized-iree": [
+    16,
+    64
+   ]
+  },
+  "scope_dropped": [],
+  "specialized_iree_compile_ms_per_structure": {
+   "measured_range": [
+    271.6,
+    283.9
+   ],
+   "source": "probe p16/p64, this box"
+  },
+  "batch_arms": {
+   "evoxc-batch-iree": {
+    "eval_mode": "batch",
+    "backend": "iree",
+    "family": "evoxc"
+   },
+   "evoxc-batch-iree-flat": {
+    "eval_mode": "batch",
+    "backend": "iree",
+    "family": "evoxc",
+    "knobs": {
+     "EVOGP_BATCH_BANDS": "flat"
+    }
+   }
+  },
+  "batch_engine_present": true,
+  "batch_route_note": "the batch route compiles ONE merged graph per population structure multiset, so its compile is expected to take minutes and a batch-arm overrun shows up as status 'timeout' with the worker log as evidence, not as a defect to be retried away"
+ },
+ "configs": [
+  {
+   "index": 1,
+   "cell": "p256-L32-i8-N1024",
+   "arm": "torch-per-tree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/torch-per-tree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/torch-per-tree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 8.98,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 0.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 2,
+   "cell": "p256-L32-i8-N1024",
+   "arm": "torch-batched",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/torch-batched.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/torch-batched.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 8.56,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 3,
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-auto",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/evoxc-auto.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/evoxc-auto.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 17.75,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 4,
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-dense-iree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/evoxc-dense-iree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/evoxc-dense-iree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 17.79,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 5,
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-specialized-numpy",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/evoxc-specialized-numpy.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/evoxc-specialized-numpy.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 11.62,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 6,
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-batch-iree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/evoxc-batch-iree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L32-i8-N1024/evoxc-batch-iree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 43.24,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 7,
+   "cell": "p256-L64-i32-N1024",
+   "arm": "torch-per-tree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/torch-per-tree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/torch-per-tree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 9.17,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 8,
+   "cell": "p256-L64-i32-N1024",
+   "arm": "torch-batched",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/torch-batched.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/torch-batched.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 8.61,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 9,
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-auto",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/evoxc-auto.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/evoxc-auto.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 26.68,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 10,
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-dense-iree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/evoxc-dense-iree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/evoxc-dense-iree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 26.83,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 11,
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-specialized-numpy",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/evoxc-specialized-numpy.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/evoxc-specialized-numpy.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 11.85,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 12,
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-batch-iree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/evoxc-batch-iree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p256-L64-i32-N1024/evoxc-batch-iree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 46.49,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 13,
+   "cell": "p1000-L32-i8-N1024",
+   "arm": "torch-per-tree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/torch-per-tree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/torch-per-tree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 10.38,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 14,
+   "cell": "p1000-L32-i8-N1024",
+   "arm": "torch-batched",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/torch-batched.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/torch-batched.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 8.8,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 15,
+   "cell": "p1000-L32-i8-N1024",
+   "arm": "evoxc-auto",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/evoxc-auto.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/evoxc-auto.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 17.74,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 16,
+   "cell": "p1000-L32-i8-N1024",
+   "arm": "evoxc-dense-iree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/evoxc-dense-iree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/evoxc-dense-iree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 17.77,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 17,
+   "cell": "p1000-L32-i8-N1024",
+   "arm": "evoxc-specialized-numpy",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/evoxc-specialized-numpy.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/evoxc-specialized-numpy.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 21.43,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 18,
+   "cell": "p1000-L32-i8-N1024",
+   "arm": "evoxc-batch-iree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/evoxc-batch-iree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L32-i8-N1024/evoxc-batch-iree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 243.55,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 19,
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "torch-per-tree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/torch-per-tree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/torch-per-tree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 10.42,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 20,
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "torch-batched",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/torch-batched.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/torch-batched.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 8.82,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 21,
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-auto",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/evoxc-auto.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/evoxc-auto.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 26.4,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 22,
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-dense-iree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/evoxc-dense-iree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/evoxc-dense-iree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 26.1,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 23,
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-specialized-numpy",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/evoxc-specialized-numpy.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/evoxc-specialized-numpy.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 21.02,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "index": 24,
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-batch-iree",
+   "record": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/evoxc-batch-iree.json",
+   "log": "test/benchmark/evoxc/results/batch/warm/p1000-L64-i32-N1024/evoxc-batch-iree.log",
+   "status": "ok",
+   "detail": "",
+   "wall_s": 324.28,
+   "guard": {
+    "python": [
+     "1469173: /usr/bin/systemd-run --user --unit=evogit-run-1793260142722-662275 --slice=evogit --wait --pipe --collect -q --setenv=PA"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 2.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      1469177
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "1469177\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  }
+ ],
+ "elapsed_s": 979.1,
+ "failures": 0
+}

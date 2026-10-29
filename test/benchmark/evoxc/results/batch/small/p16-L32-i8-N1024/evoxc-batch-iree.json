@@ -1,0 +1,526 @@
+{
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-29T08:11:01Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A30/src",
+  "tree_root_sha": "94e9e7a00382e5bbfbe2428b2556d33f29b00222",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A30",
+  "arm": "evoxc-batch-iree",
+  "python": "3.14.8",
+  "python_executable": "/tmp/genesis/task_a996674198ffbcee/evogp-venv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "2b289f034f6f8e16b6c9b55932dfed76cc54690e",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A30/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOGP_EVAL_MODE": "batch",
+   "EVOGP_EVOXC_BACKEND": "iree",
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "applied_knobs": {
+   "eval_mode": "batch",
+   "backend": "iree",
+   "knobs": {}
+  },
+  "cell": {
+   "id": "p16-L32-i8-N1024",
+   "pop": 16,
+   "tree_len": 32,
+   "input_len": 8,
+   "rows": 1024
+  },
+  "arm_spec": {
+   "eval_mode": "batch",
+   "backend": "iree",
+   "family": "evoxc"
+  }
+ },
+ "cell": {
+  "id": "p16-L32-i8-N1024",
+  "pop": 16,
+  "tree_len": 32,
+  "input_len": 8,
+  "rows": 1024
+ },
+ "arm": "evoxc-batch-iree",
+ "family": "evoxc",
+ "protocol": {
+  "warmup": 1,
+  "reps": 3,
+  "gp_warmup": 1,
+  "gp_reps": 3,
+  "workloads": [
+   "sr_fitness",
+   "batch_forward",
+   "forward",
+   "gp_step"
+  ],
+  "seed": 0,
+  "sync_bracketed": true
+ },
+ "structures": {
+  "pop_size": 16,
+  "max_tree_len": 32,
+  "tree_len_mean": 15.25,
+  "tree_len_median": 16.0,
+  "tree_len_max": 29,
+  "distinct_structures": 16,
+  "structure_signature": "7b1a943dcfbd3722"
+ },
+ "routes": {
+  "sr_fitness": {
+   "eval_mode": "batch",
+   "backend": "iree",
+   "kind": "batch",
+   "would_use_dense": false,
+   "would_use_batch": false,
+   "declines_to_specialized": true,
+   "decline_reason": "pop 16 < EVOGP_BATCH_MIN_POP 64: one merged graph cannot amortize its build, so the route declines to specialized",
+   "min_pop": 64,
+   "band_size": 32,
+   "bands": "None",
+   "alignment": "variant",
+   "switch_ops": "False",
+   "module_present": true,
+   "mode_supported": true,
+   "rows": 1024,
+   "note": "batch/iree: declines to specialized below the population floor"
+  },
+  "batch_forward": {
+   "eval_mode": "batch",
+   "backend": "iree",
+   "kind": "batch",
+   "would_use_dense": false,
+   "would_use_batch": false,
+   "declines_to_specialized": true,
+   "decline_reason": "pop 16 < EVOGP_BATCH_MIN_POP 64: one merged graph cannot amortize its build, so the route declines to specialized",
+   "min_pop": 64,
+   "band_size": 32,
+   "bands": "None",
+   "alignment": "variant",
+   "switch_ops": "False",
+   "module_present": true,
+   "mode_supported": true,
+   "rows": 1024,
+   "note": "batch/iree: declines to specialized below the population floor"
+  },
+  "forward": {
+   "eval_mode": "batch",
+   "backend": "iree",
+   "kind": "batch",
+   "would_use_dense": false,
+   "would_use_batch": false,
+   "declines_to_specialized": true,
+   "decline_reason": "pop 16 < EVOGP_BATCH_MIN_POP 64: one merged graph cannot amortize its build, so the route declines to specialized",
+   "min_pop": 64,
+   "band_size": 32,
+   "bands": "None",
+   "alignment": "variant",
+   "switch_ops": "False",
+   "module_present": true,
+   "mode_supported": true,
+   "rows": 1,
+   "note": "batch/iree: declines to specialized below the population floor"
+  }
+ },
+ "workloads": {
+  "sr_fitness": {
+   "first_call_ms": 3744.8328,
+   "warmup": 1,
+   "reps": 3,
+   "samples_ms": [
+    3.8379,
+    3.8584,
+    3.8604
+   ],
+   "median_ms": 3.8584,
+   "min_ms": 3.8379,
+   "max_ms": 3.8604,
+   "mean_ms": 3.8522,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 13,
+     "entries": 13,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 13,
+     "memo_entries": 13,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 13,
+     "entries": 13,
+     "maxsize": 4096,
+     "memo_hits": 52,
+     "memo_misses": 13,
+     "memo_entries": 13,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 13,
+    "compile_misses_first_call": 13,
+    "batch_after_first_call": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 0,
+     "batch_exec_entries": 0,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 0,
+     "batch_plan_entries": 0,
+     "batch_plan_maxsize": 8
+    },
+    "batch_after": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 0,
+     "batch_exec_entries": 0,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 0,
+     "batch_plan_entries": 0,
+     "batch_plan_maxsize": 8
+    },
+    "batch_compile_misses_first_call": 0,
+    "batch_compile_misses_this_workload": 0,
+    "batch_plan_misses_first_call": 0,
+    "batch_plan_misses_this_workload": 0
+   },
+   "digest": {
+    "shape": [
+     16
+    ],
+    "sha256": "fc18106ed95e0474cbf516c3c397261f",
+    "finite": 16,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 28524827.37598616
+   }
+  },
+  "batch_forward": {
+   "first_call_ms": 3.9136,
+   "warmup": 1,
+   "reps": 3,
+   "samples_ms": [
+    3.8499,
+    3.8541,
+    3.9075
+   ],
+   "median_ms": 3.8541,
+   "min_ms": 3.8499,
+   "max_ms": 3.9075,
+   "mean_ms": 3.8705,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 13,
+     "entries": 13,
+     "maxsize": 4096,
+     "memo_hits": 52,
+     "memo_misses": 13,
+     "memo_entries": 13,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 13,
+     "entries": 13,
+     "maxsize": 4096,
+     "memo_hits": 65,
+     "memo_misses": 13,
+     "memo_entries": 13,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 13,
+     "entries": 13,
+     "maxsize": 4096,
+     "memo_hits": 117,
+     "memo_misses": 13,
+     "memo_entries": 13,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 0,
+    "compile_misses_first_call": 0,
+    "batch_after_first_call": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 0,
+     "batch_exec_entries": 0,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 0,
+     "batch_plan_entries": 0,
+     "batch_plan_maxsize": 8
+    },
+    "batch_after": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 0,
+     "batch_exec_entries": 0,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 0,
+     "batch_plan_entries": 0,
+     "batch_plan_maxsize": 8
+    },
+    "batch_compile_misses_first_call": 0,
+    "batch_compile_misses_this_workload": 0,
+    "batch_plan_misses_first_call": 0,
+    "batch_plan_misses_this_workload": 0
+   },
+   "digest": {
+    "shape": [
+     16,
+     1024,
+     1
+    ],
+    "sha256": "ccd9945407c53f1df82b795467c23061",
+    "finite": 16384,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 1300487.5521111225
+   }
+  },
+  "forward": {
+   "first_call_ms": 3216.9538,
+   "warmup": 1,
+   "reps": 3,
+   "samples_ms": [
+    5.3307,
+    5.2452,
+    5.2337
+   ],
+   "median_ms": 5.2452,
+   "min_ms": 5.2337,
+   "max_ms": 5.3307,
+   "mean_ms": 5.2699,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 13,
+     "entries": 13,
+     "maxsize": 4096,
+     "memo_hits": 117,
+     "memo_misses": 13,
+     "memo_entries": 13,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 26,
+     "entries": 26,
+     "maxsize": 4096,
+     "memo_hits": 117,
+     "memo_misses": 26,
+     "memo_entries": 26,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 26,
+     "entries": 26,
+     "maxsize": 4096,
+     "memo_hits": 169,
+     "memo_misses": 26,
+     "memo_entries": 26,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 13,
+    "compile_misses_first_call": 13,
+    "batch_after_first_call": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 0,
+     "batch_exec_entries": 0,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 0,
+     "batch_plan_entries": 0,
+     "batch_plan_maxsize": 8
+    },
+    "batch_after": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 0,
+     "batch_exec_entries": 0,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 0,
+     "batch_plan_entries": 0,
+     "batch_plan_maxsize": 8
+    },
+    "batch_compile_misses_first_call": 0,
+    "batch_compile_misses_this_workload": 0,
+    "batch_plan_misses_first_call": 0,
+    "batch_plan_misses_this_workload": 0
+   },
+   "digest": {
+    "shape": [
+     16,
+     1
+    ],
+    "sha256": "c21e5a57d58db557165cc13d515f788f",
+    "finite": 16,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 2438.6561027765274
+   }
+  }
+ },
+ "gp_step": {
+  "warmup": 1,
+  "reps": 3,
+  "steps": [
+   {
+    "total_ms": 2060.5722,
+    "eval_ms": 2057.7353,
+    "ops_ms": 2.8369,
+    "torch_setup_ms": 0.0,
+    "compile_misses": 8,
+    "memo_hits": 5,
+    "batch_compile_misses": 0,
+    "batch_plan_misses": 0
+   },
+   {
+    "total_ms": 760.9395,
+    "eval_ms": 758.2362,
+    "ops_ms": 2.7033,
+    "torch_setup_ms": 0.0,
+    "compile_misses": 3,
+    "memo_hits": 8,
+    "batch_compile_misses": 0,
+    "batch_plan_misses": 0
+   },
+   {
+    "total_ms": 755.4357,
+    "eval_ms": 752.8824,
+    "ops_ms": 2.5534,
+    "torch_setup_ms": 0.0,
+    "compile_misses": 3,
+    "memo_hits": 11,
+    "batch_compile_misses": 0,
+    "batch_plan_misses": 0
+   }
+  ],
+  "median_total_ms": 760.9395,
+  "min_total_ms": 755.4357,
+  "max_total_ms": 2060.5722,
+  "median_eval_ms": 758.2362,
+  "median_ops_ms": 2.7033,
+  "compile_misses_total": 14,
+  "final_pop_size": 16,
+  "best_fitness": -0.16146467626094818,
+  "batch_compile_misses_total": 0,
+  "batch_plan_misses_total": 0
+ },
+ "notes": [
+  "batch route round: small pops and N=64 rows",
+  "batch arm: one merged graph per population structure multiset, so a multi-second first_call_ms and a large compile_misses_first_call are the expected cold cost of the route and are recorded as measured, never retried"
+ ],
+ "batch_policy": {
+  "module_present": true,
+  "module": "/root/evogp/.genesis/workers/worker_T1_A30/src/evogp/tree/batch_engine.py",
+  "eval_mode": "batch",
+  "backend": "iree with numpy fallback",
+  "declared_modes": [
+   "dense",
+   "specialized",
+   "batch",
+   "auto"
+  ],
+  "mode_supported": true,
+  "min_pop": 64,
+  "band_size": 32,
+  "bands": "None",
+  "switch_ops": "False",
+  "alignment": "variant",
+  "cache_size": "unset",
+  "knobs": {
+   "EVOGP_BATCH_BAND_SIZE": null,
+   "EVOGP_BATCH_BANDS": null,
+   "EVOGP_BATCH_SWITCH_OPS": null,
+   "EVOGP_BATCH_ALIGNMENT": null,
+   "EVOGP_BATCH_CACHE_SIZE": null,
+   "EVOGP_BATCH_MIN_POP": null
+  },
+  "knobs_source": {
+   "band_size": "module",
+   "bands": "module",
+   "switch_ops": "module",
+   "alignment": "module",
+   "cache_size": "harness-default",
+   "min_pop": "module"
+  }
+ },
+ "batch_cache": {
+  "available": true,
+  "stats_before_workloads": {
+   "batch_exec_hits": 0,
+   "batch_exec_misses": 0,
+   "batch_exec_entries": 0,
+   "batch_exec_maxsize": 8,
+   "batch_plan_hits": 0,
+   "batch_plan_misses": 0,
+   "batch_plan_entries": 0,
+   "batch_plan_maxsize": 8
+  },
+  "stats_after": {
+   "batch_exec_hits": 0,
+   "batch_exec_misses": 0,
+   "batch_exec_entries": 0,
+   "batch_exec_maxsize": 8,
+   "batch_plan_hits": 0,
+   "batch_plan_misses": 0,
+   "batch_plan_entries": 0,
+   "batch_plan_maxsize": 8
+  },
+  "stats_keys": [
+   "batch_exec_entries",
+   "batch_exec_hits",
+   "batch_exec_maxsize",
+   "batch_exec_misses",
+   "batch_plan_entries",
+   "batch_plan_hits",
+   "batch_plan_maxsize",
+   "batch_plan_misses"
+  ],
+  "compile_misses_first_call": 0,
+  "compile_misses_total": 0,
+  "plan_misses_first_call": 0,
+  "plan_misses_total": 0
+ },
+ "setup_ms": 0.0,
+ "engine_cache_final": {
+  "hits": 0,
+  "misses": 40,
+  "entries": 40,
+  "maxsize": 4096,
+  "memo_hits": 206,
+  "memo_misses": 40,
+  "memo_entries": 40,
+  "memo_maxsize": 4096
+ },
+ "dense_policy": {
+  "auto_min_pop": 64,
+  "auto_max_rows": 2048
+ }
+}
