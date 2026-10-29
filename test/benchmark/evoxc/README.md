@@ -68,6 +68,7 @@ VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreemen
 | `evoxc-dense-iree` | `EVOGP_EVAL_MODE=dense` + iree (one all-ops graph per population shape) |
 | `evoxc-batch-iree` | `EVOGP_EVAL_MODE=batch` + iree (one merged graph per population structure multiset, built with `evoxc.batch_functions`; numpy is the fallback, as on the dense route) |
 | `evoxc-batch-iree-flat` | the same route with `EVOGP_BATCH_BANDS=flat`: one unbanded merge, O(N²) in the population, so the flat-vs-banded merge can be compared on real GP workloads (it is expected to lose badly at pop 1000 — that comparison is what the arm records) |
+| `evoxc-dense-iree-raised` | `EVOGP_EVAL_MODE=dense` + iree with the trace cap pinned to the **cell's** tree length (`EVOGP_DENSE_MAX_TREE_LEN={tree_len}`): identical to `evoxc-dense-iree` on a main-grid cell (L ≤ 64) and the same route with the cap raised on a long-tree cell, so dense actually serves that population instead of declining to `specialized` |
 
 Both torch arms are *implemented in this harness* (`arms_torch.py`), op semantics
 copied from the oracle: `DIV` → NaN on a zero divisor, `loose_div`/`loose_inv`
@@ -100,12 +101,32 @@ resolver > the documented default (`batch_policy.knobs_source` says which applie
 | `EVOGP_BATCH_MIN_POP` | `64` | population floor: below it one merged graph cannot amortize its build, so the route declines to `specialized` (the record's `routes.*.decline_reason` carries the sentence) |
 
 An arm spec may carry a `knobs` mapping (`{env var: value}`) beyond the two route
-selectors; `-flat` is exactly `{"EVOGP_BATCH_BANDS": "flat"}`. `arms.apply_arm_env`
-clears **every** `EVOGP_BATCH_*` first for every arm (torch arms included), so no
-value can leak from one arm's process environment into another's, and then writes
-the arm's own knobs; an unregistered arm name still raises `KeyError`. `--arms all`
-covers all nine arms and `--arms batch` selects exactly these two, in registry
-order (they are registered **last**, so no existing order or render changes).
+selectors; `-flat` is exactly `{"EVOGP_BATCH_BANDS": "flat"}` and
+`evoxc-dense-iree-raised` is exactly `{"EVOGP_DENSE_MAX_TREE_LEN": "{tree_len}"}`.
+`arms.apply_arm_env(arm, cell)` clears **every** route variable
+(`common.ROUTE_ENV_VARS`: the `EVOGP_BATCH_*` set and `EVOGP_DENSE_MAX_TREE_LEN`)
+first for every arm (torch arms included), so no value can leak from one arm's
+process environment into another's, and then writes the arm's own knobs. A knob
+value may be a per-cell template — `{tree_len}`, `{pop}`, `{input_len}`, `{rows}`
+are substituted from the cell dict (`arms.resolve_knob_value`), and a template
+without a cell raises `ValueError` naming the arm and the placeholder instead of
+exporting the literal. The record's `env.applied_knobs` carries the **resolved**
+values. An unregistered arm name still raises `KeyError`. `--arms all` covers all
+ten arms and `--arms batch` selects exactly the two batch arms, in registry order
+(the batch arms are registered last and `evoxc-dense-iree-raised` after them, so no
+existing order or render changes).
+
+The dense route's trace cap is `EVOGP_DENSE_MAX_TREE_LEN` (`dense_engine`,
+default **64**): the dense evaluator traces `L = min(cap, max_tree_len)` positions,
+and a population whose longest tree exceeds the cap raises `DenseUnsupported`,
+which is what makes the public API fall back to the per-tree `specialized` route
+(one compile per distinct structure) *silently*. `evoxc-dense-iree` therefore
+measures the fallback on a long-tree cell, `evoxc-dense-iree-raised` measures dense
+itself (cap raised to the cell's tree length), and each explicit-dense record
+states which of the two happened under `dense_route` (`supported`, `reason`,
+`max_tree_len_cap`, `tree_len_max`, `probe_ms`) with the resolved cap also echoed
+in `dense_policy.max_tree_len_cap`. `campaign.py` never forwards the variable from
+the caller's environment: it is per-arm provenance.
 
 Both arms need a tree that ships the module *and* declares `batch` in
 `dense_engine.EVAL_MODES`; where it does not, the worker's preflight fails the
@@ -126,7 +147,18 @@ Every arm is timed on the same four things, same population, same data:
 ## Grid and protocol
 
 `pop_size` ∈ {16, 64, 256, 1000} × `max_tree_len` ∈ {32, 64} × `input_len` ∈ {8, 32}
-at `N` = 1024 rows, plus an `N` = 64 column at tree_len 64 / input_len 32 — 20 cells.
+at `N` = 1024 rows, plus an `N` = 64 column at tree_len 64 / input_len 32 — 20 cells
+(`--cells main,n64`, the default).
+
+`--cells long` selects the **long-tree column** instead (`common.long_tree_cells()`,
+`max_tree_len` ∈ {128, 256} = `common.LONG_TREE_LENS`): `p256-L128-i32-N1024`,
+`p1000-L128-i32-N1024` and `p256-L256-i32-N1024`, all at `N` = 1024, built by the
+same `build_workload` recipe. These are the cells where the dense trace cap (default
+64) and the batch route's per-program cost diverge: at tree length 128/256 dense
+declines every population whose longest tree exceeds the cap and the API falls back
+to per-tree `specialized`, so the column is read as `evoxc-dense-iree` (the
+fallback) against `evoxc-dense-iree-raised` (dense itself) against the batch arms.
+128/256 is a legal descriptor `max_tree_len` (the library's `MAX_STACK` is 1024).
 
 * Populations are generated deterministically: `torch.manual_seed(0)` +
   `Forest.random_generate(pop, GenerateDescriptor(...))` with the campaign function

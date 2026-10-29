@@ -25,6 +25,16 @@ population structure multiset, so a multi-second ``first_call_ms`` and a large
 ``compile_misses_first_call`` are the expected cost of the route -- recorded as
 measured, never retried away as a failure.
 
+Two keys answer a question a timing alone cannot. ``batch_plans`` /
+``batch_plan_summary`` (batch arms) are what the route actually merged -- the row
+dedupe, the band shape and the emitted op count, read off ``BATCH_PLAN_MEMO`` via
+``batch_engine.describe_plan``, which compiles nothing. ``dense_route`` (explicit
+``EVOGP_EVAL_MODE=dense`` arms only) is the existence proof for the dense route on
+that cell: the trace cap ``EVOGP_DENSE_MAX_TREE_LEN`` makes the public API fall
+back to per-tree ``specialized`` silently, so the record states whether
+``sr_fitness_dense`` served the population (``supported``) or declined it
+(``reason``), probed after all timings so it can never re-compile.
+
 Usage (the driver sets ``PYTHONPATH``; run it from the repository root)::
 
     python test/benchmark/evoxc/worker.py \
@@ -226,6 +236,164 @@ def forest_stats(forest) -> Dict[str, Any]:
     }
 
 
+def dense_trace_cap(dense_engine) -> int:
+    """The dense route's trace cap ``L`` as the engine would resolve it right now.
+
+    ``dense_engine._resolve_max_tree_len`` is private, so this reads the public pair
+    instead: the env var ``dense_engine.MAX_TREE_LEN_ENV`` when it is set and the
+    module's own ``DEFAULT_MAX_TREE_LEN`` when it is not.  Read once, early, before
+    any timing exists: an unparseable value is a wiring bug and must fail the config
+    there rather than after the numbers have been paid for.
+    """
+    env_name = getattr(dense_engine, "MAX_TREE_LEN_ENV", "EVOGP_DENSE_MAX_TREE_LEN")
+    default = int(getattr(dense_engine, "DEFAULT_MAX_TREE_LEN", 64))
+    raw = os.environ.get(env_name, "").strip()
+    return int(raw) if raw else default
+
+
+def dense_route_probe(
+    dense_engine,
+    workload: Dict[str, Any],
+    cell: Dict[str, Any],
+    tree_len_max: int,
+    cap: int,
+) -> Dict[str, Any]:
+    """Did the dense route actually SERVE this cell, or did its trace cap decline it?
+
+    Existence proof for an explicit-dense arm: ``Forest.SR_fitness`` falls back to the
+    per-tree ``specialized`` route silently whenever ``dense_engine`` raises
+    ``DenseUnsupported``, so a warm median alone cannot tell "dense served this
+    population" from "dense declined and specialized did the work".  This calls
+    ``sr_fitness_dense`` directly and reports the outcome next to the numbers.
+
+    It runs AFTER every timed workload on purpose: on a cell the workloads already
+    evaluated through dense this is a memo hit (same population, same data, same
+    shape -- no host crossing, no compile), and when the cap declines the population
+    ``prepare_dense`` raises before any host work, so the probe can neither re-compile
+    nor distort a number that is already in the record.
+    """
+    import torch
+
+    forest = workload["forest"]
+    entry: Dict[str, Any] = {
+        "max_tree_len_cap": int(cap),
+        "tree_len_max": int(tree_len_max),
+        "supported": False,
+        "reason": None,
+        "probe_ms": None,
+    }
+    torch.cuda.synchronize()
+    start = time.perf_counter()
+    try:
+        dense_engine.sr_fitness_dense(
+            forest.batch_node_value,
+            forest.batch_node_type,
+            forest.batch_subtree_size,
+            int(cell["input_len"]),
+            # the sr_fitness/batch_forward label width: this cell's labels are (N, out)
+            int(workload["labels"].shape[-1]),
+            workload["x"],
+            workload["labels"],
+        )
+    except dense_engine.DenseUnsupported as exc:
+        # the one decline that matters here: the cap is what priced the fallback
+        entry["reason"] = str(exc.reason)
+    except Exception as exc:  # noqa: BLE001 - a probe must never lose the record
+        entry["reason"] = repr(exc)
+    else:
+        entry["supported"] = True
+    torch.cuda.synchronize()
+    entry["probe_ms"] = round((time.perf_counter() - start) * 1e3, 4)
+    return entry
+
+
+#: The ``batch_engine.describe_plan`` fields a ``batch_plan_summary`` keeps per variant:
+#: the merge shape, the row dedupe and the graph I/O, i.e. everything that explains
+#: the merged-graph compile (the per-spec shapes/classes are in ``batch_plans``).
+BATCH_PLAN_SUMMARY_KEYS: Tuple[str, ...] = (
+    "emitted_ops",
+    "band_count",
+    "band_sizes",
+    "band_strategy",
+    "n_functions",
+    "functions",
+    "row_index_collisions",
+    "pop_size",
+    "input_len",
+    "output_len",
+    "per_row",
+    "backend",
+    "device",
+)
+
+
+def batch_plan_facts(batch_engine_module) -> Dict[str, Any]:
+    """The merged-graph PLANS a batch config had, read off ``BATCH_PLAN_MEMO``.
+
+    ``describe_plan`` reads the stored report only -- nothing is decoded, traced or
+    compiled -- so this is a compile-free window on what the route actually merged:
+    how many programs survived the row dedupe (``functions`` vs ``pop_size``), the
+    band shape (``band_count``/``band_sizes``/``band_strategy``) and the emitted op
+    count, which is what a long-tree population spends its compile on.
+
+    Never raises: a tree without ``BATCH_PLAN_MEMO`` / ``describe_plan``, an absent
+    entry attribute or a memo that refuses iteration is a reportable state
+    (``available: False`` + a note), not a crash -- a missing counter must never cost
+    a whole measured record.
+    """
+    memo = getattr(batch_engine_module, "BATCH_PLAN_MEMO", None)
+    describe = getattr(batch_engine_module, "describe_plan", None)
+    facts: Dict[str, Any] = {"available": False, "note": None, "plans": [], "summary": {}}
+    if memo is None or not callable(describe):
+        absent = [
+            name
+            for name, value in (("BATCH_PLAN_MEMO", memo), ("describe_plan", describe))
+            if value is None
+        ]
+        facts["note"] = (
+            "evogp.tree.batch_engine exposes no "
+            + " and no ".join(absent or ["plan introspection"])
+            + ", so the merged-graph plan facts are unavailable (NOT empty)"
+        )
+        return facts
+    try:
+        entries = list(memo.values())
+    except Exception as exc:  # noqa: BLE001 - optional introspection only
+        facts["note"] = f"BATCH_PLAN_MEMO could not be read: {exc!r}"
+        return facts
+    seen = set()
+    for entry in entries:
+        plan = getattr(entry, "plan", None)
+        if plan is None:
+            continue
+        try:
+            described = describe(plan)
+        except Exception as exc:  # noqa: BLE001 - optional introspection only
+            facts["note"] = f"describe_plan failed for one entry: {exc!r}"
+            continue
+        key = (described.get("variant"), bool(described.get("per_row")))
+        if key in seen:  # one plan per (variant, per_row): the rest are re-bound copies
+            continue
+        seen.add(key)
+        facts["plans"].append(described)
+    counts: Dict[str, int] = {}
+    for plan in facts["plans"]:
+        counts[str(plan.get("variant"))] = counts.get(str(plan.get("variant")), 0) + 1
+    for plan in facts["plans"]:
+        variant = str(plan.get("variant"))
+        # ``value`` is planned twice in a normal config (batch_forward per_row=False,
+        # forward per_row=True), so disambiguate only when the variant is not unique
+        key = variant if counts[variant] == 1 else f"{variant}[per_row={int(bool(plan.get('per_row')))}]"
+        facts["summary"][key] = {name: plan.get(name) for name in BATCH_PLAN_SUMMARY_KEYS}
+    facts["available"] = bool(facts["plans"])
+    if not facts["available"] and facts["note"] is None:
+        facts["note"] = (
+            "BATCH_PLAN_MEMO holds no entry carrying a ``plan`` -- the batch route "
+            "never planned a population in this process"
+        )
+    return facts
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cell", required=True, help="cell id, e.g. p256-L64-i32-N1024")
@@ -251,7 +419,9 @@ def main() -> int:
         sys.path.insert(0, src)
 
     cell = common.parse_cell(args.cell)
-    knobs = arms_mod.apply_arm_env(args.arm)
+    # the cell dict resolves a templated knob (``EVOGP_DENSE_MAX_TREE_LEN={tree_len}``);
+    # arms with purely literal knobs ignore it
+    knobs = arms_mod.apply_arm_env(args.arm, cell)
 
     # -- batch support preflight ---------------------------------------------
     # EVOGP_EVAL_MODE=batch is only meaningful when the tree under test ships the
@@ -283,17 +453,24 @@ def main() -> int:
     # never break a torch/evoxc arm, and a missing ``batch_cache_stats`` is a
     # reportable state (recorded as null), not a crash.
     batch_stats = None
+    batch_engine_module = None
     if is_batch:
         try:
             from evogp.tree import batch_engine as _batch_engine_probe
         except ImportError:  # noqa: F401 - the route is optional on older trees
             _batch_engine_probe = None
+        batch_engine_module = _batch_engine_probe
         batch_stats = getattr(_batch_engine_probe, "batch_cache_stats", None)
         if not callable(batch_stats):
             batch_stats = None
 
     import torch
     from evogp.tree import dense_engine, evoxc_engine
+
+    # the dense trace cap as the engine resolves it for THIS process (the arm's spec
+    # already wrote ``EVOGP_DENSE_MAX_TREE_LEN``): read before the timings so a broken
+    # value fails the config here instead of after the numbers were paid for
+    dense_cap = dense_trace_cap(dense_engine)
 
     workload = common.build_workload(cell, args.seed)
     forest = workload["forest"]
@@ -518,11 +695,52 @@ def main() -> int:
         record["batch_cache"]["plan_misses_total"] = batch_plan_miss_delta(
             record["batch_cache"]["stats_before_workloads"], stats_after
         )
+        # what the route actually MERGED, read off the plan memo (compile-free): the
+        # row dedupe and the band shape are what a long-tree population pays its
+        # merged-graph compile for.  A tree without the introspection records
+        # ``available: false`` + a note instead of an empty (i.e. lying) summary.
+        plan_facts = batch_plan_facts(batch_engine_module)
+        record["batch_plans"] = plan_facts["plans"]
+        if plan_facts["available"]:
+            record["batch_plan_summary"] = plan_facts["summary"]
+        else:
+            record["batch_plan_summary"] = {
+                "available": False,
+                "note": plan_facts["note"],
+            }
+            record["notes"].append(
+                "batch arm: " + str(plan_facts["note"])
+            )
+
+    # -- did the dense route serve this cell, or did its trace cap decline it? ----
+    # Only an explicit-dense arm can be asked this, and only after the timings: when
+    # the sr_fitness workload already ran through dense the probe is a plan/executable
+    # memo hit, and when the cap declines the population it raises before any host
+    # work -- so it never re-compiles a plan the timings already paid for.
+    if knobs["eval_mode"] == "dense" and not is_batch:
+        record["dense_route"] = dense_route_probe(
+            dense_engine, workload, cell, structure["tree_len_max"], dense_cap
+        )
+        record["notes"].append(
+            "dense arm: dense_route is probed AFTER the timed workloads, so the probe "
+            "is a plan/executable memo hit when the sr_fitness workload itself went "
+            "through dense and raises immediately (before any host work) when the trace "
+            "cap declines the population -- it never changes a number above"
+        )
+        if not record["dense_route"]["supported"]:
+            record["notes"].append(
+                "dense arm: the dense evaluator DECLINED this population, so the warm "
+                "medians above are the per-tree specialized fallback, not the dense "
+                "route -- see dense_route.reason"
+            )
 
     record["engine_cache_final"] = evoxc_engine.cache_stats()
     record["dense_policy"] = {
         "auto_min_pop": dense_engine.resolve_auto_min_pop(),
         "auto_max_rows": dense_engine.resolve_auto_max_rows(),
+        # the trace cap this record's process ran with (the arm's knob, else the
+        # engine default): what ``dense_route`` is measured against
+        "max_tree_len_cap": int(dense_cap),
     }
     common.write_json(args.out, record)
     summary = " ".join(

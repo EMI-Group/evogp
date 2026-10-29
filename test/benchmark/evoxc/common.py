@@ -67,6 +67,17 @@ EVOXC_ARMS: Dict[str, Dict[str, Optional[str]]] = {
         "family": "evoxc",
         "knobs": {"EVOGP_BATCH_BANDS": "flat"},
     },
+    # dense with its trace cap pinned to the CELL's tree length: the cap is a
+    # ``{tree_len}`` template resolved by ``arms.apply_arm_env(arm, cell)``, so on a
+    # main-grid cell (L <= 64) this is exactly ``evoxc-dense-iree``, and on a
+    # long-tree cell it is the same route with the cap raised so dense actually
+    # serves the population instead of declining to ``specialized``.
+    "evoxc-dense-iree-raised": {
+        "eval_mode": "dense",
+        "backend": "iree",
+        "family": "evoxc",
+        "knobs": {"EVOGP_DENSE_MAX_TREE_LEN": "{tree_len}"},
+    },
 }
 TORCH_ARMS: Dict[str, Dict[str, Any]] = {
     "torch-per-tree": {"impl": "per_tree", "family": "torch"},
@@ -95,6 +106,14 @@ BATCH_KNOBS: Tuple[Tuple[str, str, str, Tuple[str, ...]], ...] = (
 )
 #: Every env var the table above owns -- the arms clear all of them per process.
 BATCH_ENV_VARS: Tuple[str, ...] = tuple(entry[1] for entry in BATCH_KNOBS)
+#: The DENSE route's trace-cap knob (``dense_engine.MAX_TREE_LEN_ENV``, single-sourced
+#: here so the harness names it once): the longest trace ``L = min(cap,
+#: max_tree_len)`` the dense evaluator will build, default 64 -- above it the route
+#: declines with ``DenseUnsupported`` and the public API falls back to specialized.
+DENSE_ENV_VARS: Tuple[str, ...] = ("EVOGP_DENSE_MAX_TREE_LEN",)
+#: Every env var the arms clear before applying their own knob spec, so a route knob
+#: can never leak between arms (``BATCH_ENV_VARS`` + ``DENSE_ENV_VARS``).
+ROUTE_ENV_VARS: Tuple[str, ...] = BATCH_ENV_VARS + DENSE_ENV_VARS
 #: The counter names the batch route's compile misses can live under, in preference
 #: order.  ``evogp.tree.batch_engine.batch_cache_stats()`` names its two front tables
 #: explicitly: ``batch_exec_*`` describes ``BATCH_EXEC_MEMO`` -- the real compile
@@ -131,6 +150,9 @@ WORKLOADS = ("sr_fitness", "batch_forward", "forward", "gp_step")
 # ---------------------------------------------------------------------------
 POPS = (16, 64, 256, 1000)
 TREE_LENS = (32, 64)
+#: the long-tree column's tree lengths -- both above the dense route's default trace
+#: cap (``dense_engine.DEFAULT_MAX_TREE_LEN`` = 64, ``EVOGP_DENSE_MAX_TREE_LEN``)
+LONG_TREE_LENS = (128, 256)
 INPUT_LENS = (8, 32)
 MAIN_ROWS = 1024
 #: the second data-row value ("one N=64 column"): L=64/input_len=32 at every pop
@@ -160,6 +182,30 @@ def main_cells() -> List[Dict[str, Any]]:
 def n64_cells() -> List[Dict[str, Any]]:
     """The ``N = 64`` column: every pop at tree_len 64 / input_len 32."""
     return [cell(pop, 64, 32, N64_ROWS) for pop in POPS]
+
+
+def long_tree_cells() -> List[Dict[str, Any]]:
+    """The LONG-TREE column at ``N = 1024`` (``--cells long``): three cells.
+
+    These are the cells where the dense trace cap (``EVOGP_DENSE_MAX_TREE_LEN``,
+    default 64) and the batch route's per-program cost diverge: at tree length
+    128/256 the dense route declines every population whose longest tree exceeds
+    the cap and the public API silently falls back to the per-tree ``specialized``
+    route (one compile per distinct structure), so a cell must be priced with the
+    cap both at its default and raised to the cell's own tree length
+    (``evoxc-dense-iree-raised``) before either route can be read as fast.
+
+    ``tree_len`` 128/256 is a legal descriptor ``max_tree_len`` (the library's
+    ``MAX_STACK`` is 1024, and the realized trees of a cap-64 population already
+    reach 64), and the population itself comes from the same
+    :func:`build_workload` recipe as every other column -- ``torch.manual_seed(0)``
+    + ``Forest.random_generate`` -- so only the shape is new.
+    """
+    return [
+        cell(256, 128, 32, MAIN_ROWS),
+        cell(1000, 128, 32, MAIN_ROWS),
+        cell(256, 256, 32, MAIN_ROWS),
+    ]
 
 
 def parse_cell(text: str) -> Dict[str, Any]:

@@ -219,7 +219,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--tree-root", default="src", help="src root holding evogp (or a snapshot's src/)")
     ap.add_argument("--evoxc-root", default="/root/evoxc", help="foreign repo holding the evoxc package")
     ap.add_argument("--out", required=True, help="result directory (per-cell subdirs of JSON)")
-    ap.add_argument("--cells", default="main,n64", help="'main', 'n64', or a comma-separated cell list")
+    ap.add_argument("--cells", default="main,n64", help="'main', 'n64', 'long', or a comma-separated cell list")
     ap.add_argument("--arms", default="all",
                     help="'all', 'torch', 'evoxc', 'batch' (the batch-route arms only, in "
                          "registry order), or a comma-separated arm list")
@@ -245,6 +245,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             cells.extend(common.main_cells())
         elif token == "n64":
             cells.extend(common.n64_cells())
+        elif token == "long":
+            cells.extend(common.long_tree_cells())
         elif token:
             cells.append(common.parse_cell(token))
     arms: List[str] = []
@@ -291,6 +293,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     for key in common.BATCH_ENV_VARS:
         if key in os.environ:
             env[key] = os.environ[key]
+    # ``EVOGP_DENSE_MAX_TREE_LEN`` is deliberately NOT forwarded from the caller: the
+    # dense trace cap is per-ARM provenance (``evoxc-dense-iree-raised`` pins it to the
+    # cell's tree length, ``evoxc-dense-iree`` wants the shipped default), so an
+    # inherited value would silently turn one arm into another.  ``apply_arm_env``
+    # clears it for every arm and writes the arm's own resolved spec.
 
     os.makedirs(args.out, exist_ok=True)
     driver_path = os.path.join(args.out, "campaign.json")
@@ -325,6 +332,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"module_present={policy['module_present']}",
                 f"mode_supported={policy['mode_supported']}",
             )
+        # ... and for an arm whose knob value is a per-CELL template (the dense route's
+        # trace cap pinned to the cell's tree length), the value each scheduled cell
+        # will export.  The substitution is repeated here, on purpose, instead of
+        # importing ``arms``: the dry run stays pure string formatting over the cell
+        # dict -- no evogp import, no device, no torch.
+        for cfg in configs:
+            spec = common.EVOXC_ARMS.get(cfg["arm"]) or {}
+            for env_name, value in (spec.get("knobs") or {}).items():
+                if not (isinstance(value, str) and "{" in value):
+                    continue
+                resolved = value
+                for key in ("tree_len", "pop", "input_len", "rows"):
+                    resolved = resolved.replace("{" + key + "}", str(cfg["cell"][key]))
+                label = "dense knob" if env_name in common.DENSE_ENV_VARS else "route knob"
+                print(label, cfg["arm"], cfg["cell"]["id"], f"{env_name}={resolved}")
         return 0
 
     driver_record = {

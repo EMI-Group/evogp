@@ -20,14 +20,20 @@ gets.
 
 An arm spec may also carry a ``knobs`` mapping of extra engine knobs
 (``{env var: value}``) beyond the two route selectors -- the batch route's
-``EVOGP_BATCH_BANDS=flat`` variant is one; ``apply_arm_env`` applies it verbatim,
-and every batch knob is cleared for every arm first so a value can never leak
-from one arm's process environment into another's.
+``EVOGP_BATCH_BANDS=flat`` variant and the dense route's cell-pinned
+``EVOGP_DENSE_MAX_TREE_LEN={tree_len}`` are the two; ``apply_arm_env`` applies
+them, and every route knob is cleared for every arm first so a value can never
+leak from one arm's process environment into another's.
+A knob value may be a per-cell *template*: ``{tree_len}`` / ``{pop}`` /
+``{input_len}`` / ``{rows}`` are substituted from the cell dict the worker passes
+in (``apply_arm_env(arm, cell)``), so one registry entry can mean "the cell's own
+tree length" instead of a fixed number.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -119,18 +125,82 @@ class EvoxcArm:
         return forest.SR_fitness(self.workload["x"], self.workload["labels"])
 
 
-def apply_arm_env(arm: str) -> Dict[str, Any]:
+#: The cell keys a knob value may be templated on (``common.cell`` produces exactly
+#: these), so a registry entry can say "the cell's own tree length" instead of a
+#: number that is only right for one column.
+KNOB_PLACEHOLDERS = ("tree_len", "pop", "input_len", "rows")
+_PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
+
+
+def resolve_knob_value(
+    value: Any,
+    cell: Optional[Dict[str, Any]] = None,
+    *,
+    arm: Optional[str] = None,
+    env_name: Optional[str] = None,
+) -> Any:
+    """Resolve a knob value's per-cell placeholders (``"{tree_len}"`` -> ``"128"``).
+
+    ``evoxc-dense-iree-raised`` pins the dense trace cap to the CELL's tree length,
+    so the same registry entry means "the cap this cell needs" on a main-grid cell
+    (L <= 64, i.e. the plain ``evoxc-dense-iree`` route) and on a long-tree cell (the
+    cap raised so dense actually serves the population).  ``cell`` is the dict
+    ``common.cell`` / ``common.parse_cell`` produce and only its own keys
+    (:data:`KNOB_PLACEHOLDERS`) are substitutable.
+
+    A value carrying no placeholder is returned UNCHANGED -- every pre-existing knob
+    (``"flat"``) therefore behaves exactly as before and works without a cell.  A
+    templated value with no cell, or with a placeholder the cell does not carry,
+    raises ``ValueError`` naming the arm and the placeholder instead of exporting a
+    literal ``{tree_len}`` that the engine would reject (or, worse, read as garbage).
+    """
+    if not isinstance(value, str) or "{" not in value:
+        return value
+    where = f"knob {env_name!r}" if env_name else "knob"
+    if arm:
+        where = f"arm {arm!r} {where}"
+    if not isinstance(cell, dict):
+        raise ValueError(
+            f"{where}: templated value {value!r} needs a cell to resolve its "
+            f"placeholders {list(KNOB_PLACEHOLDERS)} -- call "
+            "apply_arm_env(arm, cell) with the cell dict"
+        )
+    placeholders = _PLACEHOLDER_RE.findall(value)
+    if not placeholders:
+        raise ValueError(
+            f"{where}: templated value {value!r} carries no resolvable placeholder "
+            f"{list(KNOB_PLACEHOLDERS)}"
+        )
+    out = value
+    for placeholder in placeholders:
+        if placeholder not in cell:
+            raise ValueError(
+                f"{where}: unknown placeholder {{{placeholder}}} for cell "
+                f"{cell.get('id')!r}; the substitutable placeholders are "
+                f"{list(KNOB_PLACEHOLDERS)}"
+            )
+        out = out.replace("{" + placeholder + "}", str(cell[placeholder]))
+    return out
+
+
+def apply_arm_env(arm: str, cell: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Set the arm's engine knobs in ``os.environ`` (one arm per process).
 
-    Every batch-route variable is cleared first, for every arm including the torch
-    ones: the knobs are per-arm provenance, so an inherited (or leftover) value
+    Every route variable (:data:`common.ROUTE_ENV_VARS`: the ``EVOGP_BATCH_*`` set
+    and ``EVOGP_DENSE_MAX_TREE_LEN``) is cleared first, for every arm including the
+    torch ones: the knobs are per-arm provenance, so an inherited (or leftover) value
     from a previous arm in the same process must never decide what a later arm
-    measures.  ``knobs`` in the return value is the batch/extra knob mapping the
-    arm actually applied (``{}`` when it applied none); the ``eval_mode`` and
-    ``backend`` keys keep their old meaning for every existing caller.  An
-    unregistered arm name still raises ``KeyError``.
+    measures.  Then the arm's own spec is written.
+
+    ``cell`` resolves a *templated* knob value (``"{tree_len}"`` -> ``"128"``) through
+    :func:`resolve_knob_value`; an arm whose knobs are all literal works without it,
+    and a templated one raises ``ValueError`` rather than guessing.  ``knobs`` in the
+    return value is the knob mapping the arm actually applied, RESOLVED (``{}`` when
+    it applied none), so a record states the value that reached the engine; the
+    ``eval_mode`` and ``backend`` keys keep their old meaning for every existing
+    caller.  An unregistered arm name still raises ``KeyError``.
     """
-    for env_name in common.BATCH_ENV_VARS:
+    for env_name in common.ROUTE_ENV_VARS:
         os.environ.pop(env_name, None)
 
     if arm in common.TORCH_ARMS:
@@ -146,7 +216,10 @@ def apply_arm_env(arm: str) -> Dict[str, Any]:
             os.environ.pop(env, None)
         else:
             os.environ[env] = value
-    knobs = dict(spec.get("knobs") or {})
+    knobs = {
+        env_name: resolve_knob_value(value, cell, arm=arm, env_name=env_name)
+        for env_name, value in (spec.get("knobs") or {}).items()
+    }
     for env_name, value in knobs.items():
         os.environ[env_name] = str(value)
     return {"eval_mode": spec["eval_mode"], "backend": spec["backend"], "knobs": knobs}
