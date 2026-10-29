@@ -40,12 +40,19 @@ training_run.py end-to-end training run: per-generation wall ms + best-fitness
 batch_economics.py batch-route compile economics: per-generation structure
                 signature, merged-graph compile misses and hit rate for `batch`
                 vs `dense` over a real StandardPipeline.step() loop
+counter_blocks.py strict number/block helpers the optional batch counter surfaces
+                share (a missing or non-numeric counter reads None, never 0)
+content.py      the content-addressed plan-key table of the batch route and every
+                derived block (attempts / hit_rate / per-row outcome)
+reuse_probe.py  plan-key reuse workload: cold call, identity call, rebuilt-but-equal
+                population, its identity call -- one child process per column
 results/        the evidence: baseline/ (frozen earlier round), final/ (after/,
                 before/, decompose/, cold/, training/, validation.json, RENDERED.md)
                 and batch/ (warm-r5, small-r5, flat-r5, flat1000-r5, flat1000-3w-r5,
                 <cell>/<route>.json, economics.json, validation-*.json,
                 RENDERED-*.md; plus the --reps 3 pilot dirs warm/, small/, flat/,
-                flat1000/)
+                flat1000/) and batch_opt_round1/ (base/, after_{default,w1,w8}/,
+                after_dense/, campaign/, reuse/, content-blocks/, SUMMARY.md)
 FINAL.md        report of record for the post-optimization dense/specialized
                 campaign (tables, gate, reproduce commands)
 BATCH.md        report of record for the batch route round (warm per-call and
@@ -406,6 +413,25 @@ one process would measure warm caches only. Each record has four parts:
   loop the compile generations own", not a compile timer. The merged-graph cache's
   own `compile_misses_first_call` / `_generations` / `_total` ride along.
 
+The records also price the route's **content-addressed** plan key (the third counter
+surface, `batch_content_stats`), because the identity key cannot answer a *rebuilt*
+population: `first_call.content`, `sr_fitness.content`, `generations[i].content` and
+`summary.content` carry the five counters plus `attempts` (hits + misses, how often the
+content key was consulted at all) and `hit_rate`, and the summary adds the `generations`
+outcome counts (`with_content_hit` / `with_content_miss` / `no_attempt` / `unknown`).
+`generations[i].batch_plan_misses` and the summary's
+`merged_graph_cache.plan_misses_generations` state the plan table alongside the exec
+table, so a row is not read as if only one merged-graph cache existed. `content.py` is
+the one owner of that vocabulary and `counter_blocks.py` of the number handling: a tree
+without the accessor records `available: false` with every counter `null` and a note,
+never a `0`. `summary.compile_share` states what it divides
+(`numerator_kind: parallel-stage-counter-sum` over `denominator_kind: loop-wall-ms`)
+and whether it exceeded 1 (`share_gt_one`), so a share above 1 reads as the pool's
+per-chunk compile timers summed against the loop's wall time rather than an accounting
+error — `p256-L32-i8-N1024` at the shipped 4 workers reads 2.3743 (12440.8 ms over
+5239.9 ms, chunks 57/56/56/56). The blocks are in
+`results/batch_opt_round1/content-blocks/`.
+
 Generation 1 is **expected to hit**: `step()` evaluates `algorithm.forest` before
 selecting, so generation 1 evaluates the initial population — the very population
 whose graph the timed first call already compiled. That is recorded as measured
@@ -524,6 +550,42 @@ for d in l128 l256 p1000 gp; do
 done
 ```
 
+### Plan-key reuse: the rebuilt population (`reuse_probe.py`)
+
+A generation loop never presents the same programs twice, so it cannot say what the
+content key buys. `reuse_probe.py` asks the other regime directly — one child process
+per column, one cheap cell (`p64-L64-i32-N64`, seed 0, `evoxc-batch-iree`) and a fixed
+four-call sequence: `Forest` A cold, A again (the identity fast path), `Forest` **B
+rebuilt-but-equal** (a different object built from the same seed, verified
+`identical_content` in `no_shared_storage` by `forests.same_content`) against the same
+`x`/`labels`, then B again. Each call records its wall time, value digest, both
+merged-graph cache counters, the content counters and — where the tree ships them — the
+ten stage **call** counts, so "it skipped trace/merge/compile" is a measured statement.
+
+**Result in one line:** on HEAD the rebuilt call is a content hit (1 hit / 0 misses,
+`hit_rate` 1.0) in **2.724 ms against the pre-round tree's 79.109 ms (29.0×)** with
+trace/merge/compile at **0 calls** and a bit-identical answer (sha256 `b6584500…`), while
+in a generation loop the same key buys nothing (6 attempts / 0 hits, because a generation
+presents new programs every step). The pre-round column's 76.4 ms is host decode + trace
++ merge — its exec table already shared the compiled body, so it was never a recompile.
+Tables, the replay column and the per-stage counts: [`BATCH.md`](BATCH.md) §13.10.
+
+```bash
+export PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1
+OUT=test/benchmark/evoxc/results/batch_opt_round1
+# HEAD, then the pre-round tree at 619cbf7 (unpacked outside the repo), then the replay column
+$PY test/benchmark/evoxc/reuse_probe.py --label after
+$PY test/benchmark/evoxc/reuse_probe.py --label base --tree-root <checkout of 619cbf7>
+$PY test/benchmark/evoxc/reuse_probe.py --label after-replay
+# the content blocks of the generation loop, both trees, plus the cell whose pool really chunks
+$PY test/benchmark/evoxc/batch_economics.py --cells p64-L64-i32-N64 --routes batch,dense \
+  --generations 6 --out-dir $OUT/content-blocks/after
+$PY test/benchmark/evoxc/batch_economics.py --cells p64-L64-i32-N64 --routes batch,dense --generations 6 \
+  --tree-root <checkout of 619cbf7> --out-dir $OUT/content-blocks/base
+$PY test/benchmark/evoxc/batch_economics.py --cells p256-L32-i8-N1024 --routes batch \
+  --generations 3 --out-dir $OUT/content-blocks/chunked-p256
+```
+
 ## Report and gate (`summarize.py` / `check.py`)
 
 `summarize.py --results DIR --out FILE.md` renders one document from the records:
@@ -593,6 +655,13 @@ rejects.
   Expected-arm coverage defaults to the campaign's own
   scheduled arms, so appending these two arms leaves previously recorded campaigns
   gating exactly as before (`--allow-missing` semantics unchanged).
+* `check_content()` is the same kind of self-consistency check over the content blocks
+  (`content.py`), and it **warns** only: a block claiming `available: true` while every
+  content counter is null, or `available: false` while counters carry numbers, is a
+  contradiction worth printing — but a tree without `batch_content_stats()` legitimately
+  records nulls, and a hit rate of 0 is a measurement. It makes no `checker.check` call
+  at all, so the check count of a directory of frozen records (which carry no content
+  keys) is exactly what it was.
 * The gate still demands the `gp_step` aggregate keys: the renderer's `steps[]`
   fallback is a reporting safety net, not a licence for a record to drop them.
 
