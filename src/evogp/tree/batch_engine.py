@@ -84,7 +84,8 @@ table cannot: a REBUILT population with identical content (a fresh ``Forest``
 object carrying the same evolution) hits on
 :func:`evogp.tree.batch_programs.plan_digest` and pays only the decode needed to
 prove it.  A content hit is verified against the just-decoded programs before it
-is served, never trusted.
+is served, never trusted: ``batch_content_hits`` counts only entries actually
+served, while a refused one is a miss plus a ``batch_content_rejects`` increment.
 :data:`BATCH_EXEC_MEMO` keys a compiled body on the ACTUAL program multiset plus
 the shape/backend/device/options (and, for a chunked plan, the partition
 ``(chunk_count, chunk_sizes, chunk_index)``, so a different ``W`` can never hit a
@@ -244,6 +245,49 @@ def _default_cache_size() -> int:
     return size
 
 
+class _ContentMemo(dense_memo.DenseMemo):
+    """The content table, where a HIT means an entry was actually SERVED.
+
+    The verification (``entry.plan.programs == programs``) happens in the caller,
+    AFTER the key lookup, so the plain :meth:`DenseMemo.lookup` cannot tell a
+    served entry from a refused one: it would count the hit first and the caller
+    would then refuse it.  This subclass splits the two steps -- :meth:`probe`
+    reads a value WITHOUT counting, and the caller then records exactly one
+    outcome (:meth:`record_hit` / :meth:`record_miss`) -- so
+    ``batch_content_hits`` only ever counts an entry that was returned to the
+    caller.  The counters stay in the memo (``stats()`` unchanged, five keys via
+    :func:`batch_content_stats`) and the LRU touch moves to the hit record, so a
+    refused entry does not get promoted either.
+    """
+
+    def probe(self, key: Any) -> Any:
+        """The value stored under ``key``, or ``None`` -- counters untouched."""
+        with self._lock:
+            if self.maxsize <= 0:  # disabled table: nothing can be served
+                return None
+            try:
+                return self[key]
+            except KeyError:
+                return None
+
+    def record_hit(self, key: Any) -> None:
+        """Count one SERVED entry and mark ``key`` as most recently used."""
+        with self._lock:
+            self.hits += 1
+            if key in self:
+                self.move_to_end(key)
+
+    def record_miss(self) -> None:
+        """Count one attempt that has to rebuild (absent, refused or disabled)."""
+        with self._lock:
+            self.misses += 1
+
+    def discard(self, key: Any) -> None:
+        """Drop a refused entry so it can never be probed again."""
+        with self._lock:
+            self.pop(key, None)
+
+
 #: Compiled bodies, keyed by the actual program multiset + shape +
 #: backend/device/options (see :func:`_executable_key`; a chunked plan adds the
 #: partition triple).  The key holds the REAL programs, never a digest: a hash
@@ -262,7 +306,7 @@ BATCH_PLAN_MEMO = dense_memo.DenseMemo("batch_plan", _default_cache_size())
 #: a rebuilt-but-equal population hits after one decode.  The stored entry carries
 #: NO pins (its plan outlives the population that built it) and is verified against
 #: the just-decoded programs before it is served.
-BATCH_CONTENT_MEMO = dense_memo.DenseMemo("batch_content", _default_cache_size())
+BATCH_CONTENT_MEMO = _ContentMemo("batch_content", _default_cache_size())
 
 #: Content entries refused because the verification failed (a digest collision or a
 #: corrupt entry); a refusal always rebuilds and never serves.
@@ -320,10 +364,12 @@ def batch_cache_stats() -> Dict[str, int]:
 def batch_content_stats() -> Dict[str, int]:
     """Counters of the CONTENT-addressed plan table (five keys).
 
-    ``batch_content_hits`` / ``batch_content_misses`` / ``batch_content_entries`` /
-    ``batch_content_maxsize`` describe :data:`BATCH_CONTENT_MEMO` (a hit serves a
-    verified plan after ONE decode), and ``batch_content_rejects`` counts the
-    entries that failed verification and therefore rebuilt.
+    ``batch_content_hits`` counts entries actually SERVED (a verified plan, after
+    ONE decode), ``batch_content_misses`` counts attempts that had to rebuild, and
+    ``batch_content_rejects`` counts the entries refused by the program
+    verification -- a subset of those misses, since a refused entry always
+    rebuilds.  ``batch_content_entries`` / ``batch_content_maxsize`` describe the
+    table itself.
 
     Deliberately separate from :func:`batch_cache_stats` (which stays at exactly its
     eight identity-keyed counters), and from ``cache_stats()`` /
@@ -800,8 +846,9 @@ def _plan_entry(
        plan parameter.  A content hit serves a REBUILT-but-equal population (a fresh
        ``Forest`` object, the same evolution) after that one decode -- and only
        after the stored entry's ``plan.programs`` were verified against the
-       just-decoded programs: a digest collision or a corrupt entry is counted in
-       ``batch_content_rejects`` and REBUILDS, it is never served.
+       just-decoded programs: a digest collision or a corrupt entry is counted as a
+       content MISS plus a ``batch_content_rejects`` increment and REBUILDS, it is
+       never served -- so ``batch_content_hits`` only ever counts served entries.
     3. a rebuild calls :func:`_plan_host` exactly once, passing the population it
        already decoded (the decode is never paid twice), then :func:`build_batch`.
 
@@ -910,17 +957,27 @@ def _plan_entry(
         if per_row:
             pinned.append(x)
         pins = dense_memo.pin(pinned)
-    content = BATCH_CONTENT_MEMO.lookup(content_key)
+    content = BATCH_CONTENT_MEMO.probe(content_key)
     if content is not None:
         if content.plan.programs == programs:
             # A verified content hit: the stored plan was built from these very
             # programs (same population content, same plan parameters), so only the
-            # pins are this call's.
+            # pins are this call's.  Counted as a hit HERE, i.e. only once the entry
+            # is actually served.
+            BATCH_CONTENT_MEMO.record_hit(content_key)
             built = dataclasses.replace(content, pins=pins)
             if memoized:
                 BATCH_PLAN_MEMO.store(key, built)
             return built
+        # The key matched but the entry is not this population's: a digest
+        # collision or a corrupt entry.  It is refused BEFORE any hit is counted --
+        # the attempt is a miss plus a reject -- and dropped so it can never be
+        # probed again; the rebuild below overwrites the slot.
+        BATCH_CONTENT_MEMO.record_miss()
+        BATCH_CONTENT_MEMO.discard(content_key)
         _reject_content_entry()
+    else:
+        BATCH_CONTENT_MEMO.record_miss()
     plan = _plan_host(
         batch_node_value,
         batch_node_type,
