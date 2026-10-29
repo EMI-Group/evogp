@@ -11,7 +11,7 @@ The route under test is the opt-in `EVOGP_EVAL_MODE=batch` merged-graph route (`
 
 Answers, one line each (derivations in §3–§7):
 
-- Cold at `p256-L32-i8-N1024` goes 11.07 s → 4.44 s (**2.49×**) at the shipped default of 4 workers and → 3.78 s (**2.92×**) at 7 chunks; the pre-round tree's own cold call is 11.07 s, so chunking — not any other change — owns that reduction.
+- Cold at `p256-L32-i8-N1024` goes 11.07 s → 4.44 s (**2.49×**) at the shipped default of 4 workers and → 3.78 s (**2.93×**) at 7 chunks; the pre-round tree's own cold call is 11.07 s, so chunking — not any other change — owns that reduction.
 - The pool still owns **90.6 %** of the cold call at 4 workers; everything else is 368 ms of host decode+trace+merge before it and 45.0 ms of device upload+run+gather after it.
 - Warm pays for the cold win: 2.011 → 3.628 ms per call at p256 (**1.80×**), because each chunk is its own upload+run+gather; at one chunk the warm call is unchanged (2.013 ms, 1.00× of pre-round).
 - **No measurable plan-key reuse in a GP loop**: 6 generations produce 6 distinct structure multisets, `batch_exec_hits` stays 0, and the identity-plan counters (9 hits / 6 misses / 6 entries) are identical to the pre-round tree.
