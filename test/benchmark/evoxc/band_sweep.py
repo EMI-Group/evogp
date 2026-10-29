@@ -17,10 +17,12 @@ covers the compiled-graph POOL and the banded+chunked COMPOSITION.  ``b8``/``b16
 ``flat``/``auto`` are the BAND-PARTITION configs and stay single-body
 (``EVOGP_BATCH_COMPILE_WORKERS=1``) on purpose: chunking changes the merge SHAPE (one compiled body
 per chunk, each with its own band partition) and would confound the band knob with the pool width.
-``auto-cw4`` (``auto`` + the ``EVOGP_BATCH_CHUNK_BANDS=1`` composition opt-in + pool 4) and
-``flat-cw4`` (flat merge + pool 4, no composition opt-in: an unbanded chunked plan needs none) run
-the pool deliberately, so ``--workers`` is asserted only for the band-partition set.  A pure
-pool-width sweep stays ``batch_economics.py --knob EVOGP_BATCH_COMPILE_WORKERS=N``.
+``auto-cw4`` (``auto`` + the ``EVOGP_BATCH_CHUNK_BANDS=1`` composition opt-in + pool 4),
+``b16-cw4`` (a PINNED band size 16 + the composition opt-in + pool 4, i.e. ``auto-cw4`` with the
+band POLICY removed) and ``flat-cw4`` (flat merge + pool 4, no composition opt-in: an unbanded
+chunked plan needs none) run the pool deliberately, so ``--workers`` is asserted only for the
+band-partition set.  A pure pool-width sweep stays
+``batch_economics.py --knob EVOGP_BATCH_COMPILE_WORKERS=N``.
 
 Per (cell, config) the child measures three value workloads in a FIXED order -- ``sr_fitness``,
 ``batch_forward``, ``forward`` -- recording per workload the cold first call (``first_call_ms``:
@@ -141,9 +143,9 @@ SCHEMA_DRIVER = SCHEMA + "-driver"
 #: ``K = ceil(n_functions / N)``, clamped into ``1..n_functions``); ``flat`` / ``flat-cw4`` pin
 #: ``EVOGP_BATCH_BANDS=none`` (one unbanded merge, ``band_strategy == "flat"``); ``auto`` /
 #: ``auto-cw4`` hand the partition to evoxc's static cost model (``band_requested == "auto"``,
-#: then possibly clamped).  ``EVOGP_BATCH_CHUNK_BANDS`` is set ONLY by ``auto-cw4``: an
-#: unbanded chunked plan needs no composition opt-in, and a band request without it would force
-#: the single-body path.
+#: then possibly clamped).  ``EVOGP_BATCH_CHUNK_BANDS`` is set by ``auto-cw4`` and ``b16-cw4``
+#: (the two banded+chunked compositions): an unbanded chunked plan needs no composition opt-in,
+#: and a band request without it would force the single-body path.
 CONFIG_KNOBS: Dict[str, Dict[str, str]] = {
     "b8": {"EVOGP_BATCH_BAND_SIZE": "8", "EVOGP_BATCH_COMPILE_WORKERS": "1"},
     "b16": {"EVOGP_BATCH_BAND_SIZE": "16", "EVOGP_BATCH_COMPILE_WORKERS": "1"},
@@ -157,6 +159,14 @@ CONFIG_KNOBS: Dict[str, Dict[str, str]] = {
         "EVOGP_BATCH_COMPILE_WORKERS": "4",
     },
     "flat-cw4": {"EVOGP_BATCH_BANDS": "none", "EVOGP_BATCH_COMPILE_WORKERS": "4"},
+    #: The composition with the band POLICY removed: pinned band size 16 (the minimax band size
+    #: of round 2) + the composition opt-in + pool 4, so a difference against ``auto-cw4`` is the
+    #: ``auto`` band policy alone and a difference against ``b16`` is the composition alone.
+    "b16-cw4": {
+        "EVOGP_BATCH_BAND_SIZE": "16",
+        "EVOGP_BATCH_CHUNK_BANDS": "1",
+        "EVOGP_BATCH_COMPILE_WORKERS": "4",
+    },
 }
 #: The config tokens in registry (render) order.  Appending a token here is the only edit a new
 #: config needs: the dry run, the driver and the child all read :data:`CONFIG_KNOBS`.
@@ -164,9 +174,9 @@ CONFIGS: Tuple[str, ...] = tuple(CONFIG_KNOBS)
 #: The BAND-PARTITION configs: single-body, no composition opt-in, so two of their records of a
 #: cell differ by the band partition alone.
 BAND_PARTITION_CONFIGS: Tuple[str, ...] = ("b8", "b16", "b32", "b64", "flat", "auto")
-#: The COMPOSITION configs: they run the compiled-graph pool (and ``auto-cw4`` additionally
-#: opts into banding each chunk), which is a different question from the band size.
-COMPOSITION_CONFIGS: Tuple[str, ...] = ("auto-cw4", "flat-cw4")
+#: The COMPOSITION configs: they run the compiled-graph pool (``auto-cw4`` / ``b16-cw4``
+#: additionally opt into banding each chunk), which is a different question from the band size.
+COMPOSITION_CONFIGS: Tuple[str, ...] = ("auto-cw4", "flat-cw4", "b16-cw4")
 #: The band knob of each config (exactly one per config, asserted in :func:`check_config_specs`).
 #: Of the remaining ``common.ROUTE_ENV_VARS`` entries a spec may set the pool width
 #: (``EVOGP_BATCH_COMPILE_WORKERS``) and the composition opt-in (``EVOGP_BATCH_CHUNK_BANDS``); every

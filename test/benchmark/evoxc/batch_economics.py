@@ -51,10 +51,14 @@ token                         arm                        route knobs
 ``batch-flat-chunked``        ``evoxc-batch-iree``       ``BANDS=none``, ``COMPILE_WORKERS=4``
 ``batch-auto-chunked``        ``evoxc-batch-iree``       ``BANDS=auto``, ``CHUNK_BANDS=1``,
                                                          ``COMPILE_WORKERS=4``
+``batch-b16-banded``          ``evoxc-batch-iree``       ``BAND_SIZE=16``, ``COMPILE_WORKERS=1``
+``batch-b16-chunked``         ``evoxc-batch-iree``       ``BAND_SIZE=16``, ``CHUNK_BANDS=1``,
+                                                         ``COMPILE_WORKERS=4``
 ============================  =========================  ==========================================
 
-(``BANDS``/``CHUNK_BANDS``/``COMPILE_WORKERS`` are ``EVOGP_BATCH_BANDS`` /
-``EVOGP_BATCH_CHUNK_BANDS`` / ``EVOGP_BATCH_COMPILE_WORKERS``.)  ``batch-flat-chunked`` deliberately
+(``BAND_SIZE``/``BANDS``/``CHUNK_BANDS``/``COMPILE_WORKERS`` are ``EVOGP_BATCH_BAND_SIZE`` /
+``EVOGP_BATCH_BANDS`` / ``EVOGP_BATCH_CHUNK_BANDS`` / ``EVOGP_BATCH_COMPILE_WORKERS``.)
+``batch-flat-chunked`` deliberately
 leaves ``EVOGP_BATCH_CHUNK_BANDS`` UNSET: off, a band request forces the single-body path, so that
 route is the unbanded-per-chunk control next to ``batch-auto-chunked``.
 
@@ -217,6 +221,20 @@ ROUTE_SPECS: Dict[str, Dict[str, Any]] = {
     "batch-auto-chunked": {
         "arm": "evoxc-batch-iree",
         "knobs": {"EVOGP_BATCH_BANDS": "auto", "EVOGP_BATCH_CHUNK_BANDS": "1",
+                  "EVOGP_BATCH_COMPILE_WORKERS": "4"},
+    },
+    # round 2, work item 3 -- the PINNED-SIZE composition: the same banded+chunked shape as
+    # batch-auto-chunked with the ``auto`` band policy replaced by a fixed band size of 16 (the
+    # round-2 minimax), so the pair separates the band policy from the composition itself.
+    "batch-b16-banded": {
+        "arm": "evoxc-batch-iree",
+        # The single-run numeric-default baseline for the loop: pinned band size 16, single body.
+        "knobs": {"EVOGP_BATCH_BAND_SIZE": "16", "EVOGP_BATCH_COMPILE_WORKERS": "1"},
+    },
+    "batch-b16-chunked": {
+        "arm": "evoxc-batch-iree",
+        # The candidate composition default: pinned band size 16 + the composition opt-in + pool 4.
+        "knobs": {"EVOGP_BATCH_BAND_SIZE": "16", "EVOGP_BATCH_CHUNK_BANDS": "1",
                   "EVOGP_BATCH_COMPILE_WORKERS": "4"},
     },
 }
