@@ -214,6 +214,11 @@ class StageStatsProbe:
     passed through unchanged, so ``time_call`` can use the probe as ``fn``.  A reset that raises is
     recorded in that block's ``note`` rather than aborting a measurement that may already carry a
     multi-minute compile: the failure is stated in the record, never swallowed.
+
+    The reset + snapshot pair runs INSIDE the timed window (``time_call`` times ``fn``), so it is part
+    of every number the caller records: a host-side zero/read of ~32 counters (microseconds, and only
+    when the accessors exist) against a millisecond-scale call -- not free, but stated rather than
+    assumed away.
     """
 
     def __init__(self, fn: Callable[[], Any], stats: Any = None, reset: Any = None) -> None:
