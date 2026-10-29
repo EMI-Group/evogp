@@ -15,6 +15,9 @@ What lives here and nowhere else:
   list ``batch_economics.py --knob NAME=VALUE`` validates against;
 * the timing helper (sync-bracketed, warmup + reps, median/min/max/samples);
 * the value digest used to prove cross-process numeric agreement;
+* the band/merge report of one merged plan (``band_report``: the band shape that
+  ``describe_plan`` exposes plus the two cost-model estimates only the plan's own
+  report carries), read null-never-zero so a band sweep can state what it merged;
 * the environment block written into every record.
 
 The batch route's per-stage cost split lives one module over, in ``stages.py``
@@ -751,6 +754,139 @@ def batch_policy(src: Optional[str] = None) -> Dict[str, Any]:
     policy["knobs"] = knobs
     policy["knobs_source"] = sources
     return policy
+
+
+# ---------------------------------------------------------------------------
+# band / merge report (torch-free, getattr-probed: null never zero)
+# ---------------------------------------------------------------------------
+#: The band/merge fields a record keeps per MERGED PLAN.  ``describe_plan`` exposes
+#: most of them, but not ``bands`` and not the two cost-model estimates: those live
+#: in the plan's OWN report (``plan.report`` = ``merged.batch_report.as_dict()``),
+#: which is the only place ``cost_estimate`` / ``flat_cost_estimate`` are written --
+#: and they stay ``None`` unless the static cost model ran
+#: (``EVOGP_BATCH_BANDS=auto``), which is a fact, not a defect.
+BAND_REPORT_KEYS: Tuple[str, ...] = (
+    "bands",
+    "band_sizes",
+    "band_strategy",
+    "cost_estimate",
+    "flat_estimate",
+    "n_functions",
+    "emitted_ops",
+    "band_count",
+)
+#: Why the two cost estimates are usually null here (the row is machine-readable too).
+BAND_COST_NOTE = (
+    "cost_estimate / flat_estimate are null: the static cost model only runs with "
+    "EVOGP_BATCH_BANDS=auto, and a pinned band SIZE (or the flat merge) never runs it -- "
+    "null (NOT 0) means 'the model did not run', never 'the estimate was zero'."
+)
+BAND_ABSENT_NOTE = (
+    "no merged-plan description was available (no describe_plan mapping and no plan "
+    "carrying a report: the plan memo / describe_plan was not reachable), so every band "
+    "field is null (NOT zero)."
+)
+
+
+def _plan_report(plan: Any) -> Dict[str, Any]:
+    """``plan.report`` when it is a dict, else ``{}`` (a mapping argument has none).
+
+    Never raises: an attribute that raises, an absent attribute or a report of some
+    other type is reported as "no report", which is what a caller records.
+    """
+    if isinstance(plan, dict):
+        return {}
+    try:
+        report = getattr(plan, "report", None)
+    except Exception:  # noqa: BLE001 - an attribute that raises reads as absent
+        return {}
+    return report if isinstance(report, dict) else {}
+
+
+def _band_sizes(value: Any) -> Optional[List[int]]:
+    """``band_sizes`` as a list of ints (a non-list reads as absent, never as ``[]``)."""
+    if not isinstance(value, (list, tuple)):
+        return None
+    try:
+        return [int(item) for item in value]
+    except (TypeError, ValueError):
+        return None
+
+
+def band_report(plan_or_described: Any = None, described: Any = None) -> Dict[str, Any]:
+    """The band/merge shape of ONE merged plan, next to the cost model's own verdict.
+
+    Accepts a ``describe_plan``-style mapping, a ``BatchPlan`` (whose ``report``
+    attribute is ``merged.batch_report.as_dict()``), or both -- ``described`` is the
+    mapping view when the caller already has it.  The plan's OWN report wins wherever
+    it speaks, and that is what keeps a CHUNKED plan honest: its aggregate report sets
+    ``bands`` / ``band_sizes`` / ``band_strategy`` to ``None`` (no single merged graph
+    exists), and that null is recorded as null rather than replaced by a fabricated
+    ``[]`` or ``1``.  ``cost_estimate`` / ``flat_estimate`` come from that report alone.
+
+    Every field is ``None`` when neither source carries it (never ``0``), ``available``
+    is true only when at least one field could be read, and nothing here imports
+    ``torch``/``evogp`` or raises: this is compile-free introspection of a plan the route
+    has already stored, so a missing memo costs a block, never a record.
+    ``chunk_count`` rides along from the ``describe_plan`` view (it lives there, not in
+    the report) so a chunked plan's nulls can be read for what they are.
+    """
+    mapping = (
+        described
+        if isinstance(described, dict)
+        else (plan_or_described if isinstance(plan_or_described, dict) else {})
+    )
+    report = _plan_report(plan_or_described)
+
+    def pick(key: str, *fallback: str) -> Any:
+        """The report's own value where the key exists, else the describe_plan view's."""
+        if key in report:
+            return report[key]
+        for name in (key,) + fallback:
+            if name in mapping:
+                return mapping[name]
+        return None
+
+    values: Dict[str, Any] = {
+        "bands": pick("bands"),
+        # an empty band_sizes list is what the aggregate report of a chunked plan means:
+        # no single merge shape, never 0 bands
+        "band_sizes": _band_sizes(pick("band_sizes")),
+        "band_strategy": pick("band_strategy"),
+        "cost_estimate": pick("cost_estimate"),
+        "flat_estimate": pick("flat_cost_estimate", "flat_estimate"),
+        "n_functions": pick("n_functions"),
+        "emitted_ops": pick("emitted_ops"),
+        "band_count": pick("band_count"),
+    }
+    if report and mapping:
+        source = "plan-report+described"
+    elif report:
+        source = "plan-report"
+    elif mapping:
+        source = "described"
+    else:
+        source = "absent"
+    notes: List[str] = []
+    if source == "absent":
+        notes.append(BAND_ABSENT_NOTE)
+    elif source == "plan-report":
+        notes.append(
+            "only the plan's own report was readable, so band_count / chunk_count are null "
+            "wherever only the describe_plan view carries them."
+        )
+    if source != "absent" and values["cost_estimate"] is None and values["flat_estimate"] is None:
+        notes.append(BAND_COST_NOTE)
+    block: Dict[str, Any] = {
+        "available": any(value is not None for value in values.values()),
+        "source": source,
+        "note": " ".join(notes) or None,
+        "chunk_count": mapping.get("chunk_count"),
+        "report_keys": sorted(str(key) for key in report),
+    }
+    for key in BAND_REPORT_KEYS:
+        block[key] = values.get(key)
+    return block
 
 
 def pop_min_declines(pop: int, min_pop: int) -> Optional[str]:

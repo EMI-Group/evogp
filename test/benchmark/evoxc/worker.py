@@ -389,7 +389,13 @@ def batch_plan_facts(batch_engine_module) -> Dict[str, Any]:
     """
     memo = getattr(batch_engine_module, "BATCH_PLAN_MEMO", None)
     describe = getattr(batch_engine_module, "describe_plan", None)
-    facts: Dict[str, Any] = {"available": False, "note": None, "plans": [], "summary": {}}
+    facts: Dict[str, Any] = {
+        "available": False, "note": None, "plans": [], "summary": {},
+        # the BatchPlan objects, PARALLEL to ``plans``: ``common.band_report`` reads the
+        # two cost-model estimates off ``plan.report``, which ``describe_plan`` does not
+        # expose.  Never serialized (a plan holds graphs), only introspected.
+        "objects": [],
+    }
     if memo is None or not callable(describe):
         absent = [
             name
@@ -422,10 +428,11 @@ def batch_plan_facts(batch_engine_module) -> Dict[str, Any]:
             continue
         seen.add(key)
         facts["plans"].append(described)
+        facts["objects"].append(plan)
     counts: Dict[str, int] = {}
     for plan in facts["plans"]:
         counts[str(plan.get("variant"))] = counts.get(str(plan.get("variant")), 0) + 1
-    for plan in facts["plans"]:
+    for index, plan in enumerate(facts["plans"]):
         variant = str(plan.get("variant"))
         # ``value`` is planned twice in a normal config (batch_forward per_row=False,
         # forward per_row=True), so disambiguate only when the variant is not unique
@@ -434,6 +441,11 @@ def batch_plan_facts(batch_engine_module) -> Dict[str, Any]:
         # the merge-shape fields have ONE resolution (``stages.plan_fields``); a missing one is
         # ``None`` here, never 0 -- the pool width is part of what the compile cost is priced against
         entry.update(stages.plan_fields(plan))
+        # the band/merge shape plus the static cost model's own verdict (``common.band_report``):
+        # ``describe_plan`` does not expose ``bands`` / ``cost_estimate`` / ``flat_cost_estimate``,
+        # so the plan's own report is read for them and they stay null (never 0) unless
+        # ``EVOGP_BATCH_BANDS=auto`` ran the model.  Additive: every key above is unchanged.
+        entry["band_report"] = common.band_report(facts["objects"][index], plan)
         facts["summary"][key] = entry
     facts["available"] = bool(facts["plans"])
     if not facts["available"] and facts["note"] is None:
@@ -837,6 +849,9 @@ def main() -> int:
             record["batch_plan_summary"] = {
                 "available": False,
                 "note": plan_facts["note"],
+                # the band/merge sub-block keeps its shape when there is no plan to read:
+                # every field null with the reason, never a 0 (common.band_report)
+                "band_report": common.band_report(None),
             }
             record["notes"].append(
                 "batch arm: " + str(plan_facts["note"])
