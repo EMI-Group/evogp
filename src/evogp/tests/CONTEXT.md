@@ -56,7 +56,7 @@ The box has torch 2.13.0+rocm7.1 and one shared AMD MI300X (gfx942, ROCm 7.1, ja
 - Single file: replace the path (`-x` stops at the first failure).
 - Write-free run (worktree stays clean): add `-p no:cacheprovider` and `PYTHONDONTWRITEBYTECODE=1`.
 - Perf probe: `PYTHONPATH=/root/evoxc EVOXC_DISABLE_LOCATIONS=1 /tmp/genesis/task_a996674198ffbcee/evogp-venv/bin/python src/evogp/tests/perf_probe.py --quick` (or `--full`); `--quick --backends numpy` exits 0 with an EMPTY `errors` dict and reads cold build ≈6.2 ms, warm `evoxc.run` ≈0.26 ms/tree, trace/lower/compile/load ≈1.4/2.2/1.8/1.8 ms and a locations delta trace 12.6→1.0 ms.
-- The probe's iree leg needs the IREE Python packages, so it only runs on a venv that has them (device kind `rocm` there: cold build ≈280 ms, warm run ≈0.114 ms, parity max|diff| 0.0) — this task's venv lacks them and `evoxc` raises `BackendError` for `backend="iree"`; the probe needs no `PYTHONPATH=src`, it imports only `evoxc`/numpy/torch, never `evogp`.
+- The probe's iree leg needs the IREE Python packages, so it only runs on a venv that has them (device kind `rocm` here, where it runs: cold build ≈280 ms, warm run ≈0.114 ms, parity max|diff| 0.0 — historical figures measured on an iree-equipped venv); the probe needs no `PYTHONPATH=src`, it imports only `evoxc`/numpy/torch, never `evogp`.
 ## Constraints
 - No test may depend on a compiled extension (there is none any more) and the reference path must not require a GPU.
 - `reference_eval.py` stays independent: no imports from `evogp.tree.evoxc_engine` (it is the oracle the engine is checked against).
