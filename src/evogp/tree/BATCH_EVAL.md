@@ -81,14 +81,15 @@ Two variants exist: `value` (`(pop, N, out_len)`; `per_row` selects the `(pop, i
 | --- | --- | --- |
 | `EVOGP_BATCH_MIN_POP` | `64` | `pop_size` threshold; below it the route declines (measured break-even, §5) |
 | `EVOGP_BATCH_BAND_SIZE` | `32` | band **size**: `K = ceil(n_functions / size)`, clamped to `1 <= K <= n` |
-| `EVOGP_BATCH_BANDS` | unset | explicit band count `K`, or a flat spelling (`none` / `flat` / `0`); out-of-range `K` raises `ValueError` |
+| `EVOGP_BATCH_BANDS` | unset | explicit band count `K`, or a flat spelling (`none` / `flat` / `0`), which means an explicit single band (`K = 1`, byte-identical to `=1`); out-of-range `K` raises `ValueError` |
 | `EVOGP_BATCH_SWITCH_OPS` | off | op-switching transform; forces the flat merge (`K = 1`) and is **not** combined with banding |
 | `EVOGP_BATCH_ALIGNMENT` | `variant` | `variant` / `occurrence` / `auto`; a pure evoxc performance heuristic, can never change the numbers |
 | `EVOGP_BATCH_CACHE_SIZE` | `8` | entries of both front tables; read at **import** time like `EVOGP_EVOXC_CACHE_SIZE` |
 
 Banding trades dispatches for wasted work: `K` bands means `K` `select` cascades instead of one per
 population. `bands="auto"` is deliberately not offered (it is CPU-calibrated, resolves to `K=1` here,
-and only costs a static cost-model run).
+and only costs a static cost-model run). Only unset/empty hands the decision to the band-size model; the
+flat spellings are an explicit `K = 1` (§9.1).
 
 Front tables (`dense_memo.DenseMemo`, identity/count-keyed, **not** content-hashed): `BATCH_PLAN_MEMO`
 maps the three population identity tokens (`data_ptr`/shape/dtype/device/`_version`, so an in-place write
@@ -162,6 +163,32 @@ specialized+numpy at `pop >= 64` — it pays when the SAME population/dataset is
 `[32,32,32,32,32,31,31]`, 3756 ops; pop 256 / `L=32` / `il=32` → 234 unique, `bands=8` (sizes 29–30),
 4176 ops.
 
+### 5.1 Scale envelope / limits
+
+Measured on the same box (loss variant, `per_row=False`, default band-size model 32,
+`using_funcs=["+","-","*","/","sin","cos","exp","log","sqrt","max","min"]`, `max_layer_cnt=5`,
+`L=32`, `il=8`, `N=128`):
+
+| pop | merged functions | `band_count` | `emitted_ops` | cold (trace+merge+compile+load) |
+| --- | --- | --- | --- | --- |
+| 256 | 202 | 7 | 3246 | 7.9 s |
+| 512 | 387 | 13 | 6568 | 15.8 s |
+| 1000 | 731 | 23 | 12 637 | 39.8 s |
+| 2048 | 1443 | 46 | 25 435 | 154.2 s |
+
+Every row **loads and runs**, so the route's practical ceiling is compile time, not a hard failure: the
+per-function compile cost is ≈0.04 s at pop 256 (7.9 s / 202) and ≈0.11 s at pop 2048 (154 s / 1443) — i.e.
+mildly superlinear in the merged function count, so raising `EVOGP_BATCH_MIN_POP` costs accordingly.
+Explicit band counts `K = 1` (flat), `8`, `32`, `64` at pop 256 all build and run.
+
+**Very fine banding does not load.** `bands=200` at pop 256 (band size ≈1, one band per function) fails at
+`evoxc.load` with `ValueError: ... hip/native_executable.c:223: INVALID_ARGUMENT; exports[N]
+binding_flags count 22 exceeds maximum of 16` — a hard IREE ROCm HAL limit on the exported bindings of one
+executable, not a bug in this route. The default band SIZE of 32 keeps the band count at
+`ceil(n_functions / 32)` (7 at pop 256, 46 at pop 2048), far below that wall; only an explicit
+`EVOGP_BATCH_BANDS` near the function count, or a tiny `EVOGP_BATCH_BAND_SIZE` at a few hundred
+functions, reaches it.
+
 ## 6. Numerics
 
 On the whole grid above, batch vs specialized+numpy **and** batch vs dense+iree: 12/12 cells within
@@ -190,7 +217,8 @@ index (`DENSE_EVAL.md` §5), i.e. not a property of the merge.
 * **No pytest coverage yet** — the tests node owns it; the route is currently validated by this
   document's grid plus the smoke described in §6.
 * **Large-population merges are compile-heavy**: ~0.05 s per merged function at pop 256 (10.8–12.8 s
-  cold), which is the number to watch when raising `EVOGP_BATCH_MIN_POP` or lowering the band size.
+  cold), which is the number to watch when raising `EVOGP_BATCH_MIN_POP` or lowering the band size; a very
+  fine banding (~one band per function at 200+ functions) does not LOAD on the ROCm HAL (§5.1).
 
 ## 9. Contracts moved out of the module docstrings
 
@@ -211,7 +239,9 @@ public facade and re-exports everything, so no caller changes:
 cascade per band instead of one per population), which trades dispatches for wasted work. The knob is a
 band **size** (`EVOGP_BATCH_BAND_SIZE`, default 32): `K = ceil(n_functions / band_size)`, clamped to
 `1 <= K <= n_functions`; `K == 1` reduces to the flat merge. `EVOGP_BATCH_BANDS` overrides the model with
-an explicit `K` (or the flat spellings `none` / `flat` / `0`). `bands="auto"` is deliberately NOT offered:
+an explicit `K`; the flat spellings `none` / `flat` / `0` are an explicit `K = 1` (same plan as
+`EVOGP_BATCH_BANDS=1`: `band_sizes == [n_functions]`, `band_strategy == "flat"`), NOT a hand-back to the
+band-size model — only unset/empty leaves the model in charge. `bands="auto"` is deliberately NOT offered:
 it is CPU-calibrated, resolves to `K=1` on this workload and only costs a static cost-model run.
 
 `switch_ops` (`EVOGP_BATCH_SWITCH_OPS`, default off) makes op-switching positions share one op per variant

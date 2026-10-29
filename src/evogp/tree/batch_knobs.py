@@ -48,7 +48,8 @@ BAND_SIZE_ENV = "EVOGP_BATCH_BAND_SIZE"
 DEFAULT_BAND_SIZE = 32
 #: Explicit band count (``EVOGP_BATCH_BANDS``): an int ``K`` with
 #: ``1 <= K <= n_functions``, or one of the flat spellings ``none`` / ``flat`` /
-#: ``0``.  Unset/empty means "use the band-size model above".
+#: ``0``, which mean an explicit single band (``K = 1``, the flat merge).
+#: Unset/empty means "use the band-size model above".
 BANDS_ENV = "EVOGP_BATCH_BANDS"
 #: Op-switching (``EVOGP_BATCH_SWITCH_OPS``): off by default -- on the measured GP
 #: workload it shares nothing (``report["switched"]`` empty) and changes no op
@@ -126,9 +127,13 @@ def resolve_band_size(value: Optional[int] = None) -> int:
 def resolve_bands(value: Optional[Any] = None) -> Optional[int]:
     """Resolve ``EVOGP_BATCH_BANDS`` into an explicit band count or ``None``.
 
-    ``None`` means "the band-size model decides" -- the answer for unset/empty
-    AND for the explicit flat spellings (``none`` / ``flat`` / ``0``), which both
-    describe a single-band (flat) merge.  An integer ``K`` is returned as given;
+    The flat spellings (``none`` / ``flat`` / ``0``, and the integer ``0``) mean an
+    explicit SINGLE band: they answer ``1``, so the merge is byte-identical to
+    ``EVOGP_BATCH_BANDS=1`` (``band_sizes == [n_functions]``,
+    ``band_strategy == "flat"``) instead of being handed to the band-size model.
+
+    ``None`` means "the band-size model decides" and is the answer for
+    unset/empty only.  An integer ``K >= 1`` is returned as given;
     :func:`resolve_band_count` validates it against the function count (which is
     only known after decoding).  Anything else raises ``ValueError`` naming the
     variable.
@@ -141,12 +146,12 @@ def resolve_bands(value: Optional[Any] = None) -> Optional[int]:
         )
     if isinstance(raw, (int, np.integer)):
         count = int(raw)
-        return None if count == 0 else count
+        return 1 if count == 0 else count
     text = str(raw).strip().lower()
     if not text:
         return None
     if text in _FLAT:
-        return None
+        return 1
     try:
         count = int(text)
     except ValueError as exc:
@@ -154,7 +159,7 @@ def resolve_bands(value: Optional[Any] = None) -> Optional[int]:
             f"unsupported {BANDS_ENV}={raw!r}: expected an integer band count "
             f"(1 <= K <= n_functions) or one of {list(_FLAT)}"
         ) from exc
-    return None if count == 0 else count
+    return 1 if count == 0 else count
 
 
 def resolve_switch_ops(value: Optional[bool] = None) -> bool:
@@ -208,8 +213,9 @@ def resolve_band_count(
     """The band count ``K`` this merge should use for ``n_functions`` functions.
 
     Precedence: ``switch_ops`` on -> ``K = 1`` (the flat merge; banding is never
-    combined with op-switching), then an explicit ``bands`` count, then the
-    band-SIZE model ``ceil(n_functions / band_size)``.  The result is always
+    combined with op-switching), then an explicit ``bands`` count -- the flat
+    spellings included, since :func:`resolve_bands` resolves them to ``1`` -- then
+    the band-SIZE model ``ceil(n_functions / band_size)``.  The result is always
     clamped into ``1 <= K <= n_functions``; an explicit ``K`` outside that range
     raises ``ValueError`` naming ``EVOGP_BATCH_BANDS`` (it cannot be honoured, so
     silently clamping would hide a typo).
