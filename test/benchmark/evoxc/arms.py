@@ -17,18 +17,44 @@ separately, never inside a timed region).  The evoxc arms are the library's own
 public methods with the arm's ``EVOGP_EVAL_MODE`` / ``EVOGP_EVOXC_BACKEND`` in
 the environment -- nothing is monkeypatched, so what they measure is what a user
 gets.
+
+An arm spec may also carry a ``knobs`` mapping of extra engine knobs
+(``{env var: value}``) beyond the two route selectors -- the batch route's
+``EVOGP_BATCH_BANDS=flat`` variant is one; ``apply_arm_env`` applies it verbatim,
+and every batch knob is cleared for every arm first so a value can never leak
+from one arm's process environment into another's.
 """
 
 from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
-import torch
-
-import arms_torch
 import common
+
+if TYPE_CHECKING:  # annotations only: the registry itself must import without torch
+    import torch
+
+
+def _torch():
+    """``torch``, imported on first use.
+
+    The arm registry (``EVOXC_ARMS`` / ``apply_arm_env``) is consulted by GPU-free
+    tooling -- ``check.py`` and ``summarize.py`` import ``common`` and may import
+    this module -- so the heavy imports live behind the arm objects instead of at
+    module import time.  Only the torch arms need them.
+    """
+    import torch
+
+    return torch
+
+
+def _arms_torch():
+    """``arms_torch``, imported on first use (it imports torch itself)."""
+    import arms_torch
+
+    return arms_torch
 
 
 class TorchArm:
@@ -42,8 +68,8 @@ class TorchArm:
         self.workload = workload
         self.extra: Dict[str, Any] = {}
         start = time.perf_counter()
-        self.evaluator = arms_torch.make_torch_arm(impl, workload["forest"])
-        torch.cuda.synchronize()
+        self.evaluator = _arms_torch().make_torch_arm(impl, workload["forest"])
+        _torch().cuda.synchronize()
         self.setup_ms = (time.perf_counter() - start) * 1e3
         self.evaluator.setup_ms = self.setup_ms
 
@@ -60,8 +86,8 @@ class TorchArm:
     # -- GP generation step -------------------------------------------------
     def fitness(self, forest, report: Optional[Dict[str, Any]] = None) -> torch.Tensor:
         start = time.perf_counter()
-        evaluator = arms_torch.make_torch_arm(self.impl, forest)
-        torch.cuda.synchronize()
+        evaluator = _arms_torch().make_torch_arm(self.impl, forest)
+        _torch().cuda.synchronize()
         setup_ms = (time.perf_counter() - start) * 1e3
         loss = evaluator.sr_fitness(self.workload["x"], self.workload["labels"])
         if report is not None:
@@ -93,14 +119,26 @@ class EvoxcArm:
         return forest.SR_fitness(self.workload["x"], self.workload["labels"])
 
 
-def apply_arm_env(arm: str) -> Dict[str, Optional[str]]:
-    """Set the arm's engine knobs in ``os.environ`` (one arm per process)."""
+def apply_arm_env(arm: str) -> Dict[str, Any]:
+    """Set the arm's engine knobs in ``os.environ`` (one arm per process).
+
+    Every batch-route variable is cleared first, for every arm including the torch
+    ones: the knobs are per-arm provenance, so an inherited (or leftover) value
+    from a previous arm in the same process must never decide what a later arm
+    measures.  ``knobs`` in the return value is the batch/extra knob mapping the
+    arm actually applied (``{}`` when it applied none); the ``eval_mode`` and
+    ``backend`` keys keep their old meaning for every existing caller.  An
+    unregistered arm name still raises ``KeyError``.
+    """
+    for env_name in common.BATCH_ENV_VARS:
+        os.environ.pop(env_name, None)
+
     if arm in common.TORCH_ARMS:
         # the torch arms must not be helped by an engine route: pin the engine to
         # its default so an inherited environment cannot change anything
         os.environ.pop("EVOGP_EVAL_MODE", None)
         os.environ.pop("EVOGP_EVOXC_BACKEND", None)
-        return {"eval_mode": None, "backend": None}
+        return {"eval_mode": None, "backend": None, "knobs": {}}
     spec = common.EVOXC_ARMS[arm]
     for key, env in (("eval_mode", "EVOGP_EVAL_MODE"), ("backend", "EVOGP_EVOXC_BACKEND")):
         value = spec[key]
@@ -108,7 +146,10 @@ def apply_arm_env(arm: str) -> Dict[str, Optional[str]]:
             os.environ.pop(env, None)
         else:
             os.environ[env] = value
-    return {"eval_mode": spec["eval_mode"], "backend": spec["backend"]}
+    knobs = dict(spec.get("knobs") or {})
+    for env_name, value in knobs.items():
+        os.environ[env_name] = str(value)
+    return {"eval_mode": spec["eval_mode"], "backend": spec["backend"], "knobs": knobs}
 
 
 def make_arm(arm: str, workload: Dict[str, Any]):

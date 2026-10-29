@@ -58,12 +58,55 @@ EVOXC_ARMS: Dict[str, Dict[str, Optional[str]]] = {
     },
     # one dense all-ops graph per population shape
     "evoxc-dense-iree": {"eval_mode": "dense", "backend": "iree", "family": "evoxc"},
+    # one merged graph per population (structure multiset), via evoxc.batch_functions
+    "evoxc-batch-iree": {"eval_mode": "batch", "backend": "iree", "family": "evoxc"},
+    # the same route with flat (unbanded) merging: O(N^2) in the population
+    "evoxc-batch-iree-flat": {
+        "eval_mode": "batch",
+        "backend": "iree",
+        "family": "evoxc",
+        "knobs": {"EVOGP_BATCH_BANDS": "flat"},
+    },
 }
 TORCH_ARMS: Dict[str, Dict[str, Any]] = {
     "torch-per-tree": {"impl": "per_tree", "family": "torch"},
     "torch-batched": {"impl": "batched", "family": "torch"},
 }
 ALL_ARMS: List[str] = list(TORCH_ARMS) + list(EVOXC_ARMS)
+
+#: The knob table of the batch route (``EVOGP_EVAL_MODE=batch``), the ONE place
+#: the harness names them: ``(spec key, env var, documented default, candidate
+#: resolver attribute names on ``evogp.tree.batch_engine``)``.  ``batch_policy()``
+#: is the only reader, so an arm's ``knobs`` mapping, an exported variable and the
+#: engine's own default are never spelled out twice.
+#:
+#: ``EVOGP_BATCH_BANDS`` accepts an explicit band count ``K`` or ``none``/``flat``
+#: (one unbanded merge, O(N^2) in the population -- the ``-flat`` arm times it);
+#: ``EVOGP_BATCH_ALIGNMENT`` defaults to ``variant`` (band variants are aligned
+#: before the merge instead of being padded per call).
+BATCH_KNOBS: Tuple[Tuple[str, str, str, Tuple[str, ...]], ...] = (
+    # (spec key, env var, documented default, candidate resolver attribute names)
+    ("band_size", "EVOGP_BATCH_BAND_SIZE", "32", ("resolve_band_size",)),
+    ("bands", "EVOGP_BATCH_BANDS", "default", ("resolve_bands", "resolve_band_count")),
+    ("switch_ops", "EVOGP_BATCH_SWITCH_OPS", "off", ("resolve_switch_ops", "uses_switch_ops")),
+    ("alignment", "EVOGP_BATCH_ALIGNMENT", "variant", ("resolve_alignment",)),
+    ("cache_size", "EVOGP_BATCH_CACHE_SIZE", "unset", ("resolve_cache_size",)),
+    ("min_pop", "EVOGP_BATCH_MIN_POP", "4", ("resolve_min_pop",)),
+)
+#: Every env var the table above owns -- the arms clear all of them per process.
+BATCH_ENV_VARS: Tuple[str, ...] = tuple(entry[1] for entry in BATCH_KNOBS)
+#: Location of the batch engine relative to the ``src`` directory (import-free check).
+BATCH_MODULE_REL = os.path.join("evogp", "tree", "batch_engine.py")
+
+
+def is_batch_arm(arm: str) -> bool:
+    """Is this arm's route the batch engine (one merged graph per population)?
+
+    One definition for ``worker.py`` / ``check.py`` / the economics script: an arm
+    is a batch arm exactly when its registry entry asks for ``EVOGP_EVAL_MODE=batch``,
+    so a future batch variant (another band policy) is picked up with no extra rule.
+    """
+    return (EVOXC_ARMS.get(arm) or {}).get("eval_mode") == "batch"
 
 #: Workloads. ``sr_fitness`` is the training hot path, ``batch_forward`` is the
 #: public ``Forest.batch_forward`` value path (``(pop, N, out)``), ``forward`` is
@@ -367,6 +410,43 @@ def digest(value) -> Dict[str, Any]:
     }
 
 
+def population_signature(forest) -> Dict[str, Any]:
+    """Structure-multiset fingerprint of a population (the batch route's cache key).
+
+    The merged batch graph is keyed on the *multiset* of tree structures, not on
+    the row order, so the per-row hashes are collected into a set and sorted
+    before the population hash: a permuted population must report the same
+    ``signature``.  ``distinct_structures == 1`` means every row is the same
+    structure (elites and duplicates dominate), which is where one merged graph
+    wins by the widest margin; ``distinct_structures == pop_size`` means a fresh
+    population of all-distinct trees, i.e. the batch route's worst case.
+
+    Read through ``Forest.batch_*`` only: no torch import, and every tensor is
+    moved to CPU with ``np.ascontiguousarray`` first (they live on the device and
+    are not guaranteed contiguous after generation/mutation).
+    """
+    import numpy as np
+
+    value = np.ascontiguousarray(forest.batch_node_value.detach().to("cpu").numpy())
+    node_type = np.ascontiguousarray(forest.batch_node_type.detach().to("cpu").numpy())
+    subtree = np.ascontiguousarray(forest.batch_subtree_size.detach().to("cpu").numpy())
+
+    rows = set()
+    for row in range(int(forest.pop_size)):
+        length = int(subtree[row, 0])
+        payload = (
+            np.ascontiguousarray(value[row, :length]).tobytes()
+            + np.ascontiguousarray(node_type[row, :length]).tobytes()
+            + np.ascontiguousarray(subtree[row, :length]).tobytes()
+        )
+        rows.add(hashlib.sha256(payload).hexdigest())
+    return {
+        "distinct_structures": len(rows),
+        "signature": hashlib.sha256("\n".join(sorted(rows)).encode()).hexdigest()[:16],
+        "pop_size": int(forest.pop_size),
+    }
+
+
 def public_timing(record: Dict[str, Any]) -> Dict[str, Any]:
     """Drop the private result tensor before serializing."""
     out = dict(record)
@@ -391,6 +471,225 @@ def read_json(path: str) -> Any:
 # ---------------------------------------------------------------------------
 # route introspection
 # ---------------------------------------------------------------------------
+def _requested_eval_mode(eval_mode: Optional[str]) -> Optional[str]:
+    """The route name the caller actually asked for, env fallback included.
+
+    Stated once so ``route_decision`` can special-case a route before handing the
+    request to the dense policy: an explicit argument wins over
+    ``EVOGP_EVAL_MODE``, and neither case nor surrounding whitespace matters.
+    ``None`` means "no route pinned" (the library default).
+    """
+    raw = eval_mode if eval_mode is not None else os.environ.get("EVOGP_EVAL_MODE")
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    return text or None
+
+
+def _source_root_candidate() -> Optional[str]:
+    """The ``src`` directory to inspect, resolved WITHOUT importing ``evogp``.
+
+    ``src_root()`` is authoritative when ``evogp`` is already imported (that is
+    the ``--tree-root`` checkout under measurement); before that import -- e.g. in
+    ``check.py``, which is stdlib-only -- the harness's own checkout is found by
+    walking up from this file for ``src/evogp``.  ``None`` when neither exists.
+    """
+    if "evogp" in sys.modules:
+        try:
+            return src_root()
+        except Exception:  # noqa: BLE001 - a broken import must not raise here
+            pass
+    path = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(8):
+        if os.path.isdir(os.path.join(path, "src", "evogp")):
+            return os.path.join(path, "src")
+        parent = os.path.dirname(path)
+        if parent == path:
+            break
+        path = parent
+    return None
+
+
+def batch_engine_present(src: Optional[str] = None) -> bool:
+    """Does the tree under test ship ``evogp/tree/batch_engine.py``?  (No import.)
+
+    Mirrors ``cold_start.artifact_feature_present``: a path check keeps the answer
+    available before ``evogp`` is imported (a snapshot or a pre-batch tree simply
+    has no such file), and this function never imports ``evogp`` and never raises.
+    """
+    if src is None:
+        src = _source_root_candidate()
+    if not src:
+        return False
+    try:
+        return os.path.isfile(os.path.join(src, BATCH_MODULE_REL))
+    except Exception:  # noqa: BLE001 - a bad path is "absent", never a crash
+        return False
+
+
+def _registered_knob_value(env_name: str) -> Optional[str]:
+    """The value an arm of the registry would write for ``env_name`` (or None).
+
+    Lets ``batch_policy`` label a variable as arm-supplied instead of merely
+    inherited: arms write their ``knobs`` mapping into ``os.environ`` before the
+    engine is imported, so the registry is the only record of who set it.
+    """
+    for spec in EVOXC_ARMS.values():
+        value = (spec.get("knobs") or {}).get(env_name)
+        if value is not None:
+            return str(value)
+    return None
+
+
+def _resolve_batch_knob(
+    module, spec_key: str, env_name: str, default: str, candidates: Tuple[str, ...], errors: Dict[str, str]
+) -> Tuple[str, str]:
+    """``(value, source)`` for one batch knob, in the documented precedence order.
+
+    arm-supplied env value > inherited env value > the engine's own resolver >
+    the documented default.  A failing resolver is recorded in ``errors`` and the
+    next candidate (then the default) is used, so a policy report is never lost to
+    one broken accessor.
+    """
+    env_value = os.environ.get(env_name)
+    if env_value is not None:
+        arm_value = _registered_knob_value(env_name)
+        return env_value, "arm" if arm_value == env_value else "env"
+    if module is not None:
+        for attr in candidates:
+            resolver = getattr(module, attr, None)
+            if callable(resolver):
+                try:
+                    return str(resolver()), "module"
+                except Exception as exc:  # noqa: BLE001 - report, then try/fall back
+                    errors[spec_key] = repr(exc)
+    return default, "harness-default"
+
+
+def batch_policy(src: Optional[str] = None) -> Dict[str, Any]:
+    """Everything a record must state about the batch route as THIS process sees it.
+
+    Import-light by construction: ``evogp.tree.dense_engine`` is consulted only for
+    its declared ``EVAL_MODES`` (``mode_supported`` tells whether today's tree even
+    accepts ``EVOGP_EVAL_MODE=batch``), and ``evogp.tree.batch_engine`` only for the
+    knob resolvers named in :data:`BATCH_KNOBS`.  Both imports are guarded, so a
+    GPU-free / evogp-free caller (``check.py``, ``summarize.py``) still gets a full
+    report with ``module_present: False`` instead of an exception.
+    """
+    present = batch_engine_present(src)
+    resolved_src = src if src is not None else _source_root_candidate()
+    module_path = os.path.join(resolved_src, BATCH_MODULE_REL) if resolved_src else None
+    policy: Dict[str, Any] = {
+        "module_present": present,
+        "module": module_path,
+        "eval_mode": "batch",
+        "backend": "iree with numpy fallback",
+        "declared_modes": None,
+        "mode_supported": False,
+    }
+    errors: Dict[str, str] = {}
+
+    # Does the installed policy know the route at all?  Its EVAL_MODES is the
+    # authority; on today's tree ("dense", "specialized", "auto") it does not.
+    try:
+        from evogp.tree import dense_engine
+
+        declared = list(getattr(dense_engine, "EVAL_MODES", ()) or ())
+        policy["declared_modes"] = declared or None
+        policy["mode_supported"] = "batch" in declared
+    except Exception as exc:  # noqa: BLE001 - absence is a reportable state
+        policy["declared_modes_error"] = repr(exc)
+
+    module = None
+    try:
+        from evogp.tree import batch_engine as module
+    except Exception as exc:  # noqa: BLE001 - the route can be absent
+        policy["module_error"] = repr(exc)
+
+    knobs: Dict[str, Optional[str]] = {}
+    sources: Dict[str, str] = {}
+    values: Dict[str, str] = {}
+    defaults = {entry[0]: entry[2] for entry in BATCH_KNOBS}
+    for spec_key, env_name, default, candidates in BATCH_KNOBS:
+        value, source = _resolve_batch_knob(module, spec_key, env_name, default, candidates, errors)
+        values[spec_key] = value
+        sources[spec_key] = source
+        knobs[env_name] = os.environ.get(env_name)
+    if errors:
+        policy["resolver_errors"] = errors
+
+    # The two numeric knobs are coerce-only: a record should carry ints, and a
+    # bad value falls back to the documented default with the reason recorded.
+    for spec_key in ("min_pop", "band_size"):
+        try:
+            policy[spec_key] = int(values[spec_key])
+        except (TypeError, ValueError) as exc:
+            policy.setdefault("resolver_errors", {})[spec_key] = repr(exc)
+            policy[spec_key] = int(defaults[spec_key])
+    for spec_key in ("bands", "switch_ops", "alignment", "cache_size"):
+        policy[spec_key] = str(values[spec_key])
+    policy["knobs"] = knobs
+    policy["knobs_source"] = sources
+    return policy
+
+
+def pop_min_declines(pop: int, min_pop: int) -> Optional[str]:
+    """The batch route's documented decline rule: reason string below the floor.
+
+    Contract agreed with the engine, which owns the real decision: below
+    ``EVOGP_BATCH_MIN_POP`` (default 4) a merged graph cannot amortize its build,
+    so the route declines to ``specialized``.  This mirrors that decision for the
+    route summary; it never decides anything itself.
+    """
+    if int(pop) < int(min_pop):
+        return (
+            f"pop {int(pop)} < EVOGP_BATCH_MIN_POP {int(min_pop)}: one merged graph "
+            "cannot amortize its build, so the route declines to specialized"
+        )
+    return None
+
+
+def batch_route_decision(pop: int, rows: Optional[int] = None) -> Dict[str, Any]:
+    """The batch analogue of :func:`route_decision`, in the same shape family.
+
+    ``summarize.route_text`` reads ``eval_mode`` / ``backend`` / ``would_use_dense``
+    from it, so those keys are always present (the batch route is never dense and
+    its ``kind`` says so explicitly).  ``would_use_batch`` folds the three gates
+    together -- module present, mode declared by the tree, population above the
+    floor -- and ``rows`` is echoed only because every other route decision takes
+    it: the batch route is not rows-gated.
+    """
+    policy = batch_policy()
+    decline = pop_min_declines(pop, policy["min_pop"])
+    would_use = bool(policy["module_present"] and policy["mode_supported"] and decline is None)
+    if not policy["module_present"]:
+        state = "batch_engine.py absent on this tree"
+    elif not policy["mode_supported"]:
+        state = "the tree's EVAL_MODES does not declare 'batch'"
+    elif decline is not None:
+        state = "declines to specialized below the population floor"
+    else:
+        state = "merged graph per population structure multiset"
+    return {
+        "eval_mode": "batch",
+        "backend": "iree",
+        "kind": "batch",
+        "would_use_dense": False,
+        "would_use_batch": would_use,
+        "declines_to_specialized": decline is not None,
+        "decline_reason": decline,
+        "min_pop": policy["min_pop"],
+        "band_size": policy["band_size"],
+        "bands": policy["bands"],
+        "alignment": policy["alignment"],
+        "switch_ops": policy["switch_ops"],
+        "module_present": policy["module_present"],
+        "mode_supported": policy["mode_supported"],
+        "rows": rows,
+        "note": f"batch/iree: {state}",
+    }
+
+
 def route_decision(
     pop: int, rows: int, eval_mode: Optional[str], backend: Optional[str]
 ) -> Dict[str, Any]:
@@ -401,6 +700,13 @@ def route_decision(
     data-row count for the ``per_row=False`` workloads, ``1`` for the per-row
     one (which is never rows-gated).
     """
+    # The batch route is intercepted BEFORE the dense policy is imported: on the
+    # current tree dense_engine.EVAL_MODES == ("dense", "specialized", "auto"), so
+    # resolve_eval_mode("batch") raises ValueError and the batch decision must come
+    # from its own module (batch_route_decision), never from that call.
+    if _requested_eval_mode(eval_mode) == "batch":
+        return batch_route_decision(pop, rows)
+
     from evogp.tree import dense_engine
 
     decision = {
