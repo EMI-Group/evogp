@@ -18,6 +18,10 @@ One of the four modules the opt-in batch evaluation route lives in:
   which re-exports everything defined here.
 * :mod:`evogp.tree.batch_stages` -- the per-stage timer surface the facade's
   ``batch_stage_stats()`` reports from.
+* :mod:`evogp.tree.batch_bands` -- the band/binding policy: which band counts a
+  backend and device kind can actually LOAD (the IREE HAL dispatch-binding cap),
+  the ``auto`` clamp and the per-chunk band split.  It imports this module, never
+  the other way round.
 
 This module imports nothing but :func:`evogp.tree.evoxc_engine._env_int` (no
 ``evoxc``, no torch, no graph work), so it stays importable on its own and both
@@ -52,10 +56,29 @@ EVAL_MODE = "batch"
 BAND_SIZE_ENV = "EVOGP_BATCH_BAND_SIZE"
 DEFAULT_BAND_SIZE = 32
 #: Explicit band count (``EVOGP_BATCH_BANDS``): an int ``K`` with
-#: ``1 <= K <= n_functions``, or one of the flat spellings ``none`` / ``flat`` /
-#: ``0``, which mean an explicit single band (``K = 1``, the flat merge).
-#: Unset/empty means "use the band-size model above".
+#: ``1 <= K <= n_functions``, the ``auto`` spelling (let evoxc's static cost model
+#: pick the partition), or one of the flat spellings ``none`` / ``flat`` / ``0``,
+#: which mean an explicit single band (``K = 1``, the flat merge).
+#: Unset/empty means "use the band-size model above".  An explicit ``K`` or an
+#: ``auto`` resolution that the device cannot LOAD is refused/clamped by
+#: :mod:`evogp.tree.batch_bands`; :func:`resolve_bands` itself stays
+#: backend-agnostic.
 BANDS_ENV = "EVOGP_BATCH_BANDS"
+#: The ``auto`` spelling of ``EVOGP_BATCH_BANDS``: evoxc groups the functions by
+#: structural fingerprint and scores the candidate partitions with its static
+#: work-vs-dispatch cost model, reporting the choice on
+#: ``merged.batch_report`` (``band_strategy == "auto"``, ``cost_estimate`` /
+#: ``flat_cost_estimate``).  The model is CPU-calibrated and knows nothing about a
+#: device's dispatch-binding cap, so the resolved count is clamped by
+#: :func:`evogp.tree.batch_bands.clamp_auto_band_count` before it is used.
+BANDS_AUTO = "auto"
+#: Banded compile chunks (``EVOGP_BATCH_CHUNK_BANDS``, off by default): when on, a
+#: band request and the chunked compile path are COMPOSED -- each chunk repeats the
+#: plan's band request (``auto`` per chunk, the proportional share of an explicit
+#: ``K``, the size model re-applied to the chunk) instead of the band request
+#: forcing the single-body path.  Off keeps the documented meaning of both knobs.
+CHUNK_BANDS_ENV = "EVOGP_BATCH_CHUNK_BANDS"
+DEFAULT_CHUNK_BANDS = False
 #: Op-switching (``EVOGP_BATCH_SWITCH_OPS``): off by default -- on the measured GP
 #: workload it shares nothing (``report["switched"]`` empty) and changes no op
 #: count, so it stays a knob; when on it forces the flat merge.
@@ -146,25 +169,32 @@ def resolve_band_size(value: Optional[int] = None) -> int:
     return _resolve_int(value, BAND_SIZE_ENV, DEFAULT_BAND_SIZE, 1)
 
 
-def resolve_bands(value: Optional[Any] = None) -> Optional[int]:
-    """Resolve ``EVOGP_BATCH_BANDS`` into an explicit band count or ``None``.
+def resolve_bands(value: Optional[Any] = None) -> Optional[Any]:
+    """Resolve ``EVOGP_BATCH_BANDS`` into a band request or ``None``.
 
     The flat spellings (``none`` / ``flat`` / ``0``, and the integer ``0``) mean an
     explicit SINGLE band: they answer ``1``, so the merge is byte-identical to
     ``EVOGP_BATCH_BANDS=1`` (``band_sizes == [n_functions]``,
     ``band_strategy == "flat"``) instead of being handed to the band-size model.
 
+    The ``auto`` spelling (any case, whitespace trimmed) answers the string
+    :data:`BANDS_AUTO`, i.e. "let evoxc's cost model pick the partition"; the
+    resulting band count is only known after the merge, so no count is resolved
+    here (and :func:`resolve_band_count`, which is backend-agnostic and count-only,
+    does not accept it -- :func:`evogp.tree.batch_bands.plan_band_spec` is the
+    policy-aware resolver that does).
+
     ``None`` means "the band-size model decides" and is the answer for
     unset/empty only.  An integer ``K >= 1`` is returned as given;
-    :func:`resolve_band_count` validates it against the function count (which is
-    only known after decoding).  Anything else raises ``ValueError`` naming the
-    variable.
+    :func:`resolve_band_count` / :func:`evogp.tree.batch_bands.plan_band_spec`
+    validate it against the function count (which is only known after decoding).
+    Anything else raises ``ValueError`` naming the variable.
     """
     raw: Any = value if value is not None else os.environ.get(BANDS_ENV, "")
     if isinstance(raw, bool):  # bool is an int: reject instead of guessing
         raise ValueError(
             f"unsupported bands value {raw!r}: {BANDS_ENV} takes an integer band "
-            f"count or one of {list(_FLAT)}"
+            f"count, the {BANDS_AUTO!r} spelling or one of {list(_FLAT)}"
         )
     if isinstance(raw, (int, np.integer)):
         count = int(raw)
@@ -172,6 +202,8 @@ def resolve_bands(value: Optional[Any] = None) -> Optional[int]:
     text = str(raw).strip().lower()
     if not text:
         return None
+    if text == BANDS_AUTO:
+        return BANDS_AUTO
     if text in _FLAT:
         return 1
     try:
@@ -179,9 +211,35 @@ def resolve_bands(value: Optional[Any] = None) -> Optional[int]:
     except ValueError as exc:
         raise ValueError(
             f"unsupported {BANDS_ENV}={raw!r}: expected an integer band count "
-            f"(1 <= K <= n_functions) or one of {list(_FLAT)}"
+            f"(1 <= K <= n_functions), the {BANDS_AUTO!r} spelling or one of "
+            f"{list(_FLAT)}"
         ) from exc
     return 1 if count == 0 else count
+
+
+def resolve_chunk_bands(value: Optional[bool] = None) -> bool:
+    """Resolve ``EVOGP_BATCH_CHUNK_BANDS`` (explicit argument wins, default off).
+
+    Off (the default) keeps both knobs' documented per-plan meaning: a band
+    request -- an explicit ``K``, a flat spelling or ``auto`` -- forces the
+    single-executable compile path, and chunking keeps the band-size model per
+    chunk.  On composes them: every chunk repeats the plan's band request (see
+    :func:`evogp.tree.batch_bands.chunk_band_spec`).  ``switch_ops`` still always
+    forces the single-body, flat merge.
+    """
+    if value is not None:
+        return bool(value)
+    raw = os.environ.get(CHUNK_BANDS_ENV, "").strip().lower()
+    if not raw:
+        return DEFAULT_CHUNK_BANDS
+    if raw in _TRUE:
+        return True
+    if raw in _FALSE:
+        return False
+    raise ValueError(
+        f"unsupported {CHUNK_BANDS_ENV}={raw!r}: batch_engine accepts "
+        f"{list(_TRUE + _FALSE)} or an empty value"
+    )
 
 
 def resolve_switch_ops(value: Optional[bool] = None) -> bool:
@@ -234,9 +292,11 @@ def resolve_compile_workers(value: Optional[int] = None) -> int:
     ``executable``) keep their original meaning.  ``W > 1`` asks for ``W``
     contiguous chunks, subject to the forcing rules in
     :func:`evogp.tree.batch_programs._plan_host` -- a chunked plan also requires
-    ``n_functions >= MIN_CHUNK_FUNCTIONS`` and is refused whenever an explicit band
-    count or ``switch_ops`` is in play (those knobs must keep their documented
-    per-plan meaning, and the band sweep runs on the single-body path).
+    ``n_functions >= MIN_CHUNK_FUNCTIONS`` and is refused whenever ``switch_ops`` is
+    in play or a band request (an explicit count, a flat spelling or ``auto``) is
+    made without ``EVOGP_BATCH_CHUNK_BANDS``: those knobs must keep their documented
+    per-plan meaning, and the band sweep runs on the single-body path unless the
+    chunk-banded composition is opted into.
 
     Anything negative or non-integer raises ``ValueError`` naming the variable.
     """
@@ -291,6 +351,11 @@ def resolve_band_count(
     clamped into ``1 <= K <= n_functions``; an explicit ``K`` outside that range
     raises ``ValueError`` naming ``EVOGP_BATCH_BANDS`` (it cannot be honoured, so
     silently clamping would hide a typo).
+
+    The ``auto`` spelling is REFUSED here: it names no count before the merge
+    (evoxc's cost model picks the partition at merge time), so a caller that wants
+    it must go through :func:`evogp.tree.batch_bands.plan_band_spec`, which is the
+    policy-aware resolver that can carry ``auto`` that far.
     """
     total = int(n_functions)
     if total < 1:
@@ -298,6 +363,14 @@ def resolve_band_count(
     if resolve_switch_ops(switch_ops):
         return 1
     explicit = resolve_bands(bands)
+    if isinstance(explicit, str):  # the ``auto`` spelling: no count to resolve here
+        raise ValueError(
+            f"{BANDS_ENV}={explicit!r} has no band count to resolve here: the "
+            "automatic partition is chosen by evoxc's cost model at merge time, so "
+            "the count only exists on the merged graph's batch_report (ask "
+            f"{BANDS_ENV}=auto through plan_band_spec, or pass an explicit integer "
+            f"K); this helper resolves / validates an explicit count only"
+        )
     if explicit is not None:
         if not 1 <= explicit <= total:
             raise ValueError(

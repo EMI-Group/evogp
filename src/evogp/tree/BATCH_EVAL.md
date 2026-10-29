@@ -80,17 +80,20 @@ Two variants exist: `value` (`(pop, N, out_len)`; `per_row` selects the `(pop, i
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `EVOGP_BATCH_MIN_POP` | `64` | `pop_size` threshold; below it the route declines (measured break-even, §5) |
-| `EVOGP_BATCH_BAND_SIZE` | `32` | band **size**: `K = ceil(n_functions / size)`, clamped to `1 <= K <= n` |
-| `EVOGP_BATCH_BANDS` | unset | explicit band count `K`, or a flat spelling (`none` / `flat` / `0`), which means an explicit single band (`K = 1`, byte-identical to `=1`); out-of-range `K` raises `ValueError` |
+| `EVOGP_BATCH_BAND_SIZE` | `32` | band **size**: `K = ceil(n_functions / size)`, clamped to `1 <= K <= n`, then to the device's binding cap (§9.6) |
+| `EVOGP_BATCH_BANDS` | unset | explicit band count `K`, the `auto` spelling (evoxc's cost model picks the partition, §9.6), or a flat spelling (`none` / `flat` / `0`), which means an explicit single band (`K = 1`, byte-identical to `=1`); an out-of-range `K` raises `ValueError`, and so does a `K` the device cannot LOAD |
+| `EVOGP_BATCH_CHUNK_BANDS` | off | compose the band request with the chunked compile (§9.6); off keeps round 1's rule that a band request forces `W == 1` |
 | `EVOGP_BATCH_SWITCH_OPS` | off | op-switching transform; forces the flat merge (`K = 1`) and is **not** combined with banding |
 | `EVOGP_BATCH_ALIGNMENT` | `variant` | `variant` / `occurrence` / `auto`; a pure evoxc performance heuristic, can never change the numbers |
 | `EVOGP_BATCH_CACHE_SIZE` | `8` | entries of both front tables; read at **import** time like `EVOGP_EVOXC_CACHE_SIZE` |
-| `EVOGP_BATCH_COMPILE_WORKERS` | `4` | compile chunks per plan; `0`/`1` mean today's single-executable path verbatim (see §8.1); negative or non-integer raises `ValueError` |
+| `EVOGP_BATCH_COMPILE_WORKERS` | `4` | compile chunks per plan; `0`/`1` mean today's single-executable path verbatim (see §8.1); a band request forces one body unless `EVOGP_BATCH_CHUNK_BANDS` is on; negative or non-integer raises `ValueError` |
 
 Banding trades dispatches for wasted work: `K` bands means `K` `select` cascades instead of one per
-population. `bands="auto"` is deliberately not offered (it is CPU-calibrated, resolves to `K=1` here,
-and only costs a static cost-model run). Only unset/empty hands the decision to the band-size model; the
-flat spellings are an explicit `K = 1` (§9.1).
+population. `bands="auto"` hands the partition to evoxc's static cost model; the shipped DEFAULT stays the
+band-SIZE model, because whether `auto` beats it is the measurement campaign's question (§9.6). Only
+unset/empty hands the decision to the band-size model; the flat spellings are an explicit `K = 1` (§9.1).
+Every resolved band count is vetted against the device's dispatch-binding cap before the merge: the model
+and `auto` are clamped with a recorded note, an explicit `K` that cannot load raises (§9.6).
 
 Front tables (`batch_keys.py`; `dense_memo.DenseMemo`, identity/count-keyed): `BATCH_PLAN_MEMO` maps the three
 population identity tokens (`data_ptr`/shape/dtype/device/`_version`, so an in-place write is a miss by
@@ -189,10 +192,12 @@ Explicit band counts `K = 1` (flat), `8`, `32`, `64` at pop 256 all build and ru
 **Very fine banding does not load.** `bands=200` at pop 256 (band size ≈1, one band per function) fails at
 `evoxc.load` with `ValueError: ... hip/native_executable.c:223: INVALID_ARGUMENT; exports[N]
 binding_flags count 22 exceeds maximum of 16` — a hard IREE ROCm HAL limit on the exported bindings of one
-executable, not a bug in this route. The default band SIZE of 32 keeps the band count at
-`ceil(n_functions / 32)` (7 at pop 256, 46 at pop 2048), far below that wall; only an explicit
-`EVOGP_BATCH_BANDS` near the function count, or a tiny `EVOGP_BATCH_BAND_SIZE` at a few hundred
-functions, reaches it.
+executable, not a bug in this route.
+That wall is now a POLICY rather than a load failure (§9.6): the band-size model and `auto` are clamped to
+the device's safe band count and an explicit `K` above it raises before the merge.
+On the ROCm HAL the clamp is `K <= 15`, so re-applying the default band SIZE of 32 to the pop-2048 row
+above (1443 functions → 46 bands) now resolves to 15 bands, while numpy and Vulkan are uncapped and keep
+the modelled count.
 
 ## 6. Numerics
 
@@ -219,21 +224,26 @@ index (`DENSE_EVAL.md` §5), i.e. not a property of the merge.
   time anything.
 * **`switch_ops` is off**: measured **4× slower** on GP populations (structurally divergent programs
   share nothing) and it changes no op count on the value workload.
-* **No pytest coverage yet** — the tests node owns it; the route is currently validated by this
-  document's grid plus the smoke described in §6.
+* **No round-2 pytest coverage** — the band policy (§9.6) is pinned by the dev CLI `batch_band_check.py`
+  (`OK: 29/29 passed`, numpy), not by the suite; the rest of the route's coverage belongs to the tests node.
+* **A chunked numpy plan must not be the process's first build.** The numpy backend registers its kernel
+  table lazily and the registration is not thread-safe, so a chunked plan whose FIRST numpy build happens
+  inside the compile pool fails with `BackendError: duplicate kernel registration for op(s): ...`; a warm
+  single-body build first (what the battery and the campaign recordings do) leaves it working, and iree is
+  unaffected.
 * **Large-population merges are compile-heavy**: ~0.05 s per merged function at pop 256 (10.8–12.8 s
   cold), which is the number to watch when raising `EVOGP_BATCH_MIN_POP` or lowering the band size; a very
-  fine banding (~one band per function at 200+ functions) does not LOAD on the ROCm HAL (§5.1).
+  fine banding (~one band per function at 200+ functions) is refused or clamped up front (§5.1, §9.6).
 
 ## 8. Chunked compile, stage timer and content-addressed plan key
 
 ### 8.1 Compile chunking (`EVOGP_BATCH_COMPILE_WORKERS`, `batch_chunks.py`)
 The plan's DEDUPED function list is cut into `W` contiguous chunks and each chunk is traced, merged, lowered, compiled and loaded as its own executable; the `W = 1` case is the single-body path verbatim.
 `W = resolve_compile_workers()` (`explicit argument > environment > DEFAULT_COMPILE_WORKERS = 4`); `0` and `1` both mean the single-executable path.
-`W` is forced to `1` when `W <= 1`, when the deduped function count is below `batch_knobs.MIN_CHUNK_FUNCTIONS` (`32`), when `resolve_bands(bands) is not None` (any explicit band count, the flat spellings included) or when `resolve_switch_ops(switch_ops)` is true -- those knobs keep their documented per-plan meaning, so ROUND 2's band sweep runs on the `W = 1` path.
+`W` is forced to `1` when `W <= 1`, when the deduped function count is below `batch_knobs.MIN_CHUNK_FUNCTIONS` (`32`), when `resolve_switch_ops(switch_ops)` is true, or when a band request is in play (an explicit count, a flat spelling or `auto`) and `EVOGP_BATCH_CHUNK_BANDS` is off -- the band sweep was measured on the `W = 1` path, so a band request implies one body unless the composition is opted into (§9.6).
 Otherwise `W = min(W, n_functions // MIN_CHUNK_FUNCTIONS)`, and the partition is `base = n // W` with the remainder handed to the first chunks (`chunk_sizes`).
 Chunks carry GLOBAL function indices (`BatchChunk.offset` is the chunk's first index, `BatchChunk.function_rows` are global population rows), so row order and the assembled `(pop_size,)` / `(pop_size, N, out_len)` / `(pop_size, out_len)` results are exactly the single-body plan's.
-Per-chunk band counts come from the band-SIZE model only (`resolve_band_count(chunk_len, bands=None, band_size=..., switch_ops=False)`); `BatchPlan.band_count` is `1` for a chunked plan and the truth lives in `BatchChunk.band_count`.
+Per-chunk band counts come from each chunk's own `BandSpec` (`batch_bands.chunk_band_spec`): the plan's request sized to the chunk -- `auto` per chunk (clamped per chunk), the proportional share of an explicit global `K`, or the band-SIZE model re-applied to the chunk (§9.6); `resolve_band_count(chunk_len, bands=None, band_size=..., switch_ops=False)` is the count-only helper, and `BatchPlan.band_count` is `1` for a chunked plan while the truth lives in `BatchChunk.band_count`.
 Trace and merge stay SEQUENTIAL in the calling thread (evoxc's transforms are only proven thread-safe for the compile triple); only `evoxc.lower` / `evoxc.compile` / `evoxc.load` run in a `ThreadPoolExecutor(max_workers=W)` -- the iree compile is a subprocess and releases the GIL.
 Pool jobs each own a `batch_stages.StageTimer` and fold it once under the module lock; a chunk failure PROPAGATES (it is a bug, not a `BatchUnsupported` decline) and the first exception is re-raised.
 `plan.chunks` holds exactly one `BatchChunk` per compiled body in BOTH plan shapes, so `len(plan.chunks) == describe_plan(plan)["chunk_count"] >= 1` is always the chunk count and `plan.chunks` is always the authoritative read surface.
@@ -271,12 +281,13 @@ On **iree** the loss path was bitwise identical on the checked fixture while the
 
 ## 9. Contracts moved out of the module docstrings
 
-The batch route is six modules under `src/evogp/tree/` (one concern each); `batch_engine` stays the
-public facade and re-exports everything, so no caller changes:
+The batch route is the public facade plus seven sibling modules under `src/evogp/tree/` (one concern
+each); `batch_engine` stays the public facade and re-exports everything, so no caller changes:
 
 | module | owns |
 | --- | --- |
-| `batch_knobs.py` | the `EVOGP_BATCH_*` constants, the `resolve_*` helpers, the `value`/`loss` variant rules (`_normalize_variant`) and `BatchUnsupported` |
+| `batch_knobs.py` | the `EVOGP_BATCH_*` constants, the `resolve_*` helpers (incl. `resolve_chunk_bands` and the `auto` spelling of `resolve_bands`), the `value`/`loss` variant rules (`_normalize_variant`) and `BatchUnsupported` |
+| `batch_bands.py` | the band/binding legality policy: `DISPATCH_BINDING_LIMITS` / `SAFE_BAND_COUNTS` / `MIN_BAND_SIZE`, `BandPolicy` / `BandSpec`, the precedence chain `plan_band_spec` / `resolve_band_plan`, `clamp_auto_band_count`, `chunk_band_count` / `chunk_band_spec` and the report helpers `merge_with_spec` / `aggregate_band_report`; it takes the caller's merge callable and imports `batch_knobs` + `evoxc_engine`, never `evoxc` and never `batch_engine` |
 | `batch_programs.py` | host-side program handling: input/label conversion, per-function graph bodies, dedup, trace, merge, `_plan_host`, and the `BatchPlan` / `BatchExecutable` records |
 | `batch_chunks.py` | the compile-side chunk orchestration: `chunk_sizes`, the `lower`/`compile`/`load` thread pool and its per-job stage timers |
 | `batch_stages.py` | the per-stage timer surface behind `batch_stage_stats()` |
@@ -284,7 +295,7 @@ public facade and re-exports everything, so no caller changes:
 | `batch_run.py` | the run path: `_input_block`, `_inputs` staging, `_run` (one `evoxc.run` per body), `_readback`, `_map_rows` and `_to_tensor` |
 | `batch_engine.py` | the plan memo (`_plan_entry`), `plan_batch` / `build_batch` / `evaluate_batch` / `sr_fitness_batch` / `describe_plan`, the backend resolution and `batch_stage_stats()` |
 
-`batch_engine` may import the five siblings; none of them imports `batch_engine` back at module level.
+`batch_engine` may import any of the seven siblings; none of them imports `batch_engine` back at module level.
 `batch_keys` and `batch_run` are read by the facade only, and the facade re-exports their names, so
 `evogp.tree.batch_engine.<name>` stays the one import path for callers, tests and the benchmark harness.
 
@@ -296,8 +307,9 @@ band **size** (`EVOGP_BATCH_BAND_SIZE`, default 32): `K = ceil(n_functions / ban
 `1 <= K <= n_functions`; `K == 1` reduces to the flat merge. `EVOGP_BATCH_BANDS` overrides the model with
 an explicit `K`; the flat spellings `none` / `flat` / `0` are an explicit `K = 1` (same plan as
 `EVOGP_BATCH_BANDS=1`: `band_sizes == [n_functions]`, `band_strategy == "flat"`), NOT a hand-back to the
-band-size model — only unset/empty leaves the model in charge. `bands="auto"` is deliberately NOT offered:
-it is CPU-calibrated, resolves to `K=1` on this workload and only costs a static cost-model run.
+band-size model — only unset/empty leaves the model in charge. `bands="auto"` lets evoxc's static cost
+model choose the partition instead (§9.6), and every one of those requests is then vetted against the
+device's dispatch-binding cap.
 
 `switch_ops` (`EVOGP_BATCH_SWITCH_OPS`, default off) makes op-switching positions share one op per variant
 plus a per-row `select` cascade. It is a heavier transform for GP populations (structurally divergent
@@ -365,12 +377,65 @@ Decoding, validation, constant folding and op emission are the frozen engine's:
 through a Python closure over its static program — never with the program as a traced static arg, which
 would make `graph.static_values` differ per tree and make `batch_functions` raise `TraceError`.
 
+### 9.6 The band policy: what a device can actually LOAD (`batch_bands.py`)
+
+A banded merge emits ONE exported dispatch per band, and every IREE HAL driver caps the buffer bindings one exported dispatch may use, so a band count that is harmless on one backend is unloadable on another (`iree runtime src/iree/hal/drivers/{hip,cuda}/native_executable.c`, `.../local_task/native_executable.c`).
+`batch_bands.py` states that cap as data (`DISPATCH_BINDING_LIMITS` / `SAFE_BAND_COUNTS` / `MIN_BAND_SIZE`):
+
+| device kind | bindings per exported dispatch | safe band count | smallest band |
+| --- | --- | --- | --- |
+| `cuda` / `rocm` (HIP/CUDA HAL) | 16 | 15 | 8 functions (a GPU band pays a launch plus its binding setup, so a smaller one loses more than it saves) |
+| `cpu` (local-task HAL) | 64 | 31 | 1 function (a band AT the binding limit overflows its per-dispatch I/O) |
+| `vulkan` | none known | uncapped | 1 |
+| `numpy` (the evoxc reference interpreter) | none | uncapped | 1 |
+
+`resolve_band_policy(backend, device)` answers a `BandPolicy(backend, device_kind, max_bands, min_band_size)`: `numpy` (or an empty backend) is uncapped, `iree` takes the kind from the caller's `Device` and otherwise from torch (`_gpu_device_kind`), and an unknown kind is uncapped — "no limit known", never a guess.
+`BandPolicy.cap(n_functions)` is the largest loadable band count: `n_functions` when uncapped, else `max(1, min(max_bands, n_functions, max(1, n_functions // min_band_size)))`, i.e. the binding limit, the function count and the per-band size floor, whichever bites first.
+So 200 functions cap at 15 bands on a GPU HAL and at 31 on the CPU HAL, while 8 functions cap at ONE band on a GPU.
+
+**Clamp vs refuse.** The band-SIZE model and an `auto` resolution can both exceed the cap (the cost model is CPU-calibrated and knows nothing about bindings), so they are CLAMPED and the clamp is recorded: `plan_band_spec` lowers a modelled count to `policy.cap(n)` before the merge, and `merge_with_spec` lowers an `auto` answer AFTER the merge by re-merging ONCE at the clamped count (both merges stay inside the `merge` stage), keeping the auto merge's `cost_estimate` / `flat_cost_estimate` so a record still shows what the model chose.
+The report then carries `band_clamped=True` and a `band_note` naming the requested `K`, the cap, the 16-binding reason and the remedy, e.g.
+`the band-size model (EVOGP_BATCH_BAND_SIZE=32) chose 46 bands but iree/rocm can only load 15: a banded merge emits one exported dispatch per band and one exported dispatch may bind at most 16 tensors on the ROCm/HIP HAL (iree runtime src/iree/hal/drivers/hip/native_executable.c), so at most 15 bands can load here; the merge was clamped to 15 bands. Raise EVOGP_BATCH_BAND_SIZE so fewer bands are chosen, or pass an explicit EVOGP_BATCH_BANDS=K with K <= 15 to pick the partition yourself.`
+An EXPLICIT `EVOGP_BATCH_BANDS=K` is never clamped: a `K` the device provably cannot load raises `ValueError` naming the variable, the backend/device kind, the real limit, the runtime source and the remedy, instead of letting an iree `BackendError` escape at load — a plausible band count that cannot load is a configuration bug, not a preference.
+The message shapes (quoted at 200 functions with `K = 48`, plus the size-floor case):
+
+* binding-capped — `EVOGP_BATCH_BANDS=48 cannot load on the iree/rocm backend: a banded merge emits one exported dispatch per band and one exported dispatch may bind at most 16 tensors on the ROCm/HIP HAL (iree runtime src/iree/hal/drivers/hip/native_executable.c), so the band count must satisfy K <= 15 here. Lower it (EVOGP_BATCH_BANDS=15 or less) or raise EVOGP_BATCH_BAND_SIZE to 8 or more so fewer bands are chosen; the local-task CPU backend's limit is K <= 31 and numpy has no binding cap.`
+* the per-band size floor binding first (a tiny population, `K = 2` over 8 functions on a GPU) — `... and a band has to carry at least 8 merged functions, so 8 functions support at most K <= 1 bands here. Lower it (EVOGP_BATCH_BANDS=1 or less), or merge more functions (a larger population, or fewer deduped programs); ...`
+* the CPU variant of the same text says `... may bind at most 64 tensors on the local-task CPU HAL (iree runtime src/iree/hal/drivers/local_task/native_executable.c), so the band count must satisfy K <= 31 here ...; the CUDA/ROCm HAL's limit is K <= 15 and numpy has no binding cap.`
+
+numpy and vulkan never clamp and never raise (no binding cap), and `resolve_band_count` stays backend-agnostic: it refuses the `auto` spelling with its own `ValueError` (`EVOGP_BATCH_BANDS='auto' has no band count to resolve here: ...`) because no count exists before the merge — `plan_band_spec` is the policy-aware resolver that carries `auto` that far.
+
+**`EVOGP_BATCH_BANDS=auto`.** The spelling passes `bands="auto"` to `evoxc.batch_functions`, whose static cost model scores the flat partition, the two structural candidates (the fingerprint partition — programs that would share every class — and that partition with its singleton groups coalesced into one trailing band) and the geometric ladder `k` in `(2, 4, 8, 16, 32, 64)` clipped to `2..n-1` plus `k = n`, then reports the choice on the merged graph's `batch_report` (`band_strategy == "auto"`, `band_sizes`, `cost_estimate`, `flat_cost_estimate`).
+Flat is candidate 0, so the chosen cost can never exceed the flat cost, and a resolved `K == 1` delegates to the flat emitter (byte-identical to `bands=None`).
+The merged compile time is flat in `K` (upstream measurement), so the binding clamp costs no compile time and the model's choice is a WARM-cost choice.
+The shipped DEFAULT is still the band-SIZE model (`EVOGP_BATCH_BAND_SIZE=32`, `K = ceil(n / size)`): `auto` is opt-in and the measurement campaign decides whether it becomes the default — on a GP population the fingerprints are nearly all distinct, which is exactly the case the ladder exists for.
+
+**Chunked compile composed with banding (`EVOGP_BATCH_CHUNK_BANDS`, default off).** Round 1 measured the band sweep on the single-body path, so by default a band request (an explicit count, a flat spelling or `auto`) forces `W == 1` and `EVOGP_BATCH_COMPILE_WORKERS` is ignored.
+With the knob on, each of the `W` contiguous chunks is merged with the SAME request sized to the chunk: `auto` per chunk (clamped per chunk against the chunk's own function count), an explicit global `K` split proportionally by `chunk_band_count(global_k, chunk_n, n, policy) = max(1, min(chunk_n, policy.cap(chunk_n), ceil(global_k * chunk_n / n)))`, and the band-SIZE model re-applied to the chunk.
+Chunks stay contiguous slices of the global function order, so `functions` / `row_index` / `function_rows` and the assembled rows are unchanged and the numbers equal the unchunked plan's (bitwise on numpy, measured).
+`switch_ops` still always forces `W == 1`, and the setting is part of BOTH plan memo keys, so flipping it in one process re-plans instead of serving the other plan.
+Reproduce a benchmark record with:
+
+```
+EVOGP_BATCH_BANDS=auto EVOGP_BATCH_CHUNK_BANDS=1 EVOGP_BATCH_COMPILE_WORKERS=4 \
+  PYTHONPATH=/tmp/evoxc_r2:src EVOXC_DISABLE_LOCATIONS=1 <venv>/bin/python -m <harness>
+```
+
+and run the same line with `EVOGP_BATCH_CHUNK_BANDS=0` to compare the single-body plan.
+
+**What a record says.** `describe_plan` reports the policy's decision: `bands`, `cost_estimate`, `flat_cost_estimate`, `band_requested` (`flat` / `explicit` / `size` / `auto`), `band_requested_bands` (the `auto` `K` before clamping), `band_clamped`, `band_note`, `band_policy` (`backend` / `device_kind` / `max_bands` / `min_band_size` / `uncapped`), and the per-body `chunk_bands` / `chunk_band_strategies`.
+`BatchPlan` carries `band_requested` / `band_clamped` / `band_note` / `band_policy`, every `BatchChunk.report` carries the same five `band_*` keys, and a chunked plan's plan-level keys are aggregated from its chunks (`band_requested_bands` summed before clamping, `band_clamped` true when any chunk was clamped, the clamped chunks' notes joined with `" | "`).
+The gate is the dev CLI `batch_band_check.py` (29 assertions: `auto`, the default size model, the clamp, the refusal, the composition and the memo key; numpy only, `__main__`-guarded, NOT pytest-collected): `EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=/tmp/evoxc_r2:src /tmp/rocvenv/bin/python -m src.evogp.tree.batch_band_check` → `OK: 29/29 passed`.
+
 ## 10. Pointers
 
 * `batch_engine.py` (public facade) / `batch_keys.py` (front tables + memo keys) / `batch_run.py` (run
-  path) / `batch_programs.py` / `batch_chunks.py` / `batch_stages.py` / `batch_knobs.py` — the
-  implementation; the facade's module docstring carries the API, the decline list, the chunked-compile
-  contract and the pointer to this document, and §9's table says which module owns what.
+  path) / `batch_programs.py` / `batch_chunks.py` / `batch_stages.py` / `batch_knobs.py` /
+  `batch_bands.py` (binding policy) — the implementation; the facade's module docstring carries the API,
+  the decline list, the chunked-compile contract and the pointer to this document, and §9's table says
+  which module owns what.
+* `batch_band_check.py` — the round-2 battery behind §9.6 (dev CLI, not pytest): `auto`, the size model,
+  the clamp, the refusal, the chunked composition and the memo key.
 * `DENSE_EVAL.md` — the sibling route's design document (same role: scheme, knobs, economics, fallback).
 * `CONTEXT.md` (this directory) — where the three engines sit in the package and the route policy.
 * `ENGINE_SPEC.md` — semantics of record (op table, evaluation order, SR fitness); the batch route

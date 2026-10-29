@@ -63,8 +63,9 @@ can be split into ``W`` contiguous chunks whose bodies are staged in a thread po
 mean it -- is the ORIGINAL single-executable plan verbatim: one merged graph, one
 executable, and ``plan.merged`` / ``plan.graphs`` / ``plan.specs`` /
 ``plan.report`` describe it.  A chunked plan (``W > 1``, at least
-``batch_knobs.MIN_CHUNK_FUNCTIONS`` functions, and neither an explicit band count
-nor ``switch_ops``) instead carries one :class:`BatchChunk` per contiguous slice:
+``batch_knobs.MIN_CHUNK_FUNCTIONS`` functions, no ``switch_ops``, and -- unless
+``EVOGP_BATCH_CHUNK_BANDS`` is on -- no explicit band count or ``bands="auto"``)
+instead carries one :class:`BatchChunk` per contiguous slice:
 ``plan.chunks`` is authoritative, ``plan.merged is None``, ``plan.executable is
 None`` and ``plan.executables`` holds one body per chunk.  ``chunks`` holds one
 record per compiled body in BOTH shapes -- the single-body plan's ``chunks[0]``
@@ -74,6 +75,15 @@ it is ``1``.  ``row_index`` values stay
 GLOBAL indices into ``plan.functions``, runs stay sequential (one device, one
 stream, ordered readbacks) and each chunk's rows are written back at its ``offset``,
 so the assembled numbers are the single-body plan's.
+
+Chunked compile composed with banding (``EVOGP_BATCH_CHUNK_BANDS``)
+------------------------------------------------------------------
+That composition knob (:func:`batch_knobs.resolve_chunk_bands`, off by default) decides
+whether a band request and the chunked compile are combined: off keeps both knobs'
+documented per-plan meaning, so a chunked plan is refused whenever a band request (an
+explicit count, a flat spelling or ``auto``) is in play -- the round-1 band sweep was
+measured on the single-body path; on, each of the ``W`` chunks is merged with the SAME
+request sized to it, so ``EVOGP_BATCH_BANDS=auto`` implies ``W == 1`` unless it is on.
 
 Front tables and cache keys (owned by :mod:`evogp.tree.batch_keys`)
 ------------------------------------------------------------------
@@ -85,6 +95,17 @@ spells them.  This facade only reads that layer: :func:`build_batch` is the sing
 reader of ``BATCH_EXEC_MEMO`` and always wraps a hit in a fresh
 :class:`BatchExecutable` around the CURRENT plan, and :func:`_plan_entry` is the
 single reader of ``BATCH_PLAN_MEMO`` / ``BATCH_CONTENT_MEMO``.
+
+Band policy (owned by :mod:`evogp.tree.batch_bands`)
+----------------------------------------------------
+``EVOGP_BATCH_BANDS=auto`` hands the partition to evoxc's static cost model, and the
+resolved ``bands`` / ``band_sizes`` / ``band_strategy`` / ``cost_estimate`` /
+``flat_cost_estimate`` land in the plan report (:func:`describe_plan` reads them back).
+No resolvable knob value can produce a graph that cannot LOAD: ``auto`` and the band-SIZE
+model are CLAMPED to :func:`resolve_band_policy`'s cap (:data:`DISPATCH_BINDING_LIMITS` /
+:data:`SAFE_BAND_COUNTS` / :data:`MIN_BAND_SIZE`) with a recorded ``band_clamped`` +
+``band_note``, while an explicit ``K`` that provably cannot load raises ``ValueError``
+naming the cap and the remedy.
 
 Stage reporting
 ---------------
@@ -127,13 +148,16 @@ from . import batch_chunks, batch_stages, dense_memo
 from .batch_knobs import (
     ALIGNMENTS,
     ALIGNMENT_ENV,
+    BANDS_AUTO,
     BAND_SIZE_ENV,
     BANDS_ENV,
     CACHE_SIZE_ENV,
+    CHUNK_BANDS_ENV,
     COMPILE_WORKERS_ENV,
     DEFAULT_ALIGNMENT,
     DEFAULT_BAND_SIZE,
     DEFAULT_CACHE_SIZE,
+    DEFAULT_CHUNK_BANDS,
     DEFAULT_COMPILE_WORKERS,
     DEFAULT_MIN_POP,
     EVAL_MODE,
@@ -149,9 +173,23 @@ from .batch_knobs import (
     resolve_band_count,
     resolve_band_size,
     resolve_bands,
+    resolve_chunk_bands,
     resolve_compile_workers,
     resolve_min_pop,
     resolve_switch_ops,
+)
+
+from .batch_bands import (  # the band/binding policy: what a backend can LOAD
+    DISPATCH_BINDING_LIMITS,
+    MIN_BAND_SIZE,
+    SAFE_BAND_COUNTS,
+    BandPolicy,
+    BandSpec,
+    chunk_band_count,
+    clamp_auto_band_count,
+    plan_band_spec,
+    resolve_band_plan,
+    resolve_band_policy,
 )
 from .batch_programs import (
     BatchChunk,
@@ -201,18 +239,26 @@ from .evoxc_engine import (
 
 __all__ = [
     "BAND_SIZE_ENV",
+    "BANDS_AUTO",
+    "CHUNK_BANDS_ENV",
     "COMPILE_WORKERS_ENV",
     "DEFAULT_ALIGNMENT",
     "DEFAULT_BAND_SIZE",
     "DEFAULT_CACHE_SIZE",
+    "DEFAULT_CHUNK_BANDS",
     "DEFAULT_COMPILE_WORKERS",
     "DEFAULT_MIN_POP",
+    "DISPATCH_BINDING_LIMITS",
     "EVAL_MODE",
     "LOSS_VARIANT",
+    "MIN_BAND_SIZE",
     "MIN_CHUNK_FUNCTIONS",
     "MIN_POP_ENV",
     "PLAN_VARIANTS",
+    "SAFE_BAND_COUNTS",
     "VALUE_VARIANT",
+    "BandPolicy",
+    "BandSpec",
     "BatchChunk",
     "BatchExecutable",
     "BatchPlan",
@@ -222,13 +268,19 @@ __all__ = [
     "batch_stage_reset",
     "batch_stage_stats",
     "build_batch",
+    "chunk_band_count",
+    "clamp_auto_band_count",
     "describe_plan",
     "evaluate_batch",
+    "plan_band_spec",
     "plan_batch",
     "resolve_alignment",
     "resolve_band_count",
+    "resolve_band_plan",
+    "resolve_band_policy",
     "resolve_band_size",
     "resolve_bands",
+    "resolve_chunk_bands",
     "resolve_compile_workers",
     "resolve_min_pop",
     "resolve_switch_ops",
@@ -276,6 +328,7 @@ def plan_batch(
     backend: Optional[str] = None,
     iree_device_index: Optional[int] = None,
     compile_workers: Optional[int] = None,
+    chunk_bands: Optional[bool] = None,
 ) -> BatchPlan:
     """Decode + dedup + trace + merge one population (host work only, no compile).
 
@@ -301,6 +354,11 @@ def plan_batch(
             ``> 1`` plans contiguous chunks when the population is large enough --
             see :func:`evogp.tree.batch_programs._resolve_workers` for the forcing
             rules.  Nothing is compiled here either way.
+        chunk_bands: the chunked-compile / band composition (the environment
+            ``EVOGP_BATCH_CHUNK_BANDS`` when ``None``, default off), resolved once with
+            :func:`evogp.tree.batch_knobs.resolve_chunk_bands`.  OFF refuses a chunked
+            plan while an explicit count or ``auto`` is in play; ON merges each of the
+            ``W`` chunks with the same request sized to it (rows/indices unchanged).
 
     Returns:
         The :class:`BatchPlan`.  Nothing is compiled, no executable exists yet.
@@ -342,6 +400,7 @@ def plan_batch(
         backend_name=backend_name,
         device=device,
         compile_workers=compile_workers,
+        chunk_bands=resolve_chunk_bands(chunk_bands),
     )
 
 
@@ -537,6 +596,7 @@ def _plan_entry(
     backend: Optional[str] = None,
     iree_device_index: Optional[int] = None,
     compile_workers: Optional[int] = None,
+    chunk_bands: Optional[bool] = None,
 ) -> BatchExecutable:
     """The memoized plan+build pipeline behind both public entry points.
 
@@ -561,10 +621,14 @@ def _plan_entry(
     3. a rebuild calls :func:`_plan_host` exactly once, passing the population it
        already decoded (the decode is never paid twice), then :func:`build_batch`.
 
-    The band COUNT is deliberately not in a key: it follows from the knob values
-    plus the decoded population.  ``compile_workers`` IS in both keys (it changes
-    the partition, hence the plan).  ``x`` joins the identity key for
-    ``per_row=True``, where the dedup grouping depends on the per-row input bytes.
+    The band COUNT is deliberately not in a key: it follows from the knobs plus the
+    decoded population, while the band REQUEST is keyed through ``bands`` /
+    ``band_size`` / ``switch_ops`` / ``chunk_bands``.  ``compile_workers`` IS in both
+    keys (it changes the partition, hence the plan).
+
+    ``chunk_bands`` (``EVOGP_BATCH_CHUNK_BANDS``) is keyed too: it decides whether a
+    band request composes with the chunked compile, so the two settings must never be
+    served each other's plan.
 
     What a hit skips is the PLAN work: the decode (identity hit only), the dedup,
     one trace per distinct program, the merge and the compile.  It does NOT skip the
@@ -600,6 +664,7 @@ def _plan_entry(
         "switch_ops": resolve_switch_ops(switch_ops),
         "alignment": resolve_alignment(alignment),
         "compile_workers": resolve_compile_workers(compile_workers),
+        "chunk_bands": resolve_chunk_bands(chunk_bands),
     }
     tokens = [
         dense_memo.token(batch_node_value),
@@ -626,6 +691,7 @@ def _plan_entry(
             backend_name,
             device,
             resolved["compile_workers"],
+            resolved["chunk_bands"],
         )
         entry = BATCH_PLAN_MEMO.lookup(key)
         if entry is not None:
@@ -657,6 +723,7 @@ def _plan_entry(
         resolved["switch_ops"],
         resolved["alignment"],
         resolved["compile_workers"],
+        resolved["chunk_bands"],
         backend_name,
         device,
     )
@@ -706,6 +773,7 @@ def _plan_entry(
         device=device,
         pop=pop,
         compile_workers=resolved["compile_workers"],
+        chunk_bands=resolved["chunk_bands"],
     )
     plan = dataclasses.replace(
         plan, stage_ms={"decode": decode_ms, **plan.stage_ms}
@@ -879,6 +947,11 @@ def describe_plan(plan: BatchPlan) -> Dict[str, Any]:
     exists), ``band_sizes`` is empty and ``band_strategy`` / the class counters are
     ``None``; ``emitted_ops`` is the summed value and ``n_functions`` the global
     count.
+
+    The band-policy keys are the cost model's report seam -- ``bands``, the two cost
+    estimates, ``band_requested`` / ``band_requested_bands`` (the ``auto`` ``K`` before
+    clamping), ``band_clamped`` / ``band_note``, ``band_policy`` and the per-body
+    ``chunk_bands`` / ``chunk_band_strategies`` (missing -> ``None``/``False``/``{}``).
     """
     report = plan.report or {}
     shapes = [tuple(int(dim) for dim in spec.shape) for spec in plan.specs]
@@ -904,6 +977,18 @@ def describe_plan(plan: BatchPlan) -> Dict[str, Any]:
         "stacked_constants": report.get("stacked_constants"),
         "output_muxes": report.get("output_muxes"),
         "n_functions": report.get("n_functions"),
+        "bands": int(plan.band_count),
+        "cost_estimate": report.get("cost_estimate"),
+        "flat_cost_estimate": report.get("flat_cost_estimate"),
+        "band_requested": plan.band_requested or report.get("band_requested"),
+        "band_requested_bands": report.get("band_requested_bands"),
+        "band_clamped": bool(plan.band_clamped or report.get("band_clamped")),
+        "band_note": plan.band_note or report.get("band_note"),
+        "band_policy": dict(plan.band_policy or {}),
+        "chunk_bands": [int(chunk.band_count) for chunk in plan.chunks],
+        "chunk_band_strategies": [
+            chunk.report.get("band_strategy") for chunk in plan.chunks
+        ],
         "compile_workers": int(plan.compile_workers),
         "chunk_count": len(plan.chunks),
         "chunk_sizes": [int(len(chunk.functions)) for chunk in plan.chunks],
