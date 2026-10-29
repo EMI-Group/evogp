@@ -9,10 +9,17 @@ What lives here and nowhere else:
 * the cell grid (population shape x tree length x input length x data rows) and
   the deterministic population builder every arm must share;
 * the arm registry (torch arms + the evoxc engine routes) and the environment
-  knobs each arm sets;
+  knobs each arm sets -- including the batch route's own knob table
+  (``BATCH_KNOBS``: band size/bands/switch ops/alignment/cache size/min pop and the
+  compiled-graph pool width ``EVOGP_BATCH_COMPILE_WORKERS``), which is also the
+  list ``batch_economics.py --knob NAME=VALUE`` validates against;
 * the timing helper (sync-bracketed, warmup + reps, median/min/max/samples);
 * the value digest used to prove cross-process numeric agreement;
 * the environment block written into every record.
+
+The batch route's per-stage cost split lives one module over, in ``stages.py``
+(torch-free, evogp-free): it owns the stage vocabulary and the null-never-zero rule
+an absent ``batch_stage_stats()`` accessor is reported under.
 
 Nothing here imports ``evogp`` at module level: the campaign re-points
 ``PYTHONPATH`` at a tree root (``--tree-root``), so the import has to happen
@@ -94,7 +101,12 @@ ALL_ARMS: List[str] = list(TORCH_ARMS) + list(EVOXC_ARMS)
 #: ``EVOGP_BATCH_BANDS`` accepts an explicit band count ``K`` or ``none``/``flat``
 #: (one unbanded merge, O(N^2) in the population -- the ``-flat`` arm times it);
 #: ``EVOGP_BATCH_ALIGNMENT`` defaults to ``variant`` (band variants are aligned
-#: before the merge instead of being padded per call).
+#: before the merge instead of being padded per call);
+#: ``EVOGP_BATCH_COMPILE_WORKERS`` is the compiled-graph pool width (``batch_knobs.
+#: resolve_compile_workers``), i.e. how many chunk compiles the merged graph may run
+#: at once -- it moves the COLD cost of the route, which is why the harness sweeps
+#: it with ``batch_economics.py --knob EVOGP_BATCH_COMPILE_WORKERS=N`` instead of
+#: registering one arm per value.
 BATCH_KNOBS: Tuple[Tuple[str, str, str, Tuple[str, ...]], ...] = (
     # (spec key, env var, documented default, candidate resolver attribute names)
     ("band_size", "EVOGP_BATCH_BAND_SIZE", "32", ("resolve_band_size",)),
@@ -103,6 +115,7 @@ BATCH_KNOBS: Tuple[Tuple[str, str, str, Tuple[str, ...]], ...] = (
     ("alignment", "EVOGP_BATCH_ALIGNMENT", "variant", ("resolve_alignment",)),
     ("cache_size", "EVOGP_BATCH_CACHE_SIZE", "unset", ("resolve_cache_size",)),
     ("min_pop", "EVOGP_BATCH_MIN_POP", "64", ("resolve_min_pop",)),
+    ("compile_workers", "EVOGP_BATCH_COMPILE_WORKERS", "default", ("resolve_compile_workers",)),
 )
 #: Every env var the table above owns -- the arms clear all of them per process.
 BATCH_ENV_VARS: Tuple[str, ...] = tuple(entry[1] for entry in BATCH_KNOBS)
@@ -653,7 +666,10 @@ def _resolve_batch_knob(
     arm-supplied env value > inherited env value > the engine's own resolver >
     the documented default.  A failing resolver is recorded in ``errors`` and the
     next candidate (then the default) is used, so a policy report is never lost to
-    one broken accessor.
+    one broken accessor.  A resolver that does not exist YET on the tree under
+    measurement (``resolve_compile_workers`` before ``batch_knobs`` ships it) is not
+    an error at all: it falls through to the documented default with the source
+    labelled ``harness-default``, which is exactly how a missing knob is reported.
     """
     env_value = os.environ.get(env_name)
     if env_value is not None:
@@ -730,7 +746,7 @@ def batch_policy(src: Optional[str] = None) -> Dict[str, Any]:
         except (TypeError, ValueError) as exc:
             policy.setdefault("resolver_errors", {})[spec_key] = repr(exc)
             policy[spec_key] = int(defaults[spec_key])
-    for spec_key in ("bands", "switch_ops", "alignment", "cache_size"):
+    for spec_key in ("bands", "switch_ops", "alignment", "cache_size", "compile_workers"):
         policy[spec_key] = str(values[spec_key])
     policy["knobs"] = knobs
     policy["knobs_source"] = sources

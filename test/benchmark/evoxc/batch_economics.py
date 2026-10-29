@@ -30,6 +30,29 @@ consecutive generations instead of asserting one.  ``dense`` goes through the sa
 columns are directly comparable: its per-generation compile counter is the evoxc engine's own, and it
 has no merged-graph cache at all (those keys are absent, not null).
 
+Where the time goes: the per-stage split
+----------------------------------------
+From ``stages.py`` (the single owner of the ten-stage vocabulary -- decode, dedup, trace, merge, lower,
+compile, load, upload, run, gather, plus the compile pool's wall time and job count):
+``first_call.stage_ms`` is the before/after window over the cold call (which share of the compile was
+decode/trace/merge versus lower/compile/load), ``sr_fitness.stage_ms`` the per-call medians of the
+timed window (each call reset-bracketed when the route ships ``batch_stage_reset``),
+``generations[i].stage_ms`` that generation's deltas, and
+``summary.{cold_stage_ms,warm_stage_ms,compile_share}`` the tables plus the compile stage's real share
+of the loop's wall time.  Every read is getattr-probed: on a tree without ``batch_stage_stats()``
+those blocks say ``available: false`` with EVERY counter ``null`` and a note -- never a fabricated
+``0``.  ``stage_ms.plan`` carries ``describe_plan``'s ``compile_workers``/``chunk_count``/
+``chunk_sizes`` (null when the report predates them).
+
+Sweeping a knob without a new arm: ``--knob NAME=VALUE``
+-------------------------------------------------------
+``--knob`` (repeatable) overrides one route knob the harness owns (``common.ROUTE_ENV_VARS``) AFTER
+``arms.apply_arm_env`` wrote the arm's own spec and BEFORE the policy is recorded, so
+``batch_policy`` / ``env.applied_knobs`` / ``knobs_override`` all show the value the engine really
+read.  That is how the compiled-graph pool is swept: ``--knob EVOGP_BATCH_COMPILE_WORKERS=1`` and a
+companion run with ``4`` (one config each -- the knob is per process).  An exported
+``EVOGP_BATCH_COMPILE_WORKERS`` is cleared by the arm spec like every other route knob: use ``--knob``.
+
 Why one process per (cell, route)
 ---------------------------------
 The evoxc compile cache, the executable memo and the batch route's merged-graph cache all live in
@@ -90,6 +113,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import common  # noqa: E402  (stdlib-only at import time)
+import stages  # noqa: E402  (torch-free, evogp-free: the stage vocabulary + derived blocks)
 from cold_start import install_tree_root  # noqa: E402  (the one tree-switch helper)
 
 #: The three "large" cells the question is about: pop 256 / 1000 on the two built-in widths, where a
@@ -166,6 +190,67 @@ def route_is_batch(route: str) -> bool:
     return common.is_batch_arm(ROUTES[route])
 
 
+# --- route-knob overrides (pure: validated without torch) -------------------
+#: The batch knob spec key the compile-pool sweep uses (``common.BATCH_KNOBS`` owns the
+#: env-var name, so the sweep command and the record cannot drift apart).
+COMPILE_WORKERS_KNOB = "compile_workers"
+
+
+def knob_env_name(spec_key: str) -> Optional[str]:
+    """The env-var name ``common.BATCH_KNOBS`` gives ``spec_key`` (``None`` when unregistered)."""
+    for entry in common.BATCH_KNOBS:
+        if entry[0] == spec_key:
+            return entry[1]
+    return None
+
+
+def parse_knobs(texts: Optional[Sequence[str]]) -> Dict[str, str]:
+    """``["EVOGP_BATCH_COMPILE_WORKERS=4"]`` -> ``{"EVOGP_BATCH_COMPILE_WORKERS": "4"}``.
+
+    Pure on purpose (torch-free, evogp-free): the driver validates the override before spawning a
+    child that would pay a multi-minute compile.  A name outside :data:`common.ROUTE_ENV_VARS` is
+    rejected by name (the known names are listed), a token without ``=`` is rejected, and an empty
+    value is rejected too -- the engine would read ``""`` as unset, which silently measures the
+    default instead of the sweep the caller asked for.
+    """
+    knobs: Dict[str, str] = {}
+    for text in texts or ():
+        name, sep, value = str(text).partition("=")
+        name, value = name.strip(), value.strip()
+        if not sep:
+            raise SystemExit(
+                f"--knob {text!r} is not NAME=VALUE; known names: {', '.join(common.ROUTE_ENV_VARS)}"
+            )
+        if name not in common.ROUTE_ENV_VARS:
+            raise SystemExit(
+                f"--knob {text!r}: {name!r} is not a route knob this harness may override; known "
+                f"names: {', '.join(common.ROUTE_ENV_VARS)}"
+            )
+        if not value:
+            raise SystemExit(
+                f"--knob {text!r}: empty value -- the engine would read it as unset and measure the "
+                "default, so an empty override is rejected instead of silently ignored"
+            )
+        knobs[name] = value
+    return knobs
+
+
+def compile_workers_block(policy: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The resolved compile-pool knob, as the child's ``protocol`` records it (batch routes only).
+
+    ``value``/``source`` come straight out of ``common.batch_policy``'s ``compile_workers`` and
+    ``knobs_source``, so ``source: "harness-default"`` means the route shipped no resolver (or the
+    knob is unset) and the documented default was used -- never a fabricated value.
+    """
+    policy = policy or {}
+    sources = policy.get("knobs_source") or {}
+    return {
+        "env": knob_env_name(COMPILE_WORKERS_KNOB),
+        "value": policy.get(COMPILE_WORKERS_KNOB),
+        "source": sources.get(COMPILE_WORKERS_KNOB),
+    }
+
+
 # --- batch-route preflight (pure: the message is testable without torch) ----
 def batch_preflight(route: str, policy: Dict[str, Any], src: str) -> Optional[str]:
     """The refusal paragraph for a batch route this tree cannot run (``None`` = OK).
@@ -192,8 +277,8 @@ def batch_preflight(route: str, policy: Dict[str, Any], src: str) -> Optional[st
 
 
 #: Keys the dry run renders from ``common.batch_policy`` (order is the report's own order).
-POLICY_FIELDS = ("band_size", "bands", "alignment", "switch_ops", "min_pop", "module_present",
-                 "mode_supported")
+POLICY_FIELDS = ("band_size", "bands", "alignment", "switch_ops", "min_pop", "compile_workers",
+                 "module_present", "mode_supported")
 
 
 def format_policy(policy: Dict[str, Any]) -> str:
@@ -202,15 +287,17 @@ def format_policy(policy: Dict[str, Any]) -> str:
     return f"{fields} declared_modes={policy.get('declared_modes')!r}"
 
 
-def batch_policy_for(arm: str, src: str) -> Dict[str, Any]:
-    """``common.batch_policy(src)`` with the arm's own knob spec applied around it.
+def batch_policy_for(arm: str, src: str, override: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """``common.batch_policy(src)`` with the arm's own knob spec (and any override) applied around it.
 
     The ``-flat`` variant differs from ``batch`` only by ``EVOGP_BATCH_BANDS=flat``, so the resolution
     has to happen with that arm's knobs in the environment for the dry run to report the bands the
-    child will really use.  The environment is restored afterwards: the dry run resolves several
-    routes in one process.
+    child will really use.  ``override`` is the ``--knob`` mapping, applied AFTER the arm's spec (the
+    same precedence the child uses) so a sweep's dry run reports the value it would record.  The
+    environment is restored afterwards: the dry run resolves several routes in one process.
     """
     knobs = dict((common.EVOXC_ARMS.get(arm) or {}).get("knobs") or {})
+    knobs.update({str(key): str(value) for key, value in (override or {}).items()})
     previous = {key: os.environ.get(key) for key in knobs}
     os.environ.update({key: str(value) for key, value in knobs.items()})
     try:
@@ -369,20 +456,30 @@ def generation_summary(
 
 # --- dry run (torch-free by construction: no env_block) ---------------------
 def dry_run(
-    args: argparse.Namespace, cells: Sequence[Dict[str, Any]], routes: Sequence[str], src: str
+    args: argparse.Namespace,
+    cells: Sequence[Dict[str, Any]],
+    routes: Sequence[str],
+    src: str,
+    override: Optional[Dict[str, str]] = None,
 ) -> int:
-    """Print every planned config, then where the batch routes resolve on THIS tree."""
+    """Print every planned config, the knob override, then where the batch routes resolve here."""
     for cell in cells:
         for route in routes:
             print("would run", cell["id"], route, f"({ROUTES[route]})",
                   "->", record_path(args.out_dir, cell["id"], route))
+    if override:
+        # Stated as its own fact: the override is applied AFTER the arm's spec, so it can move the
+        # policy a line further down -- and it is the only way to sweep the compile pool.
+        for name, value in override.items():
+            print("knob override", f"{name}={value}",
+                  "(applied after the arm's own spec, before the policy is recorded)")
     batch_routes = [route for route in routes if route_is_batch(route)]
     if not batch_routes:
         print("no batch route selected: nothing to resolve")
         return 0
     policy: Dict[str, Any] = {}
     for route in batch_routes:
-        policy = batch_policy_for(ROUTES[route], src)
+        policy = batch_policy_for(ROUTES[route], src, override)
         print("batch policy", route, f"({ROUTES[route]})", format_policy(policy))
     # The point of a dry run is to learn this BEFORE a multi-minute compile: the resolved tree may
     # not ship the route yet, and then every batch config would fail its preflight.
@@ -402,9 +499,10 @@ def dry_run(
 def run_driver(args: argparse.Namespace) -> int:
     cells = resolve_cells(args.cells)
     routes = resolve_routes(args.routes)
+    override = parse_knobs(getattr(args, "knob", None))
     src = resolve_src(args.tree_root)
     if args.dry_run:
-        return dry_run(args, cells, routes, src)
+        return dry_run(args, cells, routes, src, override)
 
     assert_fresh_out(args.out_dir)
     env = child_env(args, src)
@@ -425,6 +523,9 @@ def run_driver(args: argparse.Namespace) -> int:
             "pythonpath": env["PYTHONPATH"],
             "evoxc_disable_locations": disable_locations_provenance(env),
             "batch_engine_present": common.batch_engine_present(src),
+            # The --knob override forwarded to EVERY child (empty when none was given): it is
+            # applied after the arm's own spec, so it is named here rather than only in a record.
+            "knobs_override": dict(override),
             "out_dir": os.path.abspath(args.out_dir),
         },
         "configs": [],
@@ -439,6 +540,11 @@ def run_driver(args: argparse.Namespace) -> int:
             "torch is not importable in the driver process, so no env block was built (the driver "
             "itself only needs stdlib + common; every child builds its own)"
         )
+    if override:
+        driver_record["notes"].append(
+            "knob override " + ", ".join(f"{key}={value}" for key, value in override.items())
+            + ": forwarded to every child as repeated --knob args and applied AFTER the arm's own "
+            "knobs, so the recorded batch_policy shows the value the engine really read")
     if args.note:
         driver_record["notes"].append(args.note)
     common.write_json(driver_path, driver_record)
@@ -455,6 +561,8 @@ def run_driver(args: argparse.Namespace) -> int:
             "--tree-root", args.tree_root, "--generations", str(args.generations),
             "--warmup", str(args.warmup), "--reps", str(args.reps), "--seed", str(args.seed),
         ]
+        for name, value in override.items():
+            cmd += ["--knob", f"{name}={value}"]
         if args.note:
             cmd += ["--note", args.note]
         started = time.time()
@@ -508,6 +616,10 @@ def run_child(args: argparse.Namespace) -> int:
     Imports ``torch``/``evogp`` here and nowhere else, so ``--help``, ``--dry-run`` and the driver
     stay runnable on a box without torch.  The batch preflight runs BEFORE the torch import: a tree
     without the route fails fast with one readable paragraph.
+
+    ``--knob`` overrides are applied AFTER ``arms.apply_arm_env`` (which clears every route knob and
+    writes the arm's own spec) and BEFORE the policy is resolved, so every recorded knob block
+    carries the value the engine really read.
     """
     for flag, value in (("--cell", args.cell), ("--route", args.route), ("--out", args.out)):
         if not value:
@@ -515,6 +627,7 @@ def run_child(args: argparse.Namespace) -> int:
     if args.route not in ROUTES:
         raise SystemExit(f"unknown route {args.route!r}; known: {', '.join(ROUTES)}")
 
+    override = parse_knobs(getattr(args, "knob", None))
     src = install_tree_root(args.tree_root)
     cell = common.parse_cell(args.cell)
     arm = ROUTES[args.route]
@@ -523,6 +636,9 @@ def run_child(args: argparse.Namespace) -> int:
     import worker as worker_mod  # noqa: E402  (timed fitness + structure context)
 
     knobs = arms_mod.apply_arm_env(arm)  # one arm per process; the arm's knobs win
+    os.environ.update(override)  # the --knob override wins over the arm spec, by construction
+    applied_knobs = dict(knobs.get("knobs") or {})
+    applied_knobs.update(override)
     is_batch = common.is_batch_arm(arm)
     batch_policy = common.batch_policy(src) if is_batch else None
     if batch_policy is not None:
@@ -538,6 +654,7 @@ def run_child(args: argparse.Namespace) -> int:
     # The batch engine owns its counter contract, so ask it directly (getattr-probed: a route
     # without ``batch_cache_stats`` is a reportable state -- null counters, never a fabricated 0).
     batch_stats = None
+    batch_module = None
     if is_batch:
         try:
             from evogp.tree import batch_engine as batch_module
@@ -546,8 +663,18 @@ def run_child(args: argparse.Namespace) -> int:
         candidate = getattr(batch_module, "batch_cache_stats", None)
         batch_stats = candidate if callable(candidate) else None
 
+    # The stage split is a SECOND optional contract on the same module (``batch_stage_stats`` /
+    # ``batch_stage_reset``), resolved once here so every block below reads the same accessors.  A
+    # tree without them records ``available: false`` + null counters (stages.py), never a 0.
+    stage_stats = stages.stage_stats_fn(batch_module) if is_batch else None
+    stage_reset = stages.stage_reset_fn(batch_module) if is_batch else None
+
     def batch_snapshot() -> Optional[Dict[str, Any]]:
         return batch_stats() if batch_stats is not None else None
+
+    def stage_snapshot() -> Optional[Dict[str, Any]]:
+        """One stage snapshot (``None`` when the route exposes no ``batch_stage_stats``)."""
+        return stage_stats() if stage_stats is not None else None
 
     def misses(before: Any, after: Any) -> Optional[int]:
         # worker.py already owns the tolerant counter delta: an absent/renamed key reads as unknown
@@ -568,12 +695,14 @@ def run_child(args: argparse.Namespace) -> int:
 
     # (b) the cold first call: the merged-graph (batch) or dense-graph compile
     evoxc_before, batch_before = evoxc_engine.cache_stats(), batch_snapshot()
+    stage_before = stage_snapshot()
     torch.cuda.synchronize()
     started = time.perf_counter()
     loss = arm_obj.sr_fitness()
     torch.cuda.synchronize()
     first_call_ms = (time.perf_counter() - started) * 1e3
     evoxc_after, batch_after = evoxc_engine.cache_stats(), batch_snapshot()
+    stage_after = stage_snapshot()
     first_call: Dict[str, Any] = {
         "first_call_ms": round(first_call_ms, 4),
         "evoxc_cache": {"before": evoxc_before, "after": evoxc_after,
@@ -588,15 +717,27 @@ def run_child(args: argparse.Namespace) -> int:
             "before": batch_before, "after": batch_after,
             "compile_misses": batch_misses(batch_before, batch_after),
         }
+        # What the cold call spent its seconds on (decode/trace/merge vs lower/compile/load) plus
+        # the merge shape that explains it.
+        first_call["stage_ms"] = stages.delta_block(stage_before, stage_after)
+        first_call["stage_ms"]["plan"] = stages.plan_block(
+            worker_mod.batch_plan_facts(batch_module))
 
     # (c) warm medians on the same population (the compile is already paid).  The batch probe
     # snapshots the merged-graph cache the instant time_call's untimed call returns -- the same
     # helper worker.py uses to separate the cold compile from the warmup+reps total.
     probe = (worker_mod.BatchStatsProbe(arm_obj.sr_fitness, batch_stats)
              if is_batch and batch_stats is not None else None)
+    # Wraps whatever time_call would otherwise call (never changing time_call itself): the reset
+    # bracket is what makes each block a PER-CALL block rather than a cumulative one.
+    stage_probe = (stages.StageStatsProbe(probe if probe is not None else arm_obj.sr_fitness,
+                                          stage_stats, stage_reset)
+                   if is_batch else None)
     warm_before, batch_warm_before = evoxc_engine.cache_stats(), batch_snapshot()
-    timing = common.time_call(probe if probe is not None else arm_obj.sr_fitness,
-                              warmup=args.warmup, reps=args.reps, stats=evoxc_engine.cache_stats)
+    timing = common.time_call(
+        stage_probe if stage_probe is not None else (probe if probe is not None
+                                                     else arm_obj.sr_fitness),
+        warmup=args.warmup, reps=args.reps, stats=evoxc_engine.cache_stats)
     warm_after = evoxc_engine.cache_stats()
     warm_result = timing.pop("_out")
     warm_after_first = timing.pop("cache_after_first_call")
@@ -626,6 +767,14 @@ def run_child(args: argparse.Namespace) -> int:
             batch_warm_before, batch_warm_after_first)
         sr_fitness["cache"]["batch_compile_misses_this_workload"] = batch_misses(
             batch_warm_before, batch_warm_after)
+        # time_call calls fn once untimed, then warmup times, then reps times: the LAST reps blocks
+        # are the timed samples, block 0 is the untimed warm call (kept as ``first_call``).
+        sample_blocks = stage_probe.blocks[-args.reps:] if stage_probe is not None else []
+        sr_fitness["stage_ms"] = stages.median_block(sample_blocks, samples=args.reps)
+        sr_fitness["stage_ms"]["first_call"] = (stage_probe.first
+                                                if stage_probe is not None else None)
+        sr_fitness["stage_ms"]["plan"] = stages.plan_block(
+            worker_mod.batch_plan_facts(batch_module))
     warm_median_ms = sr_fitness["median_ms"]
 
     # (d) consecutive real generations: the merged-graph cache's measured hit rate
@@ -640,12 +789,14 @@ def run_child(args: argparse.Namespace) -> int:
         signature = common.population_signature(pipeline.algorithm.forest)
         seen_before = signature["signature"] in compiled_signatures
         evoxc_gen_before, batch_gen_before = evoxc_engine.cache_stats(), batch_snapshot()
+        stage_gen_before = stage_snapshot()
         torch.cuda.synchronize()
         started = time.perf_counter()
         pipeline.step()
         torch.cuda.synchronize()
         total_ms = (time.perf_counter() - started) * 1e3
         evoxc_gen_after, batch_gen_after = evoxc_engine.cache_stats(), batch_snapshot()
+        stage_gen_after = stage_snapshot()
         entry: Dict[str, Any] = {
             "g": index, "population_signature": signature["signature"],
             "distinct_structures": signature["distinct_structures"],
@@ -658,6 +809,8 @@ def run_child(args: argparse.Namespace) -> int:
         if is_batch:
             entry["batch_compile_misses"] = batch_misses(batch_gen_before, batch_gen_after)
             route_misses.append(entry["batch_compile_misses"])
+            # this generation's stage deltas, including batch_compile_wall_ms / batch_compile_jobs
+            entry["stage_ms"] = stages.delta_block(stage_gen_before, stage_gen_after)
         entry["compile_hit"] = compile_hit(route_misses)
         compiled_signatures.add(signature["signature"])
         generations.append(entry)
@@ -688,11 +841,16 @@ def run_child(args: argparse.Namespace) -> int:
         }
     summary = generation_summary(generations, first_call_ms, warm_median_ms,
                                  merged_graph_cache=merged_cache)
+    if is_batch:
+        # The stage tables + the compile stage's real share of the loop: derived from the rows above
+        # only (stages.summary_block never asserts a number it was not given).
+        summary.update(stages.summary_block(first_call.get("stage_ms"),
+                                            sr_fitness.get("stage_ms"), generations))
 
     # (f) the record
     record: Dict[str, Any] = {
         "env": common.env_block(args.tree_root, arm,
-                                extra={"applied_knobs": knobs, "cell": cell,
+                                extra={"applied_knobs": applied_knobs, "cell": cell,
                                        "route": args.route, "arm": arm}),
         "cell": cell, "route": args.route, "arm": arm, "measurement": MEASUREMENT,
         "protocol": {
@@ -715,6 +873,9 @@ def run_child(args: argparse.Namespace) -> int:
     }
     if is_batch:
         record["batch_policy"] = batch_policy
+        # The resolved compile-pool knob, next to the policy it came from (source "harness-default"
+        # means the route ships no resolver / the knob is unset -- never a fabricated value).
+        record["protocol"]["batch_compile_workers"] = compile_workers_block(batch_policy)
         record["notes"].append(
             "batch route: ONE merged graph per population structure multiset, so a multi-second "
             "first_call_ms is the expected cold cost of the route, recorded as measured and never "
@@ -725,11 +886,27 @@ def run_child(args: argparse.Namespace) -> int:
                 "tree, so every merged-graph counter is null (NOT zero) and compile_hit is null "
                 "wherever only those counters could tell; the compile cost can then only be read "
                 "off first_call_ms")
+        if stage_stats is None:
+            record["notes"].append(
+                f"batch route: {stages.STATS_FN_PATH}() is unavailable on this tree, so every "
+                "stage_ms counter is null (NOT zero) with available=false: the split was not "
+                "measured, which is not the same as any stage costing nothing")
+        if stage_reset is None:
+            record["notes"].append(
+                f"batch route: {stages.MODULE_NAME}.{stages.RESET_FN_NAME}() is unavailable, so each "
+                "stage block is cumulative rather than per-call; a max is then only a "
+                "process-lifetime maximum")
     else:
         record["notes"].append(
             "dense route (comparison column): no merged-graph cache exists, so batch_* counters are "
             "ABSENT rather than null; its per-generation compile misses are the evoxc engine's own "
             "and its first call is the dense-graph compile")
+    if override:
+        record["knobs_override"] = dict(override)
+        record["notes"].append(
+            "knob override " + ", ".join(f"{key}={value}" for key, value in override.items())
+            + ": applied AFTER the arm's own knob spec and BEFORE the policy was resolved, so "
+            "batch_policy / env.applied_knobs / this block all carry the value the engine read")
     if args.note:
         record["notes"].append(args.note)
 
@@ -763,6 +940,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                         help="per-config wall cap in seconds (a merged-graph compile may take minutes)")
     parser.add_argument("--dry-run", action="store_true", help="print the plan, run nothing")
+    parser.add_argument("--knob", action="append", default=None, metavar="NAME=VALUE",
+                        help="route-knob override, repeatable; names are validated against "
+                             "common.ROUTE_ENV_VARS (the EVOGP_BATCH_* set plus "
+                             "EVOGP_DENSE_MAX_TREE_LEN) and the value is applied AFTER the arm's own "
+                             "spec, before the policy is recorded. This is how the compiled-graph "
+                             "pool is swept without a new arm: --knob "
+                             "EVOGP_BATCH_COMPILE_WORKERS=1, then a second run with 4 (one config "
+                             "per value: the knob is per process)")
     parser.add_argument("--note", default=None, help="free-form note stored in every record")
     parser.add_argument("--phase", choices=("driver", "child"), default="driver",
                         help="internal: driver spawns children; child measures one (cell, route)")
