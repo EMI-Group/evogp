@@ -959,7 +959,7 @@ Three findings:
 **`EVOGP_EVAL_MODE=batch` remains a fixed-population route: in a generation loop dense wins every covered cell by 43.2–95.4×, and at pop 256 dense wins the warm call on every column of the shipped-default shape (batch at 0.31–0.79× of dense's warm time).**
 
 The loop numbers (`Σ` over 6 `StandardPipeline.step()` generations, `composition/SUMMARY.md` §5): `p256-L32` **12 906.6** ms chunked / 14 387.1 `auto`-chunked / 24 171.6 flat-chunked / 24 714.0 `auto`-banded / 25 578.3 `b16`-banded against dense's **299.0** ms; `p256-L64` 14 710.4 / 15 537.6 / 28 871.7 against **302.7** ms. Every batch route records `generation_hit_rate` **1/6** with **6 distinct signatures** and `generations_with_compile` **5** (`compile_ms_share` 0.979–0.991): generation 1 hits the graph the timed first call compiled and each later generation presents a new structure multiset.
-The sharper, eval-only reading excludes generation 1 (which pays the pipeline's first trace on both sides): the eval sums are 15.3 ms for dense against 12 623.1 ms for `b16-chunked` at L32 = **825×**, and 22.1 against 14 427.3 ms at L64 = **653×** — the `Σ` ratio of 43× is the *flattering* number because generation 1 dominates dense's `Σ`.
+The sharper, eval-only reading excludes generation 1 (which pays the pipeline's first trace on both sides): the eval sums are 15.3 ms for dense against 12 623.1 ms for `b16-chunked` at L32 = **825×**, and 22.1 against 14 427.4 ms at L64 = **653×** — the `Σ` ratio of 43× is the *flattering* number because generation 1 dominates dense's `Σ`.
 
 What survives, unchanged in kind from §7/§11:
 
