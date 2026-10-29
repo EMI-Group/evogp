@@ -468,6 +468,37 @@ the value the engine really read. Exporting the variable is not the way: the arm
 clears it first. That is how the compiled-graph pool is swept —
 `EVOGP_BATCH_COMPILE_WORKERS=1`, `4` and `8` as three runs of one cell, one process per
 value because the knob is per process — and it needs no new arm.
+### Named composition routes
+A route token is not just an arm: `ROUTE_SPECS` in `batch_economics.py` gives each token
+its own `{"arm", "knobs"}` spec, so three batch configurations can be measured in one
+driver run. On top of `batch` / `batch-flat` / `dense` (each still exactly its registry
+arm), round 2's generation-loop column registers `batch-banded`
+(`EVOGP_BATCH_BANDS=auto`, `EVOGP_BATCH_COMPILE_WORKERS=1`), `batch-flat-chunked`
+(`EVOGP_BATCH_BANDS=none`, `EVOGP_BATCH_COMPILE_WORKERS=4`, `EVOGP_BATCH_CHUNK_BANDS`
+deliberately **unset**: off, a band request forces the single-body path) and
+`batch-auto-chunked` (`EVOGP_BATCH_BANDS=auto`, `EVOGP_BATCH_CHUNK_BANDS=1`,
+`EVOGP_BATCH_COMPILE_WORKERS=4`).
+The env layers are applied in one order, the same one the dry run reports:
+`arms.apply_arm_env` **clears** every `common.ROUTE_ENV_VARS` entry (the `EVOGP_BATCH_*`
+set — `EVOGP_BATCH_CHUNK_BANDS` included — plus `EVOGP_DENSE_MAX_TREE_LEN`) and writes
+the arm's spec, then the named route's spec, then an explicit `--knob` (which therefore
+wins for the same variable). `protocol.route_knobs` states, per variable, the value, the
+raw `env_value` (`null` = really unset) and the layer that won — `harness-knob` >
+`route` > `arm` > `env`, or the engine's own `module` resolver / `harness-default` /
+`unset` when the environment carries none; `protocol.batch_compile_workers` is its
+compile-pool row. Each batch record also carries `common.band_report`'s block for the
+plan(s) that served it (`band_report.sr_fitness` plus every distinct plan under
+`band_reports`), so a composition record states whether the band clamp fired
+(`band_requested` / `band_requested_bands` / `band_clamped` / `band_note`), what the
+cost model estimated and which per-body `chunk_bands` the merge produced — null (never
+`0`) when no plan could be described.
+`--dry-run` prints one line per `(cell, route)` with the route's own knob spec and the
+resolved route environment, so `bands` / `compile_workers` / `chunk_bands` are readable
+per route before a multi-minute compile is started.
+The child-side loop internals (cold call, warm medians, per-generation record assembly,
+the three counter-delta helpers and the summary derivation) live in the torch-free sibling
+`econ_child.py`; `batch_economics.py` stays the driver (CLI, cell/route resolution, env
+construction, subprocess launching, `economics.json`).
 
 The batched commands are in [Commands of record](#commands-of-record) below (dry run, plus the
 default `batch,dense` column) and, in full, in [`BATCH.md`](BATCH.md) §10.

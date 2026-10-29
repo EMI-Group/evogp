@@ -19,6 +19,11 @@ cache stats around the step and the wall/eval split; deliberately NOT warmed up,
 the honest first generation) and ``summary`` (hit rate, recompile count, warm-vs-cold median
 evaluation, compile-attributed share -- all derived from the recorded rows, never asserted).
 
+This file is the DRIVER: CLI, cell/route resolution, the environment layers, the idle-config
+bookkeeping, subprocess launching and ``economics.json``.  The child-side loop internals (the cold
+call / warm medians / per-generation record assembly, the three counter-delta helpers and the summary
+derivation) live in the torch-free sibling ``econ_child.py``, which this module imports.
+
 The honest question, in one paragraph
 -------------------------------------
 Crossover and mutation replace most of a population every generation, so the structure MULTISET
@@ -30,44 +35,75 @@ consecutive generations instead of asserting one.  ``dense`` goes through the sa
 columns are directly comparable: its per-generation compile counter is the evoxc engine's own, and it
 has no merged-graph cache at all (those keys are absent, not null).
 
-Where the time goes: the per-stage split
-----------------------------------------
-From ``stages.py`` (the single owner of the ten-stage vocabulary -- decode, dedup, trace, merge, lower,
-compile, load, upload, run, gather, plus the compile pool's wall time and job count):
-``first_call.stage_ms`` is the before/after window over the cold call (which share of the compile was
-decode/trace/merge versus lower/compile/load), ``sr_fitness.stage_ms`` the per-call medians of the
-timed window (each call reset-bracketed when the route ships ``batch_stage_reset``),
-``generations[i].stage_ms`` that generation's deltas, and
-``summary.{cold_stage_ms,warm_stage_ms,compile_share}`` the tables plus the compile stage's real share
-of the loop's wall time.  Every read is getattr-probed: on a tree without ``batch_stage_stats()``
-those blocks say ``available: false`` with EVERY counter ``null`` and a note -- never a fabricated
-``0``.  ``stage_ms.plan`` carries ``describe_plan``'s ``compile_workers``/``chunk_count``/
-``chunk_sizes`` (null when the report predates them).
+Named composition routes (round 2, work item 3)
+-----------------------------------------------
+A route is no longer only an arm name: :data:`ROUTE_SPECS` gives every route token its own
+``{"arm", "knobs"}`` spec, so THREE batch configurations can be measured in one driver run.  The
+round-2 generation-loop column registers:
 
-Where the reuse went: the content-table blocks
-----------------------------------------------
-From ``content.py`` (the single owner of the content-addressed plan-key vocabulary --
-``batch_content_hits`` / ``_misses`` / ``_rejects`` / ``_entries`` / ``_maxsize``):
-``first_call.content`` / ``sr_fitness.content`` / ``generations[i].content`` are before -> after
-windows with their derived ``attempts`` (hits + misses) and ``hit_rate``, and ``summary.content``
-adds the ``generations`` outcome counts (``with_content_hit`` / ``with_content_miss`` /
-``no_attempt`` / ``unknown``).  These price the SECOND reuse surface: the identity tables are
-consulted first, so a repeated call on the same ``Forest`` object and the same plan parameters
-leaves the content table untouched (``attempts`` 0 -- not a content miss), while a first call for a
-NEW plan shape is an identity miss even on an unchanged object and does probe it.  Only a
-REBUILT-but-equal population can produce a content hit.  Per generation, ``batch_plan_misses`` now
-sits next to ``batch_compile_misses``: the plan table re-decodes/re-traces/re-merges, it never
-recompiles.  Getattr-probed like the stage split: no ``batch_content_stats()`` means
-``available: false`` with every counter ``null`` (never ``0``) plus a note.
+============================  =========================  ==========================================
+token                         arm                        route knobs
+============================  =========================  ==========================================
+``batch``                     ``evoxc-batch-iree``       (none: the arm's own spec)
+``batch-flat``                ``evoxc-batch-iree-flat``  (none: the arm pins ``BANDS=flat``)
+``dense``                     ``evoxc-dense-iree``       (none: the comparison column)
+``batch-banded``              ``evoxc-batch-iree``       ``BANDS=auto``, ``COMPILE_WORKERS=1``
+``batch-flat-chunked``        ``evoxc-batch-iree``       ``BANDS=none``, ``COMPILE_WORKERS=4``
+``batch-auto-chunked``        ``evoxc-batch-iree``       ``BANDS=auto``, ``CHUNK_BANDS=1``,
+                                                         ``COMPILE_WORKERS=4``
+``batch-b16-banded``          ``evoxc-batch-iree``       ``BAND_SIZE=16``, ``COMPILE_WORKERS=1``
+``batch-b16-chunked``         ``evoxc-batch-iree``       ``BAND_SIZE=16``, ``CHUNK_BANDS=1``,
+                                                         ``COMPILE_WORKERS=4``
+============================  =========================  ==========================================
+
+(``BAND_SIZE``/``BANDS``/``CHUNK_BANDS``/``COMPILE_WORKERS`` are ``EVOGP_BATCH_BAND_SIZE`` /
+``EVOGP_BATCH_BANDS`` / ``EVOGP_BATCH_CHUNK_BANDS`` / ``EVOGP_BATCH_COMPILE_WORKERS``.)
+``batch-flat-chunked`` deliberately
+leaves ``EVOGP_BATCH_CHUNK_BANDS`` UNSET: off, a band request forces the single-body path, so that
+route is the unbanded-per-chunk control next to ``batch-auto-chunked``.
+
+The env layers are applied in ONE order, by :func:`apply_route_env`, for the dry run and the child
+alike: ``arms.apply_arm_env`` CLEARS every route knob (``common.ROUTE_ENV_VARS``: the ``EVOGP_BATCH_*``
+set -- ``EVOGP_BATCH_CHUNK_BANDS`` included -- plus the dense trace cap) and writes the ARM's own
+spec, then the ROUTE's own spec, then the explicit ``--knob`` override.  So a variable nobody sets is
+really unset, never inherited, and ``protocol.route_knobs`` states, per variable, which layer won:
+``arm`` / ``route`` / ``harness-knob`` / ``env`` for a value, or the engine's own ``module`` resolver
+/ ``harness-default`` / ``unset`` when the environment carries none.
+
+The band/merge verdict
+----------------------
+Each batch record also carries ``common.band_report``'s block -- the SAME block ``band_sweep.py``
+writes -- for the plan(s) that served the route (``band_report.sr_fitness``, plus every distinct plan
+under ``band_reports``): the measured ``bands``/``band_sizes``/``band_strategy``, the static cost
+model's ``cost_estimate``/``flat_estimate``, the policy verdict (``band_requested``,
+``band_requested_bands``, ``band_clamped``, ``band_note``, ``band_policy``) and a chunked plan's
+per-body ``chunk_bands``.  That is what makes a composition record state whether the clamp fired and
+what band counts the banded+chunked merge produced, instead of only that it ran.  Null-never-zero: a
+plan nobody can describe records ``available: false`` with every field ``null`` plus a note.
+
+Where the time goes / where the reuse went
+------------------------------------------
+The ten-stage split (``stages.py``) and the content-addressed plan-key blocks (``content.py``) are
+assembled by ``econ_child.py`` and shipped exactly as before: ``first_call.stage_ms`` /
+``sr_fitness.stage_ms`` / ``generations[i].stage_ms`` / ``summary.{cold_stage_ms,warm_stage_ms,
+compile_share}`` and the ``content`` blocks with their ``attempts``/``hit_rate``.  Every read is
+getattr-probed: a tree without ``batch_stage_stats()`` / ``batch_content_stats()`` records
+``available: false`` with EVERY counter ``null`` and a note -- never a fabricated ``0``.
 
 Sweeping a knob without a new arm: ``--knob NAME=VALUE``
 -------------------------------------------------------
 ``--knob`` (repeatable) overrides one route knob the harness owns (``common.ROUTE_ENV_VARS``) AFTER
-``arms.apply_arm_env`` wrote the arm's own spec and BEFORE the policy is recorded, so
-``batch_policy`` / ``env.applied_knobs`` / ``knobs_override`` all show the value the engine really
-read.  That is how the compiled-graph pool is swept: ``--knob EVOGP_BATCH_COMPILE_WORKERS=1`` and a
-companion run with ``4`` (one config each -- the knob is per process).  An exported
-``EVOGP_BATCH_COMPILE_WORKERS`` is cleared by the arm spec like every other route knob: use ``--knob``.
+both the arm's spec and the named route's spec, and BEFORE the policy is recorded, so a route's own
+spec is overridable for the SAME variable (the explicit override wins, and the record says so).  That
+is how the compiled-graph pool is swept: ``--knob EVOGP_BATCH_COMPILE_WORKERS=1`` and a companion run
+with ``4`` (one config each -- the knob is per process).  An exported ``EVOGP_BATCH_COMPILE_WORKERS``
+is cleared by the arm spec like every other route knob: use ``--knob``.
+
+Generation loop
+---------------
+``--generations`` (default 8) is the number of real ``StandardPipeline.step()`` iterations, so the
+round-2 protocol (``>= 6`` generations for a cold/warm/generation comparison) is expressible without
+any further flag; the count is recorded per child and in the driver's ``protocol``.
 
 Why one process per (cell, route)
 ---------------------------------
@@ -96,6 +132,11 @@ Reproduce on the GPU box
     # the three large cells x two routes, one child process per config
     $PY test/benchmark/evoxc/batch_economics.py
 
+    # the round-2 composition column: three batch configurations, one driver run
+    $PY test/benchmark/evoxc/batch_economics.py --cells p256-L32-i8-N1024 \
+        --routes batch-banded,batch-flat-chunked,batch-auto-chunked --generations 6 \
+        --out-dir results/batch_opt_round2/composition
+
     # one config by hand (a child is a normal, self-contained record producer)
     $PY test/benchmark/evoxc/batch_economics.py --phase child \
         --cell p1000-L32-i8-N1024 --route batch --out "$TMPDIR/batch.json" --generations 8
@@ -104,8 +145,8 @@ Reproduce on the GPU box
 ``cold_start.py`` (``<root>/src`` first on ``sys.path``).  ``--out-dir`` defaults to a FRESH
 ``results/batch/`` and refuses ``results/final`` and ``results/baseline`` (frozen evidence).  Nothing
 here writes into ``src/``; the only library state touched is the route's documented env knobs
-(``arms.apply_arm_env``) plus ``EVOXC_DISABLE_LOCATIONS``, defaulted to ``1`` when the caller left it
-unset (the driver records which of the two happened).
+(``arms.apply_arm_env`` + the route's own spec) plus ``EVOXC_DISABLE_LOCATIONS``, defaulted to ``1``
+when the caller left it unset (the driver records which of the two happened).
 
 Record layout: one JSON per (cell, route) at ``<out-dir>/<cell>/<route>.json`` plus the child's
 ``.log`` and one driver record ``<out-dir>/economics.json`` (schema
@@ -129,8 +170,10 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import common  # noqa: E402  (stdlib-only at import time)
-import stages  # noqa: E402  (torch-free, evogp-free: the stage vocabulary + derived blocks)
-import content  # noqa: E402  (torch-free, evogp-free: the content-key vocabulary + derived blocks)
+import econ_child  # noqa: E402  (the child-side loop internals; torch-free at import)
+# ``_round`` is re-exported here on purpose: ``band_sweep.py`` imports it from this module (the
+# generic driver helpers of this node live here), and the one implementation is econ_child's.
+from econ_child import MEASUREMENT, _round  # noqa: E402,F401
 from cold_start import install_tree_root  # noqa: E402  (the one tree-switch helper)
 
 #: The three "large" cells the question is about: pop 256 / 1000 on the two built-in widths, where a
@@ -149,19 +192,59 @@ DEFAULT_TIMEOUT = 3600
 DEFAULT_OUT_DIR = os.path.join(_HERE, "results", "batch")
 DISABLE_LOCATIONS_ENV = "EVOXC_DISABLE_LOCATIONS"
 FROZEN_RESULT_DIRS = ("final", "baseline")  # frozen evidence: never written in place
-MEASUREMENT = "batch-compile-economics"
+#: The round-2 generation-loop protocol: a cold/warm/generation comparison needs at least this many
+#: real ``StandardPipeline.step()`` iterations (``--generations`` expresses any count >= 1; the
+#: default of 8 covers it).
+ROUND2_MIN_GENERATIONS = 6
 
-#: Route token -> registry arm name.  The ONLY route table in this file: the arm names are
-#: ``common.EVOXC_ARMS`` keys, the knobs are the arms' own specs, and "is this a batch route" is
-#: answered by ``common.is_batch_arm`` -- nothing about the route is re-declared here.
-ROUTES: Dict[str, str] = {
-    "batch": "evoxc-batch-iree", "batch-flat": "evoxc-batch-iree-flat", "dense": "evoxc-dense-iree",
+#: Route token -> ``{"arm", "knobs"}``.  The ONLY route table in this file: ``arm`` is a
+#: ``common.EVOXC_ARMS`` key (its own registry spec is applied first), ``knobs`` is the ROUTE's own
+#: extra env layer (applied after the arm's, before an explicit ``--knob``), and "is this a batch
+#: route" stays answered by ``common.is_batch_arm`` -- nothing about the engine is re-declared here.
+#: An empty ``knobs`` mapping means "the arm's own spec is the whole route", i.e. the tokens that
+#: existed before the composition round keep their exact behaviour.
+ROUTE_SPECS: Dict[str, Dict[str, Any]] = {
+    "batch": {"arm": "evoxc-batch-iree", "knobs": {}},
+    "batch-flat": {"arm": "evoxc-batch-iree-flat", "knobs": {}},
+    "dense": {"arm": "evoxc-dense-iree", "knobs": {}},
+    # round 2, work item 3 -- the composition column
+    "batch-banded": {
+        "arm": "evoxc-batch-iree",
+        "knobs": {"EVOGP_BATCH_BANDS": "auto", "EVOGP_BATCH_COMPILE_WORKERS": "1"},
+    },
+    "batch-flat-chunked": {
+        "arm": "evoxc-batch-iree",
+        # CHUNK_BANDS deliberately UNSET: off, a band request forces the single-body path, so this
+        # is the per-chunk-unbanded control next to batch-auto-chunked.
+        "knobs": {"EVOGP_BATCH_BANDS": "none", "EVOGP_BATCH_COMPILE_WORKERS": "4"},
+    },
+    "batch-auto-chunked": {
+        "arm": "evoxc-batch-iree",
+        "knobs": {"EVOGP_BATCH_BANDS": "auto", "EVOGP_BATCH_CHUNK_BANDS": "1",
+                  "EVOGP_BATCH_COMPILE_WORKERS": "4"},
+    },
+    # round 2, work item 3 -- the PINNED-SIZE composition: the same banded+chunked shape as
+    # batch-auto-chunked with the ``auto`` band policy replaced by a fixed band size of 16 (the
+    # round-2 minimax), so the pair separates the band policy from the composition itself.
+    "batch-b16-banded": {
+        "arm": "evoxc-batch-iree",
+        # The single-run numeric-default baseline for the loop: pinned band size 16, single body.
+        "knobs": {"EVOGP_BATCH_BAND_SIZE": "16", "EVOGP_BATCH_COMPILE_WORKERS": "1"},
+    },
+    "batch-b16-chunked": {
+        "arm": "evoxc-batch-iree",
+        # The candidate composition default: pinned band size 16 + the composition opt-in + pool 4.
+        "knobs": {"EVOGP_BATCH_BAND_SIZE": "16", "EVOGP_BATCH_CHUNK_BANDS": "1",
+                  "EVOGP_BATCH_COMPILE_WORKERS": "4"},
+    },
 }
+#: Route token -> registry arm name (derived, so the two can never disagree).
+ROUTES: Dict[str, str] = {token: spec["arm"] for token, spec in ROUTE_SPECS.items()}
 
 #: Environment variables the driver forwards verbatim to every child (on top of the inherited
 #: environment), so a record shows the configuration window it ran in.  The batch knobs are named
-#: explicitly: the child clears and re-applies them per arm, but an operator's export must still reach
-#: the process to be visible in its records.
+#: explicitly: the child clears and re-applies them per route, but an operator's export must still
+#: reach the process to be visible in its records.
 FORWARDED_ENV = (
     "EVOGP_EVAL_MODE", "EVOGP_EVOXC_BACKEND", "EVOGP_EVOXC_DEVICE", "EVOGP_EVOXC_OPT_LEVEL",
     "EVOGP_EVOXC_CACHE_SIZE", "EVOGP_DENSE_AUTO_MIN_POP", "EVOGP_DENSE_AUTO_MAX_ROWS",
@@ -186,15 +269,33 @@ def resolve_cells(text: str) -> List[Dict[str, Any]]:
     return cells
 
 
+def route_spec(route: str) -> Dict[str, Any]:
+    """The named route's spec, validated against the harness's own housekeeping table.
+
+    A spec that pins a variable outside :data:`common.ROUTE_ENV_VARS` is a harness bug (that set is
+    exactly what ``arms.apply_arm_env`` clears, so an unlisted name would leak between routes): it is
+    reported by name here instead of silently measuring an inherited value.
+    """
+    spec = ROUTE_SPECS[route]
+    for name in spec.get("knobs") or {}:
+        if name not in common.ROUTE_ENV_VARS:
+            raise SystemExit(
+                f"route {route!r} pins {name!r}, which is not a route knob this harness clears; "
+                f"known knobs: {', '.join(common.ROUTE_ENV_VARS)}"
+            )
+    return spec
+
+
 def resolve_routes(text: str) -> List[str]:
-    """``"batch,dense"`` -> route tokens, validated against :data:`ROUTES`."""
+    """``"batch,dense"`` -> route tokens, validated against :data:`ROUTE_SPECS`."""
     routes: List[str] = []
     for token in _tokens(text):
-        if token not in ROUTES:
+        if token not in ROUTE_SPECS:
             raise SystemExit(
-                f"unknown route {token!r}; known: {', '.join(ROUTES)} "
+                f"unknown route {token!r}; known: {', '.join(ROUTE_SPECS)} "
                 f"(arms: {', '.join(sorted(set(ROUTES.values())))})"
             )
+        route_spec(token)  # a spec naming an unmanaged variable fails before any child exists
         if token not in routes:
             routes.append(token)
     if not routes:
@@ -205,6 +306,11 @@ def resolve_routes(text: str) -> List[str]:
 def route_is_batch(route: str) -> bool:
     """Does this route token measure the batch engine?  (The arm's spec decides.)"""
     return common.is_batch_arm(ROUTES[route])
+
+
+def route_knobs_of(route: str) -> Dict[str, str]:
+    """The route's own env layer (``{}`` when the route is just its arm)."""
+    return {name: str(value) for name, value in (route_spec(route).get("knobs") or {}).items()}
 
 
 # --- route-knob overrides (pure: validated without torch) -------------------
@@ -252,20 +358,114 @@ def parse_knobs(texts: Optional[Sequence[str]]) -> Dict[str, str]:
     return knobs
 
 
-def compile_workers_block(policy: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+# --- the ONE env layer order (used by the child AND by the dry run) ---------
+def apply_route_env(
+    arm: str,
+    route_knobs: Optional[Dict[str, str]] = None,
+    override: Optional[Dict[str, str]] = None,
+    cell: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Clear every route knob, then apply ``arm -> route -> --knob`` (the ONE precedence).
+
+    ``arms.apply_arm_env`` is the clearing step: it pops every :data:`common.ROUTE_ENV_VARS` entry
+    (so an exported -- or leftover -- ``EVOGP_BATCH_*`` / ``EVOGP_DENSE_MAX_TREE_LEN`` can never
+    decide what this route measures) and writes the ARM's own spec.  The named route's spec is
+    written next, and the explicit ``--knob`` override last, so an operator's explicit override wins
+    for the SAME variable.  ``knobs`` in the return value is the resolved mapping that actually
+    reached the engine (arm + route + override), which is what ``env.applied_knobs`` records.
+    """
+    import arms as arms_mod  # noqa: PLC0415 - torch-free at import, but only needed here
+
+    applied_spec = arms_mod.apply_arm_env(arm, cell)
+    applied: Dict[str, str] = dict(applied_spec.get("knobs") or {})
+    for layer in (route_knobs or {}, override or {}):
+        for name, value in layer.items():
+            os.environ[name] = str(value)
+            applied[name] = str(value)
+    return {"eval_mode": applied_spec["eval_mode"], "backend": applied_spec["backend"],
+            "knobs": applied}
+
+
+def route_knob_table(
+    arm: str,
+    route_knobs: Optional[Dict[str, str]] = None,
+    override: Optional[Dict[str, str]] = None,
+    policy: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Per route variable: its value, the value the environment carries, and WHO set it.
+
+    The source vocabulary is the layer order of :func:`apply_route_env`, most explicit first:
+    ``harness-knob`` (the ``--knob`` override) > ``route`` (the named route's own spec) > ``arm``
+    (the registry arm's knobs) > ``env`` (a value nobody in the harness wrote) -- and, for a variable
+    the environment does not carry at all, whatever ``common.batch_policy`` decided:
+    ``module`` (the engine's own resolver) / ``harness-default`` (the documented default) /
+    ``unset``.  ``value`` is the RESOLVED value (so an unset ``EVOGP_BATCH_COMPILE_WORKERS`` still
+    states the pool width the engine used), ``env_value`` is what the process environment holds
+    (``None`` = really unset), and this table is the ONE provenance block a record carries.
+    """
+    arm_knobs = {name: str(value)
+                 for name, value in ((common.EVOXC_ARMS.get(arm) or {}).get("knobs") or {}).items()}
+    route_knobs = {str(key): str(value) for key, value in (route_knobs or {}).items()}
+    override = {str(key): str(value) for key, value in (override or {}).items()}
+    sources = (policy or {}).get("knobs_source") or {}
+    spec_keys = {env: key for key, env, _default, _candidates in common.BATCH_KNOBS}
+    defaults = {env: default for _key, env, default, _candidates in common.BATCH_KNOBS}
+    table: Dict[str, Dict[str, Any]] = {}
+    for name in common.ROUTE_ENV_VARS:
+        env_value = os.environ.get(name)
+        if name in override:
+            source = "harness-knob"
+        elif name in route_knobs:
+            source = "route"
+        elif name in arm_knobs and arm_knobs[name] == env_value:
+            source = "arm"
+        elif env_value is not None:
+            source = "env"
+        else:
+            source = sources.get(spec_keys.get(name)) or "unset"
+        spec_key = spec_keys.get(name)
+        value = (policy or {}).get(spec_key) if spec_key else None
+        if value is None:
+            value = env_value if env_value is not None else defaults.get(name)
+        entry: Dict[str, Any] = {"env": name, "value": value, "env_value": env_value,
+                                 "source": source}
+        if spec_key:
+            entry["spec_key"] = spec_key
+        table[name] = entry
+    return table
+
+
+def compile_workers_block(route_knobs: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """The resolved compile-pool knob, as the child's ``protocol`` records it (batch routes only).
 
-    ``value``/``source`` come straight out of ``common.batch_policy``'s ``compile_workers`` and
-    ``knobs_source``, so ``source: "harness-default"`` means the route shipped no resolver (or the
-    knob is unset) and the documented default was used -- never a fabricated value.
+    A view of :func:`route_knob_table`, so ``source`` is the layer that really set it -- a
+    ``harness-default``/``module`` source means no route spec and no override supplied the value,
+    never a fabricated one.
     """
-    policy = policy or {}
-    sources = policy.get("knobs_source") or {}
-    return {
-        "env": knob_env_name(COMPILE_WORKERS_KNOB),
-        "value": policy.get(COMPILE_WORKERS_KNOB),
-        "source": sources.get(COMPILE_WORKERS_KNOB),
-    }
+    name = knob_env_name(COMPILE_WORKERS_KNOB)
+    entry = (route_knobs or {}).get(name)
+    return dict(entry) if entry else {"env": name, "value": None, "source": None}
+
+
+def format_route_env(route_knobs: Dict[str, Dict[str, Any]]) -> str:
+    """One-line render of the resolved route environment (the dry run's per-config evidence)."""
+    set_parts, unset = [], []
+    for name, entry in route_knobs.items():
+        value = entry.get("env_value")
+        if value is None:
+            value = entry.get("value")
+        if value is None:
+            unset.append(name)
+        else:
+            set_parts.append(f"{name}={value}({entry.get('source')})")
+    text = " ".join(set_parts) or "(no route knob carries a value)"
+    return text + (f" | unset: {', '.join(unset)}" if unset else "")
+
+
+def format_knob_spec(route: str) -> str:
+    """``[EVOGP_BATCH_BANDS=auto, EVOGP_BATCH_COMPILE_WORKERS=1]`` for a route's own spec."""
+    knobs = route_knobs_of(route)
+    return "[" + ", ".join(f"{name}={value}" for name, value in knobs.items()) + "]"
 
 
 # --- batch-route preflight (pure: the message is testable without torch) ----
@@ -304,27 +504,32 @@ def format_policy(policy: Dict[str, Any]) -> str:
     return f"{fields} declared_modes={policy.get('declared_modes')!r}"
 
 
-def batch_policy_for(arm: str, src: str, override: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """``common.batch_policy(src)`` with the arm's own knob spec (and any override) applied around it.
+def policy_for_route(
+    route: str,
+    src: str,
+    cell: Optional[Dict[str, Any]] = None,
+    override: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """``common.batch_policy(src)`` resolved with the route's own env layers applied around it.
 
-    The ``-flat`` variant differs from ``batch`` only by ``EVOGP_BATCH_BANDS=flat``, so the resolution
-    has to happen with that arm's knobs in the environment for the dry run to report the bands the
-    child will really use.  ``override`` is the ``--knob`` mapping, applied AFTER the arm's spec (the
-    same precedence the child uses) so a sweep's dry run reports the value it would record.  The
-    environment is restored afterwards: the dry run resolves several routes in one process.
+    It goes through :func:`apply_route_env` -- the SAME clearing + layering the child performs -- so
+    the dry run reports the bands / pool width / chunk-bands the child will really read, including a
+    route spec and any ``--knob`` override.  The environment is restored afterwards (minus whatever
+    the caller already had unset): the dry run resolves several routes in one process.
     """
-    knobs = dict((common.EVOXC_ARMS.get(arm) or {}).get("knobs") or {})
-    knobs.update({str(key): str(value) for key, value in (override or {}).items()})
-    previous = {key: os.environ.get(key) for key in knobs}
-    os.environ.update({key: str(value) for key, value in knobs.items()})
+    spec = route_spec(route)
+    saved = {name: os.environ.get(name) for name in common.ROUTE_ENV_VARS}
     try:
-        return common.batch_policy(src)
+        apply_route_env(spec["arm"], route_knobs_of(route), override, cell)
+        policy = common.batch_policy(src) if route_is_batch(route) else None
+        table = route_knob_table(spec["arm"], route_knobs_of(route), override, policy)
     finally:
-        for key, value in previous.items():
+        for name, value in saved.items():
             if value is None:
-                os.environ.pop(key, None)
+                os.environ.pop(name, None)
             else:
-                os.environ[key] = value
+                os.environ[name] = value
+    return {"policy": policy, "route_knobs": table}
 
 
 # --- record paths / output-directory policy ---------------------------------
@@ -401,76 +606,6 @@ def driver_env_block(args: argparse.Namespace, src: str) -> Optional[Dict[str, A
     )
 
 
-# --- derived statistics (pure: exercised by the stub smoke test) ------------
-def _round(value: Optional[float]) -> Optional[float]:
-    return None if value is None else round(float(value), 4)
-
-
-def _median(values: Sequence[float]) -> Optional[float]:
-    """Median of a possibly empty list (``None`` instead of a ZeroDivisionError)."""
-    if not values:
-        return None
-    ordered = sorted(float(value) for value in values)
-    mid = len(ordered) // 2
-    return ordered[mid] if len(ordered) % 2 else 0.5 * (ordered[mid - 1] + ordered[mid])
-
-
-def compile_hit(misses: Sequence[Optional[int]]) -> Optional[bool]:
-    """``True`` = nothing compiled, ``False`` = at least one recompile, ``None`` = unknown.
-
-    ``None`` the moment one cache the route relies on has no counter: a MISSING counter must never
-    read as "no compile" (0), because that number -- was the merged graph rebuilt -- is exactly what
-    this script measures.
-    """
-    if any(value is None for value in misses):
-        return None
-    return sum(int(value) for value in misses) == 0
-
-
-def generation_summary(
-    generations: Sequence[Dict[str, Any]],
-    first_call_ms: float,
-    warm_median_ms: Optional[float],
-    merged_graph_cache: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """The derived block, computed ONLY from the recorded per-generation rows.
-
-    ``compile_ms_share`` is an ATTRIBUTION, not a timer: the wall time of the generations that
-    recompiled divided by the loop's total wall time.  A recompiling generation also evaluates and
-    mutates, so the share is the honest UPPER BOUND of "how much of the loop the compile generations
-    own", never a measurement of compile alone.
-
-    ``generation_hit_rate`` is ``hits / generations`` per the protocol, with ``generations_unknown``
-    next to it so a reader sees how many generations had no counter to judge (a batch route without
-    ``batch_cache_stats``).
-    """
-    rows = list(generations)
-    count = len(rows)
-    hits = [row for row in rows if row["compile_hit"] is True]
-    recompiled = [row for row in rows if row["compile_hit"] is False]
-    sum_total = sum(float(row["total_ms"]) for row in rows)
-    summary: Dict[str, Any] = {
-        "generations": count,
-        "generations_with_compile": len(recompiled),
-        "generations_unknown": count - len(hits) - len(recompiled),
-        "generation_hit_rate": (len(hits) / count) if count else None,
-        "distinct_population_signatures": len({row["population_signature"] for row in rows}),
-        "median_warm_eval_ms": _round(_median([row["eval_ms"] for row in hits])),
-        "median_cold_eval_ms": _round(_median([row["eval_ms"] for row in recompiled])),
-        "sum_total_ms": _round(sum_total),
-        "sum_eval_ms": _round(sum(float(row["eval_ms"]) for row in rows)),
-        "compile_ms_share": _round(sum(float(row["total_ms"]) for row in recompiled) / sum_total)
-        if sum_total else None,
-        "first_call_ms": _round(first_call_ms),
-        "warm_median_ms": _round(warm_median_ms),
-    }
-    # Absent (not null) on the dense route: it owns no merged-graph cache, and a null would invite
-    # reading it as "the cache had no misses".
-    if merged_graph_cache is not None:
-        summary["merged_graph_cache"] = merged_graph_cache
-    return summary
-
-
 # --- dry run (torch-free by construction: no env_block) ---------------------
 def dry_run(
     args: argparse.Namespace,
@@ -479,35 +614,48 @@ def dry_run(
     src: str,
     override: Optional[Dict[str, str]] = None,
 ) -> int:
-    """Print every planned config, the knob override, then where the batch routes resolve here."""
+    """Print every planned config, the knob override, then where the batch routes resolve here.
+
+    One line per (cell, route) states the record path and the route's OWN knob spec, followed by the
+    resolved route environment (every variable the child clears, its value and the layer that set it
+    -- so ``bands`` / ``compile_workers`` / ``chunk_bands`` are readable per route) and, for a batch
+    route, the engine policy the child will record.
+    """
+    warnings_seen: List[str] = []
     for cell in cells:
         for route in routes:
             print("would run", cell["id"], route, f"({ROUTES[route]})",
+                  f"route-knobs={format_knob_spec(route)}",
                   "->", record_path(args.out_dir, cell["id"], route))
+            resolved = policy_for_route(route, src, cell, override)
+            print("  route env", route, format_route_env(resolved["route_knobs"]))
+            policy = resolved["policy"]
+            if policy is not None:
+                print("  batch policy", route, f"({ROUTES[route]})", format_policy(policy))
+                # The point of a dry run is to learn this BEFORE a multi-minute compile: the
+                # resolved tree may not ship the route yet, and then every batch config fails.
+                if not common.batch_engine_present(src):
+                    warnings_seen.append(
+                        f"WARNING: {src} has no {common.BATCH_MODULE_REL} -- EVOGP_EVAL_MODE=batch "
+                        "cannot run here: every batch config would fail its preflight and write no "
+                        "record (the dense configs still run)")
+                elif not policy["mode_supported"]:
+                    warnings_seen.append(
+                        f"WARNING: {src} ships {common.BATCH_MODULE_REL} but its "
+                        f"dense_engine.EVAL_MODES ({policy['declared_modes']!r}) does not declare "
+                        "'batch' -- every batch config would fail its preflight and write no record")
     if override:
-        # Stated as its own fact: the override is applied AFTER the arm's spec, so it can move the
-        # policy a line further down -- and it is the only way to sweep the compile pool.
+        # Stated as its own fact: the override is applied AFTER the arm's spec AND the named
+        # route's spec, so it can move the policy a line above -- and it is the only way to sweep
+        # the compile pool.
         for name, value in override.items():
             print("knob override", f"{name}={value}",
-                  "(applied after the arm's own spec, before the policy is recorded)")
-    batch_routes = [route for route in routes if route_is_batch(route)]
-    if not batch_routes:
+                  "(applied after the arm's own spec and the route's spec, before the policy is "
+                  "recorded: it wins for the SAME variable)")
+    for message in dict.fromkeys(warnings_seen):  # one per (cell, route) is noise
+        print(message)
+    if not any(route_is_batch(route) for route in routes):
         print("no batch route selected: nothing to resolve")
-        return 0
-    policy: Dict[str, Any] = {}
-    for route in batch_routes:
-        policy = batch_policy_for(ROUTES[route], src, override)
-        print("batch policy", route, f"({ROUTES[route]})", format_policy(policy))
-    # The point of a dry run is to learn this BEFORE a multi-minute compile: the resolved tree may
-    # not ship the route yet, and then every batch config would fail its preflight.
-    if not common.batch_engine_present(src):
-        print(f"WARNING: {src} has no {common.BATCH_MODULE_REL} -- EVOGP_EVAL_MODE=batch cannot run "
-              "here: every batch config would fail its preflight and write no record (the dense "
-              "configs still run)")
-    elif not policy["mode_supported"]:
-        print(f"WARNING: {src} ships {common.BATCH_MODULE_REL} but its dense_engine.EVAL_MODES "
-              f"({policy['declared_modes']!r}) does not declare 'batch' -- every batch config would "
-              "fail its preflight and write no record")
     print(f"{len(cells) * len(routes)} configs planned -> {os.path.abspath(args.out_dir)}")
     return 0
 
@@ -534,14 +682,19 @@ def run_driver(args: argparse.Namespace) -> int:
             "one_process_per_config": True, "one_cell_per_process": True, "sequential": True,
             "cells": [cell["id"] for cell in cells], "routes": list(routes),
             "route_arms": {route: ROUTES[route] for route in routes},
+            # the named routes' own env layers, next to the arm each token resolves to
+            "route_specs": {route: route_knobs_of(route) for route in routes},
             "generations": args.generations, "warmup": args.warmup, "reps": args.reps,
             "seed": args.seed, "timeout_s": args.timeout,
+            "generation_loop": f"StandardPipeline.step() x --generations (>= {ROUND2_MIN_GENERATIONS} "
+                               "for the round-2 cold/warm/generation comparison)",
             "tree_root": os.path.abspath(args.tree_root), "src": src,
             "pythonpath": env["PYTHONPATH"],
             "evoxc_disable_locations": disable_locations_provenance(env),
             "batch_engine_present": common.batch_engine_present(src),
             # The --knob override forwarded to EVERY child (empty when none was given): it is
-            # applied after the arm's own spec, so it is named here rather than only in a record.
+            # applied after the arm's own spec and the route's spec, so it is named here rather than
+            # only in a record.
             "knobs_override": dict(override),
             "out_dir": os.path.abspath(args.out_dir),
         },
@@ -561,7 +714,8 @@ def run_driver(args: argparse.Namespace) -> int:
         driver_record["notes"].append(
             "knob override " + ", ".join(f"{key}={value}" for key, value in override.items())
             + ": forwarded to every child as repeated --knob args and applied AFTER the arm's own "
-            "knobs, so the recorded batch_policy shows the value the engine really read")
+            "knobs and the named route's spec, so the recorded batch_policy shows the value the "
+            "engine really read")
     if args.note:
         driver_record["notes"].append(args.note)
     common.write_json(driver_path, driver_record)
@@ -634,355 +788,59 @@ def run_child(args: argparse.Namespace) -> int:
     stay runnable on a box without torch.  The batch preflight runs BEFORE the torch import: a tree
     without the route fails fast with one readable paragraph.
 
-    ``--knob`` overrides are applied AFTER ``arms.apply_arm_env`` (which clears every route knob and
-    writes the arm's own spec) and BEFORE the policy is resolved, so every recorded knob block
-    carries the value the engine really read.
+    The env layers are ``arm -> named route -> --knob`` (:func:`apply_route_env`), all applied BEFORE
+    the policy is resolved, so every recorded knob block carries the value the engine really read and
+    ``protocol.route_knobs`` states which layer set it.  The measurement itself -- cold call, warm
+    medians, the generation loop, the record -- is ``econ_child.measure``.
     """
     for flag, value in (("--cell", args.cell), ("--route", args.route), ("--out", args.out)):
         if not value:
             raise SystemExit(f"--phase child needs {flag}")
-    if args.route not in ROUTES:
-        raise SystemExit(f"unknown route {args.route!r}; known: {', '.join(ROUTES)}")
+    if args.route not in ROUTE_SPECS:
+        raise SystemExit(f"unknown route {args.route!r}; known: {', '.join(ROUTE_SPECS)}")
 
     override = parse_knobs(getattr(args, "knob", None))
+    arm = ROUTES[args.route]
+    spec_knobs = route_knobs_of(args.route)
     src = install_tree_root(args.tree_root)
     cell = common.parse_cell(args.cell)
-    arm = ROUTES[args.route]
 
-    import arms as arms_mod  # noqa: E402  (harness arm namespace: env application)
-    import worker as worker_mod  # noqa: E402  (timed fitness + structure context)
-
-    knobs = arms_mod.apply_arm_env(arm)  # one arm per process; the arm's knobs win
-    os.environ.update(override)  # the --knob override wins over the arm spec, by construction
-    applied_knobs = dict(knobs.get("knobs") or {})
-    applied_knobs.update(override)
+    knobs = apply_route_env(arm, spec_knobs, override, cell)  # one route per process
     is_batch = common.is_batch_arm(arm)
     batch_policy = common.batch_policy(src) if is_batch else None
     if batch_policy is not None:
         problem = batch_preflight(args.route, batch_policy, src)
         if problem:
             raise SystemExit(problem)
+    route_knobs = route_knob_table(arm, spec_knobs, override, batch_policy)
 
-    import torch
+    import torch  # noqa: F401  (the child needs a device; econ_child/evogp import it too)
 
     common.import_evogp()
     from evogp.tree import dense_engine, evoxc_engine
 
-    # The batch engine owns its counter contract, so ask it directly (getattr-probed: a route
-    # without ``batch_cache_stats`` is a reportable state -- null counters, never a fabricated 0).
-    batch_stats = None
     batch_module = None
     if is_batch:
         try:
             from evogp.tree import batch_engine as batch_module
         except ImportError:  # the route can be absent on an older tree
             batch_module = None
-        candidate = getattr(batch_module, "batch_cache_stats", None)
-        batch_stats = candidate if callable(candidate) else None
 
-    # The stage split is a SECOND optional contract on the same module (``batch_stage_stats`` /
-    # ``batch_stage_reset``), resolved once here so every block below reads the same accessors.  A
-    # tree without them records ``available: false`` + null counters (stages.py), never a 0.
-    stage_stats = stages.stage_stats_fn(batch_module) if is_batch else None
-    stage_reset = stages.stage_reset_fn(batch_module) if is_batch else None
-
-    # The content-addressed plan-key table is a THIRD optional contract on the same module
-    # (``batch_content_stats``), resolved once here so every block below reads the same accessor.
-    # A tree without it records ``available: false`` + null counters (content.py), never a 0.
-    content_stats = content.stats_fn(batch_module) if is_batch else None
-
-    def batch_snapshot() -> Optional[Dict[str, Any]]:
-        return batch_stats() if batch_stats is not None else None
-
-    def stage_snapshot() -> Optional[Dict[str, Any]]:
-        """One stage snapshot (``None`` when the route exposes no ``batch_stage_stats``)."""
-        return stage_stats() if stage_stats is not None else None
-
-    def content_snapshot() -> Optional[Dict[str, Any]]:
-        """One content snapshot (``None`` when the route exposes no ``batch_content_stats``)."""
-        return content_stats() if content_stats is not None else None
-
-    def misses(before: Any, after: Any) -> Optional[int]:
-        # worker.py already owns the tolerant counter delta: an absent/renamed key reads as unknown
-        # (None), never as 0.
-        return worker_mod._stats_delta(before, after, "misses")
-
-    def batch_misses(before: Any, after: Any) -> Optional[int]:
-        # The batch route's compile counter is ``batch_exec_misses`` on the engine we measure (a hit
-        # never recompiles); ``worker.batch_miss_key`` is the ONE resolution of that name, and an
-        # unknown counter stays None so ``compile_hit`` can never read "no compile" from a missing key.
-        return worker_mod.batch_miss_delta(before, after)
-
-    # determinant workload: torch.manual_seed(seed) + Forest.random_generate
-    workload = common.build_workload(cell, args.seed)
-    forest = workload["forest"]
-    structures = worker_mod.forest_stats(forest)
-    arm_obj = arms_mod.make_arm(arm, workload)
-
-    # (b) the cold first call: the merged-graph (batch) or dense-graph compile
-    evoxc_before, batch_before = evoxc_engine.cache_stats(), batch_snapshot()
-    stage_before = stage_snapshot()
-    content_before = content_snapshot()
-    torch.cuda.synchronize()
-    started = time.perf_counter()
-    loss = arm_obj.sr_fitness()
-    torch.cuda.synchronize()
-    first_call_ms = (time.perf_counter() - started) * 1e3
-    evoxc_after, batch_after = evoxc_engine.cache_stats(), batch_snapshot()
-    stage_after = stage_snapshot()
-    content_after = content_snapshot()
-    first_call: Dict[str, Any] = {
-        "first_call_ms": round(first_call_ms, 4),
-        "evoxc_cache": {"before": evoxc_before, "after": evoxc_after,
-                        "compile_misses": misses(evoxc_before, evoxc_after)},
-        "digest": common.digest(loss),
-    }
-    del loss
-    if is_batch:
-        first_call["merged_graph_cache"] = {
-            "available": batch_stats is not None,
-            "stats_fn": "evogp.tree.batch_engine.batch_cache_stats",
-            "before": batch_before, "after": batch_after,
-            "compile_misses": batch_misses(batch_before, batch_after),
-        }
-        # What the cold call spent its seconds on (decode/trace/merge vs lower/compile/load) plus
-        # the merge shape that explains it.
-        first_call["stage_ms"] = stages.delta_block(stage_before, stage_after)
-        first_call["stage_ms"]["plan"] = stages.plan_block(
-            worker_mod.batch_plan_facts(batch_module))
-        # The plan-key REUSE surface over the cold call: did the content table serve an already
-        # merged plan, or was this population merged from scratch?  Null (never 0) when the route
-        # ships no ``batch_content_stats()``.
-        first_call["content"] = content.window_block(content_before, content_after)
-
-    # (c) warm medians on the same population (the compile is already paid).  The batch probe
-    # snapshots the merged-graph cache the instant time_call's untimed call returns -- the same
-    # helper worker.py uses to separate the cold compile from the warmup+reps total.
-    probe = (worker_mod.BatchStatsProbe(arm_obj.sr_fitness, batch_stats)
-             if is_batch and batch_stats is not None else None)
-    # Wraps whatever time_call would otherwise call (never changing time_call itself): the reset
-    # bracket is what makes each block a PER-CALL block rather than a cumulative one.
-    stage_probe = (stages.StageStatsProbe(probe if probe is not None else arm_obj.sr_fitness,
-                                          stage_stats, stage_reset)
-                   if is_batch else None)
-    warm_before, batch_warm_before = evoxc_engine.cache_stats(), batch_snapshot()
-    content_warm_before = content_snapshot()
-    timing = common.time_call(
-        stage_probe if stage_probe is not None else (probe if probe is not None
-                                                     else arm_obj.sr_fitness),
-        warmup=args.warmup, reps=args.reps, stats=evoxc_engine.cache_stats)
-    warm_after = evoxc_engine.cache_stats()
-    content_warm_after = content_snapshot()
-    warm_result = timing.pop("_out")
-    warm_after_first = timing.pop("cache_after_first_call")
-    sr_fitness: Dict[str, Any] = {
-        "warmup": timing["warmup"], "reps": timing["reps"],
-        "samples_ms": [_round(value) for value in timing["samples_ms"]],
-        # time_call's own first call is a WARM one here (the compile happened above); the cold
-        # number is ``first_call.first_call_ms`` and lives only there.
-        "warmup_call_ms": _round(timing["first_call_ms"]),
-        "median_ms": _round(timing["median_ms"]), "min_ms": _round(timing["min_ms"]),
-        "max_ms": _round(timing["max_ms"]), "mean_ms": _round(timing["mean_ms"]),
-        "cache": {"before": warm_before, "after_first_call": warm_after_first, "after": warm_after,
-                  "compile_misses_first_call": misses(warm_before, warm_after_first),
-                  "compile_misses_this_workload": misses(warm_before, warm_after)},
-        "digest": common.digest(warm_result),
-    }
-    del warm_result
-    if is_batch:
-        batch_warm_after_first = probe.first if probe is not None else None
-        batch_warm_after = batch_snapshot()
-        # the same before -> after_first_call -> after chain as the evoxc block above, so each
-        # delta in this entry is checkable against its own snapshots
-        sr_fitness["cache"]["batch_before"] = batch_warm_before
-        sr_fitness["cache"]["batch_after_first_call"] = batch_warm_after_first
-        sr_fitness["cache"]["batch_after"] = batch_warm_after
-        sr_fitness["cache"]["batch_compile_misses_first_call"] = batch_misses(
-            batch_warm_before, batch_warm_after_first)
-        sr_fitness["cache"]["batch_compile_misses_this_workload"] = batch_misses(
-            batch_warm_before, batch_warm_after)
-        # time_call calls fn once untimed, then warmup times, then reps times: the LAST reps blocks
-        # are the timed samples, block 0 is the untimed warm call (kept as ``first_call``).
-        sample_blocks = stage_probe.blocks[-args.reps:] if stage_probe is not None else []
-        sr_fitness["stage_ms"] = stages.median_block(sample_blocks, samples=args.reps)
-        sr_fitness["stage_ms"]["first_call"] = (stage_probe.first
-                                                if stage_probe is not None else None)
-        sr_fitness["stage_ms"]["plan"] = stages.plan_block(
-            worker_mod.batch_plan_facts(batch_module))
-        # the same before -> after span as the warm cache deltas above: what the warm calls asked
-        # the plan-key table for, and how often it answered from content instead of re-merging
-        sr_fitness["content"] = content.window_block(content_warm_before, content_warm_after)
-    warm_median_ms = sr_fitness["median_ms"]
-
-    # (d) consecutive real generations: the merged-graph cache's measured hit rate
-    timed = worker_mod.TimedFitness(arm_obj.fitness)
-    pipeline = arms_mod.make_pipeline(workload, timed)
-    # Signatures this process has compiled, seeded with the initial population (the timed first call
-    # above compiled exactly it -- generation 1 evaluates that same population).
-    compiled_signatures = {structures["structure_signature"]}
-    generations: List[Dict[str, Any]] = []
-    for index in range(1, args.generations + 1):
-        # BEFORE the step: this is the population the generation is about to evaluate
-        signature = common.population_signature(pipeline.algorithm.forest)
-        seen_before = signature["signature"] in compiled_signatures
-        evoxc_gen_before, batch_gen_before = evoxc_engine.cache_stats(), batch_snapshot()
-        stage_gen_before = stage_snapshot()
-        content_gen_before = content_snapshot()
-        torch.cuda.synchronize()
-        started = time.perf_counter()
-        pipeline.step()
-        torch.cuda.synchronize()
-        total_ms = (time.perf_counter() - started) * 1e3
-        evoxc_gen_after, batch_gen_after = evoxc_engine.cache_stats(), batch_snapshot()
-        stage_gen_after = stage_snapshot()
-        content_gen_after = content_snapshot()
-        entry: Dict[str, Any] = {
-            "g": index, "population_signature": signature["signature"],
-            "distinct_structures": signature["distinct_structures"],
-            "signature_seen_before": seen_before, "total_ms": _round(total_ms),
-            "eval_ms": _round(timed.last_ms), "ops_ms": _round(total_ms - timed.last_ms),
-            "compile_misses": misses(evoxc_gen_before, evoxc_gen_after),
-            "pop_size": signature["pop_size"], "best_fitness": float(pipeline.best_fitness),
-        }
-        route_misses: List[Optional[int]] = [entry["compile_misses"]]
-        if is_batch:
-            entry["batch_compile_misses"] = batch_misses(batch_gen_before, batch_gen_after)
-            route_misses.append(entry["batch_compile_misses"])
-            # the PLAN table's misses for this generation: a re-decode/re-trace/re-merge, never a
-            # recompile -- recorded next to the exec table's misses instead of only in total
-            entry["batch_plan_misses"] = worker_mod.batch_plan_miss_delta(
-                batch_gen_before, batch_gen_after)
-            # this generation's stage deltas, including batch_compile_wall_ms / batch_compile_jobs
-            entry["stage_ms"] = stages.delta_block(stage_gen_before, stage_gen_after)
-            # and this generation's plan-key reuse: hit (an already merged plan served), miss
-            # (consulted, re-merged) or no_attempt (the identity fast path answered)
-            entry["content"] = content.window_block(content_gen_before, content_gen_after)
-        entry["compile_hit"] = compile_hit(route_misses)
-        compiled_signatures.add(signature["signature"])
-        generations.append(entry)
-    batch_final = batch_snapshot()
-    content_final = content_snapshot()
-
-    # (e) the derived block, computed only from the recorded rows
-    merged_cache = None
-    if is_batch:
-        merged_cache = {
-            "available": batch_stats is not None,
-            "provenance": {
-                "stats_fn": "evogp.tree.batch_engine.batch_cache_stats",
-                "key": "sorted structure-multiset fingerprint "
-                       "(common.population_signature.signature)",
-                "counter": "the exec table's misses (worker.batch_miss_key: "
-                           "'batch_exec_misses', falling back to a bare 'misses'), i.e. the "
-                           "table whose miss really recompiles; the plan table's "
-                           "'batch_plan_misses' is a re-decode/re-merge, not a recompile",
-                "stats_keys": worker_mod.stats_keys(batch_before, batch_after, batch_final),
-                "note": "counters are null (NOT zero) when the route exposes no stats callable: a "
-                        "missing counter must never read as 'no compile'; the plan table's misses "
-                        "are now recorded per generation as generations[i].batch_plan_misses (a "
-                        "re-decode/re-trace/re-merge, never a recompile)",
-            },
-            "stats_before_first_call": batch_before, "stats_after_first_call": batch_after,
-            "stats_after_generations": batch_final,
-            "compile_misses_first_call": batch_misses(batch_before, batch_after),
-            "compile_misses_generations": batch_misses(batch_after, batch_final),
-            "compile_misses_total": batch_misses(batch_before, batch_final),
-            # the PLAN table's misses over the generation loop: the same span as
-            # compile_misses_generations, off the table whose miss re-merges instead of recompiling
-            "plan_misses_generations": worker_mod.batch_plan_miss_delta(batch_after, batch_final),
-        }
-    summary = generation_summary(generations, first_call_ms, warm_median_ms,
-                                 merged_graph_cache=merged_cache)
-    if is_batch:
-        # The stage tables + the compile stage's real share of the loop: derived from the rows above
-        # only (stages.summary_block never asserts a number it was not given).
-        summary.update(stages.summary_block(first_call.get("stage_ms"),
-                                            sr_fitness.get("stage_ms"), generations))
-        # The content table over the WHOLE measurement (cold call + warm calls + the loop) plus how
-        # many recorded generations had a plan-key decision to make at all (content.row_state).
-        summary["content"] = content.summary_block(content_before, content_final, generations)
-
-    # (f) the record
-    record: Dict[str, Any] = {
-        "env": common.env_block(args.tree_root, arm,
-                                extra={"applied_knobs": applied_knobs, "cell": cell,
-                                       "route": args.route, "arm": arm}),
-        "cell": cell, "route": args.route, "arm": arm, "measurement": MEASUREMENT,
-        "protocol": {
-            "one_process_per_config": True, "one_cell_per_process": True,
-            "generations": args.generations, "warmup": args.warmup, "reps": args.reps,
-            "seed": args.seed, "sync_bracketed": True,
-            "evoxc_disable_locations": os.environ.get(DISABLE_LOCATIONS_ENV),
-            "workload": "sr_fitness", "route_is_batch": is_batch, "pipeline_warmup": False,
-        },
-        "structures": structures,
-        "routes": {"sr_fitness": common.route_decision(cell["pop"], cell["rows"],
-                                                      knobs["eval_mode"], knobs["backend"])},
-        "dense_policy": {"auto_min_pop": dense_engine.resolve_auto_min_pop(),
-                         "auto_max_rows": dense_engine.resolve_auto_max_rows()},
-        "first_call": first_call, "sr_fitness": sr_fitness, "generations": generations,
-        "summary": summary, "engine_cache_final": evoxc_engine.cache_stats(),
-        "notes": ["generation 1 evaluates the INITIAL population, whose graph the timed first call "
-                  "already compiled, so generation 1 is expected to hit; it is recorded as measured "
-                  "(not warmed up away) and the interesting number is generations 2..N"],
-    }
+    record = econ_child.measure(econ_child.Measurement(
+        cell=cell, route=args.route, arm=arm, tree_root=args.tree_root,
+        generations=args.generations, warmup=args.warmup, reps=args.reps, seed=args.seed,
+        is_batch=is_batch, batch_policy=batch_policy, applied_knobs=knobs["knobs"],
+        route_knobs=route_knobs, route_spec_knobs=spec_knobs, override=override,
+        eval_mode=knobs["eval_mode"], backend=knobs["backend"],
+        evoxc_engine=evoxc_engine, dense_engine=dense_engine, batch_module=batch_module,
+        surfaces=econ_child.CounterSurfaces(batch_module, is_batch), note=args.note,
+    ))
     if is_batch:
         record["batch_policy"] = batch_policy
-        # The resolved compile-pool knob, next to the policy it came from (source "harness-default"
-        # means the route ships no resolver / the knob is unset -- never a fabricated value).
-        record["protocol"]["batch_compile_workers"] = compile_workers_block(batch_policy)
-        record["notes"].append(
-            "batch route: ONE merged graph per population structure multiset, so a multi-second "
-            "first_call_ms is the expected cold cost of the route, recorded as measured and never "
-            "treated as a defect or retried away")
-        if batch_stats is None:
-            record["notes"].append(
-                "batch route: evogp.tree.batch_engine.batch_cache_stats() is unavailable on this "
-                "tree, so every merged-graph counter is null (NOT zero) and compile_hit is null "
-                "wherever only those counters could tell; the compile cost can then only be read "
-                "off first_call_ms")
-        if stage_stats is None:
-            record["notes"].append(
-                f"batch route: {stages.STATS_FN_PATH}() is unavailable on this tree, so every "
-                "stage_ms counter is null (NOT zero) with available=false: the split was not "
-                "measured, which is not the same as any stage costing nothing")
-        if stage_reset is None:
-            record["notes"].append(
-                f"batch route: {stages.MODULE_NAME}.{stages.RESET_FN_NAME}() is unavailable, so each "
-                "stage block is cumulative rather than per-call; a max is then only a "
-                "process-lifetime maximum")
-        if content_stats is None:
-            record["notes"].append(
-                f"batch route: {content.STATS_FN_PATH}() is unavailable on this tree, so every "
-                "content counter is null (NOT zero) with available=false: plan-key reuse from a "
-                "rebuilt-but-equal population was not measured, which is not the same as it never "
-                "happening -- read first_call_ms / generations[i].batch_compile_misses instead")
-        else:
-            record["notes"].append(
-                "batch route: the content blocks (first_call / sr_fitness / generations[i] / "
-                "summary) price the plan-key REUSE surface, not the compile itself. The identity "
-                "table is consulted first, so a repeated call on the same Forest object AND the same "
-                "plan parameters leaves the content table untouched (attempts 0, which is not a "
-                "content miss); a first call for a NEW plan shape is an identity miss even on an "
-                "unchanged object, so it does probe the content table (one attempt, usually a miss "
-                "that stores the entry), and only a REBUILT-but-equal population can produce a "
-                "content hit -- which means the merge was served instead of re-decoded, re-traced "
-                "and re-merged")
-    else:
-        record["notes"].append(
-            "dense route (comparison column): no merged-graph cache exists, so batch_* counters are "
-            "ABSENT rather than null; its per-generation compile misses are the evoxc engine's own "
-            "and its first call is the dense-graph compile")
-    if override:
-        record["knobs_override"] = dict(override)
-        record["notes"].append(
-            "knob override " + ", ".join(f"{key}={value}" for key, value in override.items())
-            + ": applied AFTER the arm's own knob spec and BEFORE the policy was resolved, so "
-            "batch_policy / env.applied_knobs / this block all carry the value the engine read")
-    if args.note:
-        record["notes"].append(args.note)
+        record["protocol"]["batch_compile_workers"] = compile_workers_block(route_knobs)
 
     common.write_json(args.out, record)
+    summary, warm_median_ms = record["summary"], record["summary"]["warm_median_ms"]
     hit_rate = summary["generation_hit_rate"]
     warm_text = "n/a" if warm_median_ms is None else f"{warm_median_ms:.3f}"
     hit_text = "n/a" if hit_rate is None else f"{hit_rate:.2f}"
@@ -999,13 +857,14 @@ def build_parser() -> argparse.ArgumentParser:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cells", default=DEFAULT_CELLS, help="comma-separated cell ids (driver)")
     parser.add_argument("--routes", default=DEFAULT_ROUTES,
-                        help=f"comma-separated route tokens: {', '.join(ROUTES)}")
+                        help=f"comma-separated route tokens: {', '.join(ROUTE_SPECS)}")
     parser.add_argument("--tree-root", default=DEFAULT_TREE_ROOT, help="tree root whose src/ holds evogp")
     parser.add_argument("--evoxc-root", default=DEFAULT_EVOXC_ROOT, help="evoxc checkout on PYTHONPATH")
     parser.add_argument("--out-dir", default=DEFAULT_OUT_DIR,
                         help="fresh result directory (never results/final or results/baseline)")
     parser.add_argument("--generations", type=int, default=DEFAULT_GENERATIONS,
-                        help="StandardPipeline.step() iterations (the generations for the hit rate)")
+                        help="StandardPipeline.step() iterations (the generations for the hit rate); "
+                             "the round-2 comparison needs >= %d" % ROUND2_MIN_GENERATIONS)
     parser.add_argument("--warmup", type=int, default=DEFAULT_WARMUP, help="warm sr_fitness calls")
     parser.add_argument("--reps", type=int, default=DEFAULT_REPS, help="timed sr_fitness samples")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="torch.manual_seed for the workload")
@@ -1016,8 +875,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="route-knob override, repeatable; names are validated against "
                              "common.ROUTE_ENV_VARS (the EVOGP_BATCH_* set plus "
                              "EVOGP_DENSE_MAX_TREE_LEN) and the value is applied AFTER the arm's own "
-                             "spec, before the policy is recorded. This is how the compiled-graph "
-                             "pool is swept without a new arm: --knob "
+                             "spec and the named route's spec, before the policy is recorded. This is "
+                             "how the compiled-graph pool is swept without a new arm: --knob "
                              "EVOGP_BATCH_COMPILE_WORKERS=1, then a second run with 4 (one config "
                              "per value: the knob is per process)")
     parser.add_argument("--note", default=None, help="free-form note stored in every record")
