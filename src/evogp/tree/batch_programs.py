@@ -51,14 +51,13 @@ from evoxc.transforms import batching as _batching
 # ``batch_knobs`` is imported as a MODULE too: ``MIN_CHUNK_FUNCTIONS`` is read
 # through the module object at call time (never captured by value), so a test can
 # monkeypatch it to force chunking on a tiny fixture.
-from . import batch_knobs, batch_stages
+from . import batch_bands, batch_knobs, batch_stages
 from .batch_chunks import chunk_sizes
 from .batch_knobs import (
     LOSS_VARIANT,
     BatchUnsupported,
     _normalize_variant,
     resolve_alignment,
-    resolve_band_count,
     resolve_band_size,
     resolve_bands,
     resolve_compile_workers,
@@ -263,11 +262,15 @@ class BatchChunk:
         merged: this chunk's merged :class:`evoxc.Graph` (the plan's own graph for a
             single-chunk plan).
         specs: the chunk's merged tensor input specs (``evoxc.TensorSpec``).
-        report: ``merged.batch_report.as_dict()`` of this chunk.
-        band_count: the chunk's own band count, resolved with
-            ``resolve_band_count(len(functions), bands=None, band_size=...,
-            switch_ops=False)`` -- the band knobs and the chunk split are never
-            combined.
+        report: ``merged.batch_report.as_dict()`` of this chunk, plus the five
+            band-policy keys (``band_requested`` / ``band_requested_bands`` /
+            ``band_clamped`` / ``band_note`` / ``band_policy``) of the chunk's own
+            :class:`evogp.tree.batch_bands.BandSpec` -- so a chunked plan's
+            authoritative band story is per chunk.
+        band_count: the chunk's own band count, resolved from the plan's band
+            request sized to the chunk
+            (:func:`evogp.tree.batch_bands.chunk_band_spec`) and clamped by the
+            device's binding policy; ``report["bands"]`` is the same number.
     """
 
     index: int
@@ -339,6 +342,18 @@ class BatchPlan:
         chunks: one :class:`BatchChunk` per compiled body -- ALWAYS populated
             (``len(chunks) >= 1``) and the authoritative read surface of the plan,
             with ``chunk_count == len(chunks) >= 1``.
+        band_requested: the band request spelling the plan resolved
+            (``"flat"`` / ``"explicit"`` / ``"size"`` / ``"auto"``, i.e.
+            ``BandSpec.requested``) -- the single-body spec's, or the shared one of
+            a chunked plan.
+        band_clamped: whether the binding policy lowered the band count -- the
+            single-body spec's clamp (plus the ``auto`` re-merge), or ``True`` when
+            ANY chunk of a chunked plan was clamped.
+        band_note: the clamp explanation, else ``None`` (a chunked plan joins the
+            clamped chunks' notes with ``" | "``).
+        band_policy: the resolved :class:`evogp.tree.batch_bands.BandPolicy` as a
+            dict (``backend`` / ``device_kind`` / ``max_bands`` / ``min_band_size``
+            / ``uncapped``).
 
     :attr:`chunks` is the authoritative read surface for both plan shapes; the
     whole-graph fields (:attr:`graphs` / :attr:`merged` / :attr:`specs` /
@@ -371,6 +386,10 @@ class BatchPlan:
     compile_workers: int = 1
     chunk_sizes: Tuple[int, ...] = ()
     chunks: Tuple[BatchChunk, ...] = ()
+    band_requested: Optional[str] = None
+    band_clamped: bool = False
+    band_note: Optional[str] = None
+    band_policy: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -457,8 +476,14 @@ def _trace(fn: Any, specs: Sequence[Any], what: str) -> Any:
 
 
 def _merge(graphs: Sequence[Any], axes: Any, *, switch_ops: bool,
-           bands: Optional[int], alignment: str) -> Any:
-    """``evoxc.batch_functions`` with the two structural exception types converted."""
+           bands: Optional[Any], alignment: str) -> Any:
+    """``evoxc.batch_functions`` with the two structural exception types converted.
+
+    ``bands`` is passed through UNCHANGED: ``None`` (the flat merge), an ``int``
+    ``K`` (that many contiguous bands) or the string ``"auto"`` (evoxc's cost model
+    picks the partition).  Which of the three a call asks for is decided by the
+    binding policy in :mod:`evogp.tree.batch_bands`, not here.
+    """
     try:
         merged = evoxc.batch_functions(
             list(graphs),
@@ -571,8 +596,9 @@ def _resolve_workers(
     requested: Optional[int],
     n_functions: int,
     *,
-    bands: Optional[int],
+    bands: Optional[Any],
     switch_ops: bool,
+    chunk_bands: Optional[bool] = None,
 ) -> int:
     """The worker count ACTUALLY used for this plan (the ``W = 1`` forcing rules).
 
@@ -582,11 +608,13 @@ def _resolve_workers(
     * ``W <= 1`` -- the single-body path verbatim (the original one-graph plan);
     * ``n_functions < batch_knobs.MIN_CHUNK_FUNCTIONS`` -- one compile cannot be
       split usefully below the per-body fixed cost, so the single-body path stays;
-    * an explicit band count (``bands is not None``, the flat spellings included,
-      since ``resolve_bands`` answers ``1`` for them) or ``switch_ops`` -- those
-      knobs keep their documented per-plan meaning, and both are measured on the
-      single-body path (the band sweep runs there), so chunking is refused rather
-      than silently changing the merge shape;
+    * ``switch_ops`` -- op-switching keeps its documented per-plan meaning and is
+      never combined with banding, so it always forces the single-body path;
+    * a band request (``bands is not None``, which now includes the ``auto``
+      spelling, the flat spellings included since ``resolve_bands`` answers ``1``
+      for them) -- refused unless ``resolve_chunk_bands(chunk_bands)`` opts into the
+      chunk-banded composition, because the band sweep is measured on the
+      single-body path;
     * otherwise ``W = min(W, n_functions // MIN_CHUNK_FUNCTIONS)``, so every chunk
       keeps at least ``MIN_CHUNK_FUNCTIONS`` functions and the chunk count equals
       ``W`` exactly.
@@ -600,7 +628,9 @@ def _resolve_workers(
     minimum = max(1, int(batch_knobs.MIN_CHUNK_FUNCTIONS))
     if int(n_functions) < minimum:
         return 1
-    if bands is not None or switch_ops:
+    if switch_ops:
+        return 1
+    if bands is not None and not batch_knobs.resolve_chunk_bands(chunk_bands):
         return 1
     return max(1, min(workers, int(n_functions) // minimum))
 
@@ -644,6 +674,7 @@ def _plan_host(
     device: Any,
     pop: Any = None,
     compile_workers: Optional[int] = None,
+    chunk_bands: Optional[bool] = None,
 ) -> BatchPlan:
     """The whole host planning step on already-converted inputs (see plan_batch).
 
@@ -652,17 +683,23 @@ def _plan_host(
     content key) -- that is the only way the decode is not paid twice; ``None``
     decodes here, which is what :func:`evogp.tree.batch_engine.plan_batch` relies on.
 
+    The band request is resolved ONCE, for the deduped function count, by
+    :func:`evogp.tree.batch_bands.resolve_band_plan` (the backend/device binding
+    policy included), so ``auto`` / an explicit ``K`` / the band-size model all
+    reach the merge through one :class:`evogp.tree.batch_bands.BandSpec`.
+
     ``compile_workers`` is resolved with ``resolve_compile_workers`` and then
     clamped by :func:`_resolve_workers`: the plan is CHUNKED only when the resolved
     count is ``> 1``, the deduped population has at least
-    ``batch_knobs.MIN_CHUNK_FUNCTIONS`` functions and neither an explicit band count
-    nor ``switch_ops`` is in play.  A chunked plan keeps the GLOBAL function order
-    (``functions`` / ``row_index`` / ``function_rows`` are unchanged and each chunk
-    is a contiguous slice with an ``offset``), so the assembled output order is
-    exactly the single-body plan's.  Both shapes store one
-    :class:`BatchChunk` per compiled body in ``chunks`` (the single-body plan's one
-    chunk mirrors the whole-graph fields), so ``len(plan.chunks)`` is the plan's
-    chunk count.
+    ``batch_knobs.MIN_CHUNK_FUNCTIONS`` functions, ``switch_ops`` is off and a band
+    request is either absent or opted into chunking via
+    ``EVOGP_BATCH_CHUNK_BANDS`` (``chunk_bands``, explicit argument first).  A
+    chunked plan keeps the GLOBAL function order (``functions`` / ``row_index`` /
+    ``function_rows`` are unchanged and each chunk is a contiguous slice with an
+    ``offset``), so the assembled output order is exactly the single-body plan's.
+    Both shapes store one :class:`BatchChunk` per compiled body in ``chunks`` (the
+    single-body plan's one chunk mirrors the whole-graph fields), so
+    ``len(plan.chunks)`` is the plan's chunk count.
     """
     timer = batch_stages.StageTimer()
     input_len = int(input_len)
@@ -695,7 +732,19 @@ def _plan_host(
         functions, row_index, function_rows = _dedup(pop, x_host, per_row)
     n_functions = len(functions)
     workers = _resolve_workers(
-        compile_workers, n_functions, bands=explicit_bands, switch_ops=switch_ops
+        compile_workers,
+        n_functions,
+        bands=explicit_bands,
+        switch_ops=switch_ops,
+        chunk_bands=chunk_bands,
+    )
+    band_spec = batch_bands.resolve_band_plan(
+        n_functions,
+        bands=explicit_bands,
+        band_size=band_size,
+        switch_ops=switch_ops,
+        backend=backend_name,
+        device=device,
     )
     spec = evoxc.TensorSpec((n_rows, input_len), evoxc.float32)
     label_spec = evoxc.TensorSpec((n_rows, output_len), evoxc.float32)
@@ -703,24 +752,19 @@ def _plan_host(
     axes = 0 if per_row else (None,) * (2 if variant == LOSS_VARIANT else 1)
     programs = tuple((tree.program, tree.const_out) for tree in pop.trees)
     if workers <= 1:
-        band_count = resolve_band_count(
-            n_functions,
-            bands=explicit_bands,
-            band_size=band_size,
-            switch_ops=switch_ops,
-        )
         with timer.stage("trace"):
             graphs = _trace_functions(functions, variant, use_mse, n_rows, specs)
         with timer.stage("merge"):
-            merged = _merge(
+            merged, report = batch_bands.merge_with_spec(
+                _merge,
                 graphs,
                 axes,
+                band_spec,
                 switch_ops=switch_ops,
-                bands=None if band_count <= 1 else band_count,
                 alignment=alignment,
+                auto_total=n_functions,
             )
-        report = merged.batch_report.as_dict()
-        plan_band_count = int(report.get("bands", band_count) or 1)
+        plan_band_count = int(report.get("bands", band_spec.num_bands or 1) or 1)
         plan_graphs = tuple(graphs)
         plan_specs = tuple(merged.tensor_specs)
         # One chunk per BODY in both plan shapes: the single-chunk chunk mirrors the
@@ -762,6 +806,10 @@ def _plan_host(
             compile_workers=1,
             chunk_sizes=(n_functions,),
             chunks=(chunk,),
+            band_requested=band_spec.requested,
+            band_clamped=bool(report["band_clamped"]),
+            band_note=report["band_note"],
+            band_policy=report["band_policy"],
         )
         timer.fold()
         return plan
@@ -779,23 +827,26 @@ def _plan_host(
     with timer.stage("merge"):
         merged_graphs: List[Any] = []
         reports: List[Dict[str, Any]] = []
-        chunk_bands: List[int] = []
+        chunk_band_counts: List[int] = []
         for (start, stop), graphs in zip(bounds, traced):
-            # Per-chunk band count: the band-SIZE model only -- an explicit band
-            # count and ``switch_ops`` both force the single-body path above.
-            band_count = resolve_band_count(
-                stop - start, bands=None, band_size=band_size, switch_ops=False
+            # Per-chunk band spec: the SAME band request as the plan, sized to this
+            # chunk (``auto`` per chunk, the proportional share of an explicit ``K``,
+            # the size model re-applied) and vetted by the same binding policy.
+            chunk_spec = batch_bands.chunk_band_spec(
+                band_spec, stop - start, n_functions, band_size=band_size
             )
-            chunk_bands.append(band_count)
-            merged_chunk = _merge(
+            merged_chunk, report = batch_bands.merge_with_spec(
+                _merge,
                 graphs,
                 axes,
+                chunk_spec,
                 switch_ops=False,
-                bands=None if band_count <= 1 else band_count,
                 alignment=alignment,
+                auto_total=stop - start,
             )
             merged_graphs.append(merged_chunk)
-            reports.append(merged_chunk.batch_report.as_dict())
+            reports.append(report)
+            chunk_band_counts.append(int(report.get("bands") or 1))
     chunks = tuple(
         BatchChunk(
             index=index,
@@ -806,7 +857,7 @@ def _plan_host(
             merged=merged_graphs[index],
             specs=tuple(merged_graphs[index].tensor_specs),
             report=reports[index],
-            band_count=int(reports[index].get("bands", chunk_bands[index]) or 1),
+            band_count=chunk_band_counts[index],
         )
         for index, ((start, stop), graphs) in enumerate(zip(bounds, traced))
     )
@@ -820,6 +871,9 @@ def _plan_host(
         "bands": None,
         "band_sizes": None,
         "band_strategy": None,
+        # The plan-level band story of a chunked plan (the request every chunk
+        # repeats, the summed auto counts before clamping, any chunk's clamp).
+        **batch_bands.aggregate_band_report(band_spec, reports),
     }
     plan = BatchPlan(
         input_len=input_len,
@@ -846,6 +900,10 @@ def _plan_host(
         compile_workers=len(chunks),
         chunk_sizes=sizes,
         chunks=chunks,
+        band_requested=band_spec.requested,
+        band_clamped=bool(aggregate["band_clamped"]),
+        band_note=aggregate["band_note"],
+        band_policy=aggregate["band_policy"],
     )
     timer.fold()
     return plan
