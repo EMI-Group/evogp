@@ -68,6 +68,7 @@ A route with extra knobs should route them through `common.BATCH_*`-style single
 - `SUMMARY.md` → the rendered baseline round (protocol statement, per-workload tables, `gp_step`, cold compile, digest agreement, caveats) with a header pointing at `FINAL.md`.
 - `VALIDATION.md` → the 12-case oracle validation and the cross-arm digest-group finding.
 - `README.md` → the entry point: the question, the arms, the grid/protocol, the final-campaign section (measured grid, commands, verdicts), the report/gate rules and the rules for this subtree.
+- `batch_economics.py` → the batch route's compile-economics column (writes to `results/batch/`); README's "Batch route: compile economics" section is its human-facing description, and `README.md` `## Arms` carries the `EVOGP_BATCH_*` knob table.
 - `results/` → data only (`baseline/` and `final/`, the latter with `RENDERED.md`); the reports of record are `FINAL.md` and `VALIDATION.md` at this node.
 - `../r4/`, `../r5/`, `../r6/` → the historical legacy-CUDA-engine comparison; read-only from here.
 - `../../../src/evogp/tests/reference_eval.py` → the oracle every arm is validated against.
