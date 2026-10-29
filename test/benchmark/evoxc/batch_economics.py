@@ -51,8 +51,10 @@ From ``content.py`` (the single owner of the content-addressed plan-key vocabula
 ``first_call.content`` / ``sr_fitness.content`` / ``generations[i].content`` are before -> after
 windows with their derived ``attempts`` (hits + misses) and ``hit_rate``, and ``summary.content``
 adds the ``generations`` outcome counts (``with_content_hit`` / ``with_content_miss`` /
-``no_attempt`` / ``unknown``).  These price the SECOND reuse surface: an unchanged ``Forest`` object
-hits the identity tables and leaves the content table untouched (``attempts`` 0), so only a
+``no_attempt`` / ``unknown``).  These price the SECOND reuse surface: the identity tables are
+consulted first, so a repeated call on the same ``Forest`` object and the same plan parameters
+leaves the content table untouched (``attempts`` 0 -- not a content miss), while a first call for a
+NEW plan shape is an identity miss even on an unchanged object and does probe it.  Only a
 REBUILT-but-equal population can produce a content hit.  Per generation, ``batch_plan_misses`` now
 sits next to ``batch_compile_misses``: the plan table re-decodes/re-traces/re-merges, it never
 recompiles.  Getattr-probed like the stage split: no ``batch_content_stats()`` means
@@ -958,11 +960,14 @@ def run_child(args: argparse.Namespace) -> int:
         else:
             record["notes"].append(
                 "batch route: the content blocks (first_call / sr_fitness / generations[i] / "
-                "summary) price the plan-key REUSE surface, not the compile itself: an unchanged "
-                "Forest object hits the identity table and leaves the content table untouched "
-                "(attempts 0), so only a REBUILT-but-equal population can produce a content hit, "
-                "and a content hit means the merge was served instead of re-decoded/re-traced/"
-                "re-merged")
+                "summary) price the plan-key REUSE surface, not the compile itself. The identity "
+                "table is consulted first, so a repeated call on the same Forest object AND the same "
+                "plan parameters leaves the content table untouched (attempts 0, which is not a "
+                "content miss); a first call for a NEW plan shape is an identity miss even on an "
+                "unchanged object, so it does probe the content table (one attempt, usually a miss "
+                "that stores the entry), and only a REBUILT-but-equal population can produce a "
+                "content hit -- which means the merge was served instead of re-decoded, re-traced "
+                "and re-merged")
     else:
         record["notes"].append(
             "dense route (comparison column): no merged-graph cache exists, so batch_* counters are "

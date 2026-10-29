@@ -247,3 +247,24 @@ Both are the batch route's non-bitwise value path on the arithmetic set against 
 
 The guard read the device idle before/after all three configs (`3/3 configs on an idle device, 0 contaminated`, empty `gpu_pids`), and the base column's own economics note records `rocm-smi --showpids` reading "No KFD PIDs currently running" immediately before it ran.
 The campaign record independently reproduces the warm ordering on the same cell — `sr_fitness` medians 30.87 ms (`torch-per-tree`), 4.07 ms (`torch-batched`), 3.63 ms (`evoxc-batch-iree`) — and its `gp_step` median of 2243.9 ms against 19.84 ms for `torch-per-tree` is the same recompile-dominated generation §6 prices.
+
+## 11. Follow-up: the content-addressed plan key, measured
+§7 could only show that a generation loop gets no plan-key reuse; it could not say what the *content* key table (`batch_content_stats`) buys, because a generation loop never presents the same programs twice.
+`reuse_probe.py` measures it directly on one cheap cell (`p64-L64-i32-N64`, seed 0, `evoxc-batch-iree`, band 32, pool 4): four calls, one dataset object, two populations.
+
+| call | population | HEAD (`reuse/after`) | pre-round `619cbf7` (`reuse/base`) | HEAD counters | pre-round counters |
+|---|---|---|---|---|---|
+| 1 | A, cold | 2340.3 ms | 2401.2 ms | exec 1 m, plan 1 m, content 1 m (`attempts` 1, `hit_rate` 0.0) | exec 1 m, plan 1 m — no content table |
+| 2 | A, identity | 1.274 ms | 1.235 ms | plan 1 h, content `attempts` **0** | plan 1 h |
+| 3 | **B, rebuilt-but-equal** | **2.724 ms** | **79.109 ms** | plan 1 m -> content **1 h / 0 m** (`hit_rate` 1.0), trace/merge/compile **0 calls** | exec **1 h**, plan 1 m -> re-decode + re-trace + re-merge |
+| 4 | B, identity | 1.107 ms | 1.101 ms | plan 1 h, content `attempts` 0 | plan 1 h |
+
+- `Forest` B is a different object built from the same seed: `forests.same_content` records `identical_content: true` and `no_shared_storage: true`, so the only thing that can answer call 3 cheaply is a content key.
+- Measured hit-rate change: pre-round has no content surface at all (block `available: false`, every counter `null`, NOT 0) and pays a plan MISS; HEAD turns the same call into a content HIT (`1 hit / 0 misses`, `hit_rate` 1.0) at **29.0× less time** (79.109 -> 2.724 ms, i.e. 76.4 ms per rebuilt population).
+- All four calls, on both trees, return the same values (sha256 `b6584500a0fb365adfbf712cc6b43d7e`, 64 finite / 0 NaN): the reuse is exact, not approximate.
+- The replay column `reuse/after-replay` reproduces it (cold 2302.6 ms, rebuilt 2.649 ms) with the same `verification` block.
+- **The generation-loop verdict does not move:** in the 6-generation `content-blocks/after` loop at the same cell the content table saw 6 attempts and 0 hits (`summary.content.generations` = `{rows 6, with_content_hit 0, with_content_miss 5, no_attempt 1}`; generation 1 is the population the cold call compiled, generations 2..6 present new programs).
+- The pre-round column also shows what the content key is *not*: `batch_exec_hits` 1 on call 3 means the compiled body was already shared, so 76.4 ms is host-side decode + trace + merge, never a recompile.
+- `worker.py`'s HEAD `batch_cache.content_totals` reads `{hits 0, misses 3, attempts 3}` — one content probe per workload plan, all misses; the warmup+reps calls behind them are answered by the identity table (`attempts` 0).
+- Reproduce: `$PY test/benchmark/evoxc/reuse_probe.py --label after` / `--label base --tree-root <checkout of 619cbf7>` / `--label after-replay`, and the content-block columns with `batch_economics.py --cells p64-L64-i32-N64 --out-dir .../content-blocks/{after,base}`.
+- `EVOGP_BATCH_COMPILE_WORKERS` was unset (module default 4) in every column here; at p64 the merge carries 63 functions, so the pool is inert and the numbers are the single-executable path.

@@ -1,0 +1,80 @@
+{
+ "schema": "evogp-bench-evoxc-v1-batch-economics",
+ "created_utc": "2026-10-29T20:03:58Z",
+ "measurement": "batch-compile-economics",
+ "driver_env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-29T20:04:04Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A40/src",
+  "tree_root_sha": "745265c5ecfb672b0dbb4dc6d6eed3c55b003663",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A40",
+  "arm": "driver",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "2b289f034f6f8e16b6c9b55932dfed76cc54690e",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A40/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "note": "chunked-compile column: the shipped 4-worker default, to exercise share_gt_one",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A40/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A40/test/benchmark/evoxc"
+ },
+ "protocol": {
+  "one_process_per_config": true,
+  "one_cell_per_process": true,
+  "sequential": true,
+  "cells": [
+   "p256-L32-i8-N1024"
+  ],
+  "routes": [
+   "batch"
+  ],
+  "route_arms": {
+   "batch": "evoxc-batch-iree"
+  },
+  "generations": 3,
+  "warmup": 2,
+  "reps": 5,
+  "seed": 0,
+  "timeout_s": 3600,
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A40/src",
+  "src": "/root/evogp/.genesis/workers/worker_T1_A40/src",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A40/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A40/test/benchmark/evoxc",
+  "evoxc_disable_locations": {
+   "env": "EVOXC_DISABLE_LOCATIONS",
+   "value": "1",
+   "source": "caller",
+   "note": "honoured by every child: it speeds evoxc tracing up ~4x and is not part of the engine's cache key"
+  },
+  "batch_engine_present": true,
+  "knobs_override": {},
+  "out_dir": "/root/evogp/.genesis/workers/worker_T1_A40/test/benchmark/evoxc/results/batch_opt_round1/content-blocks/chunked-p256"
+ },
+ "configs": [
+  {
+   "cell": "p256-L32-i8-N1024",
+   "route": "batch",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 17.91,
+   "record": "test/benchmark/evoxc/results/batch_opt_round1/content-blocks/chunked-p256/p256-L32-i8-N1024/batch.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round1/content-blocks/chunked-p256/p256-L32-i8-N1024/batch.log",
+   "detail": ""
+  }
+ ],
+ "notes": [
+  "one child process per (cell, route): the merged-graph cache, the evoxc compile cache and the executable memo are per process, so a route loop inside one process would measure warm caches only",
+  "chunked-compile column: the shipped 4-worker default, to exercise share_gt_one"
+ ]
+}

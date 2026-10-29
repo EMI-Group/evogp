@@ -798,3 +798,44 @@ python3 test/benchmark/evoxc/check.py --results $OUT/campaign \
 ```
 
 `batch_economics.py` records carry the `evogp-bench-evoxc-v1-batch-economics` schema, so `check.py` gates a campaign-format directory only — `results/batch_opt_round1/campaign/` is that directory for this round, and the economics directories are evidence next to it, not gateable units.
+
+### 13.10 Follow-up: the content-addressed plan key, measured (`reuse_probe.py`)
+
+§13.7 could show that a generation loop gets **no** plan-key reuse, but not that the second key table does anything at all: a generation loop never presents the same content twice, so the surface that answers a *rebuilt-but-equal* population had no measurement behind it.
+`reuse_probe.py` (new, one child process per column) supplies it with a fixed four-call sequence on one cheap cell (`p64-L64-i32-N64`, seed 0, `evoxc-batch-iree`, band 32, pool 4):
+call 1 evaluates `Forest` A (cold), call 2 evaluates A again (identity fast path), call 3 evaluates `Forest` **B** — a different object built from the same seed, verified `identical_content` in `no_shared_storage` — against the *same* `x`/`labels` object, call 4 evaluates B again.
+Every call records both counter surfaces before -> after (`batch_cache_stats` and `batch_content_stats`), the value digest, the sync-bracketed wall time and, where the tree ships them, the ten stage **call** counts — so "it skipped trace/merge/compile" is a measured count, not an inference from a fast call.
+
+| call | population | HEAD `reuse/after` | pre-round `reuse/base` (`619cbf7`) | HEAD counters | pre-round counters |
+|---|---|---|---|---|---|
+| 1 | A, cold | 2340.3 ms | 2401.2 ms | exec 0 h / 1 m, plan 0 h / 1 m, content 0 h / 1 m (`attempts` 1, `hit_rate` 0.0) | exec 1 m, plan 1 m — no content table |
+| 2 | A, identity | 1.274 ms | 1.235 ms | plan 1 h / 0 m, content `attempts` **0** | plan 1 h / 0 m |
+| 3 | **B, rebuilt** | **2.724 ms** | **79.109 ms** | plan 0 h / **1 m** -> content **1 h / 0 m** (`hit_rate` 1.0); stage calls: decode 1, trace 0, merge 0, lower 0, compile 0, load 0, upload 1, run 1, gather 2 | exec **1 h** / 0 m, plan 0 h / 1 m -> re-decode, re-trace, re-merge (no recompile) |
+| 4 | B, identity | 1.107 ms | 1.101 ms | plan 1 h / 0 m, content `attempts` 0 | plan 1 h / 0 m |
+
+- The measured hit-rate change on a rebuilt population: pre-round the content surface does not exist (`available: false`, every counter `null` — NOT 0) and the plan table records a MISS; on HEAD the same call is an identity MISS the content table answers, `batch_content_hits` 1 / `batch_content_misses` 0 / `hit_rate` 1.0, i.e. **79.109 ms -> 2.724 ms (29.0×, 76.4 ms per rebuilt population)**, with the merge-stage call counts at 0.
+- The answers are identical, not merely similar: all four calls on both trees return sha256 `b6584500a0fb365adfbf712cc6b43d7e` (64 finite, 0 NaN), so the content hit is a reuse of the same numbers.
+- The replay column `reuse/after-replay` reproduces the sequence (cold 2302.6 ms, rebuilt 2.649 ms) and the same `verification` block; nothing in the table is a single unconfirmed sample.
+- **This does not change the generation-loop verdict.** Over the 6-generation `content-blocks/after` loop at the same cell the content table saw 6 attempts, 0 hits (`hit_rate` 0.0), with `summary.content.generations` = `{rows 6, with_content_hit 0, with_content_miss 5, no_attempt 1}` — generation 1 is the population the timed first call already compiled, and generations 2..6 each present *new* programs, so there is nothing for a content key to match. The regime the content key wins is the one `reuse_probe.py` measures: a fixed population evaluated again through a fresh object (re-serialized forests, a reloaded pipeline, a caller that rebuilds the same evolution), which is exactly where the pre-round tree pays 76.4 ms per population and HEAD pays a decode.
+- The pre-round column also says what the reuse was NOT: `batch_exec_hits` 1 on the rebuilt call means the compiled body was already shared by the exec table, so the recompile was never the cost there — the 76.4 ms is host-side decode + trace + merge. A content hit removes that work; it does not change what the pool compiles.
+- Record fields (`test/benchmark/evoxc/reuse_probe.py`): `forests.A/B` (structure signature + storage addresses), `forests.same_content` (`fields_equal` / `fields_in_distinct_storage`), `dataset` (one shared tensor), `cache_keys` (the counter names each surface exposes, `[]` when absent), `calls[i].{call_ms, digest, cache.batch.*, content.*, stage_ms.*}` and `verification` (each expectation `true` / `false` / `null`, plus `rebuilt_call_plan_misses` / `rebuilt_call_compile_misses` / `rebuilt_call_stage_calls`).
+- In the two harness records the same surface now appears as `batch_economics.py`'s `first_call.content` / `sr_fitness.content` / `generations[i].content` / `summary.content` and `worker.py`'s `batch_cache.content_before_workloads` / `content_after` / `content_keys` / `content_totals`; on the pre-round tree every one of them records `available: false` with null counters plus a note naming the absent `batch_content_stats()`.
+- A first call for a *new plan shape* is an identity miss even on an unchanged object, so `worker.py`'s HEAD column reads `content_totals` `{hits 0, misses 3, attempts 3}` — one content probe per workload plan (`sr_fitness`, `batch_forward`, `forward`), each a miss; the warmup+reps calls behind them are answered by the identity table (`attempts` 0 per call, not misses).
+
+```bash
+export PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1
+OUT=test/benchmark/evoxc/results/batch_opt_round1
+# HEAD, then the pre-round tree (unpacked outside the repo at commit 619cbf7)
+$PY test/benchmark/evoxc/reuse_probe.py --label after
+$PY test/benchmark/evoxc/reuse_probe.py --label base --tree-root <checkout of 619cbf738af0bf839085879193f163d383bd9fbc>
+$PY test/benchmark/evoxc/reuse_probe.py --label after-replay          # the reproducibility column
+# the content blocks inside the economics/worker records, both trees
+$PY test/benchmark/evoxc/batch_economics.py --cells p64-L64-i32-N64 --routes batch,dense \
+  --generations 6 --out-dir $OUT/content-blocks/after
+$PY test/benchmark/evoxc/batch_economics.py --cells p64-L64-i32-N64 --routes batch,dense --generations 6 \
+  --tree-root <checkout of 619cbf7> --out-dir $OUT/content-blocks/base
+# the over-1 compile share, on a cell the pool really chunks (4 chunks at the shipped default)
+$PY test/benchmark/evoxc/batch_economics.py --cells p256-L32-i8-N1024 --routes batch \
+  --generations 3 --out-dir $OUT/content-blocks/chunked-p256
+```
+`batch_economics.py` and `reuse_probe.py` records carry their own schemas (`evogp-bench-evoxc-v1-batch-economics`, `evogp-bench-evoxc-v1-batch-reuse`), so the gate unit for this follow-up stays the round's campaign directory (`3 records / 88 checks / 0 failures`); the new directories are evidence beside it, and the frozen directories keep their counts (`warm-r5` 24/682, `small-r5` 36/1022, `flat-r5` 4/126, `flat1000-3w-r5` 1/36, `final/after` 130/3602 — all 0 failures).
