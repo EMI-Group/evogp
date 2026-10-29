@@ -843,3 +843,160 @@ $PY test/benchmark/evoxc/campaign.py --cells p64-L64-i32-N64 --arms evoxc-batch-
 ```
 `batch_economics.py` and `reuse_probe.py` records carry their own schemas (`evogp-bench-evoxc-v1-batch-economics`, `evogp-bench-evoxc-v1-batch-reuse`), so the gate unit for this follow-up is a campaign-format directory whose batch record carries the new blocks: `content-blocks/campaign-content/` (`1 record / 40 checks / 0 failures`, `batch_cache.content_totals` = `{hits 0, misses 6, attempts 6}` — one content probe per plan shape in that config, none of them a rebuilt population) next to the round's own `campaign/` (`3 records / 88 checks / 0 failures`).
 The economics/reuse directories are evidence beside them, and the frozen directories keep their counts (`warm-r5` 24/682, `small-r5` 36/1022, `flat-r5` 4/126, `flat1000-3w-r5` 1/36, `final/after` 130/3602 — all 0 failures).
+
+## 14. Round 2: the band policy, the shipped default's chunked shape and the composition (results/batch_opt_round2/)
+
+Round 2 answers the question §13 left open — what `EVOGP_BATCH_BAND_SIZE` / `EVOGP_BATCH_BANDS` should be when the population is not fixed, and what the banded+chunked composition costs — in three measured items on three cells (`p256-L32-i8-N1024`, `p256-L64-i32-N1024`, and `p64-L64-i32-N64`, the niche cell of §3/§7): a warm band-size sweep at pool 1 (`results/batch_opt_round2/warm/`, 15 records), `EVOGP_BATCH_BANDS=auto` against `b16`/`b32` (`results/batch_opt_round2/auto/`, 9 records), and the banded+chunked composition plus a 6-generation loop against `dense` (`results/batch_opt_round2/composition/`, 9 sweep records + 10 loop routes), with a `--cold-only` re-measure in `round3-cold/` and a one-record smoke in `smoke-cold/`.
+Each directory carries its own `SUMMARY.md` with the full tables; this section is the decision of record and quotes them, and every number below is read off a committed record or one of those three summaries.
+
+### 14.1 The decision: `auto` stays opt-in, the band size moves 32 → 16, `CHUNK_BANDS` stays off
+
+Three decisions, recorded as the shipped state:
+
+1. **`EVOGP_BATCH_BANDS=auto` does NOT become a default — it stays an opt-in spelling.** It is the argmin in **0 of 9** warm columns of the item-2 grid and the slowest of the three configs in **7 of 9**, so it is not a candidate for "what the engine picks when nobody says anything".
+2. **`EVOGP_BATCH_BAND_SIZE`'s default is `16`, moved from `32`** (the value lives in `src/evogp/tree/batch_knobs.py::DEFAULT_BAND_SIZE`). 16 is the minimax setting of the item-1 power-of-two grid: best pooled geomean and by far the best worst column, at 3–6 % spread among the banded configs.
+3. **`EVOGP_BATCH_CHUNK_BANDS` stays OFF (its shipped state).** The composition trades 1.61–2.47× warm for 2.6–2.8× cold at the pop-256 cells, is inert at pop 64, and changes nothing in a generation loop (§14.3, `composition/SUMMARY.md` §8); its break-even is ≈4.5k warm `sr_fitness` calls at `p256-L32` (≈1.3k on the per-row `forward`).
+
+**Evidence for decision 1 — `auto` wins nothing, and it is not even a stable policy.** It is inside the 2.6–6 % cross-config noise band in **4 of 9** columns (`p256-L32 sr_fitness` 1.014, `p256-L64 sr_fitness` 1.032, `p64 sr_fitness` 1.027, `p64 forward` 1.029) and **outside it in 5**, worst **+18.9 %** on the band-sensitive per-row `forward` at `p256-L32` (1.189 median-based, 1.275 min-based), then +14.5 % (`p256-L64 forward`), +14.1 % (`p64 batch_forward`), +9.9 % (`p256-L64 batch_forward`) and +8.4 % (`p256-L32 batch_forward`).
+Cold it pays 1.12–1.35× the cheapest call of its column at the two pop-256 cells (1.01–1.11× at `p64`) because of the clamp's second merge, and the model's answers are not population-stable — §14.4 carries both findings.
+
+**Evidence for decision 2 — 16 is the minimax setting, and the first-order call is flat vs banded.** On the min-based (contamination-robust) estimator, pooled over the nine columns of item 1: `b16` geomean **1.0185** of the per-column argmin, worst column **1.061**; `b32` 1.0223 / 1.137; `b8` 1.0415 / 1.167; `b64` 1.0718 / 1.224; `flat` 1.1680 / 1.529 (`warm/SUMMARY.md` T5) — and `b16` is the only config ranked 1st or 2nd in all three cells under both estimators.
+Pooled over the **18** columns of items 1+2 the mean is a tie (median-based `b16` 1.0248 against `b32` 1.0224; min-based 1.0199 against 1.0254) and **16 wins on the worst column** (`b16` 1.102 median-based / 1.109 min-based against `b32`'s 1.143 / 1.137, both on `forward` at `p256-L32`), which is the criterion a default has to satisfy on a shared box.
+The honest bound: this is a **3–6 % second-order call**, the same scale as this window's cross-config noise (the 2.6 % same-shape `p64` twin, `b64` vs `flat`, both K = 1), so the default does not have to be the per-cell argmin — it has to be the setting that is never far from it; the cost of *not* moving is at most ~5 % on the worst column.
+The **first-order** decision is flat versus banded: a single unbanded merge (K = 1) is **+15 %** on `sr_fitness` (geomean), **+8 %** on `batch_forward`, **+34 %** on the per-row `forward` (worst column **+53 %**) and pays the largest cold compile at both pop-256 cells (12 671.6 / 14 610.0 ms against 11 049.4 / 12 590.6 for the single-body `b16`).
+**The measurement and the legality floor agree**: ROCm/HIP binds `K ≤ 15` bands with `≥ 8` merged functions per band, so at n = 225–245 functions the cap lands at band size ≈ 15–17 — the region the sweep crowns; `b16` is itself clamped to K = 15 on the per-row plan (`band_sizes` 5×17 + 10×16, `band_clamped: true`) and unclamped at K = 15 on the wide-row ones, which is why the clamp and the argmin point at the same number (`auto/SUMMARY.md` §2, `warm/SUMMARY.md` §2).
+
+Warm medians of the shipped band size on the **control shape** (`b16` at `EVOGP_BATCH_COMPILE_WORKERS=1`, round-2 `auto/` window, ms; the shipped route's own chunked column is §14.2), with each config's ratio to that column's argmin:
+
+| cell | workload | `b16` (ms, pool-1 control) | `b16` ÷ argmin | `b32` ÷ argmin | `auto` ÷ argmin | argmin |
+|---|---|---:|---:|---:|---:|---|
+| p256-L32-i8-N1024 | sr_fitness | 2.0331 | **1.000** | 1.066 | 1.014 | `b16` |
+| p256-L32-i8-N1024 | batch_forward | 2.2305 | **1.000** | 1.034 | 1.084 | `b16` |
+| p256-L32-i8-N1024 | forward | 0.8632 | **1.000** | 1.023 | 1.189 | `b16` |
+| p256-L64-i32-N1024 | sr_fitness | 2.2382 | 1.017 | **1.000** | 1.032 | `b32` |
+| p256-L64-i32-N1024 | batch_forward | 2.2557 | 1.075 | **1.000** | 1.099 | `b32` |
+| p256-L64-i32-N1024 | forward | 0.8234 | 1.026 | **1.000** | 1.145 | `b32` |
+| p64-L64-i32-N64 | sr_fitness | 1.1305 | **1.000** | 1.026 | 1.027 | `b16` |
+| p64-L64-i32-N64 | batch_forward | 0.8899 | **1.000** | 1.014 | 1.141 | `b16` |
+| p64-L64-i32-N64 | forward | 0.7097 | 1.062 | **1.000** | 1.029 | `b32` |
+
+Two estimator caveats, as the source records them: item 1 has **two early-rep-contaminated rows** (`p256-L32 b16 sr_fitness` samples 2.3094 / 2.2812 / 2.2979 / 2.0821 / 2.0719 and `p256-L64 b8 batch_forward` 2.2083 / 2.1363 / 2.7307 / 2.3061 / 3.2639), which is why the min column exists and why the default is answered on the min-based estimator as well; and **nothing here rests on a difference below ~5 %** — the whole banded region is one tier, which is exactly why 16 is chosen as a minimax setting rather than as a win.
+
+### 14.2 The updated per-call table — batch vs dense in the shipped default's own shape
+
+**The shipped default's measured column at pop 256 is NOT the single-body `b16` row of §14.1 — it is the `b16-cw4` shape.** The chunk gate is `src/evogp/tree/batch_programs.py::_resolve_workers`: it refuses chunking only when an explicit `EVOGP_BATCH_BANDS` spelling is in play (`bands is not None` — an explicit K, the `none`/`flat` spellings, or `auto`) unless `EVOGP_BATCH_CHUNK_BANDS` opts in, so a band **size** does not refuse chunking.
+With the shipped knobs (band size 16, `EVOGP_BATCH_COMPILE_WORKERS` default 4, `CHUNK_BANDS` off) the plan at n = 225 functions is therefore **4 chunks** — exactly the `b16-cw4` shape the composition measured (band size 16 per chunk, `chunk_bands [4, 4, 4, 4]`).
+Round 1's default record already proves the mechanism empirically: `results/batch_opt_round1/after_default/` chunked into `chunk_sizes [57, 56, 56, 56]` with no band request in play.
+So the `b16` rows of `../auto/` and `../warm/` are the `EVOGP_BATCH_COMPILE_WORKERS=1` single-body **control**, and the shipped default at pop 256 is priced by `b16-cw4`; at `p64-L64-i32-N64` (n = 63) chunking is inert on the two wide-row plans (`chunk_count` 1, `chunk_sizes [63]`), so there default == control.
+
+Warm medians in ms (ratio = reference arm ÷ batch, so **> 1 means the batch route is faster** — the convention of §4.1); `dense` from the round-1 records named below, the shipped default from `composition/<cell>/b16-cw4.json`, the control from `auto/<cell>/b16.json`:
+
+| cell | workload | dense (ms) | batch shipped default (ms) | ratio | batch single-body control (ms, `COMPILE_WORKERS=1`) | ratio |
+|---|---|---:|---:|---:|---:|---:|
+| p256-L32-i8-N1024 | sr_fitness | 1.1013 | 3.5736 | **0.31** | 2.0331 | 0.54 |
+| p256-L32-i8-N1024 | batch_forward | 1.8657 | 4.3761 | **0.43** | 2.2305 | 0.84 |
+| p256-L32-i8-N1024 | forward | 0.6858 | 1.9470 | **0.35** | 0.8632 | 0.79 |
+| p256-L64-i32-N1024 | sr_fitness | 2.1524 | 3.6770 | **0.59** | 2.2382 | 0.96 |
+| p256-L64-i32-N1024 | batch_forward | 2.8540 | 3.6357 | **0.79** | 2.2557 | 1.27 |
+| p256-L64-i32-N1024 | forward | 0.9822 | 2.0355 | **0.48** | 0.8234 | 1.19 |
+| p64-L64-i32-N64 | sr_fitness | 1.4096 | 1.1765 | **1.20** | 1.1305 | 1.25 |
+| p64-L64-i32-N64 | batch_forward | 1.4216 | 0.9231 | **1.54** | 0.8899 | 1.60 |
+| p64-L64-i32-N64 | forward | 0.8678 | 1.0710 | **0.81** | 0.7097 | 1.22 |
+
+(`dense` = `results/batch/warm-r5/p256-L32-i8-N1024/evoxc-dense-iree.json` 1.1013 / 1.8657 / 0.6858, `results/batch/warm-r5/p256-L64-i32-N1024/…` 2.1524 / 2.8540 / 0.9822, `results/batch/small-r5/p64-L64-i32-N64/…` 1.4096 / 1.4216 / 0.8678.)
+The one row whose median must not be read on its own: `p256-L32 batch_forward` in the default shape has samples 3.578 / 4.376 / 6.450 / 5.635 / 3.537 ms (`max:min` 1.82), i.e. **contention-spiked** — its min 3.5370 against the control's min 2.1528 keeps the column's verdict (default slower) without resting on the median.
+
+Four notes, one sentence each:
+
+- (a) **The dense column is the round-1 records, and it is stable across windows to ~6 %:** round 2 re-measured dense's `sr_fitness` in the composition loop window at 1.1027 (L32) / 2.0240 (L64) ms, i.e. +0.1 % / −6.0 % of the round-1 values, so the reference holds while absolute ms across documents are ± a factor (the caveat §3 and §12 already state) — the ratios are the reading.
+- (b) **The shipped default is slower warm than the pool-1 control at both pop-256 cells, 1.61–2.47×** (L32 1.76 / 1.96 / 2.26, L64 1.64 / 1.61 / 2.47 — four separate upload / run / read-back trios per call, `composition/SUMMARY.md` §3), and on the two 63-function plans at `p64` it is identical to the control (`chunk_count` 1).
+- (c) **Where the CONTROL beats dense on the two value paths at `p256-L64` (1.27× / 1.19×), the default does not (0.79× / 0.48×)** — and note that §4.1's prose ("`batch_forward` and `forward` tell the same story") understates those two columns, because its own rows show batch faster than dense there (dense 2.854 / 0.982 ms against batch 2.156 / 0.739 ms, i.e. 0.76× / 0.75× of dense's time); the round-2 control reproduces that direction, the shipped chunked shape loses it.
+- (d) **At `p64-L64-i32-N64` (the niche cell of §3) the default beats dense on `sr_fitness` and `batch_forward` (1.20× / 1.54×) but not on the per-row `forward` (0.81×)**, because that plan is the one that splits at pop 64 (`chunk_bands [2, 2]`, `chunk_count` 1 only on the wide-row plans) and therefore pays 1.51× the control's warm call — its `forward` value 1.0710 ms is the composition's `b16-cw4` number, while 1.1765 / 0.9231 ms are the inert-shape ones.
+
+### 14.3 The cold column: the composition is a cold lever, and flat can no longer reach it
+
+`first_call_ms` of the `sr_fitness` plan in ms — single-run banded against flat (which can no longer chunk), banded+chunked (the shipped default's shape), round 1's `W=1 → W=4` column, and dense:
+
+| cell | single-body banded (`b16`, pool 1) | flat, single-body (`EVOGP_BATCH_BANDS=none`) | banded+chunked (`b16-cw4` = shipped default) | round-1 default (band 32, `W=1 → W=4`) | dense |
+|---|---:|---:|---:|---:|---:|
+| p256-L32-i8-N1024 | 11 049.4 | 12 671.6 (loop record 12 742.8) | **4 180.6** (loop record 4 165.9) | 11 065.6 → 4 444.2 | 3 491.7 |
+| p256-L64-i32-N1024 | 12 590.6 | 14 610.0 | **4 422.4** | — (round 1 swept only the L32 cell) | 6 816.3 |
+| p64-L64-i32-N64 | 2 298.7 | 2 258 (the `flat-cw4` twin reads 2 237.8) | 2 284.2 (chunking inert) | 2 257.4 → 2 240.8 | 6 177.7 |
+
+(`b16` and the flat cold values from `auto/SUMMARY.md` §2 and `../warm/` T3 / `composition/<cell>/flat-cw4.json`; the chunked column from `composition/<cell>/b16-cw4.json` with the loop records beside it; round 1 from `results/batch_opt_round1/{base,after_w1,after_default}` — the `W=1` column reads 11 065.6 in `base/` and 11 054.3 in `after_w1/`, 0.1 % apart, as §13.2 records it; dense from the composition loop records 3 491.7 / 6 816.3 ms and `results/batch/small-r5/p64-L64-i32-N64/evoxc-dense-iree.json` 6 177.7 ms.)
+
+- **The flat spelling can no longer chunk at all:** `flat-cw4` reports `compile_workers 1` / `chunk_count 1` / `chunk_bands [1]` on all three workloads of all three cells (`plan` blocks carry `chunk_sizes [225]` / `[245]`), so round 1's chunked-flat cold win is unreachable that way and `EVOGP_BATCH_CHUNK_BANDS=1` is the only route to combining a band request with the pool (`composition/SUMMARY.md` §6).
+- **The composition's cold win is 0.35–0.54× of the single-body arm across all three workloads at both pop-256 cells** (L32 0.38 / 0.40 / 0.54, L64 0.35 / 0.40 / 0.54), and it comes from four per-chunk compiles: the compile counter sums 12 439.4 ms over 4 job timers against a pool wall of `batch_compile_wall_ms` 3 733.1 ms over 4 jobs (against 10 583.6 ms over 1 job), with `lower` up 3.0× (296.6 → 888.5 ms) and `load` up 2.5× (114.3 → 290.8 ms), so the net call is **2.6–2.8×** cheaper rather than 4×.
+- **The stage counter sum cannot close on a chunked row** (14 063 ms of stages against a 4 181 ms call) by construction, because those four timers run concurrently — the same reason a loop record's `compile_share` reads above 1 (`composition/SUMMARY.md` §4).
+- **Against dense the default is dearer at L32 and cheaper at L64** — 4 180.6 against 3 491.7 ms at `p256-L32`, 4 422.4 against 6 816.3 ms at `p256-L64` — the one cold column where a batch route beats the shipped route, and it is the composition, not the band size, that buys it.
+
+### 14.4 What the cost model chose vs what measured best
+
+All nine `auto` rows of the item-2 grid: `band_policy` is `{backend iree, device_kind rocm, max_bands 15, min_band_size 8, uncapped false}` everywhere, `requested K` is the model's answer before clamping, and the last column is the measured argmin of that column with its warm median (`auto/SUMMARY.md` §1/§2/§4):
+
+| cell | workload | n_functions | requested K | final `bands` | `band_sizes` | clamped | `cost_estimate` | `flat_estimate` | measured best (warm ms) |
+|---|---|---:|---:|---:|---|---:|---:|---:|---|
+| p256-L32-i8-N1024 | sr_fitness | 225 | **213** | 15 | 15×15 | **yes** | 7 350 691 | 466 453 471 | `b16` (2.0331) |
+| p256-L32-i8-N1024 | batch_forward | 225 | **213** | 15 | 15×15 | **yes** | 6 425 728 | 372 544 768 | `b16` (2.2305) |
+| p256-L32-i8-N1024 | forward | 245 | 4 | 4 | 1×62, 3×61 | no | 1 231 549 | 1 375 992 | `b16` (0.8632) |
+| p256-L64-i32-N1024 | sr_fitness | 232 | **220** | 15 | 7×16, 8×15 | **yes** | 7 780 152 | 524 411 684 | `b32` (2.2008) |
+| p256-L64-i32-N1024 | batch_forward | 232 | **220** | 15 | 7×16, 8×15 | **yes** | 6 825 600 | 427 565 312 | `b32` (2.0986) |
+| p256-L64-i32-N1024 | forward | 245 | 4 | 4 | 1×62, 3×61 | no | 1 347 921 | 1 580 382 | `b32` (0.8028) |
+| p64-L64-i32-N64 | sr_fitness | 63 | **16** | 7 | 7×9 | **yes** | 815 389 | 2 724 142 | `b16` (1.1305) |
+| p64-L64-i32-N64 | batch_forward | 63 | **16** | 7 | 7×9 | **yes** | 654 592 | 2 182 976 | `b16` (0.8899) |
+| p64-L64-i32-N64 | forward | 64 | 1 | 1 | 1×64 | no | 321 984 | 321 984 | `b32` (0.6681) |
+
+Three findings:
+
+- **It errs in BOTH directions.** On the wide-row (loss / population-batched value) plans it requests 213/220 bands where 15 can load — a **14.2–14.7× overshoot**, clamped to the 15-band ceiling with a `band_note` naming the request, the cap and the `EVOGP_BATCH_BANDS=K` remedy (at `p64` it requests 16 for 63 functions and the `≥ 8`-functions rule clamps it to 7). On the per-row `forward` plan the same model answers **4 bands** at pop 256 and a bare **1** — the flat merge — at pop 64, unclamped and *below* the banded region item 1 measured (K = 8–16).
+- **Its own estimates are one to three orders of magnitude apart on plans whose measured medians differ by ≤ 19 %:** a 58–67× preference for many tiny bands on the clamped wide-row plans (6.4–7.8 M against 3.7–5.2 × 10⁸), 1.12× at `p256-L32 forward` (1 231 549 against 1 375 992) and 1.17× at `p256-L64 forward`, and exactly 1.0× at `p64 forward`, where `cost_estimate == flat_estimate` = 321 984 — the model itself said "unbanded" for the plan it then measured 2.9 % behind the `b32` argmin (0.6872 against 0.6681 ms).
+- **It is not population-stable.** On `p256-L32-i8-N1024` (structure signature `ad11cb66ffc21ac8`, 225 deduped functions in both records) the sweep's loss plan asked **K = 213** (`emitted_ops` 5 037) while the generation-loop first call asked **K = 1** (`cost_estimate == flat_estimate` 3 663 871, `emitted_ops` 4 141) — two differently priced graphs — so the model is not keyed on the deduped function count, and across the records of that one cell the same policy answers K = 1, 4 and 213 together.
+
+**The clamp is not free.** It is not a separate stage: the route merges once at the model's K, reads the report and, when the answer is unloadable, **merges a second time** at the capped count, both calls inside the single `timer.stage("merge")` block — so `batch_merge_calls` stays **1** and the second pass shows up as time in that block. Cold, the clamped rows pay 1 219.5 / 1 048.9 / 1 395.2 / 1 209.5 / 285.5 / 221.9 ms of merge against `b16`'s 233.1 / 204.1 / 280.6 / 247.0 / 94.5 / 41.4 ms for the *identical final band shape* — **+0.18 s to +1.11 s per cold call**, **4.90–5.35×** on the four pop-256 wide-row plans (3.02–5.35× across all six clamped rows) — and even the three unclamped per-row rows pay 1.69–3.00× (the model run plus a merge at the model's K), so `auto`'s whole cold call is **1.12–1.35×** the cheapest of its column at pop 256 (`auto/SUMMARY.md` §3).
+
+### 14.5 The restated verdict
+
+**`EVOGP_EVAL_MODE=batch` remains a fixed-population route: in a generation loop dense wins every covered cell by 43.2–95.4×, and at pop 256 dense wins the warm call on every column of the shipped-default shape (batch at 0.31–0.79× of dense's warm time).**
+
+The loop numbers (`Σ` over 6 `StandardPipeline.step()` generations, `composition/SUMMARY.md` §5): `p256-L32` **12 906.6** ms chunked / 14 387.1 `auto`-chunked / 24 171.6 flat-chunked / 24 714.0 `auto`-banded / 25 578.3 `b16`-banded against dense's **299.0** ms; `p256-L64` 14 710.4 / 15 537.6 / 28 871.7 against **302.7** ms. Every batch route records `generation_hit_rate` **1/6** with **6 distinct signatures** and `generations_with_compile` **5** (`compile_ms_share` 0.979–0.991): generation 1 hits the graph the timed first call compiled and each later generation presents a new structure multiset.
+The sharper, eval-only reading excludes generation 1 (which pays the pipeline's first trace on both sides): the eval sums are 15.3 ms for dense against 12 623.1 ms for `b16-chunked` at L32 = **825×**, and 22.1 against 14 427.3 ms at L64 = **653×** — the `Σ` ratio of 43× is the *flattering* number because generation 1 dominates dense's `Σ`.
+
+What survives, unchanged in kind from §7/§11:
+
+- **A FIXED population of ~64 trees over few data rows.** At `p64-L64-i32-N64` the shipped default is **1.20× / 1.54×** dense's speed on `sr_fitness` / `batch_forward` (0.81× on the per-row `forward`, §14.2), and its cold call is 2 284.2 against 6 177.7 ms = **2.70× cheaper** (§14.3).
+- **The banded+chunked composition is the least-bad loop route and still loses:** 43.2× / 48.6× against 80.8–95.4× for the single-body routes — chunking amortizes one compile four ways, never a loop.
+- **The long-tree crossover of §11 is unchanged this round:** no long-tree cell was re-measured, and the default's band change does not touch that comparison, which is about dense's `EVOGP_DENSE_MAX_TREE_LEN` trace cap rather than about the merge's band partition.
+
+What did **not** change on the default path: `auto` never picks `batch`; `EVOGP_BATCH_BANDS` stays unset by default (so `auto` is opt-in only); `EVOGP_BATCH_CHUNK_BANDS` stays off; and the shipped default's chunked cold shape is the one round 1 already had (`4 444.2` ms at `p256-L32`, §13.2). What did change is one number: the band size, 32 → 16 — a **3–6 % second-order shift** whose case is the worst column, not the mean (§14.1).
+
+### 14.6 Coverage statement
+
+Measured: 3 cells (`p256-L32-i8-N1024`, `p256-L64-i32-N1024`, `p64-L64-i32-N64`) × {`b8`, `b16`, `b32`, `b64`, `flat`, `auto`} at pool 1 (15 + 9 records, `--warmup 1 --reps 5`), plus `b16-cw4` / `auto-cw4` / `flat-cw4` (9 records) and 10 generation-loop routes × 6 generations — every record `status: ok`, and the cold column reproduced by a `--cold-only` wave (§14.7).
+Not measured, with the reason: `p1000-*` (a merged compile of 91–162 s per workload per config on the single-executable path, i.e. 8–14 min per config for three workloads, and the composition's scale envelope there is untested); **no explicit `EVOGP_BATCH_BANDS=K` pinned AT the clamp ceiling (K = 15 / K = 7)**, so "auto clamped" is measured against `b16`/`b32` and not against the cap itself — that is the one surviving experiment; no cold `-cw4` column at `p1000`; no `EVOGP_BATCH_ALIGNMENT` / `EVOGP_BATCH_SWITCH_OPS` variants; and no `CustomLoss`/multi-output or robotics workload.
+
+Protocol gaps, stated as such:
+
+- **`batch_economics.py` has NO idle-device guard.** No `guard` key exists in `composition/economics.json`, `l64/economics.json` or any loop record, so idleness was verified **by hand** with `rocm-smi --showpids` before each run and the runs kept strictly sequential (6 children, then 4) — a weaker protocol than the sweeps', which recorded `gpu_pids.idle: true` / `contaminated: false` and 0 failures on **all** of their configs (15/15 in item 1, 9/9 in item 2, 9/9 in the composition sweeps) and waited for a foreign job on five of them in item 1 (10.6 / 94.0 / 73.1 / 88.7 / 104.4 s) and two in item 2 (42.0 / 57.6 s), `waited_s` 0.2 s on every composition config — waits recorded verbatim, nothing re-run or smoothed.
+- **Two worktrees, one evoxc.** The `auto-cw4` / `flat-cw4` sweep ran from `c97a6630` and the `b16-cw4` sweep plus both loops from `0b9075f1`, with identical cell `population_signature`s (`ad11cb66ffc21ac8` / `0a0dee3fec0cfb9c` / `18d209693a5a7e9e`) and one evoxc commit (`2b289f03`) everywhere, so no split is attributable to the engine or to the population.
+- **Not gateable.** `check.py` reads the campaign *arm-record* schema, so on the sweep directories it reports `224` checks / `28` failures (`auto/`) and `362` / `46` (`../warm/`) of the `cache`-block kind, and it cannot gate an economics directory at all. These records are **evidence, not gateable units**; their internal checks are `status: ok`, the stage-split closure, the guard block and the per-workload oracle validation.
+- **The oracle deviation is IDENTICAL in every config of a cell/workload (9/9)**, i.e. the band partition is a scheduling decision and never a numeric one: `p256-L32` `sr_fitness` 6.0 / 4.74e-07, `batch_forward` 5.86e-03 / 1.13e-03, `forward` 0 / 0 (**bitwise**); `p256-L64` 32.0 / 7.76e-07, 7.81e-02 / 1.14e-05, 1.19e-07 / 8.01e-08; `p64` 0.25 / 1.62e-07, 6.10e-05 / 1.68e-07, 1.19e-07 / 8.01e-08 — no NaN or inf mismatch anywhere. Value digests split only at **2e-12–1e-10** relative on the value tensors, and `sr_fitness` is bitwise identical across the partitions in every cell.
+
+### 14.7 The round-3 one-command re-measure path
+
+A single `--cold-only` wave prices an upstream evoxc `lower()`/trace speedup without paying for warm medians: one synchronized first call per workload, no warmup, no reps. Verbatim as run (`composition/SUMMARY.md` §11):
+
+```bash
+export EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=/tmp/evoxc_r2:src:test/benchmark/evoxc
+/tmp/rocvenv/bin/python test/benchmark/evoxc/band_sweep.py --cold-only \
+  --cells p256-L32-i8-N1024 --configs auto,b16,b32 \
+  --out-dir test/benchmark/evoxc/results/batch_opt_round2/round3-cold/p256-L32-i8-N1024 \
+  --tree-root src --seed 0
+
+/tmp/rocvenv/bin/python test/benchmark/evoxc/band_sweep.py --cold-only \
+  --cells p64-L64-i32-N64 --configs auto,b16,b32 \
+  --out-dir test/benchmark/evoxc/results/batch_opt_round2/round3-cold/p64-L64-i32-N64 \
+  --tree-root src --seed 0
+```
+
+Both were executed, **exit 0**, **3/3 configs `ok` each** with 0 failures and 0 skipped, driver `elapsed_s` **93.3 s** and **40.0 s** (≈2.2 min for the pair); the records carry `cold_only: true`, `samples_ms: []` and every warm field `null`, and the cold numbers **reproduced at 0.933–1.017× of the `--reps 5` calls** (worst low `b32 sr_fitness` at `p256-L32`, 11 251.8 against 12 063.3; worst high `auto batch_forward` at `p64`, 1 653.0 against 1 626.0).
+A re-measure always writes a **fresh `--out-dir` per cell** — that is why `round3-cold/<cell>/` exists, so a per-cell re-run does not overwrite another cell's `sweep.json` — and `results/final/`, `results/baseline/`, `results/batch/` and `results/batch_opt_round1/` are refused as output directories (`band_sweep.py`'s `FROZEN_RESULT_DIRS`; `reuse_probe.py` carries the first three).
