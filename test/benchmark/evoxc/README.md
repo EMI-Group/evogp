@@ -13,6 +13,9 @@ The current evidence is the post-optimization campaign in `results/final/` (HEAD
 vs the pre-optimization snapshot `530518e`, same window, same harness) plus its
 cold-start and whole-training-run columns; [`FINAL.md`](FINAL.md) is the report of
 record and [`SUMMARY.md`](SUMMARY.md) is the rendered earlier baseline round.
+A second round prices the opt-in `batch` route on a fixed population and inside a
+real `StandardPipeline.step()` loop — records in `results/batch/`, report of record
+[`BATCH.md`](BATCH.md).
 
 ```
 common.py       workload construction (one definition shared by every arm), cell
@@ -37,10 +40,17 @@ training_run.py end-to-end training run: per-generation wall ms + best-fitness
 batch_economics.py batch-route compile economics: per-generation structure
                 signature, merged-graph compile misses and hit rate for `batch`
                 vs `dense` over a real StandardPipeline.step() loop
-results/        the evidence: baseline/ (frozen earlier round) and final/ (after/,
+results/        the evidence: baseline/ (frozen earlier round), final/ (after/,
                 before/, decompose/, cold/, training/, validation.json, RENDERED.md)
-FINAL.md        report of record for the post-optimization campaign (tables, gate,
-                reproduce commands)
+                and batch/ (warm-r5, small-r5, flat-r5, flat1000-r5, flat1000-3w-r5,
+                <cell>/<route>.json, economics.json, validation-*.json,
+                RENDERED-*.md; plus the --reps 3 pilot dirs warm/, small/, flat/,
+                flat1000/)
+FINAL.md        report of record for the post-optimization dense/specialized
+                campaign (tables, gate, reproduce commands)
+BATCH.md        report of record for the batch route round (warm per-call and
+                gp_step tables, compile economics and break-even, the one winning
+                regime, validation, gates, reproduce commands)
 SUMMARY.md      rendered report of the earlier baseline round
 VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreement
 ```
@@ -72,7 +82,8 @@ through `evoxc.batch_functions`): instead of one graph per population *shape*
 per population**, keyed on the multiset of tree structures. The `auto` policy
 resolves to `dense` or `specialized` only, never to this route, so both arms pin the
 mode; iree is the backend and numpy the fallback, exactly as on the dense route.
-Neither arm is a performance claim — see
+Neither arm is a default-route claim (`auto` never resolves to `batch`); the measured verdict is in
+[`BATCH.md`](BATCH.md) and
 [Batch route: compile economics](#batch-route-compile-economics-batch_economicspy).
 
 Its knobs are all `EVOGP_BATCH_*`, single-sourced in `common.BATCH_KNOBS` and
@@ -159,12 +170,12 @@ at `N` = 1024 rows, plus an `N` = 64 column at tree_len 64 / input_len 32 — 20
   `batch_plan_misses` is the plan table (re-decode + re-trace + re-merge, no compile);
   `batch_cache.stats_keys` records which of them the route exposes.
   `forest_stats.structure_signature` names the population the graph was keyed on.
-* **The batch arms are in the full `--arms all` schedule on every cell, and have no
-  scope rule yet.** `campaign.SCOPE` covers `evoxc-specialized-iree` only: nobody has
-  measured the merged-graph compile on this box, so excluding cells now would be an
-  unfounded guess (and a wrong exclusion silently hides the route's real cost) —
-  the first round must decide the scoping from the `first_call_ms` and
-  `batch_compile_misses_first_call` it records. `--timeout` (default 1800 s per
+* **The batch arms have no `campaign.SCOPE` rule**: `campaign.SCOPE` covers
+  `evoxc-specialized-iree` only, and the batch round scheduled its cells explicitly
+  instead. The compile it measured is 2.2–2.9 s per workload at pop 64, 9.9–12.2 s
+  at pop 256 and 91–169 s at pop 1000 (plus 102.7 s for a flat, K=1 merge at pop
+  1000), i.e. exactly the numbers a scoping rule would be built from — see
+  [`BATCH.md`](BATCH.md) §6. `--timeout` (default 1800 s per
   config) bounds a runaway config, and a batch-arm config that exceeds it is
   recorded as `status: "timeout"` with its worker log as evidence, never retried
   away as a defect.
@@ -229,13 +240,12 @@ $PY training_run.py --arm preopt --tree-root /tmp/evogp_preopt --out results/fin
 EVOGP_EVOXC_ARTIFACT_DIR=$TMPDIR/evogp_training_art $PY training_run.py --arm engine --note "artifact cache cold (populates the dir)" --out results/final/training/engine-artifact-cold.json
 EVOGP_EVOXC_ARTIFACT_DIR=$TMPDIR/evogp_training_art $PY training_run.py --arm engine --note "artifact cache warm reload" --out results/final/training/engine-artifact-warm.json
 
-# 4. batch route column (NEW route; the only lines here that run from the REPOSITORY root, so that
-#    --tree-root src is this checkout -- step 5 needs `cd test/benchmark/evoxc` again. Records go to
-#    results/batch/ (and results/batch-flat/ for the flat half); nothing under results/final/** is
-#    re-rendered or rewritten by them)
-python3 test/benchmark/evoxc/batch_economics.py --dry-run --routes batch,dense,batch-flat
-$PY test/benchmark/evoxc/batch_economics.py --tree-root src --routes batch,dense
-$PY test/benchmark/evoxc/batch_economics.py --tree-root src --cells p1000-L32-i8-N1024,p1000-L64-i32-N1024 --routes batch,batch-flat --out-dir results/batch-flat
+# 4. batch route round (records go to results/batch/**; nothing under results/final/** or
+#    results/baseline/** is re-rendered or rewritten by them). The full command list -- economics,
+#    the large-cell and small-cell campaigns, the banded-vs-flat comparison, the two validation
+#    sweeps, the gates and the renders -- is BATCH.md §10; the economics half is:
+python3 batch_economics.py --dry-run --routes batch,dense,batch-flat
+$PY batch_economics.py --cells p256-L32-i8-N1024,p256-L64-i32-N1024,p1000-L32-i8-N1024,p1000-L64-i32-N1024 --routes batch,dense --generations 8 --warmup 2 --reps 5 --out-dir results/batch
 
 # 5. render + gate (one side at a time: the cold/training records use another schema)
 $PY summarize.py --results results/final/after --out /tmp/after.md
@@ -356,8 +366,23 @@ Like every other timed column it wants an idle GPU and one config at a time; a
 config that overruns `--timeout` (default 3600 s) is recorded as `timeout` with its
 log as evidence.
 
-The three commands are in [Commands of record](#commands-of-record) below (dry run,
-the default `batch,dense` column, and the `batch-flat` comparison at pop 1000).
+The batched commands are in [Commands of record](#commands-of-record) below (dry run, plus the
+default `batch,dense` column) and, in full, in [`BATCH.md`](BATCH.md) §10.
+
+**Measured verdict (see [`BATCH.md`](BATCH.md) for the tables).** On a real generation loop the
+question is answered against the route: the merged-graph cache hits only generation 1 (which re-evaluates
+the population the timed first call already compiled), so generations 2..G recompile — hit rate 1/8 at
+pop 256 and 1/4 at pop 1000, 99.4–99.7 % of generation wall time inside the recompiling generations,
+a median cold eval of 5.7–18.2 s against a warm 2.0–6.3 s. With `EVOGP_BATCH_CACHE_SIZE = 8` a pop-256
+population already spans ~7–8 exec entries, so consecutive generations evict each other by construction.
+Consequently the route is **dominated by the shipped `dense+iree` route at every pop ≥ 64**: 0.37–0.995×
+dense's warm `sr_fitness`, a 10.9–12.2 s (pop 256) / 91–169 s (pop 1000) merged compile against dense's
+3.4–6.5 s, and a `gp_step` 193–2355× slower than dense (5.36 vs 3446.20 ms at p256-L32, 12.35 vs
+17524.31 ms at p1000-L64). It beats `specialized+numpy` warm by 8.7–29.6× but `auto` never selects it.
+Its one win is a **fixed** population of ~64 trees over few data rows — p64-L64-i32-N64: 0.979 ms vs
+dense's 1.410 ms, cold 2.17 s vs 6.18 s — a per-call win that a generation loop still loses.
+The loss and per-row paths match the oracle to ~1e-7 rel; `batch_forward` on the arithmetic set is
+non-bitwise where dense is exact, which is why the batch arms form their own digest group.
 
 ## Report and gate (`summarize.py` / `check.py`)
 
@@ -368,7 +393,9 @@ Every table cell is a field of a record; a missing record or a contaminated guar
 stays visible instead of being averaged away.
 The final campaign's three renders (after, before, and the after-vs-before compare)
 are stored as plain text in `results/final/RENDERED.md`; the report of record that
-interprets them is [`FINAL.md`](FINAL.md).
+interprets them is [`FINAL.md`](FINAL.md). The batch round's renders are
+`results/batch/RENDERED-warm-r5.md`, `RENDERED-small-r5.md`, `RENDERED-flat-r5.md`
+and `RENDERED-flat1000-3w-r5.md`; [`BATCH.md`](BATCH.md) interprets them.
 
 A batch arm is rendered by the same rules as any other evoxc arm, with two
 additions: its `routes[...]` carries `kind: "batch"`, so the `auto route` column
