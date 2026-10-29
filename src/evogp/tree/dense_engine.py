@@ -43,6 +43,11 @@ fitness returns a fresh writable ``(pop_size,)`` positive-loss tensor).
 
 Strategy switch: ``EVOGP_EVAL_MODE``
 ------------------------------------
+This module is the ONE route dispatcher for the library's three evaluation
+engines: ``specialized`` (:mod:`evogp.tree.evoxc_engine`, one graph per tree
+structure), ``dense`` (this module, one all-ops graph per shape signature) and
+``batch`` (:mod:`evogp.tree.batch_engine`, ONE merged graph for the whole
+population -- opt-in only, see its bullet below).
 One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
 ``evoxc_engine._resolve_backend``), case-insensitive, default ``auto``:
 
@@ -86,6 +91,16 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
 ``specialized``
     never use dense; the specialized engine only, on the explicitly named (or
     engine-default) backend.
+``batch``
+    always attempt the OPT-IN batch route
+    (:func:`evogp.tree.batch_engine.evaluate_batch` /
+    :func:`evogp.tree.batch_engine.sr_fitness_batch`, ONE merged evoxc graph for
+    the whole population), falling back on
+    :class:`evogp.tree.batch_engine.BatchUnsupported`.  ``auto`` NEVER selects
+    this engine, so it exists only behind an explicit
+    ``EVOGP_EVAL_MODE=batch``; with no explicit backend it runs ``iree`` on a
+    device box and ``numpy`` elsewhere, and its fallback is always
+    specialized+``numpy`` (a per-tree iree compile can never amortize).
 
 Any other value raises ``ValueError`` naming the variable.  The dense-specific
 knobs below stay as they are.
@@ -395,6 +410,7 @@ __all__ = [
     "DenseUnsupported",
     "EVAL_MODES",
     "EVAL_MODE_ENV",
+    "ENGINES",
     "FULL_FUNC_IDS",
     "HOST_MEMO_ENV",
     "MAX_TREE_LEN_ENV",
@@ -432,10 +448,10 @@ __all__ = [
 # configuration
 # ---------------------------------------------------------------------------
 
-#: Master switch (``EVOGP_EVAL_MODE``): ``dense`` / ``specialized`` / ``auto``.
-#: The ONE policy knob; :func:`resolve_eval_mode` / :func:`resolve_route` read it
-#: per call, exactly like ``evoxc_engine._resolve_backend`` reads the backend
-#: variable.
+#: Master switch (``EVOGP_EVAL_MODE``): ``dense`` / ``specialized`` / ``batch`` /
+#: ``auto``.  The ONE policy knob; :func:`resolve_eval_mode` /
+#: :func:`resolve_route` read it per call, exactly like
+#: ``evoxc_engine._resolve_backend`` reads the backend variable.
 EVAL_MODE_ENV = "EVOGP_EVAL_MODE"
 #: Population-size threshold of the ``auto`` policy
 #: (``EVOGP_DENSE_AUTO_MIN_POP``): dense+iree from here up on a device box,
@@ -459,8 +475,15 @@ UPDATE_MODE_ENV = "EVOGP_DENSE_UPDATE_MODE"
 #: Explicit opt-in for ``scatter`` on IREE, where evoxc's scatter mutates its input.
 ALLOW_UNSAFE_SCATTER_ENV = "EVOGP_DENSE_ALLOW_UNSAFE_SCATTER"
 
-EVAL_MODES = ("dense", "specialized", "auto")
+#: Canonical ``EVOGP_EVAL_MODE`` spellings; ``auto`` stays LAST.  ``batch`` is the
+#: opt-in third engine (:mod:`evogp.tree.batch_engine`) and is never produced by
+#: the ``auto`` policy -- see :func:`resolve_route`.
+EVAL_MODES = ("dense", "specialized", "batch", "auto")
 DEFAULT_EVAL_MODE = "auto"
+#: The three evaluation engines a :class:`Route` can name: ``specialized``
+#: (one graph per tree structure), ``dense`` (one all-ops graph per shape) and
+#: ``batch`` (one merged graph for the whole population, opt-in only).
+ENGINES = ("specialized", "dense", "batch")
 #: Accepted ALIASES of the canonical :data:`EVAL_MODES`, resolved by
 #: :func:`resolve_eval_mode` after case folding/trimming and before validation
 #: (so ``EVOGP_EVAL_MODE=dynamic`` and ``eval_mode="dynamic"`` behave exactly
@@ -672,6 +695,8 @@ def resolve_eval_mode(value: Optional[str] = None) -> str:
             f"{list(EVAL_MODES)} (plus the aliases {aliases}) (set "
             f"{EVAL_MODE_ENV!r} or pass eval_mode=); 'dense' (alias 'dynamic') = "
             "always try the dense evaluator and fall back on DenseUnsupported, "
+            "'batch' = always try the opt-in merged-graph (batch) evaluator and "
+            "fall back on BatchUnsupported, "
             "'specialized' = never use it, 'auto' = the measured policy"
         )
     return mode
@@ -779,20 +804,64 @@ def device_available() -> bool:
 
 @dataclass(frozen=True)
 class Route:
-    """The route policy's decision for one call.
+    """The route policy's decision for one call: which ENGINE, on which backend.
 
+    ``engine`` names one of the three evaluation engines (:data:`ENGINES`):
+    ``"dense"`` -> :func:`evaluate_dense` / :func:`sr_fitness_dense`,
+    ``"batch"`` -> :func:`evogp.tree.batch_engine.evaluate_batch` /
+    ``sr_fitness_batch`` (opt-in only), ``"specialized"`` ->
+    :func:`evoxc_engine.decode_population` + ``evaluate`` / ``sr_fitness``.
     ``backend`` is always a concrete backend NAME (``"numpy"`` / ``"iree"``) that
-    the call site passes explicitly to :func:`evaluate_dense` /
-    :func:`sr_fitness_dense` (when ``use_dense``) or to
-    :func:`evoxc_engine.evaluate` / :func:`evoxc_engine.sr_fitness` (``backend``,
-    or ``fallback_backend`` after a :class:`DenseUnsupported`), so the route -- not
-    an ambient environment variable -- decides where a call runs.
+    the call site passes explicitly to the engine it picked, so the route -- not
+    an ambient environment variable -- decides where a call runs;
+    ``fallback_backend`` is what the call site continues on after that engine's
+    decline (:class:`DenseUnsupported` / :class:`BatchUnsupported`).
+    ``compare=False`` on ``engine`` is deliberate: for the two engines the policy
+    had before the opt-in batch route it is a *derived* view of ``use_dense``, so
+    every ``Route`` equality check written against the old three-field record
+    keeps its meaning.
     """
 
     use_dense: bool
     backend: str
     fallback_backend: str
     reason: str = ""
+    engine: str = field(default="specialized", compare=False)
+
+    def __post_init__(self):
+        """Keep ``engine`` and ``use_dense`` consistent (the class invariant).
+
+        ``use_dense == (engine == "dense")`` holds for every instance: an
+        old-style ``Route(True, ...)`` (no ``engine`` given) is promoted to
+        ``engine="dense"``, an explicit ``engine="dense"`` with
+        ``use_dense=False`` raises ``ValueError`` (as does ``engine="batch"``
+        with ``use_dense=True``), and an unknown engine name is rejected.
+        """
+        engine = str(self.engine)
+        if engine not in ENGINES:
+            raise ValueError(f"Route.engine={engine!r} is not one of {list(ENGINES)}")
+        if engine == "batch":
+            if self.use_dense:
+                raise ValueError(
+                    "Route(use_dense=True, engine='batch') is inconsistent: the "
+                    "batch route owns the whole population, so use_dense must be False"
+                )
+            return
+        if engine == "dense":
+            if not self.use_dense:
+                raise ValueError(
+                    "Route(use_dense=False, engine='dense') is inconsistent: "
+                    "engine='dense' requires use_dense=True"
+                )
+            return
+        # engine == "specialized": a caller that only set ``use_dense`` means dense.
+        if self.use_dense:
+            object.__setattr__(self, "engine", "dense")
+
+    @property
+    def use_batch(self) -> bool:
+        """Whether the call site should attempt the opt-in batch route."""
+        return self.engine == "batch"
 
 
 def resolve_route(
@@ -805,12 +874,12 @@ def resolve_route(
     auto_min_pop: Optional[int] = None,
     auto_max_rows: Optional[int] = None,
 ) -> Route:
-    """The ONE route policy: dense or specialized, and on which backend.
+    """The ONE route policy: which engine (dense / batch / specialized), and on which backend.
 
     Every wired call site (:meth:`evogp.tree.Forest.forward` /
     ``Forest.batch_forward`` / ``Forest.SR_fitness``, :meth:`evogp.tree.Tree.forward`
     / ``Tree.SR_fitness``) asks this, so the policy exists exactly once;
-    :func:`should_use_dense` is the boolean view of the same decision.
+    :func:`should_use_dense` is the boolean view of the dense half of it.
     ``pop_size`` is the population about to be evaluated (``1`` for a ``Tree``).
 
     Precedence: an explicitly provided backend (the ``backend=`` argument or a
@@ -822,6 +891,12 @@ def resolve_route(
     * ``dense`` -> always attempt dense; with no explicit backend it uses the
       device backend on a device box (a user forcing dense wants the fast dense
       route) and ``numpy`` elsewhere.
+    * ``batch`` -> always attempt the OPT-IN batch route
+      (:mod:`evogp.tree.batch_engine`, ONE merged graph for the whole
+      population): the explicitly named backend, else ``iree`` on a device box and
+      ``numpy`` elsewhere, with a specialized+``numpy`` fallback either way.  No
+      ``pop_size``/``rows`` gate here -- the batch engine declines a small
+      population itself (``EVOGP_BATCH_MIN_POP``) with a ``BatchUnsupported``.
     * ``auto`` with an explicit backend -> the historical rule: dense iff that
       backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
       *and* ``rows`` (when given) is inside ``EVOGP_DENSE_AUTO_MAX_ROWS``.
@@ -830,6 +905,8 @@ def resolve_route(
       available, and ``numpy`` for the specialized route -- below the threshold,
       with no device, and after a :class:`DenseUnsupported` (a per-tree iree
       compile costs 271-284 ms/tree and can never amortize).
+    ``auto`` NEVER selects the batch engine: that half of the policy is exactly
+    the dense / specialized rule above.
     """
     mode = resolve_eval_mode(eval_mode)
     explicit = str(backend).strip() if backend else os.environ.get(BACKEND_ENV, "").strip()
@@ -838,6 +915,38 @@ def resolve_route(
         name = resolve_backend_name(backend, iree_device_index)
         return Route(False, name, name, "EVOGP_EVAL_MODE=specialized: specialized engine only")
 
+    if mode == "batch":
+        # Opt-in third engine: no pop/rows gate (the batch engine declines a small
+        # population itself), and a per-tree iree compile can never amortize, so the
+        # fallback is always specialized+numpy.
+        if explicit:
+            name = resolve_backend_name(backend, iree_device_index)
+            return Route(
+                False,
+                name,
+                name,
+                "EVOGP_EVAL_MODE=batch: always attempt the batch (merged-graph) "
+                f"evaluator on the explicit {name!r} backend",
+                engine="batch",
+            )
+        if device_available():
+            return Route(
+                False,
+                "iree",
+                "numpy",
+                "EVOGP_EVAL_MODE=batch: always attempt the batch (merged-graph) "
+                "evaluator on iree (device available); the fallback is specialized "
+                "on numpy (a per-tree iree compile cannot amortize)",
+                engine="batch",
+            )
+        return Route(
+            False,
+            "numpy",
+            "numpy",
+            "EVOGP_EVAL_MODE=batch: always attempt the batch (merged-graph) "
+            "evaluator on numpy (no CUDA/HIP device usable from torch)",
+            engine="batch",
+        )
     if mode == "dense":
         name = (
             resolve_backend_name(backend, iree_device_index)
@@ -918,11 +1027,14 @@ def should_use_dense(
 ) -> bool:
     """The ONE policy decision: try the dense evaluator for this population?
 
-    The boolean view of :func:`resolve_route` (it delegates, so the rule exists
-    exactly once): ``True`` means the call site attempts the dense evaluator with
-    ``resolve_route(...).backend`` and, on :class:`DenseUnsupported`, continues on
-    the specialized engine with ``resolve_route(...).fallback_backend``.
-    ``pop_size`` is the population about to be evaluated (``1`` for a ``Tree``).
+    The boolean view of the dense half of :func:`resolve_route` (it delegates, so
+    the rule exists exactly once): ``True`` means the call site attempts the dense
+    evaluator with ``resolve_route(...).backend`` and, on
+    :class:`DenseUnsupported`, continues on the specialized engine with
+    ``resolve_route(...).fallback_backend``.  It is ``False`` for the ``batch``
+    engine as well (that route is reported by ``Route.engine``, never by this
+    flag).  ``pop_size`` is the population about to be evaluated (``1`` for a
+    ``Tree``).
     """
     return resolve_route(
         pop_size,

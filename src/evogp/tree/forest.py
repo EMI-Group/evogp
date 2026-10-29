@@ -5,7 +5,7 @@ import numpy as np
 from .utils import *
 from .tree import Tree
 from .descriptor import GenerateDescriptor
-from . import dense_engine, evoxc_engine, generation, splicing
+from . import batch_engine, dense_engine, evoxc_engine, generation, splicing
 
 
 class Forest:
@@ -107,15 +107,27 @@ class Forest:
             self.input_len,
         ), f"x shape should be ({self.pop_size}, {self.input_len}), but got {x.shape}"
 
-        # The route policy (``dense_engine.resolve_route``) decides whether the whole
-        # population is evaluated by ONE dense evoxc graph or per tree structure, and
-        # on which backend; see dense_engine's module docstring for the policy.  A
-        # population the dense evaluator cannot handle raises DenseUnsupported and is
-        # evaluated by the specialized path below, on the route's fallback backend
-        # (the fallback is deliberate and only covers that one exception type).
+        # The route policy (``dense_engine.resolve_route``) decides the engine (dense /
+        # batch / specialized) and the backend; see dense_engine's module docstring.
+        # A decline falls back below, deliberately covering only that engine's own
+        # exception type.
         route = dense_engine.resolve_route(self.pop_size)
         backend = route.backend
-        if route.use_dense:
+        if route.engine == "batch":
+            try:
+                return batch_engine.evaluate_batch(
+                    self.batch_node_value,
+                    self.batch_node_type,
+                    self.batch_subtree_size,
+                    self.input_len,
+                    self.output_len,
+                    x,
+                    per_row=True,
+                    backend=backend,
+                )
+            except batch_engine.BatchUnsupported:
+                backend = route.fallback_backend
+        elif route.engine == "dense":
             try:
                 return dense_engine.evaluate_dense(
                     self.batch_node_value,
@@ -150,7 +162,21 @@ class Forest:
         # Route decision / fallback as in ``forward`` (per_row=False here).
         route = dense_engine.resolve_route(self.pop_size)
         backend = route.backend
-        if route.use_dense:
+        if route.engine == "batch":
+            try:
+                return batch_engine.evaluate_batch(
+                    self.batch_node_value,
+                    self.batch_node_type,
+                    self.batch_subtree_size,
+                    self.input_len,
+                    self.output_len,
+                    x,
+                    per_row=False,
+                    backend=backend,
+                )
+            except batch_engine.BatchUnsupported:
+                backend = route.fallback_backend
+        elif route.engine == "dense":
             try:
                 return dense_engine.evaluate_dense(
                     self.batch_node_value,
@@ -339,11 +365,26 @@ class Forest:
         ], f"execute_mode should be one of ['torch', 'hybrid parallel', 'data parallel', 'tree parallel', 'auto'], but got {execute_mode}"
 
         # Route decision / fallback as in ``forward``: the loss is computed from the
-        # dense prediction with the very same torch reduction, so the returned
-        # tensor is fresh, writable and positive (the caller negates it).
+        # dense/batch prediction with the same reduction, so the returned tensor is
+        # fresh, writable and positive (the caller negates it).
         route = dense_engine.resolve_route(self.pop_size)
         backend = route.backend
-        if route.use_dense:
+        if route.engine == "batch":
+            try:
+                return batch_engine.sr_fitness_batch(
+                    self.batch_node_value,
+                    self.batch_node_type,
+                    self.batch_subtree_size,
+                    self.input_len,
+                    self.output_len,
+                    inputs,
+                    labels,
+                    use_MSE=use_MSE,
+                    backend=backend,
+                )
+            except batch_engine.BatchUnsupported:
+                backend = route.fallback_backend
+        elif route.engine == "dense":
             try:
                 return dense_engine.sr_fitness_dense(
                     self.batch_node_value,

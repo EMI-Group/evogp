@@ -5,7 +5,7 @@ import sympy as sp
 
 from .utils import *
 from .descriptor import GenerateDescriptor
-from . import dense_engine, evoxc_engine
+from . import batch_engine, dense_engine, evoxc_engine
 
 
 def _comparison_as_value(res):
@@ -75,14 +75,27 @@ class Tree:
             x.shape[1] == self.input_len
         ), f"x shape should be {self.input_len}, but got {x.shape[1]}"
 
-        # The route policy decides between the dense (one graph for the whole
-        # population) and the specialized (one graph per tree) engine, and on which
+        # The route policy decides the engine (dense / batch / specialized) and the
         # backend; a single tree is a population of one, so under the default ``auto``
-        # route it never starts a per-tree iree compile.  DenseUnsupported falls back
-        # below on the route's fallback backend.
+        # route it never starts a per-tree iree compile.  A decline falls back below,
+        # deliberately covering only that engine's own exception type.
         route = dense_engine.resolve_route(1)
         backend = route.backend
-        if route.use_dense:
+        if route.engine == "batch":
+            try:
+                return batch_engine.evaluate_batch(
+                    self.node_value.unsqueeze(0),
+                    self.node_type.unsqueeze(0),
+                    self.subtree_size.unsqueeze(0),
+                    self.input_len,
+                    self.output_len,
+                    x,
+                    per_row=is_expand_input,
+                    backend=backend,
+                )[0]
+            except batch_engine.BatchUnsupported:
+                backend = route.fallback_backend
+        elif route.engine == "dense":
             try:
                 res = dense_engine.evaluate_dense(
                     self.node_value.unsqueeze(0),
@@ -149,7 +162,22 @@ class Tree:
         # tree, i.e. pop_size == 1).
         route = dense_engine.resolve_route(1)
         backend = route.backend
-        if route.use_dense:
+        if route.engine == "batch":
+            try:
+                return batch_engine.sr_fitness_batch(
+                    self.node_value[None, :],
+                    self.node_type[None, :],
+                    self.subtree_size[None, :],
+                    self.input_len,
+                    self.output_len,
+                    inputs,
+                    labels,
+                    use_MSE=use_MSE,
+                    backend=backend,
+                )
+            except batch_engine.BatchUnsupported:
+                backend = route.fallback_backend
+        elif route.engine == "dense":
             try:
                 return dense_engine.sr_fitness_dense(
                     self.node_value[None, :],
