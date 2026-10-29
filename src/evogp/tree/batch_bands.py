@@ -12,7 +12,7 @@ unloadable on another:
 * the evoxc reference interpreter (``numpy``) and the Vulkan HAL are UNCAPPED.
 
 The practical consequence -- why this module exists -- is that the band-SIZE model
-(``EVOGP_BATCH_BAND_SIZE=32``, ``K = ceil(n / 32)``) reaches ``K = 32`` at a pop-1000
+(``EVOGP_BATCH_BAND_SIZE=16``, ``K = ceil(n / 16)``) reaches ``K = 63`` at a pop-1000
 population, which provably cannot load on a GPU HAL.  So this module answers two
 questions for :mod:`evogp.tree.batch_programs`: what to ASK evoxc for
 (:func:`plan_band_spec` / :func:`resolve_band_plan` -- flat, an explicit ``K``, the
