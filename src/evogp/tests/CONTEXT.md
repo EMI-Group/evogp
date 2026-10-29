@@ -49,7 +49,7 @@ The box has torch 2.13.0+rocm7.1 and one shared AMD MI300X (gfx942, ROCm 7.1, ja
 - On a venv WITH jax installed only the mujoco construction smoke skips; both mujoco tests skipping here is that documented third-party environment boundary, not a port regression.
 - Fast subset (skips the heavy differential file): append `--ignore=src/evogp/tests/test_equivalence.py` → **802 passed, 5 skipped in ~48 s**; `test_equivalence.py` is ~189 tests (~61 s) and dominates the full run.
 - Forced-mode runs are done on SUBSETS (append `-k "forward or fitness"`, or name single files): do NOT run the FULL suite forced-dense, the dense numpy graphs OOM at the 64-node cap.
-  The three batch modules are mode-INDEPENDENT — each test sets the mode it needs, so they pass under `EVOGP_EVAL_MODE=dense`/`=batch` as well (measured: 537 passed / 1 skipped across `test_batch_engine.py` + `test_batch_route.py` + `test_batch_knobs.py` + `test_route_policy.py` + `test_dense_policy.py` under `EVOGP_EVAL_MODE=batch`).
+  The three batch modules are mode-INDEPENDENT — each test sets the mode it needs, so they pass under `EVOGP_EVAL_MODE=dense`/`=batch` as well (measured: 543 passed / 0 skipped across `test_batch_engine.py` + `test_batch_route.py` + `test_batch_knobs.py` + `test_route_policy.py` + `test_dense_policy.py` under `EVOGP_EVAL_MODE=batch`).
 - Golden cross-checks only: append `-k golden` (6 tests) → **6 passed in 9.45 s** (2 warnings, both the documented RNG-dependent legacy-capture skips: `forest_random.npz` regeneration and the training trajectory).
 - Single file: replace the path (`-x` stops at the first failure).
 - Write-free run (worktree stays clean): add `-p no:cacheprovider` and `PYTHONDONTWRITEBYTECODE=1`.
