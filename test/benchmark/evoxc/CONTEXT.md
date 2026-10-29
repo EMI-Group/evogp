@@ -3,6 +3,7 @@
 ## Intent
 Answer one question with evidence: what does the evoxc-based EvoGP engine cost per evaluation compared with the plain-PyTorch implementation of the same tree evaluation, on identical populations, in the same session, warm/steady-state.
 The final campaign widens that question to the post-optimization tree: HEAD against the pre-optimization snapshot `530518e` measured in one window, plus a cold-start column and whole-training-run columns; `FINAL.md` is the report of record.
+A second round prices the opt-in `batch` route (`EVOGP_EVAL_MODE=batch`, one merged graph per population structure multiset) against the same arms, on a fixed population and inside a real `StandardPipeline.step()` loop; `BATCH.md` is its report of record.
 It is the "new engine vs old torch version" counterpart to `../r4/`/`../r5/`/`../r6/`, which compare the evoxc engine against the deleted legacy CUDA engine; those rounds are frozen history and are never edited from here.
 Every arm is validated numerically against `src/evogp/tests/reference_eval.py` before its timings are trusted (`VALIDATION.md`), and every record states the environment, the route that actually resolved, and the cold compile it paid.
 
