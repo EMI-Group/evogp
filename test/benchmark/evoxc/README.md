@@ -99,6 +99,7 @@ resolver > the documented default (`batch_policy.knobs_source` says which applie
 | `EVOGP_BATCH_ALIGNMENT` | `variant` | band variants are aligned before the merge instead of being padded per call |
 | `EVOGP_BATCH_CACHE_SIZE` | unset (engine default) | the merged-graph cache size; the harness records the resolved value and never sets it |
 | `EVOGP_BATCH_MIN_POP` | `64` | population floor: below it one merged graph cannot amortize its build, so the route declines to `specialized` (the record's `routes.*.decline_reason` carries the sentence) |
+| `EVOGP_BATCH_COMPILE_WORKERS` | `default` | the compiled-graph pool width: how many chunk compiles of the merged graph may run at once (the route default is on, 4 workers; `0`/`1` is the old single-executable path). It moves the route's **cold** cost, so it is swept with `batch_economics.py --knob EVOGP_BATCH_COMPILE_WORKERS=N` rather than with one arm per value, and the record reads the resolved width and its source |
 
 An arm spec may carry a `knobs` mapping (`{env var: value}`) beyond the two route
 selectors; `-flat` is exactly `{"EVOGP_BATCH_BANDS": "flat"}` and
@@ -420,6 +421,17 @@ unaffordable compile is never started to discover that.
 Like every other timed column it wants an idle GPU and one config at a time; a
 config that overruns `--timeout` (default 3600 s) is recorded as `timeout` with its
 log as evidence.
+
+A route knob is swept with `--knob NAME=VALUE`, not by registering an arm per value.
+`--knob` is repeatable, its names are validated against `common.ROUTE_ENV_VARS` (the
+`EVOGP_BATCH_*` set plus `EVOGP_DENSE_MAX_TREE_LEN`; an unregistered name or an empty
+value is a usage error), and the value is applied **after** `arms.apply_arm_env` cleared
+the route variables and wrote the arm's own spec, and **before** the policy is recorded
+— so `batch_policy`, `env.applied_knobs` and the record's own `knobs_override` all carry
+the value the engine really read. Exporting the variable is not the way: the arm spec
+clears it first. That is how the compiled-graph pool is swept —
+`EVOGP_BATCH_COMPILE_WORKERS=1`, `4` and `8` as three runs of one cell, one process per
+value because the knob is per process — and it needs no new arm.
 
 The batched commands are in [Commands of record](#commands-of-record) below (dry run, plus the
 default `batch,dense` column) and, in full, in [`BATCH.md`](BATCH.md) §10.

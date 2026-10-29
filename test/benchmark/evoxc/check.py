@@ -23,6 +23,13 @@ protocol cannot slip into a table.  It verifies:
   ``batch_exec_misses``, is a ``WARN`` -- one merged graph per population legitimately
   costs seconds to minutes to compile, so its magnitude is the measurement itself
   and is never bounded here;
+* the batch route's per-stage blocks (``stages.py``) are self-consistent: a
+  ``stage_ms``/``stage_totals`` block that says ``available: true`` while every stage
+  counter is null, a block that says ``available: false`` while counters carry numbers,
+  or a ``summary.compile_share`` without its ``available`` flag is a ``WARN``.  This is
+  a consistency check on what the record claims, never a bound on the numbers (which
+  are the measurement's business), and it stays silent for every record that carries
+  no stage keys -- every frozen record, and every torch/dense/specialized arm;
 * digest agreement: all arms of one cell share one ``batch_forward`` and one
   ``forward`` sha256, and every workload's ``nan``/``finite`` counts agree across
   arms (``--allow-digest-mismatch`` downgrades the sha256 half to a warning);
@@ -74,6 +81,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import common  # noqa: E402
+import stages  # noqa: E402
 
 #: frozen record schema (``common.SCHEMA``; spelled out so a schema edit here is a
 #: deliberate act rather than a silent follow)
@@ -87,6 +95,13 @@ MEDIAN_RTOL = 1e-6
 #: The batch route's exec-table counter (``common.BATCH_EXEC_MISS_KEY``): the one whose
 #: miss really recompiles, so a record's ``batch_cache.stats_keys`` should carry it.
 BATCH_EXEC_MISS_KEY = common.BATCH_EXEC_MISS_KEY
+#: ``stages.py`` owns the per-stage vocabulary: a stage block carries either the counter
+#: keys (``batch_<stage>_{calls,total_ms,max_ms}`` plus the compile pool's two) with an
+#: ``available`` flag, or -- for ``summary.compile_share`` -- a ``share`` next to the
+#: compile stage's and the loop's own ms.  Read off ``stages`` so the names are never
+#: spelled out twice.
+STAGE_COUNTER_KEYS = stages.COUNTER_KEYS
+COMPILE_SHARE_KEYS = ("share", "compile_ms", "loop_ms")
 
 
 class Checker:
@@ -381,6 +396,72 @@ def check_batch(checker: Checker, card: str, record: Dict[str, Any]) -> None:
                      "compile deltas are read off a fallback key or are null")
 
 
+def iter_dicts(node: Any, path: str = ""):
+    """``(path, dict)`` for every object in a record, depth first (the path names it in a WARN)."""
+    if isinstance(node, dict):
+        yield path, node
+        for key, value in node.items():
+            yield from iter_dicts(value, f"{path}.{key}" if path else str(key))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from iter_dicts(value, f"{path}[{index}]")
+
+
+def stage_blocks(record: Dict[str, Any]):
+    """Every per-stage block a record carries: ``(path, block, kind)``, ``kind`` a ``stages.py`` shape.
+
+    The two shapes are the counter block (an ``available`` flag plus ``batch_<stage>_*``
+    counters -- ``batch_cache.stage_totals``, ``gp_step.steps[i].stage_ms``,
+    ``first_call.stage_ms``, ``sr_fitness.stage_ms`` and its ``.first_call``) and the
+    compile-share block (``summary.compile_share``).  A record carrying neither -- every
+    frozen record, and every torch/dense/specialized arm, which record no stage keys at
+    all -- yields nothing, which is what keeps :func:`check_stages` silent there.
+    """
+    for path, block in iter_dicts(record):
+        if "available" in block and any(key in block for key in STAGE_COUNTER_KEYS):
+            yield path, block, "counters"
+        elif all(key in block for key in COMPILE_SHARE_KEYS):
+            yield path, block, "share"
+
+
+def check_stages(checker: Checker, card: str, record: Dict[str, Any]) -> None:
+    """Self-consistency of a batch record's per-stage blocks (``stages.py``); WARN only.
+
+    Modelled on :func:`check_batch`: the split is an OPTIONAL second counter contract, so
+    a tree without ``batch_stage_stats()`` legitimately records ``available: false`` with
+    every counter null -- that is never a failure, and a block's magnitudes are the
+    measurement's business.  What is checked is that a block does not contradict itself:
+
+    * ``available: true`` while every stage counter is null -- "measured" and "nothing
+      measured" in one block;
+    * ``available: false`` while counters carry numbers -- a measurement the block
+      declares it does not have;
+    * a ``compile_share`` block without its boolean ``available`` flag, i.e. a share
+      whose provenance the record does not state.
+
+    Deliberately no ``checker.check`` call: the gate's check count must stay exactly what
+    it was for a directory of frozen records, which carry no stage keys at all.
+    """
+    for path, block, kind in stage_blocks(record):
+        where = f"{card}.{path}" if path else card
+        if kind == "share":
+            if not isinstance(block.get("available"), bool):
+                checker.warn(f"{where}: compile_share carries no boolean 'available' "
+                             f"flag ({block.get('available')!r}) — a share whose provenance "
+                             "the record does not state")
+            continue
+        available = block.get("available")
+        numbers = [key for key in STAGE_COUNTER_KEYS if is_number(block.get(key))]
+        if available is True and not numbers:
+            checker.warn(f"{where}: available is true but every stage counter is null "
+                         f"— the block claims a split it does not carry (null, NOT zero: it "
+                         "should read available: false with a note)")
+        elif available is False and numbers:
+            checker.warn(f"{where}: available is false but {len(numbers)} stage "
+                         f"counter(s) carry numbers ({sorted(numbers)[:3]}...) — the block "
+                         "declares no split while its counters measured one")
+
+
 def check_gp_step(checker: Checker, card: str, record: Dict[str, Any]) -> None:
     block = record.get("gp_step")
     protocol = record.get("protocol") or {}
@@ -549,6 +630,7 @@ def gate_dir(results_dir: str, args) -> Tuple[Checker, Dict[str, Any]]:
             check_cache(checker, card, record)
         if common.is_batch_arm(arm):
             check_batch(checker, card, record)
+            check_stages(checker, card, record)
         check_gp_step(checker, card, record)
 
     # -- cross-arm agreement and guard honesty -------------------------------
