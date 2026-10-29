@@ -25,6 +25,20 @@ population structure multiset, so a multi-second ``first_call_ms`` and a large
 ``compile_misses_first_call`` are the expected cost of the route -- recorded as
 measured, never retried away as a failure.
 
+The per-stage split (``stages.py``: decode, dedup, trace, merge, lower, compile,
+load, upload, run, gather, plus the compile pool's wall time and job count) is a
+SECOND optional contract on the same module.  ``batch_cache.stage_before_workloads``
+/ ``stage_after`` / ``stage_keys`` / ``stage_totals`` window the whole config (what
+the merged-graph compile and the warm calls spent their time on) and every
+``gp_step`` step carries its own ``stage_ms`` delta.  It is getattr-probed like the
+cache counters: a tree without ``batch_engine.batch_stage_stats()`` records
+``available: false`` with EVERY stage counter ``null`` plus a note -- never a
+fabricated ``0``, because "this stage took no time" and "this stage was not
+measured" must never look alike.  ``batch_plan_summary`` also keeps
+``describe_plan``'s ``compile_workers`` / ``chunk_count`` / ``chunk_sizes`` (null
+when the report predates them): the compiled-graph pool width and how the merge was
+split for it.
+
 Two keys answer a question a timing alone cannot. ``batch_plans`` /
 ``batch_plan_summary`` (batch arms) are what the route actually merged -- the row
 dedupe, the band shape and the emitted op count, read off ``BATCH_PLAN_MEMO`` via
@@ -56,6 +70,7 @@ if _HERE not in sys.path:
 
 import common  # noqa: E402
 import arms as arms_mod  # noqa: E402
+import stages  # noqa: E402  (torch-free, evogp-free: the stage vocabulary + derived blocks)
 
 
 class TimedFitness:
@@ -190,6 +205,22 @@ def stats_keys(*snapshots: Any) -> List[str]:
     return []
 
 
+def stage_window_block(before: Any, after: Any) -> Dict[str, Any]:
+    """One before -> after STAGE window: ``stages.delta_block`` plus its compact stage table.
+
+    The block carries ``available``/``stats_fn``/``note`` and every counter key (per-stage
+    ``calls``/``total_ms``/``max_ms``, ``batch_compile_wall_ms``, ``batch_compile_jobs``), then
+    ``stage_ms`` -- ``{stage: total_ms}`` off ``stages.stage_totals`` -- so the split is readable
+    without re-walking the flat keys.  ``max_ms`` is the AFTER snapshot's PROCESS-LIFETIME maximum
+    (a max is not delta-able); ``calls``/``total_ms`` and the two ``batch_compile_*`` counters are
+    after-minus-before.  An absent accessor or a half-read window reads as ``available: false``
+    with every counter ``None`` plus a note -- never a ``0``.
+    """
+    block = stages.delta_block(before, after)
+    block["stage_ms"] = stages.stage_totals(block)
+    return block
+
+
 class BatchStatsProbe:
     """Sample the batch cache the moment ``time_call``'s untimed first call returns.
 
@@ -307,6 +338,10 @@ def dense_route_probe(
     return entry
 
 
+#: The merge-shape fields ``stages.plan_fields`` owns: the compiled-graph pool width
+#: (``EVOGP_BATCH_COMPILE_WORKERS`` as the route resolved it) and how the merge was split
+#: for it.  A ``describe_plan`` report that predates them reads ``None`` (NOT ``0``).
+PLAN_MERGE_SHAPE_KEYS: Tuple[str, ...] = ("compile_workers", "chunk_count", "chunk_sizes")
 #: The ``batch_engine.describe_plan`` fields a ``batch_plan_summary`` keeps per variant:
 #: the merge shape, the row dedupe and the graph I/O, i.e. everything that explains
 #: the merged-graph compile (the per-spec shapes/classes are in ``batch_plans``).
@@ -324,7 +359,7 @@ BATCH_PLAN_SUMMARY_KEYS: Tuple[str, ...] = (
     "per_row",
     "backend",
     "device",
-)
+) + PLAN_MERGE_SHAPE_KEYS
 
 
 def batch_plan_facts(batch_engine_module) -> Dict[str, Any]:
@@ -384,7 +419,11 @@ def batch_plan_facts(batch_engine_module) -> Dict[str, Any]:
         # ``value`` is planned twice in a normal config (batch_forward per_row=False,
         # forward per_row=True), so disambiguate only when the variant is not unique
         key = variant if counts[variant] == 1 else f"{variant}[per_row={int(bool(plan.get('per_row')))}]"
-        facts["summary"][key] = {name: plan.get(name) for name in BATCH_PLAN_SUMMARY_KEYS}
+        entry = {name: plan.get(name) for name in BATCH_PLAN_SUMMARY_KEYS}
+        # the merge-shape fields have ONE resolution (``stages.plan_fields``); a missing one is
+        # ``None`` here, never 0 -- the pool width is part of what the compile cost is priced against
+        entry.update(stages.plan_fields(plan))
+        facts["summary"][key] = entry
     facts["available"] = bool(facts["plans"])
     if not facts["available"] and facts["note"] is None:
         facts["note"] = (
@@ -454,6 +493,8 @@ def main() -> int:
     # reportable state (recorded as null), not a crash.
     batch_stats = None
     batch_engine_module = None
+    stage_stats = None
+    stage_reset = None
     if is_batch:
         try:
             from evogp.tree import batch_engine as _batch_engine_probe
@@ -463,6 +504,10 @@ def main() -> int:
         batch_stats = getattr(_batch_engine_probe, "batch_cache_stats", None)
         if not callable(batch_stats):
             batch_stats = None
+        # the per-stage split is a SECOND optional contract on the same module: resolved here
+        # (getattr-probed, ``None`` when absent) so every block below reads the same accessors
+        stage_stats = stages.stage_stats_fn(_batch_engine_probe)
+        stage_reset = stages.stage_reset_fn(_batch_engine_probe)
 
     import torch
     from evogp.tree import dense_engine, evoxc_engine
@@ -509,6 +554,9 @@ def main() -> int:
     # None-noise is added to the existing record schema.
     if is_batch:
         record["batch_policy"] = batch_policy
+        # the stage window opens here, i.e. before ``make_arm`` and before the first workload:
+        # exactly where ``stats_before_workloads`` is taken, so the two windows are the same span
+        stage_before_workloads = stage_stats() if stage_stats is not None else None
         record["batch_cache"] = {
             "available": batch_stats is not None,
             "stats_before_workloads": batch_stats() if batch_stats is not None else None,
@@ -518,6 +566,12 @@ def main() -> int:
             "compile_misses_total": None,
             "plan_misses_first_call": None,
             "plan_misses_total": None,
+            # the per-stage split (``stages.py``): a second optional counter contract, so its
+            # absence is recorded as ``available: false`` + null counters, never as 0
+            "stage_before_workloads": stage_before_workloads,
+            "stage_after": None,
+            "stage_keys": [],
+            "stage_totals": None,
         }
         record["notes"].append(
             "batch arm: one merged graph per population structure multiset, so a "
@@ -529,6 +583,20 @@ def main() -> int:
                 "batch arm: evogp.tree.batch_engine.batch_cache_stats() is unavailable on "
                 "this tree, so every merged-graph cache counter is null (NOT zero) and "
                 "the compile cost can only be read off first_call_ms"
+            )
+        if stage_stats is None:
+            record["notes"].append(
+                f"batch arm: {stages.STATS_FN_PATH}() is unavailable on this tree, so every "
+                "stage counter in batch_cache.stage_totals / gp_step.steps[].stage_ms is null "
+                "(NOT zero) with available=false: the split was not measured, which is not the "
+                "same as any stage costing nothing -- read the cost off first_call_ms instead"
+            )
+        elif stage_reset is None:
+            record["notes"].append(
+                f"batch arm: {stages.MODULE_NAME}.{stages.RESET_FN_NAME}() is unavailable, so the "
+                "stage counters are cumulative from process start: every block here is a "
+                "before -> after DELTA (never a per-call block), and batch_<stage>_max_ms is a "
+                "process-lifetime maximum"
             )
 
     # -- what the policy resolves for this cell (per workload row count) -----
@@ -628,6 +696,7 @@ def main() -> int:
         for _ in range(args.gp_reps):
             cache_before = evoxc_engine.cache_stats()
             batch_before = batch_stats() if batch_stats is not None else None
+            stage_step_before = stage_stats() if stage_stats is not None else None
             torch.cuda.synchronize()
             start = time.perf_counter()
             pipeline.step()
@@ -635,6 +704,7 @@ def main() -> int:
             total_ms = (time.perf_counter() - start) * 1e3
             cache_after = evoxc_engine.cache_stats()
             batch_after = batch_stats() if batch_stats is not None else None
+            stage_step_after = stage_stats() if stage_stats is not None else None
             step = {
                 "total_ms": round(total_ms, 4),
                 "eval_ms": round(timed.last_ms, 4),
@@ -650,6 +720,10 @@ def main() -> int:
                 # ``batch_plan_misses`` the PLAN table (re-decode/re-trace/re-merge).
                 step["batch_compile_misses"] = batch_miss_delta(batch_before, batch_after)
                 step["batch_plan_misses"] = batch_plan_miss_delta(batch_before, batch_after)
+                # this generation's own per-stage split: the same before -> after bracket as the
+                # two cache counters above, so a recompiling step says WHERE its compile went
+                # (trace/merge vs lower/compile/load) instead of only that it happened
+                step["stage_ms"] = stage_window_block(stage_step_before, stage_step_after)
                 if _has_stat_key(batch_before, batch_after, "memo_hits"):
                     step["batch_memo_hits"] = _stats_delta(batch_before, batch_after, "memo_hits")
             steps.append(step)
@@ -694,6 +768,20 @@ def main() -> int:
         record["batch_cache"]["plan_misses_first_call"] = batch_first_call_plan_misses
         record["batch_cache"]["plan_misses_total"] = batch_plan_miss_delta(
             record["batch_cache"]["stats_before_workloads"], stats_after
+        )
+        # -- the same window for the per-stage split ---------------------------
+        # Where the merged-graph compile and the warm calls actually spent their time,
+        # over exactly the span the cache deltas above describe.  ``available: false``
+        # + null counters when the route ships no ``batch_stage_stats()``.
+        stage_after = stage_stats() if stage_stats is not None else None
+        record["batch_cache"]["stage_after"] = stage_after
+        record["batch_cache"]["stage_keys"] = stats_keys(
+            record["batch_cache"]["stage_before_workloads"], stage_after
+        )
+        record["batch_cache"]["stage_totals"] = (
+            stages.unavailable_block()
+            if stage_stats is None
+            else stage_window_block(record["batch_cache"]["stage_before_workloads"], stage_after)
         )
         # what the route actually MERGED, read off the plan memo (compile-free): the
         # row dedupe and the band shape are what a long-tree population pays its
