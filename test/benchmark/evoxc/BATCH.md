@@ -4,7 +4,7 @@ Verdict in one paragraph: the `EVOGP_EVAL_MODE=batch` route (one merged `evoxc` 
 structure multiset) is **not the best arm anywhere except one narrow corner**, and it is **dominated by
 the shipped `dense` route at every pop ≥ 64 cell we measured**. Warm it is 1.0–2.7× slower than
 `dense+iree` at pop 256–1000 (0.55× / 0.995× / 0.37× / 0.94× of dense's speed) while still being
-18–30× faster than `specialized+numpy`; cold its merged-graph compile is 10.9 s at pop 256 and
+18–30× faster than `specialized+numpy`; cold its merged-graph compile is 10.9–12.2 s at pop 256 and
 91–162 s at pop 1000 against dense's 3.4–6.5 s; and in a real generation loop a crossover/mutation-
 updated population is a **new structure multiset**, so the merged graph is rebuilt almost every
 generation (1 hit in 8 generations, 99.4–99.7 % of generation time inside the compile), which makes
@@ -294,27 +294,36 @@ one population, or a study that holds the population still. A GP loop is never t
 EVOGP_EVOXC_BACKEND=iree`, so the records prove the route was actually taken (`eval_mode: batch`,
 `kind: batch`, `would_use_batch: true`) — not silently declined.
 
-| route | func set | checks vs oracle | non-bitwise | max abs | max rel | NaN/Inf placement mismatches |
-|---|---|---|---|---|---|---|
-| batch/iree | `arith` (`+ - * /`) | 18 | 10 | 2.560e+02 | 1.134e-03 | 0 / 0 |
-| batch/iree | `rich` (transcendental) | 18 | 18 | 1.610e+00 | 1.561e+01 | 0 / 0 (34 932 NaN points) |
-| batch/iree | `ternary` (`if`) | 18 | 8 | 3.125e-02 | 1.991e-04 | 0 / 0 |
-| dense/iree | `arith` | 18 | 6 | 2.560e+02 | 4.793e-07 | 0 / 0 |
-| dense/iree | `rich` | 18 | 18 | 1.610e+00 | 1.561e+01 | 0 / 0 |
-| dense/iree | `ternary` | 18 | 6 | 3.125e-02 | 3.161e-07 | 0 / 0 |
+| route | cell | func set | `sr_fitness` max rel | `batch_forward` abs / rel (bitwise) | `forward` max rel (bitwise) |
+|---|---|---|---|---|---|
+| batch/iree | p256-L32-i8 | `arith` | 4.79e-07 (ref 2.8e9, abs 256) | 1.56e-02 / 1.13e-03 (no) | 1.64e-07 (no) |
+| batch/iree | p256-L32-i8 | `rich` | 1.90e-07 (ref 2.0e4) | 1.346 / 7.65 (no) | 9.80e-08 (no) |
+| batch/iree | p256-L32-i8 | `ternary` | 3.16e-07 (ref 4.3e5) | exact (yes) | exact (yes) |
+| batch/iree | p256-L64-i32 | `arith` | 7.76e-07 (ref 3.0e9, abs 64) | 7.81e-02 / 2.38e-04 (no) | 1.09e-07 (no) |
+| batch/iree | p256-L64-i32 | `rich` | 1.48e-07 (ref 2.9e6) | 1.610 / 15.61 (no) | exact (no) |
+| batch/iree | p256-L64-i32 | `ternary` | 2.54e-07 (ref 7.5e4) | 4.77e-07 / 1.99e-04 (no) | 1.02e-07 (no) |
+| dense/iree | p256-L32-i8 | `arith` | 3.11e-07 (ref 2.8e9, abs 256) | **exact** (yes) | **exact** (yes) |
+| dense/iree | p256-L32-i8 | `rich` | 1.90e-07 (ref 2.0e4) | 1.346 / 7.65 (no) | **exact** (no) |
+| dense/iree | p256-L32-i8 | `ternary` | 3.16e-07 (ref 4.3e5) | **exact** (yes) | **exact** (yes) |
+| dense/iree | p256-L64-i32 | `arith` | 3.43e-07 (ref 3.0e9, abs 32) | **exact** (yes) | **exact** (yes) |
+| dense/iree | p256-L64-i32 | `rich` | 2.95e-07 (ref 2.9e6) | 1.610 / 15.61 (no) | **exact** (no) |
+| dense/iree | p256-L64-i32 | `ternary` | 2.08e-07 (ref 7.5e4) | **exact** (yes) | **exact** (yes) |
 
-- **Agreement is good enough to trust the timings**: the loss (`sr_fitness`) path agrees to 4.8e-07
-  relative at magnitudes up to 2.8e9, and the per-row `forward` path to 1.6e-07 relative — the same
-  order as dense. No NaN/Inf placement difference anywhere.
+- **Agreement is good enough to trust the timings**: the loss (`sr_fitness`) path agrees to 4.8e-07 /
+  7.8e-07 relative at magnitudes up to 3e9 (dense: 3.1e-07 / 3.4e-07 — the same order), and the per-row
+  `forward` path to ≤1.6e-07 relative on both routes. No NaN/Inf **placement** mismatch anywhere in the
+  12 cases (the `rich` spread carries 5813 / 5804 NaN points on both routes identically).
 - **But the batch `batch_forward` value path is not bitwise on `arith`, where dense is.** Deviations:
-  1.5625e-02 abs (1.13e-03 rel, reference magnitude 1.35e6) on p256-L32 and 7.81e-02 abs (2.38e-04 rel)
-  on p256-L64, while dense's own `batch_forward` agrees to 4.8e-07 rel. The absolute error is ~1e-8 of
-  the value scale, but it exceeds the 1e-4 relative tolerance the other routes are held to, so it is an
-  **engine-side precision caveat, not a harness one** (repro:
-  `EVOGP_EVAL_MODE=batch EVOGP_EVOXC_BACKEND=iree $PY test/benchmark/evoxc/validate.py --cells p256-L32-i8-N1024 --func-sets arith`).
+  1.5625e-02 abs (1.13e-03 rel, reference magnitude 1.35e6) on p256-L32 and 7.81e-02 abs (2.38e-04 rel,
+  reference 1.70e6) on p256-L64, while dense's own `batch_forward` is bitwise exact in both cells. The
+  ternary set shows the same shape of split (batch 4.77e-07 abs / 1.99e-04 rel at p256-L64 vs dense
+  exact). The absolute error is ~1e-8 of the value scale, but it exceeds the 1e-4 relative tolerance the
+  other routes are held to on those entries, so it is an **engine-side precision caveat, not a harness
+  one** (repro:
+  `EVOGP_EVAL_MODE=batch EVOGP_EVOXC_BACKEND=iree $PY test/benchmark/evoxc/validate.py --cells p256-L32-i8-N1024,p256-L64-i32-N1024 --func-sets arith,ternary`).
   It is also why the batch arm forms its own sha256 digest group in `check.py`.
-- `rich` is identical for both routes and is the already-documented transcendental spread
-  (`VALIDATION.md`), so it says nothing route-specific here.
+- `rich` is identical for both routes (same abs/rel to the shown digits) and is the already-documented
+  transcendental spread (`VALIDATION.md`), so it says nothing route-specific here.
 
 ## 9. Gates and evidence layout
 
