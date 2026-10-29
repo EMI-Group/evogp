@@ -87,7 +87,7 @@ It trains `SymbolicRegression` on a synthetic 2-input function (`func`/`num_inpu
 It has module-level side effects and NO `if __name__ == "__main__"` guard, so any `import evogp.sr_test` starts a full training run — never import it from tooling.
 
 ## Notes for Agents
-- There is no build step: run everything from the repo root with `PYTHONPATH=src:/root/evoxc` and `/tmp/genesis/task_967a300e3bce7f35/evogp-venv/bin/python`, with `EVOXC_DISABLE_LOCATIONS=1` for speed. `evoxc` must be importable (`import evoxc` in `tree/evoxc_engine.py` and `tree/dense_engine.py`, resolved only through the `/root/evoxc` path segment — there is no stub and no fallback).
+- There is no build step: run everything from the repo root with `PYTHONPATH=src:/root/evoxc` and a torch-carrying task venv (`python` on PATH has none; the concrete interpreter used for this box's measurements is recorded in `tests/CONTEXT.md`), with `EVOXC_DISABLE_LOCATIONS=1` for speed. `evoxc` must be importable (`import evoxc` in `tree/evoxc_engine.py` and `tree/dense_engine.py`, resolved only through the `/root/evoxc` path segment — there is no stub and no fallback).
 - The pytest suite under `tests/` is the regression gate; `tests/goldens/*.npz` are the engine-vs-legacy-kernels golden fixtures and `tests/perf_probe.py` is a standalone build/run economics probe (not pytest).
 - Import order inside `__init__.py` files is load-bearing in `tree/` (`utils` before `descriptor`) and in `problem/` (`.base` first, since siblings do `from . import BaseProblem`).
 - `MAX_STACK` / `MAX_FULL_DEPTH` / `NType` / `Func` are defined only in `tree/utils.py`; function ids are positional across `Func`, `FUNCS_NAMES`, `FUNCS_DISPLAY`, `SYMPY_MAP`, so adding an operator means touching all four.
