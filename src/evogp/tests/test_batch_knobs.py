@@ -41,9 +41,11 @@ Related files (deliberately not duplicated here)
   specialized engine and vs the independent plain-torch oracle, both variants,
   multi-output, NaN/+-inf placement, row expansion) and the band spellings'
   band-count/strategy table at the value level.
-* ``test_dense_policy.py`` / ``test_route_policy.py`` own the public route policy
-  (``EVOGP_EVAL_MODE=batch``, the ``Route`` fields and the engine tables), which
-  this module never consults: neither ``plan_batch`` / ``evaluate_batch`` /
+* ``test_batch_route.py`` owns the PUBLIC-ROUTE wiring (which of the five call
+  sites takes the batch branch, and the ``BatchUnsupported`` fallback), and
+  ``test_dense_policy.py`` / ``test_route_policy.py`` own the route POLICY
+  (``EVOGP_EVAL_MODE=batch``, the ``Route`` fields and the engine tables). This
+  module never consults either: neither ``plan_batch`` / ``evaluate_batch`` /
   ``sr_fitness_batch`` nor any resolver here reads ``EVOGP_EVAL_MODE``, so the
   whole file behaves identically under the default run and under a forced
   ``EVOGP_EVAL_MODE=dense`` / ``=batch`` run.
