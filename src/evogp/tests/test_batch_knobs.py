@@ -23,13 +23,15 @@ This file pins the SURFACE of those knobs, not the numbers:
 * the resolved merge SHAPE reaching a real plan (``plan_batch`` is pure host work
   -- decode, dedup, trace, merge -- so introspection costs no compile), through
   both the explicit arguments and the environment;
-* the two front tables (``BATCH_PLAN_MEMO`` / ``BATCH_EXEC_MEMO``), their exact
-  8-key ``batch_cache_stats()`` contract, and the identity semantics that make a
-  repeat call a plan hit, a copied population a plan miss / executable hit, and an
-  unchanged program multiset at a DIFFERENT population size an executable hit;
+* the two-level front table (``BATCH_PLAN_MEMO`` / ``BATCH_EXEC_MEMO``), its exact
+  8-key ``batch_cache_stats()`` contract, and the identity/content semantics that
+  make a repeat call an identity-level plan hit, a REBUILT-equal population a
+  content-level hit (no re-plan, no re-compile), and an unchanged program multiset
+  at a DIFFERENT population size an executable hit;
 * the disjointness of those counters from ``cache_stats()`` (exactly its own 8
-  keys), ``dense_cache_stats()`` and ``artifact_cache_stats()`` -- three surfaces
-  other files in this suite pin, and none of which may grow a ``batch_*`` key;
+  keys), ``dense_cache_stats()``, ``artifact_cache_stats()`` and the content
+  table's own 5-key ``batch_content_stats()`` -- four surfaces other files in this
+  suite pin, and none of which may grow a ``batch_*`` key;
 * the decline contract: ``BatchUnsupported`` (a ``RuntimeError``) for "not my
   population" (below ``EVOGP_BATCH_MIN_POP``, empty, an unknown backend name, an
   ``x``/``per_row`` shape doubt) and ``ValueError`` for "your configuration is
@@ -63,9 +65,11 @@ Mechanics
   the handful of numpy compiles stay milliseconds and the file runs in a few
   seconds; the tiny populations are admitted through ``EVOGP_BATCH_MIN_POP=1``
   (the library default of 64 is the measured break-even, i.e. a real decline).
-* The autouse fixture clears the five knobs and brackets every test with
+* The autouse fixture clears every knob (the merge knobs, the population
+  threshold and the compile-worker count) and brackets every test with
   ``evoxc_engine.clear_cache()`` (the single in-memory invalidation point, which
-  resets both batch tables through the registered hook).
+  resets every batch table -- plan, executable and content -- through the
+  registered hook).
 * ``EVOGP_BATCH_CACHE_SIZE`` is read at IMPORT time -- the tables are built once,
   so this file only PINS the value they report and never tries to change it.
 
@@ -95,6 +99,7 @@ if str(_HERE) not in sys.path:
 import test_equivalence as te  # noqa: E402  (the shared spec DSL)
 
 from evogp.tree import batch_engine as B  # noqa: E402
+from evogp.tree import batch_knobs  # noqa: E402
 from evogp.tree import dense_engine as D  # noqa: E402
 from evogp.tree import evoxc_engine as E  # noqa: E402
 
@@ -117,14 +122,17 @@ _PROGRAMS: Sequence[Any] = (
     te.const(-2.25),
 )
 POP_SIZE = len(_PROGRAMS)
-#: The four merge knobs plus the threshold: all five are cleared per test, so an
-#: ambient value can never change the plan a test asks for.
+#: The four merge knobs plus the threshold and the compile-worker count: all of
+#: them are cleared per test, so an ambient value can never change the plan a test
+#: asks for.  The compile-worker knob is read through ``getattr`` so this module
+#: still COLLECTS while the tree layer that defines it is landing in parallel.
 _KNOB_ENVS: Tuple[str, ...] = (
     B.BAND_SIZE_ENV,
     B.BANDS_ENV,
     B.SWITCH_OPS_ENV,
     B.ALIGNMENT_ENV,
     B.MIN_POP_ENV,
+    getattr(batch_knobs, "COMPILE_WORKERS_ENV", "EVOGP_BATCH_COMPILE_WORKERS"),
 )
 #: The exact key set of ``batch_cache_stats()``: two ``dense_memo.DenseMemo``
 #: tables, four counters each.  Pinned as a set so an extra/missing key fails.
@@ -138,6 +146,17 @@ _BATCH_STAT_KEYS = frozenset(
         "batch_exec_misses",
         "batch_exec_entries",
         "batch_exec_maxsize",
+    }
+)
+#: The exact key set of ``batch_content_stats()`` -- the CONTENT level of the
+#: two-level plan key (a separate table, a separate function, a separate surface).
+_CONTENT_STAT_KEYS = frozenset(
+    {
+        "batch_content_hits",
+        "batch_content_misses",
+        "batch_content_entries",
+        "batch_content_maxsize",
+        "batch_content_rejects",
     }
 )
 #: ``cache_stats()``'s documented 8 keys (the engine's own contract, pinned here
@@ -161,15 +180,16 @@ _ENGINE_STAT_KEYS = frozenset(
 # --------------------------------------------------------------------------- #
 @pytest.fixture(autouse=True)
 def _hermetic_knobs(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Clear the five knobs and bracket every test with empty batch tables.
+    """Clear every knob and bracket every test with empty batch tables.
 
     The knobs are DELETED (not pinned to a default) so "the default is 32 / 64 /
     ``variant`` / off" means the same thing on a box that exports them; each test
     then sets what it needs on the same ``monkeypatch`` and pytest restores the
     ambient values at teardown.
     ``evoxc_engine.clear_cache()`` is the single in-memory invalidation point and
-    resets BOTH batch tables through their registered hook, so every counter
-    assertion below starts from zero and no entry outlives its test.
+    resets every batch table (plan, executable, content) through their registered
+    hook, so every counter assertion below starts from zero and no entry outlives
+    its test.
     """
     for name in _KNOB_ENVS:
         monkeypatch.delenv(name, raising=False)
@@ -259,8 +279,19 @@ def _plan(
 
 
 def _info(plan: Any) -> Dict[str, Any]:
-    """The whole ``describe_plan`` report (every field is a scalar/list/tuple)."""
-    return B.describe_plan(plan)
+    """The whole ``describe_plan`` report (every CONFIGURATION field of it).
+
+    ``stage_ms`` is dropped: the plan-side stage timings are MEASUREMENT (they
+    change on every call and on every machine), not plan content, so two plans
+    built from the same knobs can never compare equal on them.  Every other field
+    -- including the chunk geometry -- is compared unchanged.
+    """
+    info = dict(B.describe_plan(plan))
+    timing = info.pop("stage_ms", None)
+    assert timing is None or isinstance(timing, dict), (
+        f"the plan-side stage timings must be a dict when they are reported: {timing!r}"
+    )
+    return info
 
 
 def _loss(
@@ -1060,15 +1091,19 @@ def test_a_repeat_call_skips_the_host_plan(
     assert builds.calls == 1, "a plan hit never reaches build_batch"
 
 
-def test_a_fresh_copy_of_the_same_population_misses_the_plan_and_hits_the_exec(
+def test_a_rebuilt_equal_population_hits_the_content_level_of_the_plan_key(
     tiny_pop: None,
 ) -> None:
-    """Same content, new buffers: a plan miss but an executable HIT.
+    """Same content, new buffers: an identity miss but a CONTENT hit.
 
-    The plan table is IDENTITY-keyed (``data_ptr``/shape/dtype/device/``_version``),
-    so a copy is a miss and pays the host work again; the executable table keys the
-    merged program multiset plus the shapes, so the compile is shared -- and the hit
-    is re-bound to the caller's row mapping (asserted through the identical loss).
+    The plan key is two-level.  Its first level is still IDENTITY
+    (``data_ptr``/shape/dtype/device/``_version``), so a copy is a
+    ``batch_plan_*`` miss; its second level is a digest over the decoded programs,
+    so an EQUAL copy hits -- ``batch_content_hits`` grows, the host work (decode +
+    dedup + trace + merge) and the compile are NOT re-paid, and the re-bound plan
+    answers with the identical loss.  ``test_batch_content_key.py`` owns the rest of
+    that key (mutations, collisions, invalidation); this pins the identity/content
+    split on the knob file's own fixture.
     """
     values, types, sizes = _population()
     inputs, labels = _x(), _labels()
@@ -1078,10 +1113,17 @@ def test_a_fresh_copy_of_the_same_population_misses_the_plan_and_hits_the_exec(
     second = _loss(*copied, inputs, labels)
     stats = B.batch_cache_stats()
     assert stats["batch_plan_misses"] == 2, "a copied population is a new identity token"
+    assert stats["batch_plan_hits"] == 0, "the identity level cannot serve a new buffer"
     assert stats["batch_exec_misses"] == 1, "the merged multiset is unchanged"
-    assert stats["batch_exec_hits"] == 1, "the compiled body must be reused"
+    assert stats["batch_exec_hits"] == 0, (
+        "a content hit returns before build_batch is consulted"
+    )
     assert stats["batch_exec_entries"] == 1
-    assert torch.equal(first, second), "the re-bound executable serves the same numbers"
+    content = B.batch_content_stats()
+    assert content["batch_content_hits"] == 1, content
+    assert content["batch_content_misses"] == 1, "the first call still paid the digest"
+    assert content["batch_content_entries"] == 1
+    assert torch.equal(first, second), "the content-level hit serves the same numbers"
 
 
 def test_clear_cache_resets_both_batch_tables_and_repays_the_work(tiny_pop: None) -> None:
@@ -1143,29 +1185,48 @@ def test_an_all_constant_population_reuses_one_executable_across_pop_sizes(
 
 
 def test_the_batch_tables_are_disjoint_from_every_other_stats_surface() -> None:
-    """Four stats surfaces, four disjoint key sets.
+    """Five stats surfaces, five disjoint key sets.
 
     ``cache_stats()`` (exactly its 8 keys) and ``dense_cache_stats()`` are pinned by
     other files in this suite, and the disk layer by a third: the batch tables
     registered a plain reset HOOK precisely so they never appear in the merged
-    ``dense_memo`` stats.  A ``batch_*`` key in any of them is a regression.
+    ``dense_memo`` stats.  The CONTENT table of the two-level plan key
+    (``batch_content_stats()``, all ``batch_content_*``) is the fifth surface and is
+    disjoint from all of them as well -- a ``batch_content_*`` key in the cache
+    counters (or a cache counter in the content table) is a regression.
     """
     batch_keys = set(B.batch_cache_stats())
     dense_keys = set(D.dense_cache_stats())
     engine_keys = set(E.cache_stats())
     artifact_keys = set(E.artifact_cache_stats())
+    content_keys = set(B.batch_content_stats())
     assert batch_keys == set(_BATCH_STAT_KEYS)
+    assert content_keys == set(_CONTENT_STAT_KEYS), sorted(content_keys)
     assert engine_keys == set(_ENGINE_STAT_KEYS), sorted(engine_keys)
     assert dense_keys, "the dense route registers its own tables"
     assert batch_keys.isdisjoint(dense_keys), sorted(batch_keys & dense_keys)
     assert batch_keys.isdisjoint(engine_keys), sorted(batch_keys & engine_keys)
     assert batch_keys.isdisjoint(artifact_keys), sorted(batch_keys & artifact_keys)
+    assert batch_keys.isdisjoint(content_keys), sorted(batch_keys & content_keys)
+    for name, keys in (
+        ("dense_cache_stats", dense_keys),
+        ("cache_stats", engine_keys),
+        ("artifact_cache_stats", artifact_keys),
+        ("batch_content_stats", content_keys),
+    ):
+        assert content_keys.isdisjoint(keys), (name, sorted(content_keys & keys))
     leaked = sorted(
         key
-        for key in dense_keys | engine_keys | artifact_keys
+        for key in dense_keys | engine_keys | artifact_keys | content_keys
         if key.startswith("batch_")
     )
     assert not leaked, f"a batch table leaked into another stats surface: {leaked}"
+    content_leaked = sorted(
+        key for key in batch_keys if key.startswith("batch_content_")
+    )
+    assert not content_leaked, (
+        f"the content table leaked into batch_cache_stats(): {content_leaked}"
+    )
 
 
 # =========================================================================== #
