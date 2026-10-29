@@ -10,14 +10,13 @@ therefore evaluates the whole population, and only ``evoxc.lower`` /
 ``evoxc.compile`` / ``evoxc.load`` are ever reached from here (``build_cached`` and
 ``evoxc.build`` reject a ``Graph``).
 
-Opt-in
-------
-The route is **opt-in** and nothing in the library calls it yet: the route
-switch (``EVOGP_EVAL_MODE=batch``) is added by the wiring task, which will call
-:func:`evaluate_batch` / :func:`sr_fitness_batch` from the same five call sites
-that ask :func:`evogp.tree.dense_engine.resolve_route` today.  Until that lands,
-a caller picks this route by calling it; ``EVOGP_EVAL_MODE`` is not consulted
-here at all (exactly like the two benchmark runner builders).
+The route is reached ONLY through an explicit ``EVOGP_EVAL_MODE=batch``: the
+default ``auto`` policy never selects it, and each of the five call sites
+(``Tree.forward`` / ``Tree.SR_fitness`` / ``Forest.forward`` /
+``Forest.batch_forward`` / ``Forest.SR_fitness``) catches exactly
+:class:`BatchUnsupported` and continues on ``Route.fallback_backend``.  A backend
+failure from ``lower`` / ``compile`` / ``load`` is NOT converted: there is nothing
+safer to fall back to.
 
 Declines and the fallback rule
 ------------------------------
@@ -25,199 +24,115 @@ Every "this route cannot (safely) handle it" answer is :class:`BatchUnsupported`
 (a ``RuntimeError``), and it is always safe for the caller to fall back to the
 specialized engine on it -- that engine owns the error contract for malformed
 trees.  It is raised for: an empty population, a ``per_row``/``x`` shape doubt, an
-unknown backend name, ``pop_size < EVOGP_BATCH_MIN_POP``, an op of the merged
-graph without a batching rule, and any ``evoxc`` ``TraceError`` / ``TransformError``
+unknown backend name, ``pop_size < EVOGP_BATCH_MIN_POP``, an op of the merged graph
+without a batching rule, and any ``evoxc`` ``TraceError`` / ``TransformError``
 raised while tracing or merging (converted, with the original message appended).
 Nothing else is converted, and those two exception types never escape.
 
-Economics (measured on this box: AMD MI300X VF, torch 2.13.0+rocm7.1, IREE 3.11,
-``EVOXC_DISABLE_LOCATIONS=1``, ``input_len=8``, ``N=1024`` data rows, ``L=32``
-descriptor with ``max_layer_cnt=4``, opt level ``O1``, rocm target)
---------------------------------------------------------------------------------
-``plan`` = decode + dedup + trace + merge (pure host work, no compile);
-``cold`` = plan + ONE merged compile + load; ``warm`` = one ``evoxc.run`` plus
-one readback and the host row expansion.  ``functions`` counts the deduped
-``(program, const_out)`` multiset, i.e. the merged function axis.
+The three modules of the route (this one is the PUBLIC facade)
+--------------------------------------------------------------
+Callers import ``evogp.tree.batch_engine`` and nothing else; the public surface
+below is re-exported, not re-implemented:
 
-=========  ==========  =====  ==========  ==================  =============
-pop        functions   bands  ops v/loss  plan ms             warm ms v/loss
-=========  ==========  =====  ==========  ==================  =============
-4          4           1      32 / 47     4                   0.61 / 0.72
-8          8           1      61 / 88     4                   0.60 / 0.77
-64         57          2      464 / 647   26                  0.90 / 0.87
-256        194         7      1948/2625   188                 1.69 / 2.40
-=========  ==========  =====  ==========  ==================  =============
-
-* planning is ~0.5-1 ms per merged function (plus the ``decode_population`` of
-  the whole population: 188 ms at pop 256 is mostly the host decode).
-* compiling is linear in the merged function count and large -- 0.45 s at 4
-  functions, 2.1 s at 57, 7.1 s at 194 -- which is why it happens ONCE per
-  (program multiset, shape) and is memoized in :data:`BATCH_EXEC_MEMO`.
-* a warm run is dispatch-light: identical graph positions across functions
-  collapse into ONE batched op, so a whole 194-function population is 1.7 ms for
-  1024 rows while the specialized route pays 194 invocations and 194 readbacks.
-* profit against the OTHER two routes on the same workload (loss variant,
-  pop 64, ``N=1024``): specialized+iree cold 13.9 s / warm 13.2 ms against
-  batch+iree cold 2.4 s / warm 0.95 ms -- 5.8x cheaper cold and 14x faster warm.
-  Against the specialized **numpy** warm value path (0.47 / 0.71 / 5.50 / 22.3 ms
-  at pop 4 / 8 / 64 / 256) the batch+iree warm call is 0.61 / 0.60 / 0.90 /
-  1.69 ms, i.e. 1.3x slower at pop 4, 1.2x faster at pop 8 and 6.1x / 13.2x
-  faster at pop 64 / 256.
-* the numpy backend works through the very same three calls (with
-  ``Device("cpu", 0)`` and no compile options) but is **debug only**: merged
-  numpy is 0.53 / 1.09 / 12.1 / 54.2 ms at pop 4 / 8 / 64 / 256 against
-  0.47 / 0.71 / 5.50 / 22.3 ms for the specialized numpy route (1.1x / 1.5x /
-  2.2x / 2.4x SLOWER), because the interpreter pays per-op overhead on the merged
-  graph while paying almost nothing for a specialized per-tree graph.  Use it to
-  check wiring and numbers, never to time anything.
-* numeric parity (see :func:`describe_plan` and the validation notes in the
-  report): batch+iree vs dense+iree agrees to <=4.8e-7 absolute with identical
-  NaN/inf/zero-sign masks and no violation of ``rtol=atol=1e-4``; batch+numpy is
-  bit-exact against the specialized numpy route; the loss variant agrees to
-  <=2e-6 absolute / <=2.3e-7 relative.  The one deviation measured against the
-  specialized numpy route at pop 256 (9.5e-4 absolute, one tree of 256) is the
-  pre-existing iree-vs-numpy backend class -- the dense+iree route deviates by
-  exactly the same amount at exactly the same index (``DENSE_EVAL.md`` section 5),
-  so it is not a property of the merge.
-* the price of all of it: a NEW population (a GP generation) is a new program
-  multiset, hence a new compile.  This route is opt-in and pays off on repeated
-  evaluation of a stable or duplicate-rich population, not on a
-  generation-per-step loop as-is.
-Default population threshold
-----------------------------
-:data:`DEFAULT_MIN_POP` is **64**, the measured break-even of the merged compile
-(loss variant, ``Forest.SR_fitness``, ``input_len=8``, ``N=1024``, ``L=32``,
-medians of 5 warm calls): at ``pop=4`` batch+iree costs 659 ms cold against 48 ms
-for specialized+numpy and 0.76 ms warm against 0.63 ms -- 13x more expensive cold
-and ~1.2x SLOWER warm, because one merged compile cannot amortize over four
-functions.  At ``pop=64`` the cold cost is 3.30 s against 0.18 s (specialized) /
-3.81 s (dense) but the warm call is 1.10 ms against 8.42 ms, i.e. 7.6x faster.
-So the route DECLINES below 64 by default (a single ``Tree`` / pop 1 included),
-and a caller that knows its population is stable and duplicate-rich overrides the
-threshold explicitly -- ``EVOGP_BATCH_MIN_POP`` in the environment, or
-:func:`resolve_min_pop` with a ``value`` argument -- to admit smaller populations.
-The threshold is a cost statement, not a safety floor: nothing below it is
-unsupported.
-
-Who to blame for what (reuse, never re-implement)
--------------------------------------------------
-Decoding, validation, constant folding and op emission are the frozen engine's:
-:func:`evogp.tree.evoxc_engine.decode_population` gives the per-tree static
-programs and :func:`evogp.tree.evoxc_engine._walk_tokens` is the emitter *and*
-the multi-output protocol.  A per-function graph is traced through a Python
-closure over its static program -- never with the program as a traced static arg,
-which would make ``graph.static_values`` differ per tree and make
-``batch_functions`` raise ``TraceError``.
-
-Bands and switch_ops
---------------------
-``bands`` splits the population into contiguous bands and merges each band
-separately (one ``select`` cascade per band instead of one per population), which
-trades dispatches for wasted work.  The knob here is a band SIZE
-(``EVOGP_BATCH_BAND_SIZE``, default 32): ``K = ceil(n_functions / band_size)``,
-clamped to ``1 <= K <= n_functions``; ``K == 1`` reduces to the flat merge.
-``EVOGP_BATCH_BANDS`` overrides the model with an explicit ``K`` (or the flat
-spellings ``none`` / ``flat`` / ``0``).  ``bands="auto"`` is deliberately NOT
-offered: it is CPU-calibrated, resolves to ``K=1`` on this workload and only
-costs a static cost model run.
-
-``switch_ops`` (``EVOGP_BATCH_SWITCH_OPS``, default off) makes op-switching
-positions share one op per variant plus a per-row ``select`` cascade.  It is a
-heavier transform for GP populations (structurally divergent programs) and on the
-measured workload it changed nothing at all -- ``report["switched"]`` is empty and
-the emitted op count and warm time are those of the flat merge -- so it stays a
-knob, off by default.  When it is on, the merge is FORCED to the flat form (``K = 1``):
-``switch_ops`` and banding are not combined, and the plan records
-``band_count == 1`` whenever ``switch_ops`` is set.
-
-On-disk artifacts: deliberately NOT wired
------------------------------------------
-:mod:`evogp.tree.artifact_cache` keys an artifact by ``(name, specs, backend,
-device, options)`` where ``specs`` is the ``build_cached`` spec tuple -- tensor
-specs *plus* the static content that specializes the graph.  A merged batch graph
-has NO static values (the programs live in Python closures), so the tensor specs
-alone would collide across every population of a shape and a stale artifact would
-serve wrong numbers (``signature_matches`` cannot catch it: the shapes agree).
-The programs could be smuggled into the key as extra static content, but then
-every generation's multiset is a distinct key, i.e. no reuse at all.  So this
-route builds in memory only; a process that repeats a multiset keeps it in
-:data:`BATCH_EXEC_MEMO` for the lifetime of the process.
+* :mod:`evogp.tree.batch_knobs` -- the ``EVOGP_BATCH_*`` constants, the
+  ``resolve_*`` helpers, the ``value`` / ``loss`` variant rules and
+  :class:`BatchUnsupported`.
+* :mod:`evogp.tree.batch_programs` -- host-side program handling: input/label
+  conversion, per-function graph bodies, dedup, trace, merge, :func:`_plan_host`
+  and the :class:`BatchPlan` / :class:`BatchExecutable` records.
+* **this module** -- the plan/executable front tables, the plan memo
+  (:func:`_plan_entry`), :func:`plan_batch` / :func:`build_batch` /
+  :func:`evaluate_batch` / :func:`sr_fitness_batch` / :func:`describe_plan`, the
+  backend resolution and :func:`batch_cache_stats`.
 
 Front tables (why a repeated call is cheap)
 -------------------------------------------
 :data:`BATCH_PLAN_MEMO` maps the three population identity tokens
 (:func:`evogp.tree.dense_memo.token`: ``data_ptr``/shape/dtype/device/``_version``,
 so an in-place mutation is a miss by construction) plus every resolved plan
-parameter to the :class:`BatchExecutable` (plan + compiled executable): a repeated
-evaluation of an unchanged population does no re-decode, no re-trace, no
-re-merge, no re-key and (beyond the one ``x`` conversion every call needs) no
-host crossing.  :data:`BATCH_EXEC_MEMO` keys the same executable on the ACTUAL
-program multiset plus the shape/backend/device/options, so the same programs in a
-fresh population object still hit.  Both tables are dropped by
+parameter to the :class:`BatchExecutable`: a repeated evaluation of an unchanged
+population does no re-decode, no re-trace, no re-merge and no re-build.  The
+``x``/``labels`` conversion is NOT part of that table -- it runs on every call
+(see :func:`_plan_entry`).
+:data:`BATCH_EXEC_MEMO` keys the compiled body on the ACTUAL program multiset plus
+the shape/backend/device/options, so the same programs in a fresh population object
+still hit -- and such a hit is RE-BOUND to the caller's plan, never returned with
+another population's row mapping.  Both tables are dropped by
 :func:`evogp.tree.evoxc_engine.clear_cache` (the engine's single invalidation
 point) and counted by :func:`batch_cache_stats` -- a separate function, because
 ``cache_stats()`` (8 keys) and ``dense_cache_stats()`` are pinned by the suite.
 
-Reuse across populations (the re-binding contract)
---------------------------------------------------
-:data:`BATCH_EXEC_MEMO` is keyed by the compiled body only -- the merged function
-multiset plus the variant, the merge shape, the I/O shape and the
-backend/device/options (see :func:`_executable_key`) -- and deliberately NOT by
-the population that first built it, because one compiled merged graph really does
-serve every population with that same function multiset: the function axis IS the
-graph's leading axis, so which population row maps to which function is the
-caller's business, not the graph's.  That makes the population size, the row
-mapping and the staged inputs *per-call* data, so an executable hit is
-**re-bound**: the returned :class:`BatchExecutable` pairs the memoized
-``executable`` (and the ``backend`` / ``device`` it was built for) with the plan
-the CURRENT call built (or hit in :data:`BATCH_PLAN_MEMO`), never with the first
-population's ``pop_size``, ``row_index``, ``function_rows`` or ``programs``.
-
-The rebinding is structural, not incidental: :func:`build_batch` is the ONLY
-reader of :data:`BATCH_EXEC_MEMO` and it always constructs a fresh
-:class:`BatchExecutable` around the caller's plan, so every per-population field
-on the running path (:func:`_inputs` staging, :func:`_map_rows` row expansion,
-the ``(pop_size, ...)`` / ``(pop_size,)`` output shapes and the ``pop_size`` row
-check) is read from that plan.  :func:`_check_executable_matches` is the cheap
-safety net for the one thing the key cannot re-derive: the compiled body's
-recorded tensor specs (merged function count, rows, input width, outputs) must
-fit the caller's plan, and a mismatch is a :class:`BatchUnsupported` decline --
-never a silently wrong row mapping.
-
-No variant is excluded from that reuse: ``per_row=True`` puts the function count
-in the merged INPUT spec's leading dimension and ``per_row=False`` puts it in the
-OUTPUT spec's, but both are part of the key, so a hit is reusable in both layouts
-(and the invariant check above verifies exactly those dimensions).
+Economics, one line
+-------------------
+A merged compile is linear in the deduped function count (0.45 s / 2.1 s / 7.1 s
+for 4 / 57 / 194 functions) while a warm call is 0.61 / 0.60 / 0.90 / 1.69 ms at
+pop 4 / 8 / 64 / 256 -- 1.3x SLOWER than specialized+numpy at pop 4, 6.1x / 13.2x
+faster at pop 64 / 256.  So this route pays on repeated evaluation of a stable or
+duplicate-rich population, NOT on a generation-per-step GP loop (a new population
+is a new program multiset, hence a new compile), and ``DEFAULT_MIN_POP`` is the
+measured break-even of that compile.  Design document of record (scheme, the full
+grid, band/``switch_ops`` detail, the on-disk-artifact verdict, the
+reuse/re-binding contract, open gaps): ``BATCH_EVAL.md`` in this directory.
 """
 
 from __future__ import annotations
 
 import os
 import dataclasses
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 
 import evoxc
-from evoxc.transforms import batching as _batching
 
 from . import dense_memo
+
+# The route's whole public vocabulary lives in the two siblings -- re-exported
+# here so ``evogp.tree.batch_engine`` stays the one import path for callers.
+from .batch_knobs import (
+    ALIGNMENTS,
+    ALIGNMENT_ENV,
+    BAND_SIZE_ENV,
+    BANDS_ENV,
+    CACHE_SIZE_ENV,
+    DEFAULT_ALIGNMENT,
+    DEFAULT_BAND_SIZE,
+    DEFAULT_CACHE_SIZE,
+    DEFAULT_MIN_POP,
+    EVAL_MODE,
+    LOSS_VARIANT,
+    MIN_POP_ENV,
+    PLAN_VARIANTS,
+    SWITCH_OPS_ENV,
+    VALUE_VARIANT,
+    BatchUnsupported,
+    _normalize_variant,
+    resolve_alignment,
+    resolve_band_count,
+    resolve_band_size,
+    resolve_bands,
+    resolve_min_pop,
+    resolve_switch_ops,
+)
+from .batch_programs import (
+    BatchExecutable,
+    BatchPlan,
+    _host_labels,
+    _host_rows,
+    _plan_host,
+    _pop_size,
+)
 from .evoxc_engine import (
     BACKEND_ENV,
     SUPPORTED_BACKENDS,
     _CPU,
-    _bits_to_float,
     _env_int,
     _freeze_options,
     _gpu_device_kind,
     _quiet,
     _register_cache_reset,
     _resolve_backend,
-    _trace_const_col,
-    _walk_tokens,
-    decode_population,
 )
 
 __all__ = [
@@ -247,204 +162,6 @@ __all__ = [
     "resolve_switch_ops",
     "sr_fitness_batch",
 ]
-
-# ---------------------------------------------------------------------------
-# knobs
-# ---------------------------------------------------------------------------
-#: The ``EVOGP_EVAL_MODE`` spelling of this route.  Deliberately NOT consulted by
-#: this module (see the module docstring): the wiring task adds it to
-#: :data:`evogp.tree.dense_engine.EVAL_MODES` and calls the two entry points here.
-EVAL_MODE = "batch"
-#: Band SIZE of the merge (``EVOGP_BATCH_BAND_SIZE``): ``K = ceil(n / size)``
-#: bands, clamped to ``1 <= K <= n``.  32 measured as a sound default: it keeps
-#: the per-band variant count low without splitting a small population into
-#: bands that each re-pay their own input slice and output concatenate.
-BAND_SIZE_ENV = "EVOGP_BATCH_BAND_SIZE"
-DEFAULT_BAND_SIZE = 32
-#: Explicit band count (``EVOGP_BATCH_BANDS``): an int ``K`` with
-#: ``1 <= K <= n_functions``, or one of the flat spellings ``none`` / ``flat`` /
-#: ``0``.  Unset/empty means "use the band-size model above".
-BANDS_ENV = "EVOGP_BATCH_BANDS"
-#: Op-switching (``EVOGP_BATCH_SWITCH_OPS``): off by default -- on the measured GP
-#: workload it shares nothing (``report["switched"]`` empty) and changes no op
-#: count, so it stays a knob; when on it forces the flat merge.
-SWITCH_OPS_ENV = "EVOGP_BATCH_SWITCH_OPS"
-#: Class alignment of a ``switch_ops`` merge (``EVOGP_BATCH_ALIGNMENT``); a pure
-#: performance heuristic inside evoxc -- it can never change the numbers.
-ALIGNMENT_ENV = "EVOGP_BATCH_ALIGNMENT"
-DEFAULT_ALIGNMENT = "variant"
-ALIGNMENTS = ("variant", "occurrence", "auto")
-#: Population threshold (``EVOGP_BATCH_MIN_POP``): below it the merge (a compile
-#: is linear in the function count, and the whole route's win is amortizing ONE
-#: invocation) is not worth attempting, so the route declines.
-#: The default is the measured BREAK-EVEN, not a safety floor: at ``pop=4``
-#: batch+iree is 659 ms cold against 48 ms for specialized+numpy and 0.76 ms
-#: warm against 0.63 ms (1.2x SLOWER, because a merged compile cannot amortize
-#: over four functions), while from ``pop=64`` up it is 1.10 ms warm against
-#: 8.42 ms (7.6x faster) for a 3.30 s compile.  Raise ``EVOGP_BATCH_MIN_POP``
-#: (or pass ``value=`` to :func:`resolve_min_pop`) to admit smaller populations
-#: on purpose.
-MIN_POP_ENV = "EVOGP_BATCH_MIN_POP"
-DEFAULT_MIN_POP = 64
-#: Entries of the two front tables (``EVOGP_BATCH_CACHE_SIZE``, read at IMPORT
-#: time like ``EVOGP_EVOXC_CACHE_SIZE``).  Small on purpose: a plan entry holds
-#: the traced per-function graphs, the merged graph AND the compiled executable,
-#: and a training loop presents a new population every generation.
-CACHE_SIZE_ENV = "EVOGP_BATCH_CACHE_SIZE"
-DEFAULT_CACHE_SIZE = 8
-#: The two plan/graph variants: the value graph (``(pop, N, out_len)``) and the
-#: SR-loss graph (one scalar per function, reduced IN-GRAPH).
-VALUE_VARIANT = "value"
-LOSS_VARIANT = "loss"
-PLAN_VARIANTS = (VALUE_VARIANT, LOSS_VARIANT)
-_TRUE = ("1", "true", "yes", "on")
-_FALSE = ("0", "false", "no", "off")
-_FLAT = ("none", "flat", "0")
-
-
-# ---------------------------------------------------------------------------
-# declines
-# ---------------------------------------------------------------------------
-class BatchUnsupported(RuntimeError):
-    """The batch route cannot (safely) evaluate this population.
-
-    Callers must fall back to the specialized engine
-    (:func:`evogp.tree.evoxc_engine.decode_population` + ``evaluate`` /
-    ``sr_fitness``), which owns the error contract for malformed trees.  The
-    message carries the reason; the enumerated causes are listed in the module
-    docstring ("Declines and the fallback rule"), and the two evoxc exception
-    types a trace/merge can raise (``TraceError`` / ``TransformError``) are
-    always converted into this one instead of escaping.
-    """
-
-
-# ---------------------------------------------------------------------------
-# knob resolution (per call unless noted; the explicit argument always wins)
-# ---------------------------------------------------------------------------
-def _resolve_int(value: Any, env: str, default: int, minimum: int) -> int:
-    """``explicit argument > environment > default`` for a bounded integer knob."""
-    resolved = _env_int(env, default) if value is None else int(value)
-    if resolved < minimum:
-        raise ValueError(f"{env}={resolved} must be >= {minimum}")
-    return resolved
-
-
-def resolve_band_size(value: Optional[int] = None) -> int:
-    """Resolve ``EVOGP_BATCH_BAND_SIZE`` (explicit argument wins).
-
-    The band SIZE model turns a function count into ``K = ceil(n / size)`` bands.
-    Read per call; anything below 1 raises ``ValueError`` naming the variable.
-    """
-    return _resolve_int(value, BAND_SIZE_ENV, DEFAULT_BAND_SIZE, 1)
-
-
-def resolve_bands(value: Optional[Any] = None) -> Optional[int]:
-    """Resolve ``EVOGP_BATCH_BANDS`` into an explicit band count or ``None``.
-
-    ``None`` means "the band-size model decides" -- the answer for unset/empty
-    AND for the explicit flat spellings (``none`` / ``flat`` / ``0``), which both
-    describe a single-band (flat) merge.  An integer ``K`` is returned as given;
-    :func:`resolve_band_count` validates it against the function count (which is
-    only known after decoding).  Anything else raises ``ValueError`` naming the
-    variable.
-    """
-    raw: Any = value if value is not None else os.environ.get(BANDS_ENV, "")
-    if isinstance(raw, bool):  # bool is an int: reject instead of guessing
-        raise ValueError(
-            f"unsupported bands value {raw!r}: {BANDS_ENV} takes an integer band "
-            f"count or one of {list(_FLAT)}"
-        )
-    if isinstance(raw, (int, np.integer)):
-        count = int(raw)
-        return None if count == 0 else count
-    text = str(raw).strip().lower()
-    if not text:
-        return None
-    if text in _FLAT:
-        return None
-    try:
-        count = int(text)
-    except ValueError as exc:
-        raise ValueError(
-            f"unsupported {BANDS_ENV}={raw!r}: expected an integer band count "
-            f"(1 <= K <= n_functions) or one of {list(_FLAT)}"
-        ) from exc
-    return None if count == 0 else count
-
-
-def resolve_switch_ops(value: Optional[bool] = None) -> bool:
-    """Resolve ``EVOGP_BATCH_SWITCH_OPS`` (explicit argument wins; default off)."""
-    if value is not None:
-        return bool(value)
-    raw = os.environ.get(SWITCH_OPS_ENV, "").strip().lower()
-    if not raw:
-        return False
-    if raw in _TRUE:
-        return True
-    if raw in _FALSE:
-        return False
-    raise ValueError(
-        f"unsupported {SWITCH_OPS_ENV}={raw!r}: batch_engine accepts "
-        f"{list(_TRUE + _FALSE)} or an empty value"
-    )
-
-
-def resolve_alignment(value: Optional[str] = None) -> str:
-    """Resolve ``EVOGP_BATCH_ALIGNMENT`` (explicit argument wins).
-
-    Only meaningful with ``switch_ops`` (non-switched positions have one variant
-    per skeleton by construction); validated always, so a typo is caught even on
-    the default path.  Case-insensitive; ``variant`` / ``occurrence`` / ``auto``.
-    """
-    raw = value if value is not None else os.environ.get(ALIGNMENT_ENV, "")
-    text = str(raw).strip().lower()
-    if not text:
-        text = DEFAULT_ALIGNMENT
-    if text not in ALIGNMENTS:
-        raise ValueError(
-            f"unsupported alignment {text!r}: batch_engine supports "
-            f"{list(ALIGNMENTS)} (set {ALIGNMENT_ENV!r} or pass alignment=)"
-        )
-    return text
-
-
-def resolve_min_pop(value: Optional[int] = None) -> int:
-    """Resolve the population threshold ``EVOGP_BATCH_MIN_POP`` (argument wins)."""
-    return _resolve_int(value, MIN_POP_ENV, DEFAULT_MIN_POP, 1)
-
-
-def resolve_band_count(
-    n_functions: int,
-    *,
-    bands: Optional[Any] = None,
-    band_size: Optional[int] = None,
-    switch_ops: Optional[bool] = None,
-) -> int:
-    """The band count ``K`` this merge should use for ``n_functions`` functions.
-
-    Precedence: ``switch_ops`` on -> ``K = 1`` (the flat merge; banding is never
-    combined with op-switching), then an explicit ``bands`` count, then the
-    band-SIZE model ``ceil(n_functions / band_size)``.  The result is always
-    clamped into ``1 <= K <= n_functions``; an explicit ``K`` outside that range
-    raises ``ValueError`` naming ``EVOGP_BATCH_BANDS`` (it cannot be honoured, so
-    silently clamping would hide a typo).
-    """
-    total = int(n_functions)
-    if total < 1:
-        raise ValueError(f"n_functions={total} must be >= 1")
-    if resolve_switch_ops(switch_ops):
-        return 1
-    explicit = resolve_bands(bands)
-    if explicit is not None:
-        if not 1 <= explicit <= total:
-            raise ValueError(
-                f"{BANDS_ENV}={explicit} is outside 1..{total} (the number of "
-                "merged functions)"
-            )
-        return explicit
-    size = resolve_band_size(band_size)
-    return max(1, min(total, -(-total // size)))
-
 
 # ---------------------------------------------------------------------------
 # front tables
@@ -502,443 +219,6 @@ def batch_cache_stats() -> Dict[str, int]:
     stats.update(BATCH_EXEC_MEMO.stats())
     stats.update(BATCH_PLAN_MEMO.stats())
     return stats
-
-
-# ---------------------------------------------------------------------------
-# host helpers
-# ---------------------------------------------------------------------------
-def _pop_size(tensor: Any) -> Optional[int]:
-    """``(pop_size, max_tree_len)`` row count, or ``None`` when unreadable.
-
-    Read from ``shape`` only (no host copy); ``None`` means "let
-    ``decode_population`` raise its documented error", so an exotic or malformed
-    population tensor is never turned into a silent decline.
-    """
-    shape = getattr(tensor, "shape", None)
-    try:
-        if shape is None or len(shape) != 2:
-            return None
-        return int(shape[0])
-    except Exception:  # pragma: no cover - exotic tensor subclasses only
-        return None
-
-
-def _as_host(tensor: Any, name: str) -> np.ndarray:
-    """Read any tensor (torch on any device / numpy) as a float32 host array."""
-    if isinstance(tensor, torch.Tensor):
-        array = tensor.detach().cpu().numpy()
-    else:
-        try:
-            array = np.asarray(tensor)
-        except Exception as exc:  # pragma: no cover - exotic inputs only
-            raise BatchUnsupported(
-                f"batch_engine: {name} is not convertible to a host array "
-                f"({type(tensor).__name__})"
-            ) from exc
-    if array.dtype != np.float32:
-        array = array.astype(np.float32)
-    return np.ascontiguousarray(array)
-
-
-def _host_rows(tensor: Any, input_len: int, name: str, *, per_row: bool,
-               pop_size: Optional[int]) -> np.ndarray:
-    """Validate/convert a ``(rows, input_len)`` float32 input; never mutates it.
-
-    Every shape doubt is a :class:`BatchUnsupported` decline (never a
-    ``ValueError``): the fallback engine raises the documented errors, and a route
-    that declares "this is not mine" must not pre-empt that contract.
-    """
-    array = _as_host(tensor, name)
-    if array.ndim != 2:
-        raise BatchUnsupported(
-            f"batch_engine: {name} must be 2-D (rows, {int(input_len)}), got shape "
-            f"{array.shape}"
-        )
-    if array.shape[1] != int(input_len):
-        raise BatchUnsupported(
-            f"batch_engine: {name} has {array.shape[1]} columns but the "
-            f"population expects input_len={int(input_len)}"
-        )
-    if per_row and pop_size is not None and array.shape[0] != pop_size:
-        raise BatchUnsupported(
-            f"batch_engine: per_row=True needs {name}.shape[0] == {pop_size} "
-            f"(pop_size), got {array.shape[0]}"
-        )
-    return array
-
-
-def _host_labels(labels: Any, n_rows: int, output_len: int) -> np.ndarray:
-    """Validate/convert the ``(n_rows, output_len)`` SR labels."""
-    array = _as_host(labels, "labels")
-    if array.shape != (int(n_rows), int(output_len)):
-        raise BatchUnsupported(
-            f"batch_engine: labels must have shape ({int(n_rows)}, "
-            f"{int(output_len)}), got {array.shape}"
-        )
-    return array
-
-
-# ---------------------------------------------------------------------------
-# per-function graph bodies (the engine's own emitters -- parity by construction)
-# ---------------------------------------------------------------------------
-def _constant_output(const_out: Sequence[int], n_rows: int) -> Any:
-    """The ``(n_rows, 1)`` constant column of a fully constant tree.
-
-    A constant tree still has to RETURN a tensor of the same rank/shape as every
-    other function's output (a bare 0-d ``evoxc.constant`` would be a rank
-    mismatch and a static output leaf, which the merge rejects).  The column is
-    built the way the specialized engine assembles a constant output
-    (:func:`evogp.tree.evoxc_engine._trace_const_col`), i.e. as a real
-    ``(n_rows, 1)`` payload; the merge stacks differing payloads into one stacked
-    constant (``report["stacked_constants"]``), so it stays exact.
-    """
-    if len(const_out) == 1:
-        return _trace_const_col(n_rows, _bits_to_float(const_out[0]))
-    cols = [_trace_const_col(n_rows, _bits_to_float(bits)) for bits in const_out]
-    return evoxc.concatenate(cols, axis=1)
-
-
-def _predict(program: Any, const_out: Any, x: Any, n_rows: int) -> Any:
-    """The ``(n_rows, out_len)`` symbolic output of one decoded tree."""
-    if program is not None:
-        return _walk_tokens(program[1], int(program[0]), x)
-    return _constant_output(const_out, n_rows)
-
-
-def _value_fn(program: Any, const_out: Any, n_rows: int):
-    """One value function: ``x -> (n_rows, out_len)`` (a closure over the program).
-
-    The program travels in the CLOSURE, never as a ``trace`` static argument:
-    static values are part of the graph's identity, so a static program would give
-    every function different ``graph.static_values`` and
-    ``evoxc.batch_functions`` would raise ``TraceError`` on the merge.
-    """
-
-    def fn(x):
-        return _predict(program, const_out, x, n_rows)
-
-    return fn
-
-
-def _loss_fn(program: Any, const_out: Any, n_rows: int, use_mse: bool):
-    """One SR-loss function: ``(x, label) -> (1,)``-free RANK-0 scalar loss.
-
-    The whole fitness reduction is IN-GRAPH, so the merged output is one scalar
-    per function (``(n_functions,)``) and only that crosses back::
-
-        err  = (pred - label) ** 2      if use_mse
-        err  = |pred - label|           otherwise
-        loss = sum_N sum_out err / N
-
-    Outputs are summed and never divided by ``output_len`` (the SR contract), and
-    the ``/ N`` divide is a static float32 constant inside the graph.  Rank-0
-    per-function outputs turned out to work under ``out_axes=0`` (the merged result
-    is ``(n_functions,)`` directly), so no host-side squeeze is needed; the
-    reduction is done with :func:`evoxc.reduce_sum` over both axes, whose batching
-    rule is registered.
-    """
-
-    def fn(x, label):
-        pred = _predict(program, const_out, x, n_rows)
-        diff = evoxc.subtract(pred, label)
-        err = evoxc.multiply(diff, diff) if use_mse else evoxc.abs(diff)
-        total = evoxc.reduce_sum(err, axes=(0, 1))
-        return evoxc.divide(total, _scalar(n_rows))
-
-    return fn
-
-
-def _scalar(value: float) -> Any:
-    """A rank-0 float32 symbolic constant (``evoxc`` rejects numpy scalars).
-
-    Must be called inside a trace; a rank-0 payload is shared by every merged
-    function (the divide's divisor is the same constant for all of them).
-    """
-    return evoxc.constant(
-        evoxc.core.tensor(np.asarray(np.float32(value), dtype=np.float32))
-    )
-
-
-# ---------------------------------------------------------------------------
-# the plan
-# ---------------------------------------------------------------------------
-@dataclass(frozen=True)
-class BatchPlan:
-    """The host-side plan of one merged batch graph (no executable, no cache).
-
-    Attributes:
-        input_len: problem input width.
-        output_len: outputs per tree.
-        pop_size: population size (the number of rows the plan answers for).
-        variant: :data:`VALUE_VARIANT` or :data:`LOSS_VARIANT`.
-        use_mse: the loss variant's error metric (ignored by the value variant).
-        per_row: ``True`` when every population row has its own ``x`` row.
-        n_rows: rows each merged function sees (``1`` for ``per_row``, else ``N``
-            for the value variant and the data-point count for the loss variant).
-        programs: per population row, the ``(program, const_out)`` identity of that
-            row -- ``program`` is the frozen static program (``None`` for a fully
-            constant tree, whose answer is then ``const_out``).
-        functions: the DEDUPED ``(program, const_out)`` multiset actually merged, in
-            first-appearance order: ``functions[row_index[row]] == programs[row]``.
-        row_index: per population row, its index into :attr:`functions`.
-        function_rows: per merged function, the population row it was first seen
-            at (the ``x`` row a ``per_row`` plan feeds it).
-        band_count: number of merge bands (``1`` = the flat merge).
-        switch_ops: whether op-switching was requested (forces ``band_count == 1``).
-        alignment: the ``switch_ops`` class-alignment mode.
-        graphs: the traced per-function :class:`evoxc.Graph` objects.
-        merged: the merged :class:`evoxc.Graph` (``merged.batch_report`` describes it).
-        specs: the merged graph's tensor input specs (``evoxc.TensorSpec`` objects).
-        report: ``merged.batch_report.as_dict()`` -- ``n_functions``,
-            ``emitted_ops``, ``bands``, ``band_sizes``, ``band_strategy``, ...
-        backend_name: the backend the plan was resolved for (the default of
-            :func:`build_batch`).
-        device: the resolved ``evoxc.core.Device``.
-    """
-
-    input_len: int
-    output_len: int
-    pop_size: int
-    variant: str
-    use_mse: bool
-    per_row: bool
-    n_rows: int
-    programs: Tuple[Any, ...]
-    functions: Tuple[Any, ...]
-    row_index: Tuple[int, ...]
-    function_rows: Tuple[int, ...]
-    band_count: int
-    switch_ops: bool
-    alignment: str
-    graphs: Tuple[Any, ...]
-    merged: Any
-    specs: Tuple[Any, ...]
-    report: Dict[str, Any]
-    backend_name: str
-    device: Any
-
-
-@dataclass(frozen=True)
-class BatchExecutable:
-    """A plan plus its compiled executable (the value of both front tables).
-
-    Attributes:
-        plan: the :class:`BatchPlan` this executable was built for.
-        executable: the loaded ``evoxc.Executable`` of the merged graph.
-        backend: the backend name it was compiled for.
-        device: the ``evoxc.core.Device`` it was loaded on.
-        pins: strong references to the population/input storages the plan memo entry
-            is keyed on (empty for an unmemorized build); they only keep the
-            ``data_ptr`` identity tokens ABA-proof, so they are never inspected.
-    """
-
-    plan: BatchPlan
-    executable: Any
-    backend: str
-    device: Any
-    pins: Tuple[Any, ...] = ()
-
-
-def _normalize_variant(variant: Any, per_row: bool) -> str:
-    """The variant rules this module enforces (checked before any host work)."""
-    text = str(variant).strip().lower()
-    if text not in PLAN_VARIANTS:
-        raise ValueError(
-            f"unsupported plan variant {variant!r}: batch_engine supports "
-            f"{list(PLAN_VARIANTS)}"
-        )
-    if text == LOSS_VARIANT and per_row:
-        raise ValueError(
-            "the loss variant implements sr_fitness only (per_row=False): a "
-            "per_row=True loss would need one label row per tree, which is not "
-            "the SR contract"
-        )
-    return text
-
-
-def _dedup(pop: Any, x_host: np.ndarray, per_row: bool) -> Tuple[
-    Tuple[Any, ...], Tuple[int, ...], Tuple[int, ...]
-]:
-    """Collapse identical rows: ``(functions, row_index, function_rows)``.
-
-    Structural identity IS program equality (there is no library-level dedup
-    helper, and a re-decode of an unchanged tree yields an equal program tuple), so
-    duplicates and elites -- the common case -- merge into one function.
-
-    ``per_row=True`` additionally keys on the row's own ``x`` bytes: tree ``i`` must
-    see row ``i``, so two rows that share a program but not their input row are
-    genuinely different functions (sharing them would serve wrong numbers).
-    Constant trees are keyed by their ``const_out`` alone -- their answer does not
-    depend on ``x`` at all.
-    """
-    functions: List[Any] = []
-    positions: Dict[Any, int] = {}
-    row_index: List[int] = []
-    function_rows: List[int] = []
-    for row, tree in enumerate(pop.trees):
-        if tree.program is not None:
-            key: Any = tree.program
-            if per_row:
-                key = (tree.program, x_host[row].tobytes())
-        else:
-            key = ("const", tree.const_out)
-        index = positions.get(key)
-        if index is None:
-            index = len(functions)
-            positions[key] = index
-            functions.append((tree.program, tree.const_out))
-            function_rows.append(row)
-        row_index.append(index)
-    return tuple(functions), tuple(row_index), tuple(function_rows)
-
-
-def _trace(fn: Any, specs: Sequence[Any], what: str) -> Any:
-    """``evoxc.trace`` with the two structural exception types converted."""
-    try:
-        return evoxc.trace(fn, *specs)
-    except (evoxc.TraceError, evoxc.TransformError) as exc:
-        raise BatchUnsupported(
-            f"batch_engine: tracing the {what} graph failed: "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
-
-
-def _merge(graphs: Sequence[Any], axes: Any, *, switch_ops: bool,
-           bands: Optional[int], alignment: str) -> Any:
-    """``evoxc.batch_functions`` with the two structural exception types converted."""
-    try:
-        merged = evoxc.batch_functions(
-            list(graphs),
-            axes=axes,
-            out_axes=0,
-            switch_ops=True if switch_ops else None,
-            bands=bands,
-            alignment=alignment,
-        )
-    except (evoxc.TraceError, evoxc.TransformError) as exc:
-        raise BatchUnsupported(
-            f"batch_engine: merging {len(graphs)} per-function graphs failed: "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
-    _require_batching_rules(merged)
-    return merged
-
-
-def _require_batching_rules(merged: Any) -> None:
-    """Decline when the merged graph contains an op without a batching rule.
-
-    The merge itself already uses every rule it needs (and a missing one is
-    converted by :func:`_merge`), so this is the explicit guard the route contract
-    documents: walking the merged entry block keeps a future emitter honest and
-    names the offending op instead of surfacing a ``TransformError`` from a later
-    stage.  The ``return`` terminator is skipped (it is not an op with semantics
-    and has no rule by design).
-    """
-    ops = getattr(getattr(getattr(merged, "module", None), "main", None),
-                  "entry_block", None)
-    if ops is None:  # pragma: no cover - evoxc always exposes the entry block
-        raise BatchUnsupported("batch_engine: merged graph has no entry block")
-    rule_of = _batching.get_batching_rule
-    for op in list(ops.ops):
-        name = op.name
-        if name == "return":
-            continue
-        if name == "block_call" or name.startswith("external"):
-            raise BatchUnsupported(
-                f"batch_engine: the merged graph contains an op without a "
-                f"batching rule: {name!r}"
-            )
-        if rule_of(name) is None:
-            raise BatchUnsupported(
-                f"batch_engine: the merged graph contains an op without a "
-                f"batching rule: {name!r}"
-            )
-
-
-def _plan_host(
-    batch_node_value: Any,
-    batch_node_type: Any,
-    batch_subtree_size: Any,
-    input_len: int,
-    output_len: int,
-    x_host: np.ndarray,
-    label_host: Optional[np.ndarray],
-    *,
-    per_row: bool,
-    variant: str,
-    use_mse: bool,
-    band_size: Optional[int],
-    bands: Optional[Any],
-    switch_ops: Optional[bool],
-    alignment: Optional[str],
-    backend_name: str,
-    device: Any,
-) -> BatchPlan:
-    """The whole host planning step on already-converted inputs (see plan_batch)."""
-    input_len = int(input_len)
-    output_len = int(output_len)
-    pop = decode_population(
-        batch_node_value, batch_node_type, batch_subtree_size,
-        input_len, output_len,
-    )
-    pop_size = int(pop.pop_size)
-    per_row = bool(per_row)
-    variant = _normalize_variant(variant, per_row)
-    alignment = resolve_alignment(alignment)
-    switch_ops = resolve_switch_ops(switch_ops)
-    n_rows = 1 if per_row else int(x_host.shape[0])
-    if variant == LOSS_VARIANT:
-        if n_rows <= 0:
-            raise BatchUnsupported(
-                "batch_engine: sr_fitness needs at least one data point, got 0 rows"
-            )
-        if label_host is None:
-            raise BatchUnsupported("batch_engine: the loss variant needs labels")
-    functions, row_index, function_rows = _dedup(pop, x_host, per_row)
-    band_count = resolve_band_count(
-        len(functions), bands=bands, band_size=band_size, switch_ops=switch_ops
-    )
-    spec = evoxc.TensorSpec((n_rows, input_len), evoxc.float32)
-    label_spec = evoxc.TensorSpec((n_rows, output_len), evoxc.float32)
-    graphs: List[Any] = []
-    for program, const_out in functions:
-        if variant == LOSS_VARIANT:
-            fn = _loss_fn(program, const_out, n_rows, bool(use_mse))
-            graphs.append(_trace(fn, (spec, label_spec), "loss"))
-        else:
-            fn = _value_fn(program, const_out, n_rows)
-            graphs.append(_trace(fn, (spec,), "value"))
-    axes = 0 if per_row else (None,) * (2 if variant == LOSS_VARIANT else 1)
-    merged = _merge(
-        graphs,
-        axes,
-        switch_ops=switch_ops,
-        bands=None if band_count <= 1 else band_count,
-        alignment=alignment,
-    )
-    report = merged.batch_report.as_dict()
-    return BatchPlan(
-        input_len=input_len,
-        output_len=output_len,
-        pop_size=pop_size,
-        variant=variant,
-        use_mse=bool(use_mse),
-        per_row=per_row,
-        n_rows=n_rows,
-        programs=tuple((tree.program, tree.const_out) for tree in pop.trees),
-        functions=functions,
-        row_index=row_index,
-        function_rows=function_rows,
-        band_count=int(report.get("bands", band_count) or 1),
-        switch_ops=bool(switch_ops),
-        alignment=alignment,
-        graphs=tuple(graphs),
-        merged=merged,
-        specs=tuple(merged.tensor_specs),
-        report=report,
-        backend_name=backend_name,
-        device=device,
-    )
 
 
 def plan_batch(
@@ -1247,11 +527,15 @@ def _plan_entry(
     happens on a miss).  ``x`` joins the key for ``per_row=True``, where the dedup
     grouping depends on the per-row input bytes.
 
-    A hit re-uses the executable by reference and needs no host work at all; a
-    miss pays one ``decode_population``, the dedup, one trace per distinct program,
-    the merge, and one compile (unless :data:`BATCH_EXEC_MEMO` already holds that
-    program multiset for this shape -- in which case the compile is skipped and
-    :func:`build_batch` re-binds the memoized executable to the plan built here).
+    What a hit skips is the PLAN work: the ``decode_population``, the dedup, one
+    trace per distinct program, the merge and the compile.  It does NOT skip the
+    input conversion -- :func:`_host_rows` (``x``) and, for the loss variant,
+    :func:`_host_labels` run BEFORE the lookup on every call, because the key
+    carries the converted row count ``x_host.shape[0]`` and the label shape check
+    needs the converted rows.  A miss pays the plan work plus one compile (unless
+    :data:`BATCH_EXEC_MEMO` already holds that program multiset for this shape --
+    in which case the compile is skipped and :func:`build_batch` re-binds the
+    memoized executable to the plan built here).
 
     Both hits are safe by construction: a plan-table key holds the population's
     identity tokens (``data_ptr`` + shape + dtype + device + ``_version``, pinned
