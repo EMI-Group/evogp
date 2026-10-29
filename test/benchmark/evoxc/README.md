@@ -151,14 +151,36 @@ at `N` = 1024 rows, plus an `N` = 64 column at tree_len 64 / input_len 32 — 20
 (`--cells main,n64`, the default).
 
 `--cells long` selects the **long-tree column** instead (`common.long_tree_cells()`,
-`max_tree_len` ∈ {128, 256} = `common.LONG_TREE_LENS`): `p256-L128-i32-N1024`,
-`p1000-L128-i32-N1024` and `p256-L256-i32-N1024`, all at `N` = 1024, built by the
-same `build_workload` recipe. These are the cells where the dense trace cap (default
-64) and the batch route's per-program cost diverge: at tree length 128/256 dense
-declines every population whose longest tree exceeds the cap and the API falls back
-to per-tree `specialized`, so the column is read as `evoxc-dense-iree` (the
-fallback) against `evoxc-dense-iree-raised` (dense itself) against the batch arms.
-128/256 is a legal descriptor `max_tree_len` (the library's `MAX_STACK` is 1024).
+`max_tree_len` ∈ {128, 256} = `common.LONG_TREE_LENS`), all at `N` = 1024, built by the
+same `build_workload` recipe: six cells.
+
+| cell id | `max_tree_len` (row stride) | `max_layer_cnt` (depth cap) |
+|---|---|---|
+| `p256-L128-i32-N1024` | 128 | 5 |
+| `p256-L128-i32-N1024-d6` | 128 | 6 |
+| `p256-L128-i32-N1024-d7` | 128 | 7 |
+| `p1000-L128-i32-N1024-d7` | 128 | 7 |
+| `p256-L256-i32-N1024` | 256 | 5 |
+| `p256-L256-i32-N1024-d8` | 256 | 8 |
+
+The column has two axes, and the pair of cells per tree length separates them.
+`max_tree_len` (`tree_len`) is the row stride of the tree tensors and the length the
+dense route traces: the cap `EVOGP_DENSE_MAX_TREE_LEN` defaults to 64, so at stride
+128/256 dense declines the population and the API falls back to per-tree
+`specialized`, which is why the column is read as `evoxc-dense-iree` (the fallback)
+against `evoxc-dense-iree-raised` (dense itself) against the batch arms.
+`max_layer_cnt` (`-d<k>` in the id, 5 when absent) is what actually decides how many
+nodes the generated trees carry (a full tree is `2 ** d − 1` nodes), so it — not
+`tree_len` — governs the evaluation work: with seed 0 / pop 64 the node count is
+identical at stride 32, 64 and 128 for one depth cap and grows with the cap
+(`d=5` mean 15.8 / max 29 nodes, `d=6` mean 27.1 / max 57, `d=7` mean 35.5 / max 101,
+`d=8` mean 69.9 / max 187).
+The cap-5 cells are therefore the stock generation with only the row stride made
+long, and each `-d<k>` sibling raises the depth cap (the real node-count axis) at
+that same stride.
+Stride 128/256 and caps up to 8 are legal descriptor settings: the library's
+`MAX_STACK` = 1024 is not a constraint at these lengths, and `2 ** d − 1 ≤ tree_len`
+holds for every cell above.
 
 * Populations are generated deterministically: `torch.manual_seed(0)` +
   `Forest.random_generate(pop, GenerateDescriptor(...))` with the campaign function

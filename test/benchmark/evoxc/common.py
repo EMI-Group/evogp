@@ -159,13 +159,25 @@ MAIN_ROWS = 1024
 N64_ROWS = 64
 
 
-def cell(pop: int, tree_len: int, input_len: int, rows: int) -> Dict[str, Any]:
+def cell(
+    pop: int, tree_len: int, input_len: int, rows: int, max_layer_cnt: int = 5
+) -> Dict[str, Any]:
+    """One cell: the population shape plus the generation depth cap.
+
+    ``tree_len`` is the row stride (the descriptor's ``max_tree_len``) and
+    ``max_layer_cnt`` is the depth cap that governs how many nodes the generated
+    trees actually carry (a full tree is ``2 ** d - 1`` nodes).  The id keeps the
+    historical spelling for the default cap (``max_layer_cnt == 5``) and gains a
+    ``-d<k>`` suffix otherwise, so every existing cell id stays byte-identical.
+    """
+    suffix = "" if int(max_layer_cnt) == 5 else f"-d{int(max_layer_cnt)}"
     return {
-        "id": f"p{pop}-L{tree_len}-i{input_len}-N{rows}",
+        "id": f"p{pop}-L{tree_len}-i{input_len}-N{rows}{suffix}",
         "pop": pop,
         "tree_len": tree_len,
         "input_len": input_len,
         "rows": rows,
+        "max_layer_cnt": int(max_layer_cnt),
     }
 
 
@@ -185,34 +197,59 @@ def n64_cells() -> List[Dict[str, Any]]:
 
 
 def long_tree_cells() -> List[Dict[str, Any]]:
-    """The LONG-TREE column at ``N = 1024`` (``--cells long``): three cells.
+    """The LONG-TREE column at ``N = 1024`` (``--cells long``): six cells.
 
-    These are the cells where the dense trace cap (``EVOGP_DENSE_MAX_TREE_LEN``,
-    default 64) and the batch route's per-program cost diverge: at tree length
-    128/256 the dense route declines every population whose longest tree exceeds
-    the cap and the public API silently falls back to the per-tree ``specialized``
-    route (one compile per distinct structure), so a cell must be priced with the
-    cap both at its default and raised to the cell's own tree length
-    (``evoxc-dense-iree-raised``) before either route can be read as fast.
+    The column has TWO axes and the cells separate them, because in this library
+    they are different quantities:
 
-    ``tree_len`` 128/256 is a legal descriptor ``max_tree_len`` (the library's
-    ``MAX_STACK`` is 1024, and the realized trees of a cap-64 population already
-    reach 64), and the population itself comes from the same
-    :func:`build_workload` recipe as every other column -- ``torch.manual_seed(0)``
-    + ``Forest.random_generate`` -- so only the shape is new.
+    * ``tree_len`` is the descriptor's ``max_tree_len`` -- the row stride of the
+      tree tensors and the length the dense route traces.  The dense route
+      declines every population whose longest tree exceeds
+      ``EVOGP_DENSE_MAX_TREE_LEN`` (default 64), so above that cap the public API
+      silently falls back to the per-tree ``specialized`` route (one compile per
+      distinct structure).  A cell therefore has to be priced with the cap both at
+      its default (``evoxc-dense-iree``, measuring the fallback) and raised to the
+      cell's own tree length (``evoxc-dense-iree-raised``).
+    * ``max_layer_cnt`` is what actually decides how many nodes a generated tree
+      carries (a full tree is ``2 ** d - 1`` nodes), so it -- not ``tree_len`` --
+      governs the evaluation work.  Measured on this box with the
+      :func:`build_workload` recipe (seed 0, pop 64), the node count is identical
+      at L=32, L=64 and L=128 for one depth cap and grows with the cap:
+      ``d=5`` mean 15.8 / max 29 nodes, ``d=6`` mean 27.1 / max 57, ``d=7``
+      mean 35.5 / max 101, ``d=8`` mean 69.9 / max 187.
+
+    Hence the pair of cells per tree length: the cap-5 cell is the stock
+    generation with only the row stride made long, and each ``-d<k>`` sibling
+    raises the depth cap (the real node-count axis) at that same stride.
+
+    ``tree_len`` 128/256 and the caps up to 8 are legal descriptor settings
+    (``MAX_STACK`` = 1024 is not a constraint at these lengths, and
+    ``2 ** d - 1 <= tree_len`` holds for every cell below), and the population
+    comes from the same :func:`build_workload` recipe as every other column --
+    ``torch.manual_seed(0)`` + ``Forest.random_generate`` -- so only the shape is
+    new.
     """
     return [
-        cell(256, 128, 32, MAIN_ROWS),
-        cell(1000, 128, 32, MAIN_ROWS),
-        cell(256, 256, 32, MAIN_ROWS),
+        cell(256, 128, 32, MAIN_ROWS, 5),
+        cell(256, 128, 32, MAIN_ROWS, 6),
+        cell(256, 128, 32, MAIN_ROWS, 7),
+        cell(1000, 128, 32, MAIN_ROWS, 7),
+        cell(256, 256, 32, MAIN_ROWS, 5),
+        cell(256, 256, 32, MAIN_ROWS, 8),
     ]
 
 
 def parse_cell(text: str) -> Dict[str, Any]:
-    """``p256-L64-i32-N1024`` -> the cell dict."""
+    """``p256-L64-i32-N1024`` -> the cell dict (``-d7`` sets the depth cap)."""
     parts = dict(part.split("=", 1) if "=" in part else (part[0], part[1:]) for part in text.split("-"))
     try:
-        return cell(int(parts["p"]), int(parts["L"]), int(parts["i"]), int(parts["N"]))
+        return cell(
+            int(parts["p"]),
+            int(parts["L"]),
+            int(parts["i"]),
+            int(parts["N"]),
+            int(parts.get("d", 5)),
+        )
     except Exception as exc:  # noqa: BLE001 - a bad id is a usage error
         raise SystemExit(f"bad cell id {text!r}: {exc}")
 
@@ -358,15 +395,25 @@ def make_descriptor(tree_len: int, input_len: int, output_len: int = 1, using_fu
     )
 
 
-def build_workload(cell_spec: Dict[str, Any], seed: int = 0, using_funcs=None, max_layer_cnt: int = 5) -> Dict[str, Any]:
+def build_workload(
+    cell_spec: Dict[str, Any],
+    seed: int = 0,
+    using_funcs=None,
+    max_layer_cnt: Optional[int] = None,
+) -> Dict[str, Any]:
     """Deterministically build the population and data of one cell.
 
     ``torch.manual_seed(seed)`` + ``Forest.random_generate`` is the documented
     reproducibility recipe, so every arm in every process sees the same trees.
+    The generation depth cap comes from the CELL (``max_layer_cnt``, default 5)
+    unless the caller passes one explicitly, so a cell's id and its population
+    always agree on the node budget.
     """
     import torch
     from evogp.tree import Forest
 
+    if max_layer_cnt is None:
+        max_layer_cnt = int(cell_spec.get("max_layer_cnt", 5))
     torch.manual_seed(seed)
     descriptor = make_descriptor(
         cell_spec["tree_len"], cell_spec["input_len"], using_funcs=using_funcs, max_layer_cnt=max_layer_cnt
