@@ -227,10 +227,20 @@ holds for every cell above.
   `forest_stats.structure_signature` names the population the graph was keyed on.
 * **The batch arms have no `campaign.SCOPE` rule**: `campaign.SCOPE` covers
   `evoxc-specialized-iree` only, and the batch round scheduled its cells explicitly
-  instead. The compile it measured is 2.2–2.9 s per workload at pop 64, 9.9–12.2 s
-  at pop 256 and 91–169 s at pop 1000 (plus 102.7 s for a flat, K=1 merge at pop
-  1000), i.e. exactly the numbers a scoping rule would be built from — see
-  [`BATCH.md`](BATCH.md) §6. `--timeout` (default 1800 s per
+  instead. Its compile numbers name the path they were measured on: the
+  single-executable path (`EVOGP_BATCH_COMPILE_WORKERS=1`, the control arm) costs
+  10.9–12.2 s per workload at pop 256 and 91.0–162.0 s at pop 1000 (91.1 s at
+  p1000-L32-i8-N1024 and 162.0 s at p1000-L64-i32-N1024 in the gateable
+  `results/batch/warm-r5` records, 166.9 s in the `--reps 3` pilot
+  `results/batch/warm`), plus 102.7 s for a flat, K=1 merge at pop 1000 — i.e.
+  exactly the numbers a scoping rule would be built from. The shipped default of
+  4 chunk compiles (`EVOGP_BATCH_COMPILE_WORKERS`) compiles pop 256 cold in
+  4.44 s (3.78 s at 7 chunks) against 1.80× the warm call (2.011 → 3.628 ms),
+  and chunking is inert below 32 deduped functions, so the pop-64 cells stay at
+  2.2–2.9 s per workload — see
+  [`BATCH.md`](BATCH.md) §6 and §13 and
+  [`results/batch_opt_round1/SUMMARY.md`](results/batch_opt_round1/SUMMARY.md).
+  `--timeout` (default 1800 s per
   config) bounds a runaway config, and a batch-arm config that exceeds it is
   recorded as `status: "timeout"` with its worker log as evidence, never retried
   away as a defect.
@@ -443,9 +453,11 @@ pop 256 and 1/4 at pop 1000, 99.4–99.7 % of generation wall time inside the re
 a median cold eval of 5.7–18.2 s against a warm 2.0–6.3 s. With `EVOGP_BATCH_CACHE_SIZE = 8` a pop-256
 population already spans ~7–8 exec entries, so consecutive generations evict each other by construction.
 Consequently the route is **dominated by the shipped `dense+iree` route at every pop ≥ 64**: 0.37–0.995×
-dense's warm `sr_fitness`, a 10.9–12.2 s (pop 256) / 91–169 s (pop 1000) merged compile against dense's
-3.4–6.5 s, and a `gp_step` 193–2355× slower than dense (5.36 vs 3446.20 ms at p256-L32, 12.35 vs
-17524.31 ms at p1000-L64). It beats `specialized+numpy` warm by 8.7–29.6× but `auto` never selects it.
+dense's warm `sr_fitness`, and a `gp_step` 193–2355× slower than dense (5.36 vs 3446.20 ms at p256-L32, 12.35 vs
+17524.31 ms at p1000-L64). Its merged compile against dense's 3.4–6.5 s depends on the compile path: the
+single-executable arm (`EVOGP_BATCH_COMPILE_WORKERS=1`) pays 10.9–12.2 s at pop 256 and 91.0–162.0 s at
+pop 1000, while the shipped default of 4 chunk compiles compiles pop 256 cold in 4.44 s (3.78 s at 7 chunks)
+at 1.80× the warm call — [`BATCH.md`](BATCH.md) §13. It beats `specialized+numpy` warm by 8.7–29.6× but `auto` never selects it.
 Its one win on this grid is a **fixed** population of ~64 trees over few data rows — p64-L64-i32-N64:
 0.979 ms vs dense's 1.410 ms, cold 2.17 s vs 6.18 s — a per-call win that a generation loop still loses.
 The loss and per-row paths match the oracle to ~1e-7 rel; `batch_forward` on the arithmetic set is
