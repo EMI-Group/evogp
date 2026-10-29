@@ -1,9 +1,9 @@
 {
  "env": {
   "schema": "evogp-bench-evoxc-v1",
-  "created_utc": "2026-10-29T10:22:57Z",
+  "created_utc": "2026-10-29T11:20:48Z",
   "tree_root": "/root/evogp/.genesis/workers/worker_T1_A34/src",
-  "tree_root_sha": "f8dd665f6826854859201c6d23ae8943f09fb728",
+  "tree_root_sha": "f31f87727ac75ec8942fc3b0794f5b9e698d6bfc",
   "cwd": "/root/evogp/.genesis/workers/worker_T1_A34",
   "arm": "torch-per-tree",
   "python": "3.14.8",
@@ -99,20 +99,20 @@
  },
  "workloads": {
   "sr_fitness": {
-   "first_call_ms": 264.375,
+   "first_call_ms": 266.6951,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    126.9434,
-    128.4396,
-    128.302,
-    126.8686,
-    128.9565
+    132.3117,
+    130.7127,
+    131.5663,
+    131.1973,
+    131.325
    ],
-   "median_ms": 128.302,
-   "min_ms": 126.8686,
-   "max_ms": 128.9565,
-   "mean_ms": 127.902,
+   "median_ms": 131.325,
+   "min_ms": 130.7127,
+   "max_ms": 132.3117,
+   "mean_ms": 131.4226,
    "cache": {
     "before": {
      "hits": 0,
@@ -160,20 +160,20 @@
    }
   },
   "batch_forward": {
-   "first_call_ms": 97.5468,
+   "first_call_ms": 100.4077,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    96.1275,
-    97.0819,
-    95.6515,
-    97.2931,
-    96.6458
+    100.2089,
+    99.3966,
+    100.4019,
+    101.1963,
+    99.5155
    ],
-   "median_ms": 96.6458,
-   "min_ms": 95.6515,
-   "max_ms": 97.2931,
-   "mean_ms": 96.56,
+   "median_ms": 100.2089,
+   "min_ms": 99.3966,
+   "max_ms": 101.1963,
+   "mean_ms": 100.1438,
    "cache": {
     "before": {
      "hits": 0,
@@ -223,20 +223,20 @@
    }
   },
   "forward": {
-   "first_call_ms": 98.727,
+   "first_call_ms": 102.2256,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    100.4313,
-    98.9098,
-    97.8499,
-    99.0113,
-    97.4397
+    101.9915,
+    101.3922,
+    101.5771,
+    102.7058,
+    102.8419
    ],
-   "median_ms": 98.9098,
-   "min_ms": 97.4397,
-   "max_ms": 100.4313,
-   "mean_ms": 98.7284,
+   "median_ms": 101.9915,
+   "min_ms": 101.3922,
+   "max_ms": 102.8419,
+   "mean_ms": 102.1017,
    "cache": {
     "before": {
      "hits": 0,
@@ -287,10 +287,10 @@
  },
  "gp_step": null,
  "notes": [
-  "long-tree round / p1000: pop scaling at L=128 with the stock generation recipe (d5); the d7 variant was dropped because its merged-graph compile exceeded 40 min",
+  "long-tree round / p1000: pop scaling at L=128 with the stock generation recipe (d5); dense-iree (cap 64) is the need-sized-cap reference, dense-raised (cap 128) the stride-128 point",
   "torch arm: the tree decode / batched plan is built once, outside the timed region (setup_ms); per-call cost is torch ops only"
  ],
- "setup_ms": 8.7417,
+ "setup_ms": 8.6177,
  "engine_cache_final": {
   "hits": 0,
   "misses": 0,

@@ -1,9 +1,9 @@
 {
  "env": {
   "schema": "evogp-bench-evoxc-v1",
-  "created_utc": "2026-10-29T10:28:16Z",
+  "created_utc": "2026-10-29T11:26:11Z",
   "tree_root": "/root/evogp/.genesis/workers/worker_T1_A34/src",
-  "tree_root_sha": "f8dd665f6826854859201c6d23ae8943f09fb728",
+  "tree_root_sha": "f31f87727ac75ec8942fc3b0794f5b9e698d6bfc",
   "cwd": "/root/evogp/.genesis/workers/worker_T1_A34",
   "arm": "evoxc-specialized-numpy",
   "python": "3.14.8",
@@ -102,20 +102,20 @@
  },
  "workloads": {
   "sr_fitness": {
-   "first_call_ms": 3301.1289,
+   "first_call_ms": 3662.3915,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    153.516,
-    153.0152,
-    150.5161,
-    154.1052,
-    150.4259
+    175.1052,
+    169.7463,
+    161.2118,
+    163.2264,
+    164.3864
    ],
-   "median_ms": 153.0152,
-   "min_ms": 150.4259,
-   "max_ms": 154.1052,
-   "mean_ms": 152.3157,
+   "median_ms": 164.3864,
+   "min_ms": 161.2118,
+   "max_ms": 175.1052,
+   "mean_ms": 166.7352,
    "cache": {
     "before": {
      "hits": 0,
@@ -163,20 +163,20 @@
    }
   },
   "batch_forward": {
-   "first_call_ms": 149.9002,
+   "first_call_ms": 154.3184,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    164.5675,
-    164.2983,
-    165.8109,
-    165.9733,
-    169.3576
+    148.951,
+    147.2693,
+    153.4204,
+    151.8924,
+    150.0857
    ],
-   "median_ms": 165.8109,
-   "min_ms": 164.2983,
-   "max_ms": 169.3576,
-   "mean_ms": 166.0015,
+   "median_ms": 150.0857,
+   "min_ms": 147.2693,
+   "max_ms": 153.4204,
+   "mean_ms": 150.3238,
    "cache": {
     "before": {
      "hits": 0,
@@ -226,20 +226,20 @@
    }
   },
   "forward": {
-   "first_call_ms": 3249.446,
+   "first_call_ms": 3223.1713,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    141.5221,
-    141.5005,
-    148.3593,
-    149.6036,
-    152.0302
+    140.8531,
+    144.1036,
+    144.1532,
+    140.9324,
+    140.6775
    ],
-   "median_ms": 148.3593,
-   "min_ms": 141.5005,
-   "max_ms": 152.0302,
-   "mean_ms": 146.6032,
+   "median_ms": 140.9324,
+   "min_ms": 140.6775,
+   "max_ms": 144.1532,
+   "mean_ms": 142.1439,
    "cache": {
     "before": {
      "hits": 0,
@@ -290,7 +290,7 @@
  },
  "gp_step": null,
  "notes": [
-  "long-tree round / p1000: pop scaling at L=128 with the stock generation recipe (d5); the d7 variant was dropped because its merged-graph compile exceeded 40 min"
+  "long-tree round / p1000: pop scaling at L=128 with the stock generation recipe (d5); dense-iree (cap 64) is the need-sized-cap reference, dense-raised (cap 128) the stride-128 point"
  ],
  "setup_ms": 0.0,
  "engine_cache_final": {

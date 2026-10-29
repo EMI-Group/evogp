@@ -1,9 +1,9 @@
 {
  "env": {
   "schema": "evogp-bench-evoxc-v1",
-  "created_utc": "2026-10-29T10:27:26Z",
+  "created_utc": "2026-10-29T11:25:20Z",
   "tree_root": "/root/evogp/.genesis/workers/worker_T1_A34/src",
-  "tree_root_sha": "f8dd665f6826854859201c6d23ae8943f09fb728",
+  "tree_root_sha": "f31f87727ac75ec8942fc3b0794f5b9e698d6bfc",
   "cwd": "/root/evogp/.genesis/workers/worker_T1_A34",
   "arm": "evoxc-dense-iree-raised",
   "python": "3.14.8",
@@ -108,20 +108,20 @@
  },
  "workloads": {
   "sr_fitness": {
-   "first_call_ms": 15106.2552,
+   "first_call_ms": 15784.2996,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    19.5499,
-    19.455,
-    19.3599,
-    19.4935,
-    19.478
+    19.5939,
+    19.5523,
+    19.6131,
+    19.5765,
+    19.533
    ],
-   "median_ms": 19.478,
-   "min_ms": 19.3599,
-   "max_ms": 19.5499,
-   "mean_ms": 19.4673,
+   "median_ms": 19.5765,
+   "min_ms": 19.533,
+   "max_ms": 19.6131,
+   "mean_ms": 19.5737,
    "cache": {
     "before": {
      "hits": 0,
@@ -169,20 +169,20 @@
    }
   },
   "batch_forward": {
-   "first_call_ms": 15092.4332,
+   "first_call_ms": 14862.9449,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    21.4781,
-    21.2147,
-    21.273,
-    21.5329,
-    21.4147
+    21.4407,
+    21.4221,
+    21.5729,
+    21.4365,
+    21.6696
    ],
-   "median_ms": 21.4147,
-   "min_ms": 21.2147,
-   "max_ms": 21.5329,
-   "mean_ms": 21.3827,
+   "median_ms": 21.4407,
+   "min_ms": 21.4221,
+   "max_ms": 21.6696,
+   "mean_ms": 21.5084,
    "cache": {
     "before": {
      "hits": 0,
@@ -232,20 +232,20 @@
    }
   },
   "forward": {
-   "first_call_ms": 10701.0831,
+   "first_call_ms": 11171.8252,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    1.2813,
-    1.2526,
-    1.2885,
-    1.2712,
-    1.2459
+    1.4514,
+    1.3706,
+    1.3457,
+    1.3173,
+    1.3258
    ],
-   "median_ms": 1.2712,
-   "min_ms": 1.2459,
-   "max_ms": 1.2885,
-   "mean_ms": 1.2679,
+   "median_ms": 1.3457,
+   "min_ms": 1.3173,
+   "max_ms": 1.4514,
+   "mean_ms": 1.3621,
    "cache": {
     "before": {
      "hits": 0,
@@ -296,7 +296,7 @@
  },
  "gp_step": null,
  "notes": [
-  "long-tree round / p1000: pop scaling at L=128 with the stock generation recipe (d5); the d7 variant was dropped because its merged-graph compile exceeded 40 min",
+  "long-tree round / p1000: pop scaling at L=128 with the stock generation recipe (d5); dense-iree (cap 64) is the need-sized-cap reference, dense-raised (cap 128) the stride-128 point",
   "dense arm: dense_route is probed AFTER the timed workloads, so the probe is a plan/executable memo hit when the sr_fitness workload itself went through dense and raises immediately (before any host work) when the trace cap declines the population -- it never changes a number above"
  ],
  "setup_ms": 0.0,
@@ -305,7 +305,7 @@
   "tree_len_max": 31,
   "supported": true,
   "reason": null,
-  "probe_ms": 19.5985
+  "probe_ms": 19.8604
  },
  "engine_cache_final": {
   "hits": 0,
