@@ -15,6 +15,13 @@ protocol cannot slip into a table.  It verifies:
   ``samples_ms`` matches the stored value (a hand-edited median is caught);
 * for the evoxc arms: ``routes`` is non-empty and every workload's
   ``cache.compile_misses_first_call`` was recorded (not ``None``);
+* for the batch arms (``common.is_batch_arm``): ``routes["sr_fitness"]`` reports
+  ``eval_mode == "batch"`` with ``kind == "batch"``, ``batch_policy.mode_supported``
+  is true and ``batch_cache`` carries a boolean ``available``.  A first call that no
+  cache counter attributes to a compile, or a tree whose batch engine exposes no
+  counters at all, is a ``WARN`` -- one merged graph per population legitimately
+  costs seconds to minutes to compile, so its magnitude is the measurement itself
+  and is never bounded here;
 * digest agreement: all arms of one cell share one ``batch_forward`` and one
   ``forward`` sha256, and every workload's ``nan``/``finite`` counts agree across
   arms (``--allow-digest-mismatch`` downgrades the sha256 half to a warning);
@@ -296,6 +303,68 @@ def check_cache(checker: Checker, card: str, record: Dict[str, Any]) -> None:
                       "(the cold compile is not attributable)")
 
 
+def check_batch(checker: Checker, card: str, record: Dict[str, Any]) -> None:
+    """The invariants that make a batch-route record trustworthy (batch arms only).
+
+    A batch record is the only one whose cold first call is a merged-graph compile
+    for the whole population, so the magnitude of ``first_call_ms`` and of the miss
+    counters is the measurement, never a defect: this checks provenance (the cell
+    really resolved to the batch route and the tree really supports it) and
+    attribution (the merged-graph compile shows up in at least one counter), and it
+    only ``warn``s when attribution is missing.  Called exclusively for
+    ``common.is_batch_arm`` records, so it is a no-op for every other arm.
+    """
+    policy = record.get("batch_policy")
+    supported = isinstance(policy, dict) and policy.get("mode_supported") is True
+    declared = policy.get("declared_modes") if isinstance(policy, dict) else None
+    checker.check(
+        supported,
+        f"{card}: batch arm but batch_policy.mode_supported is not True — this record "
+        f"cannot be a batch-route measurement.  The route needs EVOGP_EVAL_MODE=batch, "
+        f"src/evogp/tree/batch_engine.py present, and 'batch' declared in "
+        f"evogp.tree.dense_engine.EVAL_MODES (declared_modes={declared!r}, "
+        f"module_present={(policy or {}).get('module_present')!r})",
+    )
+
+    route = (record.get("routes") or {}).get("sr_fitness")
+    route = route if isinstance(route, dict) else {}
+    checker.check(route.get("eval_mode") == "batch",
+                  f"{card}: routes.sr_fitness.eval_mode={route.get('eval_mode')!r} "
+                  "!= 'batch' (the cell did not resolve to the batch route)")
+    checker.check(route.get("kind") == "batch",
+                  f"{card}: routes.sr_fitness.kind={route.get('kind')!r} != 'batch' "
+                  "(a batch route decision must say so explicitly)")
+
+    cache = record.get("batch_cache")
+    checker.check(isinstance(cache, dict) and isinstance(cache.get("available"), bool),
+                  f"{card}: batch_cache is not an object with a boolean 'available' "
+                  f"({cache!r})")
+
+    # -- cold-compile attribution: WARN only ---------------------------------
+    # The merged-graph compile must be visible in the evoxc cache counter, the
+    # batch engine's own counter, or both; a route whose counters do not cover it
+    # is still a valid record (``first_call_ms`` carries the cost), so this never
+    # fails the gate and never bounds the magnitude of a miss count.
+    if not isinstance(cache, dict) or cache.get("available") is False:
+        checker.warn(f"{card}: batch_cache.available is false — this tree's "
+                     "evogp.tree.batch_engine exposes no merged-graph cache counters, so "
+                     "the compile is visible only through first_call_ms (NOT zero misses)")
+        return
+    misses = 0
+    for entry in (record.get("workloads") or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        counters = entry.get("cache") or {}
+        for key in ("compile_misses_first_call", "batch_compile_misses_first_call"):
+            value = counters.get(key)
+            if is_number(value) and value > 0:
+                misses += int(value)
+    if misses < 1:
+        checker.warn(f"{card}: 0 first-call compile misses across both caches — the "
+                     "merged-graph compile was not attributed to any cache counter "
+                     "(the counters may not cover this route); first_call_ms still carries it")
+
+
 def check_gp_step(checker: Checker, card: str, record: Dict[str, Any]) -> None:
     block = record.get("gp_step")
     protocol = record.get("protocol") or {}
@@ -424,6 +493,10 @@ def gate_dir(results_dir: str, args) -> Tuple[Checker, Dict[str, Any]]:
     if args.expect_arms:
         expected = [arm.strip() for arm in args.expect_arms.split(",") if arm.strip()]
     elif configs:
+        # The expected set is the campaign's OWN scheduled arms, never the whole
+        # registry: appending an arm to ``common.ALL_ARMS`` is therefore backwards
+        # compatible, because an older campaign that never scheduled it keeps gating
+        # exactly the arms it ran instead of failing on a record that cannot exist.
         expected = [arm for arm in common.ALL_ARMS
                     if any(key[1] == arm for key in configs)]
         expected += sorted({key[1] for key in configs} - set(common.ALL_ARMS))
@@ -458,6 +531,8 @@ def gate_dir(results_dir: str, args) -> Tuple[Checker, Dict[str, Any]]:
                 checker.check(False, f"{card}/{name}: workload block is not an object")
         if is_evoxc_arm(arm):
             check_cache(checker, card, record)
+        if common.is_batch_arm(arm):
+            check_batch(checker, card, record)
         check_gp_step(checker, card, record)
 
     # -- cross-arm agreement and guard honesty -------------------------------

@@ -4,9 +4,16 @@ Input is what :mod:`worker` writes (``<results>/<cell>/<arm>.json``, one record 
 (cell, arm)) plus the driver record ``<results>/campaign.json``.  The output holds,
 in order: the protocol statement from ``campaign.json``, the environment table, one
 warm-timing table per workload (``median_ms`` with the ``min_ms`` in parentheses)
-plus the ``auto route``/``fastest`` columns, the per-cell speedup against the two
+plus the ``auto route``/``fastest`` columns and -- only when a batch arm is present
+-- one line naming the batch route's knobs, the per-cell speedup against the two
 torch baselines, the ``gp_step`` total with its eval/ops split, the excluded cold
 compile call, the cross-arm digest agreement, and a caveats block.
+
+The batch arms (``common.is_batch_arm``) are rendered by the same rules as the other
+evoxc arms: their ``routes[...]`` carries ``kind: "batch"`` and is quoted as such,
+their ``first_call_ms`` is the merged-graph compile for the whole population (so a
+caveat says so), and their knobs are read from the record's ``batch_policy`` with
+the registry's ``knobs`` as the fallback.
 
 Two rules it obeys: it never re-derives a number (every table cell is a field of a
 record, so a missing record, a ``status != "ok"`` config or a contaminated guard
@@ -67,6 +74,19 @@ DEFAULT_WORKLOADS = ("sr_fitness", "batch_forward", "forward")
 #: the value paths whose digests must agree bitwise across arms
 VALUE_WORKLOADS = ("batch_forward", "forward")
 SECTIONS = ("env", "workloads", "speedup", "gp_step", "cold", "digest", "compare")
+#: Presentation order of the batch knobs.  The TABLE itself is ``common.BATCH_KNOBS``
+#: (the single owner); this only says in which order its keys are quoted, and any
+#: knob ``common`` gains later is appended instead of silently disappearing.
+_BATCH_KNOB_ORDER = ("band_size", "bands", "alignment", "switch_ops", "min_pop", "cache_size")
+BATCH_KNOB_KEYS = tuple(
+    [key for key in _BATCH_KNOB_ORDER
+     if key in {entry[0] for entry in common.BATCH_KNOBS}]
+    + [entry[0] for entry in common.BATCH_KNOBS if entry[0] not in _BATCH_KNOB_ORDER]
+)
+#: ``EVOGP_BATCH_BANDS`` -> ``bands``: an arm's registry ``knobs`` are env-var keyed,
+#: a record's ``batch_policy`` is spec-keyed, and the caption quotes the latter.
+BATCH_KNOB_BY_ENV = {entry[1]: entry[0] for entry in common.BATCH_KNOBS}
+
 
 
 # --- small formatting / file helpers -------------------------------------------
@@ -236,10 +256,15 @@ def fastest_arm(records, cell: str, arms, name: str) -> str:
 
 
 def route_text(records, cell: str, workload: str) -> str:
-    """``eval_mode/backend -> dense|specialized`` from the cell's route record.
+    """``eval_mode/backend -> kind`` from the cell's route record.
 
-    The shipped default (``evoxc-auto``) is preferred; when that arm is absent the
-    first evoxc arm present is used and named, so the column is never a guess.
+    The shipped default (``evoxc-auto``) is preferred, then ``evoxc-auto-iree``; only
+    when neither is recorded does the first evoxc arm present supply the cell, and it
+    is then named in parentheses.  The batch arms are registered last in
+    ``common.EVOXC_ARMS``, so they never shadow the default policy: they supply this
+    column only for a directory that recorded nothing else.  ``kind`` is a field when
+    the record states one (a batch route carries ``kind: "batch"``); otherwise the
+    dense-vs-specialized half is derived from ``would_use_dense`` exactly as before.
     """
     source = None
     for arm in ("evoxc-auto", "evoxc-auto-iree"):
@@ -258,10 +283,22 @@ def route_text(records, cell: str, workload: str) -> str:
         return MISSING
     mode = route.get("eval_mode") or "?"
     backend = route.get("backend") or "?"
-    kind = "dense" if route.get("would_use_dense") else "specialized"
+    kind = route.get("kind")
+    if kind is None:
+        kind = "dense" if route.get("would_use_dense") else "specialized"
     text = f"{mode}/{backend} → {kind}"
+    annotations: List[str] = []
+    if kind == "batch":
+        # the flat-vs-banded distinction is the one knob that changes the merge
+        # cost by an order of magnitude, so it belongs in the routing column;
+        # the default banding is the unannotated case
+        bands = route.get("bands")
+        if bands not in (None, "", "default"):
+            annotations.append(f"bands={bands}")
     if source != "evoxc-auto":
-        text += f" ({source})"
+        annotations.append(source)
+    if annotations:
+        text += f" ({', '.join(annotations)})"
     return text
 
 
@@ -346,6 +383,80 @@ def env_lines(campaign, records) -> List[str]:
     return lines
 
 
+def batch_arm_policy(records, arm: str) -> Optional[Dict[str, Any]]:
+    """The ``batch_policy`` block of the first record of ``arm`` (``None`` if none)."""
+    for (_cell, name), record in sorted(records.items()):
+        if name != arm:
+            continue
+        policy = record.get("batch_policy")
+        if isinstance(policy, dict):
+            return policy
+    return None
+
+
+def batch_arm_knobs(records, arm: str) -> str:
+    """``band_size=32, bands=flat, ...`` for one batch arm, record first, registry second.
+
+    The record's ``batch_policy`` holds the RESOLVED values; the arm's registry
+    ``knobs`` says which variables it overrides, so an arm that changes one knob is
+    quoted as that one knob and an arm that changes none is quoted in full.  Neither
+    is a knob table of its own: keys, defaults and env-var names all come from
+    ``common.BATCH_KNOBS``.
+    """
+    spec = common.EVOXC_ARMS.get(arm) or {}
+    # the arm's registry overrides, as spec keys (``EVOGP_BATCH_BANDS`` -> ``bands``)
+    by_key = {BATCH_KNOB_BY_ENV[env]: str(value)
+              for env, value in (spec.get("knobs") or {}).items()
+              if env in BATCH_KNOB_BY_ENV}
+    policy = batch_arm_policy(records, arm)
+    if policy is not None:
+        if by_key:
+            # this arm differs from the default policy in these knobs only, so quote
+            # exactly those; the record's resolved value wins over the registry literal
+            return ", ".join(f"{key}={policy.get(key) if policy.get(key) is not None else by_key[key]}"
+                             for key in BATCH_KNOB_KEYS if key in by_key)
+        defaults = {entry[0]: entry[2] for entry in common.BATCH_KNOBS}
+        pairs = [f"{key}={policy.get(key)}" for key in BATCH_KNOB_KEYS
+                 if policy.get(key) is not None
+                 and not (key == "cache_size" and str(policy.get(key)) == defaults[key])]
+        if policy.get("mode_supported") is False:
+            pairs.append("mode_supported=false")
+        return ", ".join(pairs) or "unknown"
+    # no record-level policy: the registry is the last source (an override is a fact,
+    # and the documented default is labelled rather than presented as measured)
+    if by_key:
+        return ", ".join(f"{key}={by_key[key]}" for key in BATCH_KNOB_KEYS if key in by_key)
+    return ", ".join(f"{entry[0]}={entry[2]} (documented default)"
+                     for entry in common.BATCH_KNOBS
+                     if entry[0] != "cache_size")
+
+
+def batch_arm_note(arms, records) -> str:
+    """ONE caption line naming the batch route's knobs, or ``""`` when no batch arm ran.
+
+    Emitting nothing for a batch-free directory is what keeps those renders
+    byte-identical, and those are the only ones with a frozen report of record.
+    """
+    present = [arm for arm in arms if common.is_batch_arm(arm)]
+    if not present:
+        return ""
+    named = ", ".join(f"`{arm}` ({batch_arm_knobs(records, arm)})" for arm in present)
+    return ("Batch route arms: " + named + " — one merged graph per population, so "
+            "`first_call_ms` is a compile and the warm columns are the ones to compare.")
+
+
+def batch_first_call_present(cells, arms, records) -> bool:
+    """Did any batch arm record a cold first call (i.e. a merged-graph compile)?"""
+    for cell in cells:
+        for arm in arms:
+            if not common.is_batch_arm(arm):
+                continue
+            entry = workload_entry(records.get((cell, arm)), "sr_fitness")
+            if entry is not None and as_number(entry.get("first_call_ms")) is not None:
+                return True
+    return False
+
+
 def workload_lines(name, cells, arms, records) -> List[str]:
     lines = [f"## Workload: {name}", "",
              "Warm/steady-state `median_ms` with the `min_ms` in parentheses.", ""]
@@ -364,6 +475,9 @@ def workload_lines(name, cells, arms, records) -> List[str]:
                  "`eval_mode`/`backend` and `dense`|`specialized` from `would_use_dense`); when that "
                  "arm is absent the arm the route was read from is named in parentheses.")
     lines.append("")
+    note = batch_arm_note(arms, records)
+    if note:
+        lines.extend([note, ""])
     return lines
 
 
@@ -622,11 +736,17 @@ def digest_lines(cells, arms, records) -> List[str]:
     return lines
 
 
-def caveat_lines(campaign, configs, problems) -> List[str]:
+def caveat_lines(campaign, configs, problems, batch_cold: bool = False) -> List[str]:
     lines = ["## Caveats", ""]
     bad = [entry for entry in configs.values() if entry.get("status") != "ok"]
     contaminated = [entry for entry in configs.values()
                     if isinstance(entry.get("guard"), dict) and entry["guard"].get("contaminated")]
+    if batch_cold:
+        # a batch arm's cold call is a compile of the whole population's structure
+        # multiset: quoting it next to a warm median is the reading error to prevent
+        lines.append("- A **batch arm**'s `first_call_ms` is a merged-graph compile for the whole "
+                     "population multiset (expect seconds to minutes) and is excluded from the warm "
+                     "medians by protocol — compare the warm columns only.")
     if campaign is None:
         lines.append("- No `campaign.json`: schedule completeness, the drop list and the guard "
                      "record could not be checked; only the record files present on disk are "
@@ -741,7 +861,8 @@ def build(args) -> Tuple[List[str], Dict[str, Any]]:
     if "digest" in sections:
         lines.extend(digest_lines(cells, arms, records))
     # caveats are never optional: they are the honesty of the report
-    lines.extend(caveat_lines(campaign, configs, problems))
+    lines.extend(caveat_lines(campaign, configs, problems,
+                              batch_first_call_present(cells, arms, records)))
     data = {"campaign": campaign, "campaign_error": campaign_error, "configs": configs,
             "records": records, "problems": problems, "cells": cells, "arms": arms,
             "compare": compare}
