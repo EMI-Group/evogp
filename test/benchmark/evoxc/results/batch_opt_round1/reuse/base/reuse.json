@@ -1,0 +1,624 @@
+{
+ "schema": "evogp-bench-evoxc-v1-batch-reuse",
+ "created_utc": "2026-10-29T19:54:55Z",
+ "measurement": "batch-plan-key-reuse",
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-29T19:54:55Z",
+  "tree_root": "/tmp/genesis/task_702c79ebc6d412af/evogp_preopt_619cbf7",
+  "tree_root_sha": null,
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A40",
+  "arm": "evoxc-batch-iree",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "2b289f034f6f8e16b6c9b55932dfed76cc54690e",
+  "evogp_file": "/tmp/genesis/task_702c79ebc6d412af/evogp_preopt_619cbf7/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOGP_EVAL_MODE": "batch",
+   "EVOGP_EVOXC_BACKEND": "iree",
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "applied_knobs": {},
+  "cell": {
+   "id": "p64-L64-i32-N64",
+   "pop": 64,
+   "tree_len": 64,
+   "input_len": 32,
+   "rows": 64,
+   "max_layer_cnt": 5
+  }
+ },
+ "cell": {
+  "id": "p64-L64-i32-N64",
+  "pop": 64,
+  "tree_len": 64,
+  "input_len": 32,
+  "rows": 64,
+  "max_layer_cnt": 5
+ },
+ "arm": "evoxc-batch-iree",
+ "seed": 0,
+ "protocol": {
+  "one_process_per_measurement": true,
+  "sync_bracketed": true,
+  "sequence": [
+   {
+    "call": 1,
+    "forest": "A",
+    "kind": "cold"
+   },
+   {
+    "call": 2,
+    "forest": "A",
+    "kind": "identity"
+   },
+   {
+    "call": 3,
+    "forest": "B",
+    "kind": "rebuilt"
+   },
+   {
+    "call": 4,
+    "forest": "B",
+    "kind": "identity"
+   }
+  ],
+  "dataset": "one x/labels object shared by every call",
+  "evoxc_disable_locations": "1",
+  "content_stats_fn": "evogp.tree.batch_engine.batch_content_stats",
+  "content_stats_available": false,
+  "stage_stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+  "stage_stats_available": false,
+  "stage_reset_available": false
+ },
+ "routes": {
+  "sr_fitness": {
+   "eval_mode": "batch",
+   "backend": "iree",
+   "kind": "batch",
+   "would_use_dense": false,
+   "would_use_batch": true,
+   "declines_to_specialized": false,
+   "decline_reason": null,
+   "min_pop": 64,
+   "band_size": 32,
+   "bands": "None",
+   "alignment": "variant",
+   "switch_ops": "False",
+   "module_present": true,
+   "mode_supported": true,
+   "rows": 64,
+   "note": "batch/iree: merged graph per population structure multiset"
+  }
+ },
+ "batch_policy": {
+  "module_present": true,
+  "module": "/tmp/genesis/task_702c79ebc6d412af/evogp_preopt_619cbf7/src/evogp/tree/batch_engine.py",
+  "eval_mode": "batch",
+  "backend": "iree with numpy fallback",
+  "declared_modes": [
+   "dense",
+   "specialized",
+   "batch",
+   "auto"
+  ],
+  "mode_supported": true,
+  "min_pop": 64,
+  "band_size": 32,
+  "bands": "None",
+  "switch_ops": "False",
+  "alignment": "variant",
+  "cache_size": "unset",
+  "compile_workers": "default",
+  "knobs": {
+   "EVOGP_BATCH_BAND_SIZE": null,
+   "EVOGP_BATCH_BANDS": null,
+   "EVOGP_BATCH_SWITCH_OPS": null,
+   "EVOGP_BATCH_ALIGNMENT": null,
+   "EVOGP_BATCH_CACHE_SIZE": null,
+   "EVOGP_BATCH_MIN_POP": null,
+   "EVOGP_BATCH_COMPILE_WORKERS": null
+  },
+  "knobs_source": {
+   "band_size": "module",
+   "bands": "module",
+   "switch_ops": "module",
+   "alignment": "module",
+   "cache_size": "harness-default",
+   "min_pop": "module",
+   "compile_workers": "harness-default"
+  }
+ },
+ "structures": {
+  "distinct_structures": 63,
+  "signature": "18d209693a5a7e9e",
+  "pop_size": 64
+ },
+ "forests": {
+  "A": {
+   "label": "A",
+   "pop_size": 64,
+   "max_tree_len": 64,
+   "tree_len_mean": 15.84375,
+   "tree_len_max": 29,
+   "distinct_structures": 63,
+   "structure_signature": "18d209693a5a7e9e",
+   "storage": {
+    "batch_node_value": 131999694222336,
+    "batch_node_type": 131999694238720,
+    "batch_subtree_size": 131999694246912
+   }
+  },
+  "B": {
+   "label": "B",
+   "pop_size": 64,
+   "max_tree_len": 64,
+   "tree_len_mean": 15.84375,
+   "tree_len_max": 29,
+   "distinct_structures": 63,
+   "structure_signature": "18d209693a5a7e9e",
+   "storage": {
+    "batch_node_value": 131999694286848,
+    "batch_node_type": 131999694189568,
+    "batch_subtree_size": 131999694303232
+   }
+  },
+  "same_content": {
+   "fields_equal": {
+    "batch_node_value": true,
+    "batch_node_type": true,
+    "batch_subtree_size": true
+   },
+   "fields_in_distinct_storage": {
+    "batch_node_value": true,
+    "batch_node_type": true,
+    "batch_subtree_size": true
+   },
+   "identical_content": true,
+   "no_shared_storage": true
+  }
+ },
+ "dataset": {
+  "shape": [
+   64,
+   32
+  ],
+  "input_len": 32,
+  "rows": 64,
+  "shared_tensor_object": true,
+  "x_data_ptr": 131999694067200,
+  "labels_data_ptr": 131999694065664,
+  "identical_to_build_b": true
+ },
+ "cache_keys": {
+  "batch_cache_stats": [
+   "batch_exec_entries",
+   "batch_exec_hits",
+   "batch_exec_maxsize",
+   "batch_exec_misses",
+   "batch_plan_entries",
+   "batch_plan_hits",
+   "batch_plan_maxsize",
+   "batch_plan_misses"
+  ],
+  "batch_content_stats": [],
+  "batch_stage_stats": []
+ },
+ "calls": [
+  {
+   "call": 1,
+   "forest": "A",
+   "kind": "cold",
+   "call_ms": 2401.2071,
+   "digest": {
+    "shape": [
+     64
+    ],
+    "sha256": "b6584500a0fb365adfbf712cc6b43d7e",
+    "finite": 64,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 1062711890.5794324
+   },
+   "cache": {
+    "batch": {
+     "before": {
+      "batch_exec_hits": 0,
+      "batch_exec_misses": 0,
+      "batch_exec_entries": 0,
+      "batch_exec_maxsize": 8,
+      "batch_plan_hits": 0,
+      "batch_plan_misses": 0,
+      "batch_plan_entries": 0,
+      "batch_plan_maxsize": 8
+     },
+     "after": {
+      "batch_exec_hits": 0,
+      "batch_exec_misses": 1,
+      "batch_exec_entries": 1,
+      "batch_exec_maxsize": 8,
+      "batch_plan_hits": 0,
+      "batch_plan_misses": 1,
+      "batch_plan_entries": 1,
+      "batch_plan_maxsize": 8
+     },
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 1,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 1
+    }
+   },
+   "content": {
+    "available": false,
+    "stats_fn": "evogp.tree.batch_engine.batch_content_stats",
+    "note": "content window unavailable: both the before and the after snapshot must be dicts carrying batch_content_* counters -- a half-read window is null (NOT a partial delta)",
+    "batch_content_hits": null,
+    "batch_content_misses": null,
+    "batch_content_rejects": null,
+    "batch_content_entries": null,
+    "batch_content_maxsize": null,
+    "attempts": null,
+    "hit_rate": null
+   },
+   "stage_ms": {
+    "available": false,
+    "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+    "note": "stage window unavailable: both the before and the after snapshot must be dicts carrying batch_<stage>_* counters -- a half-read window is null (NOT a partial delta)",
+    "batch_decode_calls": null,
+    "batch_decode_total_ms": null,
+    "batch_decode_max_ms": null,
+    "batch_dedup_calls": null,
+    "batch_dedup_total_ms": null,
+    "batch_dedup_max_ms": null,
+    "batch_trace_calls": null,
+    "batch_trace_total_ms": null,
+    "batch_trace_max_ms": null,
+    "batch_merge_calls": null,
+    "batch_merge_total_ms": null,
+    "batch_merge_max_ms": null,
+    "batch_lower_calls": null,
+    "batch_lower_total_ms": null,
+    "batch_lower_max_ms": null,
+    "batch_compile_calls": null,
+    "batch_compile_total_ms": null,
+    "batch_compile_max_ms": null,
+    "batch_load_calls": null,
+    "batch_load_total_ms": null,
+    "batch_load_max_ms": null,
+    "batch_upload_calls": null,
+    "batch_upload_total_ms": null,
+    "batch_upload_max_ms": null,
+    "batch_run_calls": null,
+    "batch_run_total_ms": null,
+    "batch_run_max_ms": null,
+    "batch_gather_calls": null,
+    "batch_gather_total_ms": null,
+    "batch_gather_max_ms": null,
+    "batch_compile_wall_ms": null,
+    "batch_compile_jobs": null
+   }
+  },
+  {
+   "call": 2,
+   "forest": "A",
+   "kind": "identity",
+   "call_ms": 1.2347,
+   "digest": {
+    "shape": [
+     64
+    ],
+    "sha256": "b6584500a0fb365adfbf712cc6b43d7e",
+    "finite": 64,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 1062711890.5794324
+   },
+   "cache": {
+    "batch": {
+     "before": {
+      "batch_exec_hits": 0,
+      "batch_exec_misses": 1,
+      "batch_exec_entries": 1,
+      "batch_exec_maxsize": 8,
+      "batch_plan_hits": 0,
+      "batch_plan_misses": 1,
+      "batch_plan_entries": 1,
+      "batch_plan_maxsize": 8
+     },
+     "after": {
+      "batch_exec_hits": 0,
+      "batch_exec_misses": 1,
+      "batch_exec_entries": 1,
+      "batch_exec_maxsize": 8,
+      "batch_plan_hits": 1,
+      "batch_plan_misses": 1,
+      "batch_plan_entries": 1,
+      "batch_plan_maxsize": 8
+     },
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 0,
+     "batch_plan_hits": 1,
+     "batch_plan_misses": 0
+    }
+   },
+   "content": {
+    "available": false,
+    "stats_fn": "evogp.tree.batch_engine.batch_content_stats",
+    "note": "content window unavailable: both the before and the after snapshot must be dicts carrying batch_content_* counters -- a half-read window is null (NOT a partial delta)",
+    "batch_content_hits": null,
+    "batch_content_misses": null,
+    "batch_content_rejects": null,
+    "batch_content_entries": null,
+    "batch_content_maxsize": null,
+    "attempts": null,
+    "hit_rate": null
+   },
+   "stage_ms": {
+    "available": false,
+    "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+    "note": "stage window unavailable: both the before and the after snapshot must be dicts carrying batch_<stage>_* counters -- a half-read window is null (NOT a partial delta)",
+    "batch_decode_calls": null,
+    "batch_decode_total_ms": null,
+    "batch_decode_max_ms": null,
+    "batch_dedup_calls": null,
+    "batch_dedup_total_ms": null,
+    "batch_dedup_max_ms": null,
+    "batch_trace_calls": null,
+    "batch_trace_total_ms": null,
+    "batch_trace_max_ms": null,
+    "batch_merge_calls": null,
+    "batch_merge_total_ms": null,
+    "batch_merge_max_ms": null,
+    "batch_lower_calls": null,
+    "batch_lower_total_ms": null,
+    "batch_lower_max_ms": null,
+    "batch_compile_calls": null,
+    "batch_compile_total_ms": null,
+    "batch_compile_max_ms": null,
+    "batch_load_calls": null,
+    "batch_load_total_ms": null,
+    "batch_load_max_ms": null,
+    "batch_upload_calls": null,
+    "batch_upload_total_ms": null,
+    "batch_upload_max_ms": null,
+    "batch_run_calls": null,
+    "batch_run_total_ms": null,
+    "batch_run_max_ms": null,
+    "batch_gather_calls": null,
+    "batch_gather_total_ms": null,
+    "batch_gather_max_ms": null,
+    "batch_compile_wall_ms": null,
+    "batch_compile_jobs": null
+   }
+  },
+  {
+   "call": 3,
+   "forest": "B",
+   "kind": "rebuilt",
+   "call_ms": 79.1089,
+   "digest": {
+    "shape": [
+     64
+    ],
+    "sha256": "b6584500a0fb365adfbf712cc6b43d7e",
+    "finite": 64,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 1062711890.5794324
+   },
+   "cache": {
+    "batch": {
+     "before": {
+      "batch_exec_hits": 0,
+      "batch_exec_misses": 1,
+      "batch_exec_entries": 1,
+      "batch_exec_maxsize": 8,
+      "batch_plan_hits": 1,
+      "batch_plan_misses": 1,
+      "batch_plan_entries": 1,
+      "batch_plan_maxsize": 8
+     },
+     "after": {
+      "batch_exec_hits": 1,
+      "batch_exec_misses": 1,
+      "batch_exec_entries": 1,
+      "batch_exec_maxsize": 8,
+      "batch_plan_hits": 1,
+      "batch_plan_misses": 2,
+      "batch_plan_entries": 2,
+      "batch_plan_maxsize": 8
+     },
+     "batch_exec_hits": 1,
+     "batch_exec_misses": 0,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 1
+    }
+   },
+   "content": {
+    "available": false,
+    "stats_fn": "evogp.tree.batch_engine.batch_content_stats",
+    "note": "content window unavailable: both the before and the after snapshot must be dicts carrying batch_content_* counters -- a half-read window is null (NOT a partial delta)",
+    "batch_content_hits": null,
+    "batch_content_misses": null,
+    "batch_content_rejects": null,
+    "batch_content_entries": null,
+    "batch_content_maxsize": null,
+    "attempts": null,
+    "hit_rate": null
+   },
+   "stage_ms": {
+    "available": false,
+    "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+    "note": "stage window unavailable: both the before and the after snapshot must be dicts carrying batch_<stage>_* counters -- a half-read window is null (NOT a partial delta)",
+    "batch_decode_calls": null,
+    "batch_decode_total_ms": null,
+    "batch_decode_max_ms": null,
+    "batch_dedup_calls": null,
+    "batch_dedup_total_ms": null,
+    "batch_dedup_max_ms": null,
+    "batch_trace_calls": null,
+    "batch_trace_total_ms": null,
+    "batch_trace_max_ms": null,
+    "batch_merge_calls": null,
+    "batch_merge_total_ms": null,
+    "batch_merge_max_ms": null,
+    "batch_lower_calls": null,
+    "batch_lower_total_ms": null,
+    "batch_lower_max_ms": null,
+    "batch_compile_calls": null,
+    "batch_compile_total_ms": null,
+    "batch_compile_max_ms": null,
+    "batch_load_calls": null,
+    "batch_load_total_ms": null,
+    "batch_load_max_ms": null,
+    "batch_upload_calls": null,
+    "batch_upload_total_ms": null,
+    "batch_upload_max_ms": null,
+    "batch_run_calls": null,
+    "batch_run_total_ms": null,
+    "batch_run_max_ms": null,
+    "batch_gather_calls": null,
+    "batch_gather_total_ms": null,
+    "batch_gather_max_ms": null,
+    "batch_compile_wall_ms": null,
+    "batch_compile_jobs": null
+   }
+  },
+  {
+   "call": 4,
+   "forest": "B",
+   "kind": "identity",
+   "call_ms": 1.1008,
+   "digest": {
+    "shape": [
+     64
+    ],
+    "sha256": "b6584500a0fb365adfbf712cc6b43d7e",
+    "finite": 64,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 1062711890.5794324
+   },
+   "cache": {
+    "batch": {
+     "before": {
+      "batch_exec_hits": 1,
+      "batch_exec_misses": 1,
+      "batch_exec_entries": 1,
+      "batch_exec_maxsize": 8,
+      "batch_plan_hits": 1,
+      "batch_plan_misses": 2,
+      "batch_plan_entries": 2,
+      "batch_plan_maxsize": 8
+     },
+     "after": {
+      "batch_exec_hits": 1,
+      "batch_exec_misses": 1,
+      "batch_exec_entries": 1,
+      "batch_exec_maxsize": 8,
+      "batch_plan_hits": 2,
+      "batch_plan_misses": 2,
+      "batch_plan_entries": 2,
+      "batch_plan_maxsize": 8
+     },
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 0,
+     "batch_plan_hits": 1,
+     "batch_plan_misses": 0
+    }
+   },
+   "content": {
+    "available": false,
+    "stats_fn": "evogp.tree.batch_engine.batch_content_stats",
+    "note": "content window unavailable: both the before and the after snapshot must be dicts carrying batch_content_* counters -- a half-read window is null (NOT a partial delta)",
+    "batch_content_hits": null,
+    "batch_content_misses": null,
+    "batch_content_rejects": null,
+    "batch_content_entries": null,
+    "batch_content_maxsize": null,
+    "attempts": null,
+    "hit_rate": null
+   },
+   "stage_ms": {
+    "available": false,
+    "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+    "note": "stage window unavailable: both the before and the after snapshot must be dicts carrying batch_<stage>_* counters -- a half-read window is null (NOT a partial delta)",
+    "batch_decode_calls": null,
+    "batch_decode_total_ms": null,
+    "batch_decode_max_ms": null,
+    "batch_dedup_calls": null,
+    "batch_dedup_total_ms": null,
+    "batch_dedup_max_ms": null,
+    "batch_trace_calls": null,
+    "batch_trace_total_ms": null,
+    "batch_trace_max_ms": null,
+    "batch_merge_calls": null,
+    "batch_merge_total_ms": null,
+    "batch_merge_max_ms": null,
+    "batch_lower_calls": null,
+    "batch_lower_total_ms": null,
+    "batch_lower_max_ms": null,
+    "batch_compile_calls": null,
+    "batch_compile_total_ms": null,
+    "batch_compile_max_ms": null,
+    "batch_load_calls": null,
+    "batch_load_total_ms": null,
+    "batch_load_max_ms": null,
+    "batch_upload_calls": null,
+    "batch_upload_total_ms": null,
+    "batch_upload_max_ms": null,
+    "batch_run_calls": null,
+    "batch_run_total_ms": null,
+    "batch_run_max_ms": null,
+    "batch_gather_calls": null,
+    "batch_gather_total_ms": null,
+    "batch_gather_max_ms": null,
+    "batch_compile_wall_ms": null,
+    "batch_compile_jobs": null
+   }
+  }
+ ],
+ "verification": {
+  "cold_compiles": true,
+  "identity_call_skips_compile": true,
+  "identity_call_leaves_content_untouched": null,
+  "rebuilt_call_answers_identically": true,
+  "rebuilt_call_reuses_a_plan": null,
+  "rebuilt_call_skips_trace_merge_compile": null,
+  "rebuilt_call_plan_misses": 1,
+  "rebuilt_call_compile_misses": 0,
+  "identity_call_plan_misses": 0,
+  "rebuilt_call_stage_calls": {
+   "trace": null,
+   "merge": null,
+   "compile": null
+  },
+  "rebuilt_call_measured": {
+   "content_available": false,
+   "stage_available": false,
+   "identity_call_on_b": 0
+  }
+ },
+ "notes": [
+  "calls 1 and 3 are the two populations' FIRST evaluation (A cold, B rebuilt-but-equal); calls 2 and 4 are the identity fast path doing its job on each, and an identity hit leaves the content table untouched (attempts 0 -- not a content miss)",
+  "a content hit is served only after ONE decode, which is what the content key needs to prove the programs; the merge, the trace and the compile are what it skips",
+  "null, never false: an expectation the route exposes no counter for stays None (a pre-round tree has no content table and no stage timers)",
+  "evogp.tree.batch_engine.batch_content_stats() is unavailable on this tree: every content counter is null (NOT zero) and the reuse verdict stays None for the content-keyed expectations. The measured before/after evidence is then the PLAN table: the rebuilt population pays a plan MISS (re-decode, re-trace, re-merge) instead of being served",
+  "evogp.tree.batch_engine.batch_stage_stats() is unavailable on this tree: every stage counter is null (NOT zero), so 'it skipped trace/merge/compile' cannot be read off stage call counts here -- the merge work is visible only through the plan/exec counters and call_ms"
+ ]
+}
