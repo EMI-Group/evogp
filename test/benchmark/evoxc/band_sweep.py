@@ -24,6 +24,21 @@ chunked plan needs none) run the pool deliberately, so ``--workers`` is asserted
 band-partition set.  A pure pool-width sweep stays
 ``batch_economics.py --knob EVOGP_BATCH_COMPILE_WORKERS=N``.
 
+The BAND-COUNT pins (round 3) are the other arm of the same question: ``b<N>`` asks the size MODEL
+for a count, while ``k15`` / ``k7`` pin the count ITSELF at what the device can load
+(``EVOGP_BATCH_BANDS=15`` / ``=7``, single-body), and ``k15-cw4`` / ``k7-cw4`` run the same pin
+through the banded+chunked composition.  An explicit ``K`` is the ONE band request the engine
+VALIDATES HARD: :func:`evogp.tree.batch_bands.plan_band_spec` raises ``ValueError`` for a count the
+device cannot load (it never clamps an explicit ``K``; ``auto`` and the size model are clamped), so
+a pin is only runnable where the deduped function count supports it -- the policy's cap is
+``min(max_bands, n_functions, n_functions // min_band_size)``, i.e. ``K <= 15`` bands of
+``>= 8`` merged functions on the CUDA/ROCm HAL, so ``K`` needs ``n_functions >= 8 * K``.  That makes
+the pins POPULATION-SCOPED: on this grid ``n_functions`` is 225/232/245 (the two pop-256 cells) and
+63/64 (``p64-L64-i32-N64``), so ``k15`` is legal only on a pop-256 (or larger) cell, while ``k7``
+is legal on all three.  :func:`check_cell_legality` states that per (cell, config) pair -- a
+WARNING in ``--dry-run``, a refusal before any child starts otherwise -- instead of paying a
+compile for a record the engine is guaranteed to reject.
+
 Per (cell, config) the child measures three value workloads in a FIXED order -- ``sr_fitness``,
 ``batch_forward``, ``forward`` -- recording per workload the cold first call (``first_call_ms``:
 the merged-graph compile of that plan), the warm ``samples_ms`` with their median/min/max/mean, the
@@ -47,16 +62,25 @@ per process), and the children run ONE AT A TIME behind ``campaign.guard``.
 synchronized call, no warmup, no timed reps, and every warm field recorded ``null``
 (``samples_ms`` an empty list) instead of a fabricated median.
 
+Cells come from :func:`common.parse_cell`, so ANY ``p<pop>-L<tree_len>-i<input_len>-N<rows>`` id
+(plus an optional ``-d<depth>`` suffix) is runnable without registering it -- the round-3 population
+column is addressed by its own id, e.g. ``--cold-only --cells p1000-L32-i8-N1024 --configs b16-cw4``.
+
 Reproduce on the GPU box
 ------------------------
 ::
     PY=/tmp/rocvenv/bin/python
     export EVOXC_DISABLE_LOCATIONS=1
     $PY test/benchmark/evoxc/band_sweep.py --dry-run     # planned env of every (cell, config, workload)
-    $PY test/benchmark/evoxc/band_sweep.py               # the full sweep: 3 cells x 9 configs
+    $PY test/benchmark/evoxc/band_sweep.py               # the round-2 sweep: 3 cells x 9 configs
     $PY test/benchmark/evoxc/band_sweep.py --cold-only --cells p64-L64-i32-N64 --configs auto
     $PY test/benchmark/evoxc/band_sweep.py --child p64-L64-i32-N64 --config b32 \
         --workloads sr_fitness --warmup 1 --reps 2 --out "$TMPDIR/band.json"
+    # round 3: the band-count pins at the binding cap (k15* only on the pop-256 cells)
+    $PY test/benchmark/evoxc/band_sweep.py --cells p256-L32-i8-N1024,p256-L64-i32-N1024 \
+        --configs k15,k15-cw4 --out-dir results/batch_opt_round3/warm --evoxc-root /tmp/evoxc_r3
+    $PY test/benchmark/evoxc/band_sweep.py --cold-only --cells p1000-L32-i8-N1024 \
+        --configs b16-cw4 --out-dir results/batch_opt_round3/cold --evoxc-root /tmp/evoxc_r3
 
 ``--tree-root DIR`` selects the checkout under measurement like ``worker.py`` / ``batch_economics.py``
 (``<root>/src`` first on ``sys.path``); the child's ``PYTHONPATH`` is exactly ``[<src>,
@@ -103,6 +127,11 @@ from cold_start import install_tree_root  # noqa: E402  (the one tree-switch hel
 #: merged graph is expensive enough to price) and one cheap pop-64 cell (the fixed-population
 #: regime the route is documented to win, and exactly ON the ``EVOGP_BATCH_MIN_POP`` floor).
 DEFAULT_CELLS = "p256-L32-i8-N1024,p256-L64-i32-N1024,p64-L64-i32-N64"
+#: The round-2 config set (the band partition, the ``auto`` policy and the composition).  The
+#: round-3 band-count pins (:data:`BAND_CAP_CONFIGS`) are deliberately NOT defaulted: they are
+#: population-scoped (``k15``/``k15-cw4`` need a pop-256-or-larger cell), so a default run over
+#: the default cells would select an illegal pair -- the round passes ``--configs k15,k7,...``
+#: per cell set instead, which :func:`check_cell_legality` validates.
 DEFAULT_CONFIGS = "b8,b16,b32,b64,flat,auto,auto-cw4,b16-cw4,flat-cw4"
 DEFAULT_WORKLOADS = "sr_fitness,batch_forward,forward"
 #: The measurement order is FIXED (never the caller's order): every record of a cell then
@@ -168,16 +197,45 @@ CONFIG_KNOBS: Dict[str, Dict[str, str]] = {
         "EVOGP_BATCH_CHUNK_BANDS": "1",
         "EVOGP_BATCH_COMPILE_WORKERS": "4",
     },
+    #: ---- round 3: the band COUNT pinned at the device's binding cap -------------------------
+    #: ``k15`` pins ``EVOGP_BATCH_BANDS=15`` -- the largest count the CUDA/ROCm HAL can load (one
+    #: exported dispatch binds <= 16 tensors, the measured safe count is 15) -- instead of asking
+    #: the size model for one.  It needs ``n_functions >= 15 * 8`` deduped programs, i.e. a pop-256
+    #: cell (measured n = 225 / 232 / 245 here); the engine RAISES on an unloadable explicit ``K``,
+    #: so :func:`check_cell_legality` keeps it off the pop-64 cells.
+    "k15": {"EVOGP_BATCH_BANDS": "15", "EVOGP_BATCH_COMPILE_WORKERS": "1"},
+    #: ``k7`` pins ``EVOGP_BATCH_BANDS=7`` -- the cap of a 63-function population (``63 // 8 = 7``),
+    #: so it is the largest pin that is legal on EVERY cell of the round, and on a pop-256 cell it
+    #: prices the same partition as the size model at band size ~32 (``b32``).
+    "k7": {"EVOGP_BATCH_BANDS": "7", "EVOGP_BATCH_COMPILE_WORKERS": "1"},
+    #: The same pins through the banded+chunked composition.  ``EVOGP_BATCH_BANDS`` stays a GLOBAL
+    #: count in a chunked plan (each chunk receives ``ceil(K * chunk_n / n)``, capped per chunk by
+    #: the same policy: 4 chunks of ~56 functions -> at most 7 bands each), so ``k15-cw4`` is the
+    #: plan-level cap at pool 4 and ``k7-cw4`` splits to ~2 bands per chunk.  Both are validated at
+    #: the PLAN's ``n_functions`` (the chunk split clamps, it never raises).
+    "k15-cw4": {
+        "EVOGP_BATCH_BANDS": "15",
+        "EVOGP_BATCH_CHUNK_BANDS": "1",
+        "EVOGP_BATCH_COMPILE_WORKERS": "4",
+    },
+    "k7-cw4": {
+        "EVOGP_BATCH_BANDS": "7",
+        "EVOGP_BATCH_CHUNK_BANDS": "1",
+        "EVOGP_BATCH_COMPILE_WORKERS": "4",
+    },
 }
 #: The config tokens in registry (render) order.  Appending a token here is the only edit a new
 #: config needs: the dry run, the driver and the child all read :data:`CONFIG_KNOBS`.
 CONFIGS: Tuple[str, ...] = tuple(CONFIG_KNOBS)
 #: The BAND-PARTITION configs: single-body, no composition opt-in, so two of their records of a
 #: cell differ by the band partition alone.
-BAND_PARTITION_CONFIGS: Tuple[str, ...] = ("b8", "b16", "b32", "b64", "flat", "auto")
+BAND_PARTITION_CONFIGS: Tuple[str, ...] = ("b8", "b16", "b32", "b64", "flat", "auto", "k15", "k7")
 #: The COMPOSITION configs: they run the compiled-graph pool (``auto-cw4`` / ``b16-cw4``
 #: additionally opt into banding each chunk), which is a different question from the band size.
-COMPOSITION_CONFIGS: Tuple[str, ...] = ("auto-cw4", "flat-cw4", "b16-cw4")
+COMPOSITION_CONFIGS: Tuple[str, ...] = ("auto-cw4", "flat-cw4", "b16-cw4", "k15-cw4", "k7-cw4")
+#: The configs that pin an explicit band COUNT (the ``k*`` family).  They are the only ones with a
+#: population floor: the engine validates an explicit ``K`` hard and raises instead of clamping.
+BAND_CAP_CONFIGS: Tuple[str, ...] = ("k15", "k7", "k15-cw4", "k7-cw4")
 #: The band knob of each config (exactly one per config, asserted in :func:`check_config_specs`).
 #: Of the remaining ``common.ROUTE_ENV_VARS`` entries a spec may set the pool width
 #: (``EVOGP_BATCH_COMPILE_WORKERS``) and the composition opt-in (``EVOGP_BATCH_CHUNK_BANDS``); every
@@ -198,10 +256,141 @@ ORACLE_FNS: Dict[str, str] = band_measure.ORACLE_FNS
 #: Raised by the child before any timing exists when the tree cannot run the route.
 RouteUnavailable = band_measure.RouteUnavailable
 
+#: The a-priori device binding cap the ``k*`` pins are written against, MIRRORED from the engine
+#: (``src/evogp/tree/batch_bands.py``: ``SAFE_BAND_COUNTS`` = 15 and ``MIN_BAND_SIZE`` = 8 on both
+#: ``cuda`` and ``rocm``; ``local_task`` is 31/1 and the numpy interpreter is uncapped).
+#: :func:`band_cap_limits` refreshes it from an importable tree and falls back to this mirror, so a
+#: dry run stays runnable on a box without torch/evoxc -- it then REPORTS ``source: "mirror"``
+#: instead of pretending it read the policy.
+BAND_CAP_MIRROR: Dict[str, Any] = {
+    "device_kind": "cuda/rocm",
+    "max_bands": 15,
+    "min_band_size": 8,
+}
+
 
 # --- selections (pure: no torch, no evogp) ----------------------------------
 def _tokens(text: str) -> List[str]:
     return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def band_cap_limits() -> Dict[str, Any]:
+    """``{device_kind, max_bands, min_band_size, source}`` -- the GPU dispatch-binding cap.
+
+    The engine's own table (``evogp.tree.batch_bands``) when the tree under measurement is
+    importable, else :data:`BAND_CAP_MIRROR`; both GPU HAL kinds (``cuda``, ``rocm``) share one
+    row, so the probe takes the tightest of whichever it finds.  A tree that cannot be imported is
+    a REPORTED state (``source``/``note``), never a raise: this is a planning gate, not the policy.
+    """
+    try:
+        from evogp.tree.batch_bands import MIN_BAND_SIZE, SAFE_BAND_COUNTS  # noqa: PLC0415
+
+        kinds = [
+            kind
+            for kind in ("cuda", "rocm")
+            if SAFE_BAND_COUNTS.get(kind) is not None
+        ]
+        if kinds:
+            return {
+                "device_kind": "/".join(kinds),
+                "max_bands": min(int(SAFE_BAND_COUNTS[kind]) for kind in kinds),
+                "min_band_size": max(int(MIN_BAND_SIZE.get(kind, 1)) for kind in kinds),
+                "source": "evogp.tree.batch_bands",
+            }
+        return {
+            **BAND_CAP_MIRROR,
+            "source": "mirror",
+            "note": "evogp.tree.batch_bands carries no cuda/rocm binding row",
+        }
+    except Exception as exc:  # noqa: BLE001 - an unimportable tree is a reported state
+        return {**BAND_CAP_MIRROR, "source": "mirror", "note": repr(exc)}
+
+
+def config_pinned_bands(config: str) -> Optional[int]:
+    """The explicit band COUNT a config pins, or ``None`` (flat / ``auto`` / a band SIZE).
+
+    Only an explicit ``EVOGP_BATCH_BANDS=K`` is validated HARD by the engine
+    (``batch_bands.plan_band_spec`` raises for a count the device cannot load); the band-size
+    model, ``auto`` and the flat spelling are clamped instead, so they have no population floor
+    and no legality question to answer.
+    """
+    raw = CONFIG_KNOBS[config].get("EVOGP_BATCH_BANDS")
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    if text in ("", "none", "flat", "auto"):
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        raise SystemExit(
+            f"config {config!r} pins EVOGP_BATCH_BANDS={raw!r}, which is neither an integer count "
+            "nor one of the flat/none/auto spellings"
+        )
+
+
+def config_pop_floor(
+    config: str, limits: Optional[Dict[str, Any]] = None
+) -> Optional[int]:
+    """The smallest population at which this config's pinned ``K`` can load (``None`` = no floor).
+
+    ``pop >= K * min_band_size`` is NECESSARY, not sufficient: the policy's cap is
+    ``min(max_bands, n_functions, n_functions // min_band_size)`` and ``n_functions`` is the DEDUPED
+    count, which only exists once the population is built (measured: 225/232/245 at the two pop-256
+    cells, 63/64 at ``p64-L64-i32-N64``).  So this gates what can never work, and the record states
+    the rest (``cell.n_functions`` next to the plan's ``band_report``).
+    """
+    pinned = config_pinned_bands(config)
+    if pinned is None:
+        return None
+    limits = band_cap_limits() if limits is None else limits
+    return int(pinned) * int(limits["min_band_size"])
+
+
+def cell_legality(
+    cell: Dict[str, Any], config: str, limits: Optional[Dict[str, Any]] = None
+) -> Optional[str]:
+    """Why this (cell, config) pair cannot run on this device, else ``None``."""
+    pinned = config_pinned_bands(config)
+    if pinned is None:
+        return None
+    limits = band_cap_limits() if limits is None else limits
+    if pinned > int(limits["max_bands"]):
+        return (
+            f"{config} pins EVOGP_BATCH_BANDS={pinned} above the binding cap of "
+            f"{limits['max_bands']} bands on {limits['device_kind']}: the engine raises for an "
+            "explicit K it cannot load"
+        )
+    floor = int(pinned) * int(limits["min_band_size"])
+    if int(cell["pop"]) < floor:
+        return (
+            f"{config} pins EVOGP_BATCH_BANDS={pinned} and needs {floor} merged functions "
+            f"({pinned} bands x >= {limits['min_band_size']} per band on {limits['device_kind']}), "
+            f"but {cell['id']} is a pop-{int(cell['pop'])} cell -- n_functions <= pop, so the "
+            "engine's plan_band_spec RAISES ValueError on this explicit K (it never clamps one) "
+            f"and the child would only write a failed record; run {config} on a cell with "
+            f"pop >= {floor} (the p64 cells keep k7)"
+        )
+    return None
+
+
+def check_cell_legality(
+    cells: List[Dict[str, Any]], configs: List[str]
+) -> List[str]:
+    """Every illegal (cell, config) pair of one plan, as human-readable reasons.
+
+    The gate is the engine's own explicit-``K`` rule, so an empty list means "no pair is refusable
+    on the binding cap alone" -- the exact ``n_functions`` test stays with the engine and lands in
+    the record if a population dedups below the floor.
+    """
+    limits = band_cap_limits()
+    problems: List[str] = []
+    for cell in cells:
+        for config in configs:
+            reason = cell_legality(cell, config, limits)
+            if reason is not None:
+                problems.append(f"{cell['id']} + {config}: {reason}")
+    return problems
 
 
 def resolve_configs(text: str) -> List[str]:
@@ -211,7 +400,8 @@ def resolve_configs(text: str) -> List[str]:
         if token not in CONFIG_KNOBS:
             raise SystemExit(
                 f"unknown config {token!r}; known: {', '.join(CONFIGS)} (b<N> pins "
-                "EVOGP_BATCH_BAND_SIZE=N, flat* EVOGP_BATCH_BANDS=none, auto* =auto, "
+                "EVOGP_BATCH_BAND_SIZE=N, k<K> pins EVOGP_BATCH_BANDS=K -- an explicit band count "
+                "the device must be able to load, flat* EVOGP_BATCH_BANDS=none, auto* =auto, "
                 "-cw4 runs the pool at EVOGP_BATCH_COMPILE_WORKERS=4)")
         if token not in configs:
             configs.append(token)
@@ -257,22 +447,31 @@ def check_workers(workers: int) -> int:
 def check_config_specs(configs: List[str]) -> None:
     """Assert each selected config's knob spec against the sweep's split (pure, no torch).
 
-    Four invariants, all derived from the table itself: exactly ONE band knob and a pool width per
+    Five invariants, all derived from the table itself: exactly ONE band knob and a pool width per
     config; a band-partition config is single-body with no composition opt-in; a composition config
-    runs a pool (``> 1``); and only a config that runs a pool may opt into
-    ``EVOGP_BATCH_CHUNK_BANDS`` (banding a single chunk is meaningless).
+    runs a pool (``> 1``); only a config that runs a pool may opt into ``EVOGP_BATCH_CHUNK_BANDS``
+    (banding a single chunk is meaningless); and a pinned band COUNT (the ``k*`` family) must fit the
+    device's binding cap (``K <= max_bands``), which no population can rescue.
     """
+    limits = band_cap_limits()
     for config in configs:
         spec = CONFIG_KNOBS[config]
         band = [name for name in BAND_KNOBS if name in spec]
         pool = int(spec.get("EVOGP_BATCH_COMPILE_WORKERS", 0) or 0)
         chunk = spec.get("EVOGP_BATCH_CHUNK_BANDS")
+        pinned = config_pinned_bands(config)
         if len(band) != 1:
             raise SystemExit(f"config {config!r} must name exactly one of {', '.join(BAND_KNOBS)},"
                              f" got {band}")
         if pool < 1:
             raise SystemExit(f"config {config!r} must state its pool width "
                              "(EVOGP_BATCH_COMPILE_WORKERS), so a record never inherits the caller's")
+        if pinned is not None and pinned > int(limits["max_bands"]):
+            raise SystemExit(
+                f"config {config!r} pins EVOGP_BATCH_BANDS={pinned}, above the {limits['max_bands']}"
+                f"-band binding cap of {limits['device_kind']} ({limits['source']}): the engine "
+                "raises for an explicit K it cannot load, so no cell can rescue this config -- pin "
+                f"{limits['max_bands']} or less")
         if config in BAND_PARTITION_CONFIGS and (pool != 1 or chunk is not None):
             raise SystemExit(f"config {config!r} is a BAND-PARTITION config, so it must stay "
                              f"single-body without the composition opt-in; got pool={pool}, "
@@ -440,11 +639,23 @@ def dry_run(
           "common.ROUTE_ENV_VARS entries (<unset> = the child clears it), so a caller-exported "
           "EVOGP_BATCH_* or EVOGP_DENSE_MAX_TREE_LEN value can never leak into a config")
     print("band count model: b<N> -> K = ceil(n_functions / N) clamped into 1..n_functions; "
-          "flat/flat-cw4 -> K = 1; auto/auto-cw4 -> the static cost model picks K and the binding "
-          "policy may clamp it (K <= 15, a band >= 8 functions).  n_functions is the DEDUPED row "
-          "count, known only after the population is built, so what the model chose is recorded "
-          "per workload (band_report.n_functions / band_requested / band_requested_bands / "
-          "band_clamped / band_note) instead of printed here.")
+          "k<K> -> K pinned as the band COUNT (an explicit EVOGP_BATCH_BANDS, which the engine "
+          "validates HARD: it raises instead of clamping, and a chunked plan splits it "
+          "proportionally per chunk); flat/flat-cw4 -> K = 1; auto/auto-cw4 -> the static cost "
+          "model picks K and the binding policy may clamp it (K <= 15, a band >= 8 functions).  "
+          "n_functions is the DEDUPED row count, known only after the population is built, so "
+          "what the model chose is recorded per workload (band_report.n_functions / "
+          "band_requested / band_requested_bands / band_clamped / band_note) instead of printed "
+          "here.")
+    limits = band_cap_limits()
+    pinned_configs = [config for config in configs if config_pinned_bands(config) is not None]
+    if pinned_configs:
+        print("binding cap: " + ", ".join(
+            f"{config} -> EVOGP_BATCH_BANDS={config_pinned_bands(config)} needs "
+            f"pop >= {config_pop_floor(config, limits)}"
+            for config in pinned_configs
+        ) + f" ({limits['max_bands']} bands max, >= {limits['min_band_size']} merged functions "
+            f"per band on {limits['device_kind']}, source={limits['source']})")
     if getattr(args, "cold_only", False):
         print("cold-only (--cold-only): ONE synchronized call per workload is measured, so "
               f"--warmup {args.warmup} and --reps {args.reps} are SKIPPED -- every warm field "
@@ -463,6 +674,15 @@ def dry_run(
         print("WARNING: a selected cell is BELOW EVOGP_BATCH_MIN_POP "
               f"({policy.get('min_pop')}): the route declines it to specialized (p64 sits exactly "
               "ON the floor and is served by the batch route)")
+    # A pinned band count is the one band request the engine REFUSES instead of clamping, so an
+    # illegal pair is knowable here -- before a multi-second-to-minute compile is spent on it.
+    problems = check_cell_legality(cells, configs)
+    for reason in problems:
+        print(f"WARNING: illegal plan (a real run refuses this pair): {reason}")
+    if problems:
+        print(f"WARNING: {len(problems)} of {len(cells) * len(configs)} planned (cell, config) "
+              "pairs pin a band count this device cannot load: --dry-run lists them, a real run "
+              "exits before its first child (restrict --cells per config family)")
     print(f"{len(cells) * len(configs)} configs x {len(workloads)} workloads planned "
           f"-> {os.path.abspath(args.out_dir)}")
     return 0
@@ -528,6 +748,17 @@ def run_driver(args: argparse.Namespace) -> int:
     assert_fresh_out(args.out_dir)
     if args.dry_run:
         return dry_run(args, cells, configs, workloads, src)
+    # A pinned band count this device cannot load would be refused by the engine itself, and only
+    # AFTER the child paid its population build: refuse the whole plan before the first child, so
+    # a doomed config never holds the device and never leaves a half-written evidence directory.
+    problems = check_cell_legality(cells, configs)
+    if problems:
+        raise SystemExit(
+            "refusing this plan -- " + str(len(problems)) + " (cell, config) pair(s) pin a band "
+            "count the device cannot load (an explicit EVOGP_BATCH_BANDS is validated hard by the "
+            "engine and never clamped):\n  " + "\n  ".join(problems) + "\n"
+            "Restrict --cells per config family (e.g. the k15* pins on the pop-256-or-larger "
+            "cells, k7* on every cell) -- --dry-run lists the same pairs as WARNINGs.")
     os.makedirs(args.out_dir, exist_ok=True)
     base_env = child_env(args, src, configs[0], "n/a")
     dis_source = disable_locations_provenance(base_env)["source"]
@@ -560,6 +791,16 @@ def run_driver(args: argparse.Namespace) -> int:
             "config_knobs": {config: dict(CONFIG_KNOBS[config]) for config in configs},
             "band_partition_configs": list(BAND_PARTITION_CONFIGS),
             "composition_configs": list(COMPOSITION_CONFIGS),
+            # What each config pinning an explicit band COUNT needs from the population, next to
+            # the cap it was vetted against: the binding constants are the device's, not the cell's.
+            "band_cap_configs": {
+                config: {
+                    "pinned_bands": config_pinned_bands(config),
+                    "pop_floor": config_pop_floor(config),
+                }
+                for config in configs if config_pinned_bands(config) is not None
+            },
+            "band_cap_limits": band_cap_limits(),
             "workloads": list(workloads),
             "config_env": {config: config_env(config) for config in configs},
             "warmup": 0 if args.cold_only else args.warmup,
@@ -700,6 +941,12 @@ def run_child(args: argparse.Namespace) -> int:
     check_config_specs([config])
     workloads = resolve_workloads(args.workloads)
     cell = common.parse_cell(args.child)
+    # A direct `--child` invocation gets the same legality gate as the driver: an explicit band
+    # count the device cannot load is refused by the engine, and this refuses it before the
+    # population build instead of after it.
+    illegal = cell_legality(cell, config)
+    if illegal is not None:
+        raise SystemExit(f"refusing this child: {illegal}")
     tree_root = resolve_tree_root(args.tree_root)  # --tree-root, as worker.py resolves it
     src = install_tree_root(tree_root)  # sys.path only: no evogp import yet
     mapping = config_env(config)
