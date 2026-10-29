@@ -91,10 +91,21 @@ BATCH_KNOBS: Tuple[Tuple[str, str, str, Tuple[str, ...]], ...] = (
     ("switch_ops", "EVOGP_BATCH_SWITCH_OPS", "off", ("resolve_switch_ops", "uses_switch_ops")),
     ("alignment", "EVOGP_BATCH_ALIGNMENT", "variant", ("resolve_alignment",)),
     ("cache_size", "EVOGP_BATCH_CACHE_SIZE", "unset", ("resolve_cache_size",)),
-    ("min_pop", "EVOGP_BATCH_MIN_POP", "4", ("resolve_min_pop",)),
+    ("min_pop", "EVOGP_BATCH_MIN_POP", "64", ("resolve_min_pop",)),
 )
 #: Every env var the table above owns -- the arms clear all of them per process.
 BATCH_ENV_VARS: Tuple[str, ...] = tuple(entry[1] for entry in BATCH_KNOBS)
+#: The counter names the batch route's compile misses can live under, in preference
+#: order.  ``evogp.tree.batch_engine.batch_cache_stats()`` names its two front tables
+#: explicitly: ``batch_exec_*`` describes ``BATCH_EXEC_MEMO`` -- the real compile
+#: cache, since a hit never reaches ``evoxc.lower`` / ``compile`` / ``load`` -- and
+#: ``batch_plan_*`` describes ``BATCH_PLAN_MEMO`` (host decode + traces + merge).
+#: A bare ``misses`` is this harness's own older spelling: a fallback only.
+BATCH_EXEC_MISS_KEYS: Tuple[str, ...] = ("batch_exec_misses", "misses")
+#: The plan table's counter: a plan miss re-traces and re-merges, it never recompiles.
+BATCH_PLAN_MISS_KEYS: Tuple[str, ...] = ("batch_plan_misses",)
+#: The exec-table counter name -- the one a record's ``stats_keys`` must carry.
+BATCH_EXEC_MISS_KEY = BATCH_EXEC_MISS_KEYS[0]
 #: Location of the batch engine relative to the ``src`` directory (import-free check).
 BATCH_MODULE_REL = os.path.join("evogp", "tree", "batch_engine.py")
 
@@ -637,7 +648,7 @@ def pop_min_declines(pop: int, min_pop: int) -> Optional[str]:
     """The batch route's documented decline rule: reason string below the floor.
 
     Contract agreed with the engine, which owns the real decision: below
-    ``EVOGP_BATCH_MIN_POP`` (default 4) a merged graph cannot amortize its build,
+    ``EVOGP_BATCH_MIN_POP`` (default 64) a merged graph cannot amortize its build,
     so the route declines to ``specialized``.  This mirrors that decision for the
     route summary; it never decides anything itself.
     """

@@ -16,11 +16,14 @@ What a BATCH arm (``EVOGP_EVAL_MODE=batch``) adds on top of that -- and only a
 batch arm: ``batch_policy`` (whether the tree under test ships the module and
 declares the mode, plus the band knobs and where each value came from),
 ``batch_cache`` (the merged-graph cache counters before the workloads and after
-the whole config, with the first-call and total compile misses) and, per
-workload / per generation, the batch deltas next to the evoxc ones.  That route
-compiles ONE merged graph per population structure multiset, so a multi-second
-``first_call_ms`` and a large ``compile_misses_first_call`` are the expected
-cost of the route -- recorded as measured, never retried away as a failure.
+the whole config, which counter names the route exposes, and the first-call and
+total deltas of ``batch_exec_misses`` -- the real compile cache, a hit never
+reaches ``evoxc.lower``/``compile``/``load`` -- and of ``batch_plan_misses`` --
+host decode + traces + merge) and, per workload / per generation, the batch
+deltas next to the evoxc ones.  That route compiles ONE merged graph per
+population structure multiset, so a multi-second ``first_call_ms`` and a large
+``compile_misses_first_call`` are the expected cost of the route -- recorded as
+measured, never retried away as a failure.
 
 Usage (the driver sets ``PYTHONPATH``; run it from the repository root)::
 
@@ -35,7 +38,7 @@ import argparse
 import os
 import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
@@ -99,6 +102,82 @@ def _stats_delta(before: Any, after: Any, key: str) -> Optional[int]:
 def _has_stat_key(before: Any, after: Any, key: str) -> bool:
     """Does at least one of the two snapshots actually carry ``key``?"""
     return any(isinstance(stats, dict) and key in stats for stats in (before, after))
+
+
+#: The counter names the batch route's compile misses can live under, in preference
+#: order (single-sourced in :mod:`common`).  ``batch_engine.batch_cache_stats()``
+#: (eight keys) names its two front tables explicitly: ``batch_exec_*`` describes
+#: ``BATCH_EXEC_MEMO`` -- the real compile cache, since a hit never reaches
+#: ``evoxc.lower`` / ``compile`` / ``load`` -- and ``batch_plan_*`` describes
+#: ``BATCH_PLAN_MEMO`` (host decode + traces + merge).  A bare ``misses`` is the
+#: older spelling this harness used to read; it is a fallback, never the primary.
+BATCH_EXEC_MISS_KEYS: Tuple[str, ...] = common.BATCH_EXEC_MISS_KEYS
+#: The plan-table counter: a plan miss re-traces and re-merges, it does not recompile.
+BATCH_PLAN_MISS_KEYS: Tuple[str, ...] = common.BATCH_PLAN_MISS_KEYS
+
+
+def _snapshot_key(snapshot: Any, candidates: Tuple[str, ...]) -> Optional[str]:
+    """The first of ``candidates`` this snapshot carries (``None`` when it carries none)."""
+    if not isinstance(snapshot, dict):
+        return None
+    for key in candidates:
+        if key in snapshot:
+            return key
+    return None
+
+
+def batch_miss_key(snapshot: Any) -> Optional[str]:
+    """Which counter holds the batch route's real compile misses in ``snapshot``.
+
+    ``batch_exec_misses`` on the engine route we measure (``BATCH_EXEC_MEMO``: a hit
+    never reaches ``evoxc.lower`` / ``compile`` / ``load``), the older bare ``misses``
+    when that is all a snapshot carries, and ``None`` when the snapshot has neither --
+    an unknown counter must read as null, never as "no compile".
+    """
+    return _snapshot_key(snapshot, BATCH_EXEC_MISS_KEYS)
+
+
+def batch_plan_miss_key(snapshot: Any) -> Optional[str]:
+    """Which counter holds the batch route's plan misses in ``snapshot`` (``None`` if none)."""
+    return _snapshot_key(snapshot, BATCH_PLAN_MISS_KEYS)
+
+
+def _stats_delta_for(before: Any, after: Any, resolver) -> Optional[int]:
+    """Delta of the counter ``resolver`` names on either snapshot (``None`` if unknown).
+
+    Strict on purpose: a snapshot that does not carry the resolved key reads as
+    UNKNOWN, never as ``0``, so a null delta always means "this counter was not
+    available", which is exactly what ``check.py`` and the renderer need to see.
+    """
+    key = resolver(before) or resolver(after)
+    if key is None:
+        return None
+    for snapshot in (before, after):
+        if not (isinstance(snapshot, dict) and key in snapshot):
+            return None
+    return _stats_delta(before, after, key)
+
+
+def batch_miss_delta(before: Any, after: Any) -> Optional[int]:
+    """``batch_exec_misses`` delta across two batch-cache snapshots (``None`` if unknown)."""
+    return _stats_delta_for(before, after, batch_miss_key)
+
+
+def batch_plan_miss_delta(before: Any, after: Any) -> Optional[int]:
+    """``batch_plan_misses`` delta across two batch-cache snapshots (``None`` if unknown)."""
+    return _stats_delta_for(before, after, batch_plan_miss_key)
+
+
+def stats_keys(*snapshots: Any) -> List[str]:
+    """Sorted counter names of the FIRST snapshot that has any (``[]`` when none does).
+
+    A record must state which counters the route actually exposes: that is what makes
+    a null delta checkable ("the key was absent") instead of ambiguous.
+    """
+    for snapshot in snapshots:
+        if isinstance(snapshot, dict) and snapshot:
+            return sorted(snapshot)
+    return []
 
 
 class BatchStatsProbe:
@@ -257,8 +336,11 @@ def main() -> int:
             "available": batch_stats is not None,
             "stats_before_workloads": batch_stats() if batch_stats is not None else None,
             "stats_after": None,
+            "stats_keys": [],
             "compile_misses_first_call": None,
             "compile_misses_total": None,
+            "plan_misses_first_call": None,
+            "plan_misses_total": None,
         }
         record["notes"].append(
             "batch arm: one merged graph per population structure multiset, so a "
@@ -293,6 +375,7 @@ def main() -> int:
 
     requested = [name for name in args.workloads.split(",") if name]
     batch_first_call_misses = None
+    batch_first_call_plan_misses = None
     for name in requested:
         if name == "gp_step":
             continue
@@ -337,14 +420,22 @@ def main() -> int:
             batch_after = batch_stats() if batch_stats is not None else None
             entry["cache"]["batch_after_first_call"] = batch_after_first
             entry["cache"]["batch_after"] = batch_after
-            entry["cache"]["batch_compile_misses_first_call"] = _stats_delta(
-                batch_before, batch_after_first, "misses"
+            entry["cache"]["batch_compile_misses_first_call"] = batch_miss_delta(
+                batch_before, batch_after_first
             )
-            entry["cache"]["batch_compile_misses_this_workload"] = _stats_delta(
-                batch_before, batch_after, "misses"
+            entry["cache"]["batch_compile_misses_this_workload"] = batch_miss_delta(
+                batch_before, batch_after
+            )
+            entry["cache"]["batch_plan_misses_first_call"] = batch_plan_miss_delta(
+                batch_before, batch_after_first
+            )
+            entry["cache"]["batch_plan_misses_this_workload"] = batch_plan_miss_delta(
+                batch_before, batch_after
             )
             if batch_first_call_misses is None:
                 batch_first_call_misses = entry["cache"]["batch_compile_misses_first_call"]
+            if batch_first_call_plan_misses is None:
+                batch_first_call_plan_misses = entry["cache"]["batch_plan_misses_first_call"]
         entry["digest"] = common.digest(result)
         record["workloads"][name] = entry
         del result
@@ -377,8 +468,11 @@ def main() -> int:
             }
             if is_batch:
                 # a fresh population is a new structure multiset, i.e. a new merged
-                # graph: this is the counter that explains a slow batch GP step
-                step["batch_compile_misses"] = _stats_delta(batch_before, batch_after, "misses")
+                # graph: this is the counter that explains a slow batch GP step.
+                # ``batch_compile_misses`` is the EXEC table (a miss recompiles),
+                # ``batch_plan_misses`` the PLAN table (re-decode/re-trace/re-merge).
+                step["batch_compile_misses"] = batch_miss_delta(batch_before, batch_after)
+                step["batch_plan_misses"] = batch_plan_miss_delta(batch_before, batch_after)
                 if _has_stat_key(batch_before, batch_after, "memo_hits"):
                     step["batch_memo_hits"] = _stats_delta(batch_before, batch_after, "memo_hits")
             steps.append(step)
@@ -403,15 +497,26 @@ def main() -> int:
             record["gp_step"]["batch_compile_misses_total"] = (
                 None if any(value is None for value in misses) else sum(misses)
             )
+            plan_misses = [step["batch_plan_misses"] for step in steps]
+            record["gp_step"]["batch_plan_misses_total"] = (
+                None if any(value is None for value in plan_misses) else sum(plan_misses)
+            )
 
     if is_batch:
         # close the batch cache story for the whole config: the deltas above are per
         # workload, this is the one number a reader can price the process against
         stats_after = batch_stats() if batch_stats is not None else None
         record["batch_cache"]["stats_after"] = stats_after
+        record["batch_cache"]["stats_keys"] = stats_keys(
+            record["batch_cache"]["stats_before_workloads"], stats_after
+        )
         record["batch_cache"]["compile_misses_first_call"] = batch_first_call_misses
-        record["batch_cache"]["compile_misses_total"] = _stats_delta(
-            record["batch_cache"]["stats_before_workloads"], stats_after, "misses"
+        record["batch_cache"]["compile_misses_total"] = batch_miss_delta(
+            record["batch_cache"]["stats_before_workloads"], stats_after
+        )
+        record["batch_cache"]["plan_misses_first_call"] = batch_first_call_plan_misses
+        record["batch_cache"]["plan_misses_total"] = batch_plan_miss_delta(
+            record["batch_cache"]["stats_before_workloads"], stats_after
         )
 
     record["engine_cache_final"] = evoxc_engine.cache_stats()

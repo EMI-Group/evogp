@@ -18,8 +18,9 @@ protocol cannot slip into a table.  It verifies:
 * for the batch arms (``common.is_batch_arm``): ``routes["sr_fitness"]`` reports
   ``eval_mode == "batch"`` with ``kind == "batch"``, ``batch_policy.mode_supported``
   is true and ``batch_cache`` carries a boolean ``available``.  A first call that no
-  cache counter attributes to a compile, or a tree whose batch engine exposes no
-  counters at all, is a ``WARN`` -- one merged graph per population legitimately
+  cache counter attributes to a compile, a tree whose batch engine exposes no
+  counters at all, or a ``batch_cache.stats_keys`` without the exec table's
+  ``batch_exec_misses``, is a ``WARN`` -- one merged graph per population legitimately
   costs seconds to minutes to compile, so its magnitude is the measurement itself
   and is never bounded here;
 * digest agreement: all arms of one cell share one ``batch_forward`` and one
@@ -83,6 +84,9 @@ MIN_SAMPLES = 5
 #: re-computed median can differ from the stored one by up to ~1e-4 ms.
 ROUNDING_FLOOR_MS = 1.5e-4
 MEDIAN_RTOL = 1e-6
+#: The batch route's exec-table counter (``common.BATCH_EXEC_MISS_KEY``): the one whose
+#: miss really recompiles, so a record's ``batch_cache.stats_keys`` should carry it.
+BATCH_EXEC_MISS_KEY = common.BATCH_EXEC_MISS_KEY
 
 
 class Checker:
@@ -363,6 +367,18 @@ def check_batch(checker: Checker, card: str, record: Dict[str, Any]) -> None:
         checker.warn(f"{card}: 0 first-call compile misses across both caches — the "
                      "merged-graph compile was not attributed to any cache counter "
                      "(the counters may not cover this route); first_call_ms still carries it")
+
+    # -- does the record say which counters the route exposes? (WARN only) ---
+    # ``batch_cache.stats_keys`` is the record's own statement of the counter names
+    # ``batch_cache_stats()`` returned.  The exec table (``batch_exec_misses``) is the
+    # one that really recompiles, so a key set without it means the compile delta was
+    # read off something else (or not at all) -- reportable, never a gate failure.
+    keys = cache.get("stats_keys")
+    if isinstance(keys, list) and keys and BATCH_EXEC_MISS_KEY not in keys:
+        checker.warn(f"{card}: batch_cache.stats_keys={keys!r} carries no "
+                     f"{BATCH_EXEC_MISS_KEY!r} — the exec table (the counter whose miss "
+                     "recompiles) is not among the counters this route exposes, so the "
+                     "compile deltas are read off a fallback key or are null")
 
 
 def check_gp_step(checker: Checker, card: str, record: Dict[str, Any]) -> None:

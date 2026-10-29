@@ -86,7 +86,7 @@ resolver > the documented default (`batch_policy.knobs_source` says which applie
 | `EVOGP_BATCH_SWITCH_OPS` | `off` | whether the merged graph may use switch ops (read from the engine's own resolver) |
 | `EVOGP_BATCH_ALIGNMENT` | `variant` | band variants are aligned before the merge instead of being padded per call |
 | `EVOGP_BATCH_CACHE_SIZE` | unset (engine default) | the merged-graph cache size; the harness records the resolved value and never sets it |
-| `EVOGP_BATCH_MIN_POP` | `4` | population floor: below it one merged graph cannot amortize its build, so the route declines to `specialized` (the record's `routes.*.decline_reason` carries the sentence) |
+| `EVOGP_BATCH_MIN_POP` | `64` | population floor: below it one merged graph cannot amortize its build, so the route declines to `specialized` (the record's `routes.*.decline_reason` carries the sentence) |
 
 An arm spec may carry a `knobs` mapping (`{env var: value}`) beyond the two route
 selectors; `-flat` is exactly `{"EVOGP_BATCH_BANDS": "flat"}`. `arms.apply_arm_env`
@@ -152,9 +152,13 @@ at `N` = 1024 rows, plus an `N` = 64 column at tree_len 64 / input_len 32 — 20
   and their `compile_misses_first_call` is large. That is the measurement, not an
   anomaly: the same one-untimed-first-call protocol keeps it out of the warm
   medians, and the record carries the merged-graph counters in `batch_cache` (plus
-  the per-workload `cache.batch_*` deltas and the per-generation `batch_compile_misses`)
-  next to the evoxc ones. `forest_stats.structure_signature` names the population
-  the graph was keyed on.
+  the per-workload `cache.batch_*` deltas and the per-generation `batch_compile_misses` /
+  `batch_plan_misses`) next to the evoxc ones. The compile counters are the ones
+  `batch_cache_stats()` actually exposes: `batch_exec_misses` is the exec table (a hit
+  never reaches `evoxc.lower`/`compile`/`load`, so a miss is a real recompile) and
+  `batch_plan_misses` is the plan table (re-decode + re-trace + re-merge, no compile);
+  `batch_cache.stats_keys` records which of them the route exposes.
+  `forest_stats.structure_signature` names the population the graph was keyed on.
 * **The batch arms are in the full `--arms all` schedule on every cell, and have no
   scope rule yet.** `campaign.SCOPE` covers `evoxc-specialized-iree` only: nobody has
   measured the merged-graph compile on this box, so excluding cells now would be an
@@ -416,7 +420,9 @@ rejects.
   has no boolean `available`; it only **warns** when the merged-graph compile is not
   attributed to any cache counter (0 first-call misses across both caches), because
   `first_call_ms` still carries the cost and the magnitude of a miss count is never
-  bounded by the gate. Expected-arm coverage defaults to the campaign's own
+  bounded by the gate; a `batch_cache.stats_keys` that carries no `batch_exec_misses`
+  (the exec table, the only one whose miss recompiles) is likewise a warning.
+  Expected-arm coverage defaults to the campaign's own
   scheduled arms, so appending these two arms leaves previously recorded campaigns
   gating exactly as before (`--allow-missing` semantics unchanged).
 * The gate still demands the `gp_step` aggregate keys: the renderer's `steps[]`

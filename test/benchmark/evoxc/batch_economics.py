@@ -554,6 +554,12 @@ def run_child(args: argparse.Namespace) -> int:
         # (None), never as 0.
         return worker_mod._stats_delta(before, after, "misses")
 
+    def batch_misses(before: Any, after: Any) -> Optional[int]:
+        # The batch route's compile counter is ``batch_exec_misses`` on the engine we measure (a hit
+        # never recompiles); ``worker.batch_miss_key`` is the ONE resolution of that name, and an
+        # unknown counter stays None so ``compile_hit`` can never read "no compile" from a missing key.
+        return worker_mod.batch_miss_delta(before, after)
+
     # determinant workload: torch.manual_seed(seed) + Forest.random_generate
     workload = common.build_workload(cell, args.seed)
     forest = workload["forest"]
@@ -580,7 +586,7 @@ def run_child(args: argparse.Namespace) -> int:
             "available": batch_stats is not None,
             "stats_fn": "evogp.tree.batch_engine.batch_cache_stats",
             "before": batch_before, "after": batch_after,
-            "compile_misses": misses(batch_before, batch_after),
+            "compile_misses": batch_misses(batch_before, batch_after),
         }
 
     # (c) warm medians on the same population (the compile is already paid).  The batch probe
@@ -616,9 +622,9 @@ def run_child(args: argparse.Namespace) -> int:
         sr_fitness["cache"]["batch_before"] = batch_warm_before
         sr_fitness["cache"]["batch_after_first_call"] = batch_warm_after_first
         sr_fitness["cache"]["batch_after"] = batch_warm_after
-        sr_fitness["cache"]["batch_compile_misses_first_call"] = misses(
+        sr_fitness["cache"]["batch_compile_misses_first_call"] = batch_misses(
             batch_warm_before, batch_warm_after_first)
-        sr_fitness["cache"]["batch_compile_misses_this_workload"] = misses(
+        sr_fitness["cache"]["batch_compile_misses_this_workload"] = batch_misses(
             batch_warm_before, batch_warm_after)
     warm_median_ms = sr_fitness["median_ms"]
 
@@ -650,7 +656,7 @@ def run_child(args: argparse.Namespace) -> int:
         }
         route_misses: List[Optional[int]] = [entry["compile_misses"]]
         if is_batch:
-            entry["batch_compile_misses"] = misses(batch_gen_before, batch_gen_after)
+            entry["batch_compile_misses"] = batch_misses(batch_gen_before, batch_gen_after)
             route_misses.append(entry["batch_compile_misses"])
         entry["compile_hit"] = compile_hit(route_misses)
         compiled_signatures.add(signature["signature"])
@@ -666,14 +672,19 @@ def run_child(args: argparse.Namespace) -> int:
                 "stats_fn": "evogp.tree.batch_engine.batch_cache_stats",
                 "key": "sorted structure-multiset fingerprint "
                        "(common.population_signature.signature)",
+                "counter": "the exec table's misses (worker.batch_miss_key: "
+                           "'batch_exec_misses', falling back to a bare 'misses'), i.e. the "
+                           "table whose miss really recompiles; the plan table's "
+                           "'batch_plan_misses' is a re-decode/re-merge, not a recompile",
+                "stats_keys": worker_mod.stats_keys(batch_before, batch_after, batch_final),
                 "note": "counters are null (NOT zero) when the route exposes no stats callable: a "
                         "missing counter must never read as 'no compile'",
             },
             "stats_before_first_call": batch_before, "stats_after_first_call": batch_after,
             "stats_after_generations": batch_final,
-            "compile_misses_first_call": misses(batch_before, batch_after),
-            "compile_misses_generations": misses(batch_after, batch_final),
-            "compile_misses_total": misses(batch_before, batch_final),
+            "compile_misses_first_call": batch_misses(batch_before, batch_after),
+            "compile_misses_generations": batch_misses(batch_after, batch_final),
+            "compile_misses_total": batch_misses(batch_before, batch_final),
         }
     summary = generation_summary(generations, first_call_ms, warm_median_ms,
                                  merged_graph_cache=merged_cache)
