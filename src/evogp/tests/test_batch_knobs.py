@@ -182,7 +182,7 @@ _ENGINE_STAT_KEYS = frozenset(
 def _hermetic_knobs(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Clear every knob and bracket every test with empty batch tables.
 
-    The knobs are DELETED (not pinned to a default) so "the default is 32 / 64 /
+    The knobs are DELETED (not pinned to a default) so "the default is 16 / 64 /
     ``variant`` / off" means the same thing on a box that exports them; each test
     then sets what it needs on the same ``monkeypatch`` and pytest restores the
     ambient values at teardown.
@@ -365,7 +365,7 @@ def test_the_route_constants_are_the_documented_ones() -> None:
     assert B.ALIGNMENT_ENV == "EVOGP_BATCH_ALIGNMENT"
     assert B.MIN_POP_ENV == "EVOGP_BATCH_MIN_POP"
     assert B.CACHE_SIZE_ENV == "EVOGP_BATCH_CACHE_SIZE"
-    assert B.DEFAULT_BAND_SIZE == 32
+    assert B.DEFAULT_BAND_SIZE == 16
     assert B.DEFAULT_ALIGNMENT == "variant"
     assert B.ALIGNMENTS == ("variant", "occurrence", "auto")
     assert B.DEFAULT_MIN_POP == 64
@@ -443,12 +443,12 @@ def test_the_cache_size_helper_rejects_a_malformed_value(
 def test_band_size_default_env_and_explicit_precedence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``EVOGP_BATCH_BAND_SIZE``: default 32, env next, explicit argument last.
+    """``EVOGP_BATCH_BAND_SIZE``: default 16, env next, explicit argument last.
 
     The explicit argument winning is what lets a caller (or a runner) pin the merge
     shape for one call without touching the process environment.
     """
-    assert B.resolve_band_size() == B.DEFAULT_BAND_SIZE == 32
+    assert B.resolve_band_size() == B.DEFAULT_BAND_SIZE == 16
     monkeypatch.setenv(B.BAND_SIZE_ENV, "7")
     assert B.resolve_band_size() == 7
     assert B.resolve_band_size(3) == 3, "the explicit argument must win over the env"
@@ -894,7 +894,7 @@ _BAND_PLAN_CASES = (
     pytest.param({"bands": "0"}, 1, "flat", id="bands-zero"),
     pytest.param({"band_size": 1}, 4, "explicit", id="band-size-1"),
     pytest.param({"band_size": 3}, 2, "explicit", id="band-size-3"),
-    pytest.param({"band_size": 32}, 1, "flat", id="band-size-default"),
+    pytest.param({"band_size": 16}, 1, "flat", id="band-size-default"),
     pytest.param({"switch_ops": True}, 1, "flat", id="switch-ops"),
 )
 
@@ -923,11 +923,11 @@ def test_the_band_knobs_reach_the_plan(
     assert info["variant"] == B.LOSS_VARIANT and info["per_row"] is False
 
 
-#: More distinct programs than ``DEFAULT_BAND_SIZE`` (32) -- the only population
+#: More distinct programs than ``DEFAULT_BAND_SIZE`` (16) -- the only population
 #: shape on which the flat spellings and the band-SIZE model disagree, i.e. the
 #: shape that tells "the flat merge was selected" from "the model happened to ask
 #: for one band".  40 distinct programs put the default model at
-#: ``ceil(40 / 32) == 2`` bands.
+#: ``ceil(40 / 16) == 3`` bands.
 WIDE_POP_SIZE = 40
 WIDE_BAND_COUNT = -(-WIDE_POP_SIZE // B.DEFAULT_BAND_SIZE)
 

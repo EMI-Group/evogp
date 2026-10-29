@@ -7,7 +7,7 @@ i.e. evoxc's static cost model) and what an ``auto`` resolution actually produce
 The reason it exists is a HARD device limit: a banded merge emits one exported
 dispatch per band and the HIP/CUDA HALs bind at most 16 tensors per dispatch, so
 ``K <= 15`` there (``K <= 31`` on the local-task CPU HAL, uncapped on numpy and
-Vulkan) and the default size model reaches an unloadable ``K = 32`` at pop 1000.
+Vulkan) and the default size model reaches an unloadable ``K = 63`` at pop 1000.
 This file is the pytest home of that policy -- it used to be pinned only by the
 dev battery ``src/evogp/tree/batch_band_check.py``.  It covers:
 
@@ -99,9 +99,10 @@ ROW_LEN = 32
 #: Data rows of every shared-``x`` (``per_row=False``) fixture.
 N_ROWS = 5
 #: A population the numpy cost model actually splits (it needs enough functions
-#: for a band to be worth a dispatch) and the default size model also bands.
+#: for a band to be worth a dispatch); the size model bands it at any band size
+#: ``<= 12`` (at the shipped default of 16 it models ``K == 1``, a flat merge).
 BANDED_POP = 12
-#: The population at which round 1's size model reached an unloadable ``K = 32``.
+#: The population at which the default size model reaches an unloadable ``K = 63``.
 LARGE_POP = 1000
 #: The band-policy keys ``describe_plan`` must report (the cost model's seam).
 _BAND_KEYS = (
@@ -188,7 +189,7 @@ class _StubMerge:
 def _hermetic(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Delete every merge knob, admit small populations, bracket the tables.
 
-    The knobs are DELETED (not pinned) so "the default is 32 / off" is what the
+    The knobs are DELETED (not pinned) so "the default is 16 / off" is what the
     tests observe on a box that exports them; ``EVOGP_BATCH_MIN_POP`` is SET to
     ``1`` because the library default (64) is a real decline for every fixture
     here.  ``evoxc_engine.clear_cache()`` resets the plan, executable and content
@@ -524,22 +525,22 @@ def test_resolve_band_count_refuses_the_auto_spelling_with_a_value_error() -> No
 # 3. the size model's clamp (the reason this policy exists)
 # =========================================================================== #
 def test_the_band_size_model_is_clamped_at_a_large_population() -> None:
-    """Pop 1000 with the default band size models ``K = 32``, which no GPU can load.
+    """Pop 1000 with the default band size models ``K = 63``, which no GPU can load.
 
-    This is the case the policy was written for: ``ceil(1000 / 32) == 32`` bands,
+    This is the case the policy was written for: ``ceil(1000 / 16) == 63`` bands,
     15 loadable, so the spec is clamped and carries the note -- instead of the
     generation dying inside IREE's LOAD step.
     """
     default_band_size = K.resolve_band_size()
-    assert default_band_size == 32
+    assert default_band_size == 16
     spec = P.plan_band_spec(LARGE_POP, policy=_policy())
     assert spec.requested == "size"
     assert spec.num_bands == 15
     assert spec.clamped is True
     assert spec.evoxc_bands == 15
     assert spec.note is not None
-    assert f"{K.BAND_SIZE_ENV}=32" in spec.note
-    assert "chose 32 bands" in spec.note
+    assert f"{K.BAND_SIZE_ENV}=16" in spec.note
+    assert "chose 63 bands" in spec.note
     assert "can only load 15" in spec.note
     assert f"explicit {K.BANDS_ENV}=K with K <= 15" in spec.note
 
@@ -547,16 +548,16 @@ def test_the_band_size_model_is_clamped_at_a_large_population() -> None:
 def test_a_size_model_count_within_the_cap_is_not_clamped() -> None:
     """A small population's modelled ``K`` passes through with no note at all."""
     spec = P.plan_band_spec(40, policy=_policy())
-    assert (spec.requested, spec.num_bands) == ("size", 2)
+    assert (spec.requested, spec.num_bands) == ("size", 3)
     assert (spec.clamped, spec.note) == (False, None)
-    assert spec.evoxc_bands == 2
+    assert spec.evoxc_bands == 3
 
 
 # =========================================================================== #
 # 4. what a real plan reports (the describe_plan seam)
 # =========================================================================== #
 def test_no_knob_plan_keeps_the_band_size_model() -> None:
-    """The default path is unchanged: ``requested == "size"``, ``K = ceil(n/32)``.
+    """The default path is unchanged: ``requested == "size"``, ``K = ceil(n/16)``.
 
     Round 2 added ``auto`` and the clamp; it must not have moved the default, so a
     caller who sets nothing still gets the flat-ish ``explicit`` size model and no
@@ -565,7 +566,7 @@ def test_no_knob_plan_keeps_the_band_size_model() -> None:
     info = _info(_plan(*_population(40), _x()))
     expected = -(-info["n_functions"] // K.DEFAULT_BAND_SIZE)
     assert info["n_functions"] == 40
-    assert expected == 2, "the fixture must be large enough to band at size 32"
+    assert expected == 3, "the fixture must be large enough to band at size 16"
     assert info["band_requested"] == "size"
     assert info["bands"] == info["band_count"] == expected
     assert info["band_strategy"] == "explicit"
