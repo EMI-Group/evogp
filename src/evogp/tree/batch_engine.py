@@ -29,7 +29,7 @@ without a batching rule, and any ``evoxc`` ``TraceError`` / ``TransformError``
 raised while tracing or merging (converted, with the original message appended).
 Nothing else is converted, and those two exception types never escape.
 
-The four modules of the route (this one is the PUBLIC facade)
+The six modules of the route (this one is the PUBLIC facade)
 ------------------------------------------------------------
 Callers import ``evogp.tree.batch_engine`` and nothing else; the public surface
 below is re-exported, not re-implemented:
@@ -45,10 +45,15 @@ below is re-exported, not re-implemented:
   partition arithmetic and the ``lower`` / ``compile`` / ``load`` thread pool.
 * :mod:`evogp.tree.batch_stages` -- the per-stage timer surface
   :func:`batch_stage_stats` reports from.
-* **this module** -- the three front tables, the plan memo (:func:`_plan_entry`),
-  :func:`plan_batch` / :func:`build_batch` / :func:`evaluate_batch` /
-  :func:`sr_fitness_batch` / :func:`describe_plan`, the run path, the backend
-  resolution and :func:`batch_cache_stats` / :func:`batch_content_stats`.
+* :mod:`evogp.tree.batch_keys` -- the three front tables, what a compiled body is
+  keyed on (:func:`_executable_key` / :func:`_chunk_executable_key`), the fit
+  guard :func:`_check_executable_matches` and :func:`batch_cache_stats` /
+  :func:`batch_content_stats`.
+* :mod:`evogp.tree.batch_run` -- the run path: input staging, one ``evoxc.run``
+  per compiled body, the readback, the row expansion and the output tensor.
+* **this module** -- the plan memo (:func:`_plan_entry`), :func:`plan_batch` /
+  :func:`build_batch` / :func:`evaluate_batch` / :func:`sr_fitness_batch` /
+  :func:`describe_plan`, the backend resolution and the stage stats.
 
 Chunked compile (``EVOGP_BATCH_COMPILE_WORKERS``)
 -------------------------------------------------
@@ -70,41 +75,16 @@ GLOBAL indices into ``plan.functions``, runs stay sequential (one device, one
 stream, ordered readbacks) and each chunk's rows are written back at its ``offset``,
 so the assembled numbers are the single-body plan's.
 
-Front tables (why a repeated call is cheap)
--------------------------------------------
-:data:`BATCH_PLAN_MEMO` maps the three population identity tokens
-(:func:`evogp.tree.dense_memo.token`: ``data_ptr``/shape/dtype/device/``_version``,
-so an in-place mutation is a miss by construction) plus every resolved plan
-parameter to the :class:`BatchExecutable`: a repeated evaluation of an unchanged
-population does no re-decode, no re-trace, no re-merge and no re-build.  The
-``x``/``labels`` conversion is NOT part of that table -- it runs on every call
-(see :func:`_plan_entry`).
-:data:`BATCH_CONTENT_MEMO` is the second plan table and answers what the identity
-table cannot: a REBUILT population with identical content (a fresh ``Forest``
-object carrying the same evolution) hits on
-:func:`evogp.tree.batch_programs.plan_digest` and pays only the decode needed to
-prove it.  A content hit is verified against the just-decoded programs before it
-is served, never trusted: ``batch_content_hits`` counts only entries actually
-served, while a refused one is a miss plus a ``batch_content_rejects`` increment.
-:data:`BATCH_EXEC_MEMO` keys a compiled body on the ACTUAL program multiset plus
-the shape/backend/device/options (and, for a chunked plan, the partition
-``(chunk_count, chunk_sizes, chunk_index)``, so a different ``W`` can never hit a
-body built for another partition), so the same programs in a fresh population
-object still hit -- and such a hit is RE-BOUND to the caller's plan, never returned
-with another population's row mapping.  All three tables are dropped by
-:func:`evogp.tree.evoxc_engine.clear_cache` (the engine's single invalidation
-point) and counted by :func:`batch_cache_stats` / :func:`batch_content_stats` --
-separate functions, because ``cache_stats()`` (8 keys) and ``dense_cache_stats()``
-are pinned by the suite.
-
-Order sensitivity (why the executable key is never sorted)
-----------------------------------------------------------
-The function axis of a merged graph is a position, not a multiset: ``row_index``
-indexes it and bands are contiguous slices of it, so the same functions in another
-order are another compiled body.  The executable key therefore holds the function
-tuple IN ORDER (never a sorted digest), and the content key is order-sensitive for
-the same reason -- sorting either would serve a graph whose row ``j`` computes a
-different function.
+Front tables and cache keys (owned by :mod:`evogp.tree.batch_keys`)
+------------------------------------------------------------------
+What each of the three front tables is keyed on, why a repeated call is cheap,
+why an executable hit is RE-BOUND to the caller's plan instead of being returned
+with another population's row mapping, and why the function order of a key is
+never sorted are documented in :mod:`evogp.tree.batch_keys`, next to the code that
+spells them.  This facade only reads that layer: :func:`build_batch` is the single
+reader of ``BATCH_EXEC_MEMO`` and always wraps a hit in a fresh
+:class:`BatchExecutable` around the CURRENT plan, and :func:`_plan_entry` is the
+single reader of ``BATCH_PLAN_MEMO`` / ``BATCH_CONTENT_MEMO``.
 
 Stage reporting
 ---------------
@@ -134,14 +114,11 @@ from __future__ import annotations
 
 import os
 import dataclasses
-import threading
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-
-import evoxc
 
 from . import batch_chunks, batch_stages, dense_memo
 
@@ -186,15 +163,38 @@ from .batch_programs import (
     _pop_size,
     plan_digest,
 )
+
+# The front tables and the memo keys of a compiled body live in ``batch_keys``; the
+# run path in ``batch_run``.  Both are re-exported below so every
+# ``evogp.tree.batch_engine.<name>`` the tests and the benchmark harness reach for
+# keeps resolving.
+from .batch_keys import (
+    BATCH_CONTENT_MEMO,
+    BATCH_EXEC_MEMO,
+    BATCH_PLAN_MEMO,
+    _ContentMemo,
+    _body_key,
+    _check_executable_matches,
+    _chunk_executable_key,
+    _clear_tables,
+    _default_cache_size,
+    _executable_key,
+    _reject_content_entry,
+    _spec_shapes,
+    batch_cache_stats,
+    batch_content_stats,
+)
+from .batch_run import (
+    _input_block,
+    _inputs,
+    _map_rows,
+    _readback,
+    _run,
+    _to_tensor,
+)
 from .evoxc_engine import (
     BACKEND_ENV,
     SUPPORTED_BACKENDS,
-    _CPU,
-    _env_int,
-    _freeze_options,
-    _gpu_device_kind,
-    _quiet,
-    _register_cache_reset,
     _resolve_backend,
     decode_population,
 )
@@ -234,153 +234,6 @@ __all__ = [
     "resolve_switch_ops",
     "sr_fitness_batch",
 ]
-
-# ---------------------------------------------------------------------------
-# front tables
-# ---------------------------------------------------------------------------
-def _default_cache_size() -> int:
-    size = _env_int(CACHE_SIZE_ENV, DEFAULT_CACHE_SIZE)
-    if size < 0:
-        raise ValueError(f"{CACHE_SIZE_ENV}={size} must be >= 0")
-    return size
-
-
-class _ContentMemo(dense_memo.DenseMemo):
-    """The content table, where a HIT means an entry was actually SERVED.
-
-    The verification (``entry.plan.programs == programs``) happens in the caller,
-    AFTER the key lookup, so the plain :meth:`DenseMemo.lookup` cannot tell a
-    served entry from a refused one: it would count the hit first and the caller
-    would then refuse it.  This subclass splits the two steps -- :meth:`probe`
-    reads a value WITHOUT counting, and the caller then records exactly one
-    outcome (:meth:`record_hit` / :meth:`record_miss`) -- so
-    ``batch_content_hits`` only ever counts an entry that was returned to the
-    caller.  The counters stay in the memo (``stats()`` unchanged, five keys via
-    :func:`batch_content_stats`) and the LRU touch moves to the hit record, so a
-    refused entry does not get promoted either.
-    """
-
-    def probe(self, key: Any) -> Any:
-        """The value stored under ``key``, or ``None`` -- counters untouched."""
-        with self._lock:
-            if self.maxsize <= 0:  # disabled table: nothing can be served
-                return None
-            try:
-                return self[key]
-            except KeyError:
-                return None
-
-    def record_hit(self, key: Any) -> None:
-        """Count one SERVED entry and mark ``key`` as most recently used."""
-        with self._lock:
-            self.hits += 1
-            if key in self:
-                self.move_to_end(key)
-
-    def record_miss(self) -> None:
-        """Count one attempt that has to rebuild (absent, refused or disabled)."""
-        with self._lock:
-            self.misses += 1
-
-    def discard(self, key: Any) -> None:
-        """Drop a refused entry so it can never be probed again."""
-        with self._lock:
-            self.pop(key, None)
-
-
-#: Compiled bodies, keyed by the actual program multiset + shape +
-#: backend/device/options (see :func:`_executable_key`; a chunked plan adds the
-#: partition triple).  The key holds the REAL programs, never a digest: a hash
-#: collision would serve wrong numbers.  On the single-body path the value is the
-#: whole :class:`BatchExecutable` of the population that FIRST built it, so it must
-#: never be handed to another population -- :func:`build_batch` re-binds a hit to
-#: the caller's plan (see the module docstring).  On the chunked path the value is
-#: that chunk's raw ``evoxc.Executable`` (nothing of the population's), for the same
-#: reason a hit is re-bound.
-BATCH_EXEC_MEMO = dense_memo.DenseMemo("batch_exec", _default_cache_size())
-#: :class:`BatchExecutable` of an unchanged population, keyed by the three
-#: population identity tokens + every resolved plan parameter.
-BATCH_PLAN_MEMO = dense_memo.DenseMemo("batch_plan", _default_cache_size())
-#: :class:`BatchExecutable` of a population with the same CONTENT, keyed by
-#: :func:`evogp.tree.batch_programs.plan_digest` + every resolved plan parameter, so
-#: a rebuilt-but-equal population hits after one decode.  The stored entry carries
-#: NO pins (its plan outlives the population that built it) and is verified against
-#: the just-decoded programs before it is served.
-BATCH_CONTENT_MEMO = _ContentMemo("batch_content", _default_cache_size())
-
-#: Content entries refused because the verification failed (a digest collision or a
-#: corrupt entry); a refusal always rebuilds and never serves.
-_CONTENT_REJECTS = 0
-_CONTENT_LOCK = threading.Lock()
-
-
-def _clear_tables() -> None:
-    """Drop all three front tables (registered with the engine's invalidation)."""
-    global _CONTENT_REJECTS
-    BATCH_EXEC_MEMO.reset()
-    BATCH_PLAN_MEMO.reset()
-    BATCH_CONTENT_MEMO.reset()
-    with _CONTENT_LOCK:
-        _CONTENT_REJECTS = 0
-
-
-#: :func:`evogp.tree.evoxc_engine.clear_cache` drops these tables too -- the
-#: engine stays the single in-memory invalidation point.  Registered as a hook
-#: (not via ``dense_memo.register``) so ``dense_cache_stats()`` keeps returning
-#: exactly the dense route's keys.
-_register_cache_reset(_clear_tables)
-
-
-def _reject_content_entry() -> None:
-    """Count one refused content entry (a rebuild follows, never a serve)."""
-    global _CONTENT_REJECTS
-    with _CONTENT_LOCK:
-        _CONTENT_REJECTS += 1
-
-
-def batch_cache_stats() -> Dict[str, int]:
-    """Counters of this route's two front tables (eight keys).
-
-    ``batch_exec_hits`` / ``batch_exec_misses`` / ``batch_exec_entries`` /
-    ``batch_exec_maxsize`` describe :data:`BATCH_EXEC_MEMO` (a hit never reaches
-    ``evoxc.lower`` / ``compile`` / ``load``), ``batch_plan_*`` describe
-    :data:`BATCH_PLAN_MEMO` (a hit skips the host decode, the traces and the
-    merge).  Deliberately a separate function: ``cache_stats()`` (exactly 8 keys),
-    ``dense_cache_stats()`` and ``artifact_cache_stats()`` are pinned by the suite.
-
-    The executable contract those counters describe: an executable is keyed by
-    the merged function multiset and shapes -- a hit is REBOUND to the current
-    population's plan, never returned with another population's row mapping.  So
-    a rising ``batch_exec_hits`` on a differently-sized population is reuse, not
-    staleness: the compile is shared, the ``pop_size`` / ``row_index`` /
-    ``function_rows`` staging is always the caller's.
-    """
-    stats: Dict[str, int] = {}
-    stats.update(BATCH_EXEC_MEMO.stats())
-    stats.update(BATCH_PLAN_MEMO.stats())
-    return stats
-
-
-def batch_content_stats() -> Dict[str, int]:
-    """Counters of the CONTENT-addressed plan table (five keys).
-
-    ``batch_content_hits`` counts entries actually SERVED (a verified plan, after
-    ONE decode), ``batch_content_misses`` counts attempts that had to rebuild, and
-    ``batch_content_rejects`` counts the entries refused by the program
-    verification -- a subset of those misses, since a refused entry always
-    rebuilds.  ``batch_content_entries`` / ``batch_content_maxsize`` describe the
-    table itself.
-
-    Deliberately separate from :func:`batch_cache_stats` (which stays at exactly its
-    eight identity-keyed counters), and from ``cache_stats()`` /
-    ``dense_cache_stats()`` / ``artifact_cache_stats()``, which are pinned by the
-    suite.
-    """
-    stats: Dict[str, int] = {}
-    stats.update(BATCH_CONTENT_MEMO.stats())
-    with _CONTENT_LOCK:
-        stats["batch_content_rejects"] = int(_CONTENT_REJECTS)
-    return stats
 
 
 def batch_stage_stats() -> Dict[str, Any]:
@@ -523,150 +376,6 @@ def _check_population(pop_size: int, minimum: Optional[int] = None) -> None:
         raise BatchUnsupported(
             f"batch_engine: pop_size={pop_size} is below {MIN_POP_ENV}={threshold} "
             "(the merge pays a compile that only pays back at scale)"
-        )
-
-
-# ---------------------------------------------------------------------------
-# the executable
-# ---------------------------------------------------------------------------
-def _body_key(
-    plan: BatchPlan,
-    functions: Sequence[Any],
-    band_count: int,
-    backend_name: str,
-    device: Any,
-    options: Dict[str, Any],
-) -> Tuple[Any, ...]:
-    """Everything that determines ONE compiled body of ``plan``.
-
-    The function tuple is part of the key IN ORDER and never sorted: the function
-    axis is a POSITION (``row_index`` indexes it and bands are contiguous slices),
-    so the same functions in another order are another graph.  ``band_count`` is the
-    body's own band count (the plan's for the single-body path, the chunk's for a
-    chunked one).
-    """
-    return (
-        tuple(functions),
-        plan.variant,
-        bool(plan.use_mse),
-        int(band_count),
-        bool(plan.switch_ops),
-        plan.alignment,
-        int(plan.n_rows),
-        int(plan.input_len),
-        int(plan.output_len),
-        bool(plan.per_row),
-        backend_name,
-        device,
-        _freeze_options(options),
-    )
-
-
-def _executable_key(
-    plan: BatchPlan, backend_name: str, device: Any, options: Dict[str, Any]
-) -> Tuple[Any, ...]:
-    """Memo key of the SINGLE-body executable (unchanged from the original plan).
-
-    Everything that determines the compiled body: the ACTUAL program multiset
-    (never a digest -- a collision would serve wrong numbers), the variant, the
-    loss metric, the merge shape (band count, ``switch_ops``, alignment, rows), the
-    I/O shape and the backend/device/options.  Two populations with the same
-    programs therefore share the executable, and any of these changing rebuilds.
-    """
-    return _body_key(
-        plan, plan.functions, plan.band_count, backend_name, device, options
-    )
-
-
-def _chunk_executable_key(
-    plan: BatchPlan,
-    chunk: BatchChunk,
-    backend_name: str,
-    device: Any,
-    options: Dict[str, Any],
-) -> Tuple[Any, ...]:
-    """Memo key of ONE chunk body: the body key plus the partition triple.
-
-    The partition ``(chunk_count, chunk_sizes, chunk_index)`` -- read off
-    ``plan.chunks``, the authoritative read surface -- is appended so a body built
-    for one ``W`` can never be served to a plan with another ``W``: the two bodies
-    would compute the same functions but the readback offsets of the caller's plan
-    belong to the caller's partition, and an accidental cross-partition hit would be
-    a structural mismatch nothing else checks.
-    """
-    return _body_key(
-        plan, chunk.functions, chunk.band_count, backend_name, device, options
-    ) + (
-        int(len(plan.chunks)),
-        tuple(int(len(other.functions)) for other in plan.chunks),
-        int(chunk.index),
-    )
-
-
-def _spec_shapes(specs: Sequence[Any]) -> Tuple[Tuple[Tuple[int, ...], str], ...]:
-    """``((shape, dtype), ...)`` of a sequence of ``evoxc.TensorSpec`` objects."""
-    return tuple(
-        (tuple(int(dim) for dim in spec.shape), str(spec.dtype)) for spec in specs
-    )
-
-
-def _check_executable_matches(
-    plan: BatchPlan,
-    executable: Any,
-    *,
-    specs: Optional[Sequence[Any]] = None,
-    n_functions: Optional[int] = None,
-) -> None:
-    """Decline when a memoized executable does not fit the CALLER's plan/body.
-
-    Chunk-aware: ``specs`` defaults to the plan's own (single-body) input specs and
-    ``n_functions`` to ``len(plan.functions)``; a chunked build passes its CHUNK's
-    specs and function count instead, which are what the chunk's merged graph was
-    lowered from.
-
-    The executable key (:func:`_body_key`) already pins the compiled body's inputs
-    -- program multiset, variant/loss metric, merge shape, rows, input width,
-    outputs, backend/device -- so this check is an invariant, not the mechanism: it
-    re-derives the two things the caller is about to rely on from the executable's
-    own ``evoxc`` signature (:attr:`evoxc.Executable.signature`, recorded at
-    ``lower`` time) and compares them with the body's plan:
-
-    * the merged INPUT specs must equal the body's ``evoxc.TensorSpec`` objects
-      (shape + dtype) -- on ``per_row=True`` that leading dimension is the merged
-      function count;
-    * the merged OUTPUT spec must be ``(n_functions, n_rows, output_len)`` for the
-      value variant and ``(n_functions,)`` for the loss variant, i.e. the merged
-      function axis plus the rows/outputs the plan stages.
-
-    A mismatch means the table served a body built for a different function
-    multiset or shape; that is a :class:`BatchUnsupported` decline (the caller
-    falls back to the specialized engine) rather than a silently wrong row mapping.
-    Nothing is checked when the executable records no signature at all (an
-    executable we cannot introspect is still the one the key selected).
-    """
-    signature = getattr(executable, "signature", None)
-    if signature is None:  # pragma: no cover - evoxc always records a signature
-        return
-    body_specs = plan.specs if specs is None else tuple(specs)
-    actual_in = _spec_shapes(getattr(signature, "input_specs", ()) or ())
-    expected_in = _spec_shapes(body_specs)
-    if actual_in and actual_in != expected_in:
-        raise BatchUnsupported(
-            f"batch_engine: the memoized executable was compiled for inputs "
-            f"{actual_in}, but this population's plan needs {expected_in}"
-        )
-    count = len(plan.functions) if n_functions is None else int(n_functions)
-    if plan.variant == LOSS_VARIANT:
-        expected_out: Tuple[int, ...] = (count,)
-    else:
-        expected_out = (count, int(plan.n_rows), int(plan.output_len))
-    actual_out = tuple(shape for shape, _ in _spec_shapes(
-        getattr(signature, "output_specs", ()) or ()))
-    if len(actual_out) == 1 and actual_out[0] != expected_out:
-        raise BatchUnsupported(
-            f"batch_engine: the memoized executable has {count} merged "
-            f"function(s) and was compiled for output "
-            f"{actual_out[0]}, but this population's plan needs {expected_out}"
         )
 
 
@@ -1014,125 +723,6 @@ def _plan_entry(
 
 
 # ---------------------------------------------------------------------------
-# running
-# ---------------------------------------------------------------------------
-def _inputs(entry: BatchExecutable, x_host: np.ndarray,
-            label_host: Optional[np.ndarray],
-            function_rows: Optional[Sequence[int]] = None) -> Tuple[Any, ...]:
-    """The graph inputs of one BODY, staged for the entry's backend.
-
-    ``per_row=True`` feeds each merged function its own ``x`` row, so the host
-    block is gathered to ``(n_functions, 1, input_len)`` (axes=0 on the function
-    axis); every other layout shares one ``(n_rows, input_len)`` block.
-    ``function_rows`` is the row slice of the body being fed: ``None`` means the
-    whole plan (the single-body path), while a :class:`BatchChunk` passes its own
-    ``function_rows`` so a chunked plan gathers exactly the rows its functions were
-    first seen at.  On iree each block is uploaded once per call
-    (``evoxc.from_numpy`` is a zero-copy host wrap; the upload is
-    ``Tensor.to(device)``); the numpy backend consumes the host array directly and
-    never uploads.
-    """
-    plan = entry.plan
-    if plan.per_row:
-        rows = plan.function_rows if function_rows is None else function_rows
-        block = np.ascontiguousarray(
-            x_host[list(rows)][:, None, :], dtype=np.float32
-        )
-    else:
-        block = np.ascontiguousarray(x_host, dtype=np.float32)
-    staged: List[Any] = [block]
-    if label_host is not None:
-        staged.append(np.ascontiguousarray(label_host, dtype=np.float32))
-    if entry.backend == "numpy":
-        return tuple(staged)
-    return tuple(evoxc.from_numpy(array).to(entry.device) for array in staged)
-
-
-def _readback(result: Any, backend: str) -> np.ndarray:
-    """Host float32 copy of one body's result (the only device->host crossing).
-
-    ``numpy`` reads the interpreter's array directly; every device backend needs
-    ``.to(_CPU)`` + ``.numpy()`` (evoxc has no zero-copy device export).  Both paths
-    copy into a fresh ``float32`` array, so a chunk's rows can be written into the
-    global block without aliasing a backend buffer.
-    """
-    if backend == "numpy":
-        return np.asarray(result.numpy(), dtype=np.float32)
-    return np.asarray(result.to(_CPU).numpy(), dtype=np.float32)
-
-
-def _run(entry: BatchExecutable, x_host: np.ndarray,
-         label_host: Optional[np.ndarray]) -> np.ndarray:
-    """One ``evoxc.run`` per compiled body; the raw host result in FUNCTION order.
-
-    A single-chunk plan (``len(plan.chunks) == 1``) is the original statement: one
-    staged input tuple, one ``evoxc.run`` of :attr:`BatchExecutable.executable`, one
-    readback, returned as-is.
-
-    A chunked plan (``len(plan.chunks) > 1``) runs its bodies in ASCENDING chunk
-    order and writes each result
-    into a preallocated ``(n_functions, ...)`` block at the chunk's ``offset``, so
-    the rows come back in the GLOBAL function order that ``plan.row_index`` indexes
-    (the readback order never decides the output order).  The runs stay SEQUENTIAL:
-    there is one device and one stream, each readback must stay ordered with the run
-    that produced it, and a chunk's input staging is a host gather -- a pool here
-    would add contention, not throughput.
-
-    Stages: ``upload`` wraps the staging, ``run`` the ``evoxc.run`` and ``gather``
-    the readback (the caller stages ``_map_rows`` / the output tensor).
-    """
-    plan = entry.plan
-    if len(plan.chunks) <= 1:
-        with batch_stages.stage("upload"):
-            staged = _inputs(entry, x_host, label_host)
-        with batch_stages.stage("run"):
-            with _quiet():
-                result = evoxc.run(entry.executable, *staged)
-        with batch_stages.stage("gather"):
-            return _readback(result, entry.backend)
-    tail: Tuple[int, ...] = (
-        () if plan.variant == LOSS_VARIANT else (int(plan.n_rows), int(plan.output_len))
-    )
-    rows = np.empty((len(plan.functions),) + tail, dtype=np.float32)
-    executables = tuple(entry.executables)
-    if len(executables) != len(plan.chunks):
-        raise BatchUnsupported(
-            f"batch_engine: the chunked plan holds {len(plan.chunks)} chunk(s) but "
-            f"{len(executables)} executable(s) were bound to it"
-        )
-    for chunk, executable in zip(plan.chunks, executables):
-        size = len(chunk.functions)
-        with batch_stages.stage("upload"):
-            staged = _inputs(entry, x_host, label_host, chunk.function_rows)
-        with batch_stages.stage("run"):
-            with _quiet():
-                result = evoxc.run(executable, *staged)
-        with batch_stages.stage("gather"):
-            block = _readback(result, entry.backend)
-            if block.shape[0] != size:
-                raise BatchUnsupported(
-                    f"batch_engine: chunk {chunk.index} was expected to answer "
-                    f"{size} function(s), got {block.shape[0]}"
-                )
-            rows[chunk.offset:chunk.offset + size] = block
-    return rows
-
-
-def _map_rows(rows: np.ndarray, plan: BatchPlan) -> np.ndarray:
-    """Expand the per-function rows back to the population order (a fresh copy)."""
-    return np.ascontiguousarray(rows[list(plan.row_index)])
-
-
-def _to_tensor(array: np.ndarray, source: Any, out_device: Optional[Any]) -> torch.Tensor:
-    """A fresh, contiguous, ``requires_grad=False`` float32 tensor on the target."""
-    tensor = torch.from_numpy(array).contiguous().detach().requires_grad_(False)
-    target = out_device if out_device is not None else getattr(source, "device", None)
-    if target is not None and torch.device(target) != tensor.device:
-        tensor = tensor.to(target)
-    return tensor
-
-
-# ---------------------------------------------------------------------------
 # public entry points
 # ---------------------------------------------------------------------------
 def evaluate_batch(
@@ -1198,20 +788,6 @@ def evaluate_batch(
         if plan.per_row:
             rows = rows[:, 0, :]
         return _to_tensor(_map_rows(rows, plan), x, out_device)
-
-
-def _input_block(entry: BatchExecutable, x: Any, input_len: int,
-                 per_row: bool) -> np.ndarray:
-    """Host copy of ``x`` for the run.
-
-    Deliberately re-read rather than memoized: the two front tables are keyed on
-    the POPULATION (a plan) and on the compiled body (an executable), and a
-    per-call ``x`` conversion is one D2H -- the same single crossing the dense
-    route's input table would save on a repeated dataset, without a third table to
-    keep coherent (the wiring round can add one if it measures a need).
-    """
-    return _host_rows(x, int(input_len), "x", per_row=bool(per_row),
-                      pop_size=entry.plan.pop_size)
 
 
 def sr_fitness_batch(

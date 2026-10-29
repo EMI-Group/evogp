@@ -85,20 +85,20 @@ Two variants exist: `value` (`(pop, N, out_len)`; `per_row` selects the `(pop, i
 | `EVOGP_BATCH_SWITCH_OPS` | off | op-switching transform; forces the flat merge (`K = 1`) and is **not** combined with banding |
 | `EVOGP_BATCH_ALIGNMENT` | `variant` | `variant` / `occurrence` / `auto`; a pure evoxc performance heuristic, can never change the numbers |
 | `EVOGP_BATCH_CACHE_SIZE` | `8` | entries of both front tables; read at **import** time like `EVOGP_EVOXC_CACHE_SIZE` |
-| `EVOGP_BATCH_COMPILE_WORKERS` | `4` | compile chunks per plan; `0`/`1` mean today's single-executable path verbatim (see §4.1); negative or non-integer raises `ValueError` |
+| `EVOGP_BATCH_COMPILE_WORKERS` | `4` | compile chunks per plan; `0`/`1` mean today's single-executable path verbatim (see §8.1); negative or non-integer raises `ValueError` |
 
 Banding trades dispatches for wasted work: `K` bands means `K` `select` cascades instead of one per
 population. `bands="auto"` is deliberately not offered (it is CPU-calibrated, resolves to `K=1` here,
 and only costs a static cost-model run). Only unset/empty hands the decision to the band-size model; the
 flat spellings are an explicit `K = 1` (§9.1).
 
-Front tables (`dense_memo.DenseMemo`, identity/count-keyed): `BATCH_PLAN_MEMO` maps the three
+Front tables (`batch_keys.py`; `dense_memo.DenseMemo`, identity/count-keyed): `BATCH_PLAN_MEMO` maps the three
 population identity tokens (`data_ptr`/shape/dtype/device/`_version`, so an in-place write is a miss by
 construction) plus every resolved plan parameter (including `compile_workers`) to a `BatchExecutable`, so
 an unchanged population re-decodes, re-traces and re-merges nothing; `BATCH_EXEC_MEMO` keys the
 *compiled body* on the actual function multiset + shape + backend/device/options -- plus, when chunked, the
 partition `(chunk_count, chunk_sizes, chunk_index)` -- and **re-binds** a hit to the caller's plan (pop
-size, row mapping and staged inputs are always the caller's — see the module docstring).
+size, row mapping and staged inputs are always the caller's — see `batch_keys.py`'s module docstring).
 `BATCH_CONTENT_MEMO` is the third table: a *content*-addressed plan lookup (decoded programs + `x`, §8.3)
 that serves a rebuilt-but-equal `Forest` instead of re-planning it (§8).
 All three are dropped by `evoxc_engine.clear_cache()`; `batch_cache_stats()` reports only the 8 identity/
@@ -225,94 +225,6 @@ index (`DENSE_EVAL.md` §5), i.e. not a property of the merge.
   cold), which is the number to watch when raising `EVOGP_BATCH_MIN_POP` or lowering the band size; a very
   fine banding (~one band per function at 200+ functions) does not LOAD on the ROCm HAL (§5.1).
 
-## 9. Contracts moved out of the module docstrings
-
-The batch route is three modules under `src/evogp/tree/` (one concern each); `batch_engine` stays the
-public facade and re-exports everything, so no caller changes:
-
-| module | owns |
-| --- | --- |
-| `batch_knobs.py` | the `EVOGP_BATCH_*` constants, the `resolve_*` helpers, the `value`/`loss` variant rules (`_normalize_variant`) and `BatchUnsupported` |
-| `batch_programs.py` | host-side program handling: input/label conversion, per-function graph bodies, dedup, trace, merge, `_plan_host`, and the `BatchPlan` / `BatchExecutable` records |
-| `batch_engine.py` | the plan/executable front tables, the plan memo (`_plan_entry`), `plan_batch` / `build_batch` / `evaluate_batch` / `sr_fitness_batch` / `describe_plan`, the backend resolution and `batch_cache_stats()` |
-
-`batch_engine` may import the two siblings; neither imports `batch_engine` back at module level.
-
-### 9.1 Bands and `switch_ops`, in detail
-
-`bands` splits the population into contiguous bands and merges each band separately (one `select`
-cascade per band instead of one per population), which trades dispatches for wasted work. The knob is a
-band **size** (`EVOGP_BATCH_BAND_SIZE`, default 32): `K = ceil(n_functions / band_size)`, clamped to
-`1 <= K <= n_functions`; `K == 1` reduces to the flat merge. `EVOGP_BATCH_BANDS` overrides the model with
-an explicit `K`; the flat spellings `none` / `flat` / `0` are an explicit `K = 1` (same plan as
-`EVOGP_BATCH_BANDS=1`: `band_sizes == [n_functions]`, `band_strategy == "flat"`), NOT a hand-back to the
-band-size model — only unset/empty leaves the model in charge. `bands="auto"` is deliberately NOT offered:
-it is CPU-calibrated, resolves to `K=1` on this workload and only costs a static cost-model run.
-
-`switch_ops` (`EVOGP_BATCH_SWITCH_OPS`, default off) makes op-switching positions share one op per variant
-plus a per-row `select` cascade. It is a heavier transform for GP populations (structurally divergent
-programs) and on the measured workload it changed nothing at all — `report["switched"]` is empty and the
-emitted op count and warm time are those of the flat merge — so it stays a knob, off by default. When it
-is on, the merge is FORCED to the flat form (`K = 1`): `switch_ops` and banding are not combined, and the
-plan records `band_count == 1` whenever `switch_ops` is set.
-
-### 9.2 On-disk artifacts: deliberately NOT wired
-
-`artifact_cache` keys an artifact by `(name, specs, backend, device, options)` where `specs` is the
-`build_cached` spec tuple — tensor specs *plus* the static content that specializes the graph. A merged
-batch graph has NO static values (the programs live in Python closures), so the tensor specs alone would
-collide across every population of a shape and a stale artifact would serve wrong numbers
-(`signature_matches` cannot catch it: the shapes agree). The programs could be smuggled into the key as
-extra static content, but then every generation's multiset is a distinct key, i.e. no reuse at all. So
-this route builds in memory only; a process that repeats a multiset keeps it in `BATCH_EXEC_MEMO` for the
-lifetime of the process.
-
-### 9.3 Front tables: why a repeated call is cheap
-
-`BATCH_PLAN_MEMO` maps the three population identity tokens (`dense_memo.token`:
-`data_ptr`/shape/dtype/device/`_version`, so an in-place mutation is a miss by construction) plus every
-resolved plan parameter to the `BatchExecutable`: a repeated evaluation of an unchanged population does no
-re-decode, no re-trace, no re-merge, no re-key and no re-build. The `x`/`labels` conversion is **not**
-memoized — `_host_rows` (and, for the loss variant, `_host_labels`) run before the lookup on every call,
-because the key carries the converted row count and the label shape check needs the converted rows.
-`BATCH_EXEC_MEMO` keys the same executable on the ACTUAL program multiset plus the
-shape/backend/device/options, so the same programs in a fresh population object still hit. Both tables are
-dropped by `evoxc_engine.clear_cache()` (the engine's single invalidation point) and counted by
-`batch_cache_stats()` — a separate function, because `cache_stats()` (8 keys) and `dense_cache_stats()`
-are pinned by the suite.
-
-### 9.4 Reuse across populations (the re-binding contract)
-
-`BATCH_EXEC_MEMO` is keyed by the compiled body only — the merged function multiset plus the variant, the
-merge shape, the I/O shape and the backend/device/options (see `_executable_key`) — and deliberately NOT
-by the population that first built it, because one compiled merged graph really does serve every
-population with that same function multiset: the function axis IS the graph's leading axis, so which
-population row maps to which function is the caller's business, not the graph's. That makes the population
-size, the row mapping and the staged inputs *per-call* data, so an executable hit is **re-bound**: the
-returned `BatchExecutable` pairs the memoized `executable` (and the `backend` / `device` it was built for)
-with the plan the CURRENT call built (or hit in `BATCH_PLAN_MEMO`), never with the first population's
-`pop_size`, `row_index`, `function_rows` or `programs`.
-
-The rebinding is structural, not incidental: `build_batch` is the ONLY reader of `BATCH_EXEC_MEMO` and it
-always constructs a fresh `BatchExecutable` around the caller's plan, so every per-population field on the
-running path (`_inputs` staging, `_map_rows` row expansion, the `(pop_size, ...)` / `(pop_size,)` output
-shapes and the `pop_size` row check) is read from that plan. `_check_executable_matches` is the cheap
-safety net for the one thing the key cannot re-derive: the compiled body's recorded tensor specs (merged
-function count, rows, input width, outputs) must fit the caller's plan, and a mismatch is a
-`BatchUnsupported` decline — never a silently wrong row mapping.
-
-No variant is excluded from that reuse: `per_row=True` puts the function count in the merged INPUT spec's
-leading dimension and `per_row=False` puts it in the OUTPUT spec's, but both are part of the key, so a hit
-is reusable in both layouts (and the invariant check above verifies exactly those dimensions).
-
-### 9.5 Who to blame for what (reuse, never re-implement)
-
-Decoding, validation, constant folding and op emission are the frozen engine's:
-`evoxc_engine.decode_population` gives the per-tree static programs and
-`evoxc_engine._walk_tokens` is the emitter *and* the multi-output protocol. A per-function graph is traced
-through a Python closure over its static program — never with the program as a traced static arg, which
-would make `graph.static_values` differ per tree and make `batch_functions` raise `TraceError`.
-
 ## 8. Chunked compile, stage timer and content-addressed plan key
 
 ### 8.1 Compile chunking (`EVOGP_BATCH_COMPILE_WORKERS`, `batch_chunks.py`)
@@ -357,10 +269,108 @@ Warm stage split at `W=4`: `run` 1.92 ms, `upload` 0.92 ms, `gather` 0.83 ms.
 Numerics: on **numpy** the chunked path is bitwise identical to the single-body path for all four variants (value `per_row`, value shared-`x`, loss MSE, loss MAE) -- identical finite bits and identical NaN masks.
 On **iree** the loss path was bitwise identical on the checked fixture while the value path differed on 78 of 16128 finite elements (max 2.4e-7 absolute / 1.4e-6 relative, values up to 1.6e25); repeated runs of the SAME partition are bit-identical, so the difference is the documented iree FMA-contraction class reacting to a different band merge, not a defect.
 
+## 9. Contracts moved out of the module docstrings
+
+The batch route is six modules under `src/evogp/tree/` (one concern each); `batch_engine` stays the
+public facade and re-exports everything, so no caller changes:
+
+| module | owns |
+| --- | --- |
+| `batch_knobs.py` | the `EVOGP_BATCH_*` constants, the `resolve_*` helpers, the `value`/`loss` variant rules (`_normalize_variant`) and `BatchUnsupported` |
+| `batch_programs.py` | host-side program handling: input/label conversion, per-function graph bodies, dedup, trace, merge, `_plan_host`, and the `BatchPlan` / `BatchExecutable` records |
+| `batch_chunks.py` | the compile-side chunk orchestration: `chunk_sizes`, the `lower`/`compile`/`load` thread pool and its per-job stage timers |
+| `batch_stages.py` | the per-stage timer surface behind `batch_stage_stats()` |
+| `batch_keys.py` | the three front tables (`BATCH_PLAN_MEMO` / `BATCH_CONTENT_MEMO` / `BATCH_EXEC_MEMO`, incl. the `_ContentMemo` subclass), `_default_cache_size`, the invalidation hook `_clear_tables`, `batch_cache_stats()` / `batch_content_stats()`, the memo keys `_executable_key` / `_chunk_executable_key` (via `_body_key`) and the fit guard `_check_executable_matches` / `_spec_shapes` |
+| `batch_run.py` | the run path: `_input_block`, `_inputs` staging, `_run` (one `evoxc.run` per body), `_readback`, `_map_rows` and `_to_tensor` |
+| `batch_engine.py` | the plan memo (`_plan_entry`), `plan_batch` / `build_batch` / `evaluate_batch` / `sr_fitness_batch` / `describe_plan`, the backend resolution and `batch_stage_stats()` |
+
+`batch_engine` may import the five siblings; none of them imports `batch_engine` back at module level.
+`batch_keys` and `batch_run` are read by the facade only, and the facade re-exports their names, so
+`evogp.tree.batch_engine.<name>` stays the one import path for callers, tests and the benchmark harness.
+
+### 9.1 Bands and `switch_ops`, in detail
+
+`bands` splits the population into contiguous bands and merges each band separately (one `select`
+cascade per band instead of one per population), which trades dispatches for wasted work. The knob is a
+band **size** (`EVOGP_BATCH_BAND_SIZE`, default 32): `K = ceil(n_functions / band_size)`, clamped to
+`1 <= K <= n_functions`; `K == 1` reduces to the flat merge. `EVOGP_BATCH_BANDS` overrides the model with
+an explicit `K`; the flat spellings `none` / `flat` / `0` are an explicit `K = 1` (same plan as
+`EVOGP_BATCH_BANDS=1`: `band_sizes == [n_functions]`, `band_strategy == "flat"`), NOT a hand-back to the
+band-size model — only unset/empty leaves the model in charge. `bands="auto"` is deliberately NOT offered:
+it is CPU-calibrated, resolves to `K=1` on this workload and only costs a static cost-model run.
+
+`switch_ops` (`EVOGP_BATCH_SWITCH_OPS`, default off) makes op-switching positions share one op per variant
+plus a per-row `select` cascade. It is a heavier transform for GP populations (structurally divergent
+programs) and on the measured workload it changed nothing at all — `report["switched"]` is empty and the
+emitted op count and warm time are those of the flat merge — so it stays a knob, off by default. When it
+is on, the merge is FORCED to the flat form (`K = 1`): `switch_ops` and banding are not combined, and the
+plan records `band_count == 1` whenever `switch_ops` is set.
+
+### 9.2 On-disk artifacts: deliberately NOT wired
+
+`artifact_cache` keys an artifact by `(name, specs, backend, device, options)` where `specs` is the
+`build_cached` spec tuple — tensor specs *plus* the static content that specializes the graph. A merged
+batch graph has NO static values (the programs live in Python closures), so the tensor specs alone would
+collide across every population of a shape and a stale artifact would serve wrong numbers
+(`signature_matches` cannot catch it: the shapes agree). The programs could be smuggled into the key as
+extra static content, but then every generation's multiset is a distinct key, i.e. no reuse at all. So
+this route builds in memory only; a process that repeats a multiset keeps it in `BATCH_EXEC_MEMO` for the
+lifetime of the process.
+
+### 9.3 Front tables: why a repeated call is cheap
+
+The tables and the memo keys they are driven by live in `batch_keys.py`.
+`BATCH_PLAN_MEMO` maps the three population identity tokens (`dense_memo.token`:
+`data_ptr`/shape/dtype/device/`_version`, so an in-place mutation is a miss by construction) plus every
+resolved plan parameter to the `BatchExecutable`: a repeated evaluation of an unchanged population does no
+re-decode, no re-trace, no re-merge, no re-key and no re-build. The `x`/`labels` conversion is **not**
+memoized — `_host_rows` (and, for the loss variant, `_host_labels`) run before the lookup on every call,
+because the key carries the converted row count and the label shape check needs the converted rows.
+`BATCH_EXEC_MEMO` keys the same executable on the ACTUAL program multiset plus the
+shape/backend/device/options, so the same programs in a fresh population object still hit. Both tables are
+dropped by `evoxc_engine.clear_cache()` (the engine's single invalidation point, which calls the
+`_clear_tables` hook registered there) and counted by
+`batch_cache_stats()` — a separate function, because `cache_stats()` (8 keys) and `dense_cache_stats()`
+are pinned by the suite.
+
+### 9.4 Reuse across populations (the re-binding contract)
+
+`BATCH_EXEC_MEMO` is keyed by the compiled body only — the merged function multiset plus the variant, the
+merge shape, the I/O shape and the backend/device/options (see `_executable_key`) — and deliberately NOT
+by the population that first built it, because one compiled merged graph really does serve every
+population with that same function multiset: the function axis IS the graph's leading axis, so which
+population row maps to which function is the caller's business, not the graph's. That makes the population
+size, the row mapping and the staged inputs *per-call* data, so an executable hit is **re-bound**: the
+returned `BatchExecutable` pairs the memoized `executable` (and the `backend` / `device` it was built for)
+with the plan the CURRENT call built (or hit in `BATCH_PLAN_MEMO`), never with the first population's
+`pop_size`, `row_index`, `function_rows` or `programs`.
+
+The rebinding is structural, not incidental: `build_batch` is the ONLY reader of `BATCH_EXEC_MEMO` and it
+always constructs a fresh `BatchExecutable` around the caller's plan, so every per-population field on the
+running path (`_inputs` staging, `_map_rows` row expansion, the `(pop_size, ...)` / `(pop_size,)` output
+shapes and the `pop_size` row check) is read from that plan. `_check_executable_matches` is the cheap
+safety net for the one thing the key cannot re-derive: the compiled body's recorded tensor specs (merged
+function count, rows, input width, outputs) must fit the caller's plan, and a mismatch is a
+`BatchUnsupported` decline — never a silently wrong row mapping.
+
+No variant is excluded from that reuse: `per_row=True` puts the function count in the merged INPUT spec's
+leading dimension and `per_row=False` puts it in the OUTPUT spec's, but both are part of the key, so a hit
+is reusable in both layouts (and the invariant check above verifies exactly those dimensions).
+
+### 9.5 Who to blame for what (reuse, never re-implement)
+
+Decoding, validation, constant folding and op emission are the frozen engine's:
+`evoxc_engine.decode_population` gives the per-tree static programs and
+`evoxc_engine._walk_tokens` is the emitter *and* the multi-output protocol. A per-function graph is traced
+through a Python closure over its static program — never with the program as a traced static arg, which
+would make `graph.static_values` differ per tree and make `batch_functions` raise `TraceError`.
+
 ## 10. Pointers
 
-* `batch_engine.py` (public facade) / `batch_programs.py` / `batch_knobs.py` — the implementation; the
-  facade's module docstring carries the API, the decline list and the pointer to this document.
+* `batch_engine.py` (public facade) / `batch_keys.py` (front tables + memo keys) / `batch_run.py` (run
+  path) / `batch_programs.py` / `batch_chunks.py` / `batch_stages.py` / `batch_knobs.py` — the
+  implementation; the facade's module docstring carries the API, the decline list, the chunked-compile
+  contract and the pointer to this document, and §9's table says which module owns what.
 * `DENSE_EVAL.md` — the sibling route's design document (same role: scheme, knobs, economics, fallback).
 * `CONTEXT.md` (this directory) — where the three engines sit in the package and the route policy.
 * `ENGINE_SPEC.md` — semantics of record (op table, evaluation order, SR fitness); the batch route
