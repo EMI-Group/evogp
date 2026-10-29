@@ -44,6 +44,20 @@ those blocks say ``available: false`` with EVERY counter ``null`` and a note -- 
 ``0``.  ``stage_ms.plan`` carries ``describe_plan``'s ``compile_workers``/``chunk_count``/
 ``chunk_sizes`` (null when the report predates them).
 
+Where the reuse went: the content-table blocks
+----------------------------------------------
+From ``content.py`` (the single owner of the content-addressed plan-key vocabulary --
+``batch_content_hits`` / ``_misses`` / ``_rejects`` / ``_entries`` / ``_maxsize``):
+``first_call.content`` / ``sr_fitness.content`` / ``generations[i].content`` are before -> after
+windows with their derived ``attempts`` (hits + misses) and ``hit_rate``, and ``summary.content``
+adds the ``generations`` outcome counts (``with_content_hit`` / ``with_content_miss`` /
+``no_attempt`` / ``unknown``).  These price the SECOND reuse surface: an unchanged ``Forest`` object
+hits the identity tables and leaves the content table untouched (``attempts`` 0), so only a
+REBUILT-but-equal population can produce a content hit.  Per generation, ``batch_plan_misses`` now
+sits next to ``batch_compile_misses``: the plan table re-decodes/re-traces/re-merges, it never
+recompiles.  Getattr-probed like the stage split: no ``batch_content_stats()`` means
+``available: false`` with every counter ``null`` (never ``0``) plus a note.
+
 Sweeping a knob without a new arm: ``--knob NAME=VALUE``
 -------------------------------------------------------
 ``--knob`` (repeatable) overrides one route knob the harness owns (``common.ROUTE_ENV_VARS``) AFTER
@@ -114,6 +128,7 @@ if _HERE not in sys.path:
 
 import common  # noqa: E402  (stdlib-only at import time)
 import stages  # noqa: E402  (torch-free, evogp-free: the stage vocabulary + derived blocks)
+import content  # noqa: E402  (torch-free, evogp-free: the content-key vocabulary + derived blocks)
 from cold_start import install_tree_root  # noqa: E402  (the one tree-switch helper)
 
 #: The three "large" cells the question is about: pop 256 / 1000 on the two built-in widths, where a
@@ -669,12 +684,21 @@ def run_child(args: argparse.Namespace) -> int:
     stage_stats = stages.stage_stats_fn(batch_module) if is_batch else None
     stage_reset = stages.stage_reset_fn(batch_module) if is_batch else None
 
+    # The content-addressed plan-key table is a THIRD optional contract on the same module
+    # (``batch_content_stats``), resolved once here so every block below reads the same accessor.
+    # A tree without it records ``available: false`` + null counters (content.py), never a 0.
+    content_stats = content.stats_fn(batch_module) if is_batch else None
+
     def batch_snapshot() -> Optional[Dict[str, Any]]:
         return batch_stats() if batch_stats is not None else None
 
     def stage_snapshot() -> Optional[Dict[str, Any]]:
         """One stage snapshot (``None`` when the route exposes no ``batch_stage_stats``)."""
         return stage_stats() if stage_stats is not None else None
+
+    def content_snapshot() -> Optional[Dict[str, Any]]:
+        """One content snapshot (``None`` when the route exposes no ``batch_content_stats``)."""
+        return content_stats() if content_stats is not None else None
 
     def misses(before: Any, after: Any) -> Optional[int]:
         # worker.py already owns the tolerant counter delta: an absent/renamed key reads as unknown
@@ -696,6 +720,7 @@ def run_child(args: argparse.Namespace) -> int:
     # (b) the cold first call: the merged-graph (batch) or dense-graph compile
     evoxc_before, batch_before = evoxc_engine.cache_stats(), batch_snapshot()
     stage_before = stage_snapshot()
+    content_before = content_snapshot()
     torch.cuda.synchronize()
     started = time.perf_counter()
     loss = arm_obj.sr_fitness()
@@ -703,6 +728,7 @@ def run_child(args: argparse.Namespace) -> int:
     first_call_ms = (time.perf_counter() - started) * 1e3
     evoxc_after, batch_after = evoxc_engine.cache_stats(), batch_snapshot()
     stage_after = stage_snapshot()
+    content_after = content_snapshot()
     first_call: Dict[str, Any] = {
         "first_call_ms": round(first_call_ms, 4),
         "evoxc_cache": {"before": evoxc_before, "after": evoxc_after,
@@ -722,6 +748,10 @@ def run_child(args: argparse.Namespace) -> int:
         first_call["stage_ms"] = stages.delta_block(stage_before, stage_after)
         first_call["stage_ms"]["plan"] = stages.plan_block(
             worker_mod.batch_plan_facts(batch_module))
+        # The plan-key REUSE surface over the cold call: did the content table serve an already
+        # merged plan, or was this population merged from scratch?  Null (never 0) when the route
+        # ships no ``batch_content_stats()``.
+        first_call["content"] = content.window_block(content_before, content_after)
 
     # (c) warm medians on the same population (the compile is already paid).  The batch probe
     # snapshots the merged-graph cache the instant time_call's untimed call returns -- the same
@@ -734,11 +764,13 @@ def run_child(args: argparse.Namespace) -> int:
                                           stage_stats, stage_reset)
                    if is_batch else None)
     warm_before, batch_warm_before = evoxc_engine.cache_stats(), batch_snapshot()
+    content_warm_before = content_snapshot()
     timing = common.time_call(
         stage_probe if stage_probe is not None else (probe if probe is not None
                                                      else arm_obj.sr_fitness),
         warmup=args.warmup, reps=args.reps, stats=evoxc_engine.cache_stats)
     warm_after = evoxc_engine.cache_stats()
+    content_warm_after = content_snapshot()
     warm_result = timing.pop("_out")
     warm_after_first = timing.pop("cache_after_first_call")
     sr_fitness: Dict[str, Any] = {
@@ -775,6 +807,9 @@ def run_child(args: argparse.Namespace) -> int:
                                                 if stage_probe is not None else None)
         sr_fitness["stage_ms"]["plan"] = stages.plan_block(
             worker_mod.batch_plan_facts(batch_module))
+        # the same before -> after span as the warm cache deltas above: what the warm calls asked
+        # the plan-key table for, and how often it answered from content instead of re-merging
+        sr_fitness["content"] = content.window_block(content_warm_before, content_warm_after)
     warm_median_ms = sr_fitness["median_ms"]
 
     # (d) consecutive real generations: the merged-graph cache's measured hit rate
@@ -790,6 +825,7 @@ def run_child(args: argparse.Namespace) -> int:
         seen_before = signature["signature"] in compiled_signatures
         evoxc_gen_before, batch_gen_before = evoxc_engine.cache_stats(), batch_snapshot()
         stage_gen_before = stage_snapshot()
+        content_gen_before = content_snapshot()
         torch.cuda.synchronize()
         started = time.perf_counter()
         pipeline.step()
@@ -797,6 +833,7 @@ def run_child(args: argparse.Namespace) -> int:
         total_ms = (time.perf_counter() - started) * 1e3
         evoxc_gen_after, batch_gen_after = evoxc_engine.cache_stats(), batch_snapshot()
         stage_gen_after = stage_snapshot()
+        content_gen_after = content_snapshot()
         entry: Dict[str, Any] = {
             "g": index, "population_signature": signature["signature"],
             "distinct_structures": signature["distinct_structures"],
@@ -809,12 +846,20 @@ def run_child(args: argparse.Namespace) -> int:
         if is_batch:
             entry["batch_compile_misses"] = batch_misses(batch_gen_before, batch_gen_after)
             route_misses.append(entry["batch_compile_misses"])
+            # the PLAN table's misses for this generation: a re-decode/re-trace/re-merge, never a
+            # recompile -- recorded next to the exec table's misses instead of only in total
+            entry["batch_plan_misses"] = worker_mod.batch_plan_miss_delta(
+                batch_gen_before, batch_gen_after)
             # this generation's stage deltas, including batch_compile_wall_ms / batch_compile_jobs
             entry["stage_ms"] = stages.delta_block(stage_gen_before, stage_gen_after)
+            # and this generation's plan-key reuse: hit (an already merged plan served), miss
+            # (consulted, re-merged) or no_attempt (the identity fast path answered)
+            entry["content"] = content.window_block(content_gen_before, content_gen_after)
         entry["compile_hit"] = compile_hit(route_misses)
         compiled_signatures.add(signature["signature"])
         generations.append(entry)
     batch_final = batch_snapshot()
+    content_final = content_snapshot()
 
     # (e) the derived block, computed only from the recorded rows
     merged_cache = None
@@ -831,13 +876,18 @@ def run_child(args: argparse.Namespace) -> int:
                            "'batch_plan_misses' is a re-decode/re-merge, not a recompile",
                 "stats_keys": worker_mod.stats_keys(batch_before, batch_after, batch_final),
                 "note": "counters are null (NOT zero) when the route exposes no stats callable: a "
-                        "missing counter must never read as 'no compile'",
+                        "missing counter must never read as 'no compile'; the plan table's misses "
+                        "are now recorded per generation as generations[i].batch_plan_misses (a "
+                        "re-decode/re-trace/re-merge, never a recompile)",
             },
             "stats_before_first_call": batch_before, "stats_after_first_call": batch_after,
             "stats_after_generations": batch_final,
             "compile_misses_first_call": batch_misses(batch_before, batch_after),
             "compile_misses_generations": batch_misses(batch_after, batch_final),
             "compile_misses_total": batch_misses(batch_before, batch_final),
+            # the PLAN table's misses over the generation loop: the same span as
+            # compile_misses_generations, off the table whose miss re-merges instead of recompiling
+            "plan_misses_generations": worker_mod.batch_plan_miss_delta(batch_after, batch_final),
         }
     summary = generation_summary(generations, first_call_ms, warm_median_ms,
                                  merged_graph_cache=merged_cache)
@@ -846,6 +896,9 @@ def run_child(args: argparse.Namespace) -> int:
         # only (stages.summary_block never asserts a number it was not given).
         summary.update(stages.summary_block(first_call.get("stage_ms"),
                                             sr_fitness.get("stage_ms"), generations))
+        # The content table over the WHOLE measurement (cold call + warm calls + the loop) plus how
+        # many recorded generations had a plan-key decision to make at all (content.row_state).
+        summary["content"] = content.summary_block(content_before, content_final, generations)
 
     # (f) the record
     record: Dict[str, Any] = {
@@ -896,6 +949,20 @@ def run_child(args: argparse.Namespace) -> int:
                 f"batch route: {stages.MODULE_NAME}.{stages.RESET_FN_NAME}() is unavailable, so each "
                 "stage block is cumulative rather than per-call; a max is then only a "
                 "process-lifetime maximum")
+        if content_stats is None:
+            record["notes"].append(
+                f"batch route: {content.STATS_FN_PATH}() is unavailable on this tree, so every "
+                "content counter is null (NOT zero) with available=false: plan-key reuse from a "
+                "rebuilt-but-equal population was not measured, which is not the same as it never "
+                "happening -- read first_call_ms / generations[i].batch_compile_misses instead")
+        else:
+            record["notes"].append(
+                "batch route: the content blocks (first_call / sr_fitness / generations[i] / "
+                "summary) price the plan-key REUSE surface, not the compile itself: an unchanged "
+                "Forest object hits the identity table and leaves the content table untouched "
+                "(attempts 0), so only a REBUILT-but-equal population can produce a content hit, "
+                "and a content hit means the merge was served instead of re-decoded/re-traced/"
+                "re-merged")
     else:
         record["notes"].append(
             "dense route (comparison column): no merged-graph cache exists, so batch_* counters are "

@@ -30,6 +30,13 @@ protocol cannot slip into a table.  It verifies:
   a consistency check on what the record claims, never a bound on the numbers (which
   are the measurement's business), and it stays silent for every record that carries
   no stage keys -- every frozen record, and every torch/dense/specialized arm;
+* the batch route's content-table blocks (``content.py``: ``first_call.content``,
+  ``sr_fitness.content``, ``generations[i].content``, ``summary.content`` and
+  ``batch_cache.content_totals``) are self-consistent in the same way: an
+  ``available: true`` block whose five ``batch_content_*`` counters are all null, or an
+  ``available: false`` block whose counters carry numbers, is a ``WARN``.  Also an
+  optional surface (null, never zero), so it too stays silent for a record with no
+  content keys and never fails a gate;
 * digest agreement: all arms of one cell share one ``batch_forward`` and one
   ``forward`` sha256, and every workload's ``nan``/``finite`` counts agree across
   arms (``--allow-digest-mismatch`` downgrades the sha256 half to a warning);
@@ -82,6 +89,7 @@ if _HERE not in sys.path:
 
 import common  # noqa: E402
 import stages  # noqa: E402
+import content  # noqa: E402
 
 #: frozen record schema (``common.SCHEMA``; spelled out so a schema edit here is a
 #: deliberate act rather than a silent follow)
@@ -102,6 +110,10 @@ BATCH_EXEC_MISS_KEY = common.BATCH_EXEC_MISS_KEY
 #: spelled out twice.
 STAGE_COUNTER_KEYS = stages.COUNTER_KEYS
 COMPILE_SHARE_KEYS = ("share", "compile_ms", "loop_ms")
+#: ``content.py`` owns the content-addressed plan-key vocabulary (``batch_content_hits`` /
+#: ``_misses`` / ``_rejects`` / ``_entries`` / ``_maxsize``); the walker below reads the names off
+#: it so a block is recognized by the counters it carries, never by the path it sits at.
+CONTENT_COUNTER_KEYS = content.COUNTER_KEYS
 
 
 class Checker:
@@ -462,6 +474,52 @@ def check_stages(checker: Checker, card: str, record: Dict[str, Any]) -> None:
                          "declares no split while its counters measured one")
 
 
+def content_blocks(record: Dict[str, Any]):
+    """Every content-table block a record carries: ``(path, block)``, ``content.py``'s shape.
+
+    A content block is an ``available`` flag plus at least one ``batch_content_*`` counter --
+    ``batch_cache.content_totals``, ``gp_step`` rows that carry one, ``first_call.content``,
+    ``sr_fitness.content``, ``generations[i].content`` and ``summary.content`` (which also
+    carries its ``generations`` outcome counts).  A record carrying none -- every frozen
+    record, and every torch/dense/specialized arm, which record no content keys at all --
+    yields nothing, which is what keeps :func:`check_content` silent there.
+    """
+    for path, block in iter_dicts(record):
+        if "available" in block and any(key in block for key in CONTENT_COUNTER_KEYS):
+            yield path, block
+
+
+def check_content(checker: Checker, card: str, record: Dict[str, Any]) -> None:
+    """Self-consistency of a batch record's content-table blocks (``content.py``); WARN only.
+
+    Modelled on :func:`check_stages`: the content-addressed plan-key table is an OPTIONAL third
+    counter contract, so a tree without ``batch_content_stats()`` legitimately records
+    ``available: false`` with every counter null -- that is never a failure, and a block's
+    magnitudes (a hit rate of 0 is a measurement) are the record's business.  What is checked
+    is that a block does not contradict itself:
+
+    * ``available: true`` while every content counter is null -- "measured" and "nothing
+      measured" in one block (null, NOT zero: it should read ``available: false`` + a note);
+    * ``available: false`` while counters carry numbers -- a measurement the block declares
+      it does not have.
+
+    Deliberately no ``checker.check`` call: the gate's check count must stay exactly what it
+    was for a directory of frozen records, which carry no content keys at all.
+    """
+    for path, block in content_blocks(record):
+        where = f"{card}.{path}" if path else card
+        available = block.get("available")
+        numbers = [key for key in CONTENT_COUNTER_KEYS if is_number(block.get(key))]
+        if available is True and not numbers:
+            checker.warn(f"{where}: available is true but every content counter is null "
+                         f"— the block claims a measured plan-key table it does not carry "
+                         "(null, NOT zero: it should read available: false with a note)")
+        elif available is False and numbers:
+            checker.warn(f"{where}: available is false but {len(numbers)} content "
+                         f"counter(s) carry numbers ({sorted(numbers)[:3]}...) — the block "
+                         "declares no content table while its counters measured one")
+
+
 def check_gp_step(checker: Checker, card: str, record: Dict[str, Any]) -> None:
     block = record.get("gp_step")
     protocol = record.get("protocol") or {}
@@ -631,6 +689,7 @@ def gate_dir(results_dir: str, args) -> Tuple[Checker, Dict[str, Any]]:
         if common.is_batch_arm(arm):
             check_batch(checker, card, record)
             check_stages(checker, card, record)
+            check_content(checker, card, record)
         check_gp_step(checker, card, record)
 
     # -- cross-arm agreement and guard honesty -------------------------------

@@ -39,6 +39,16 @@ measured" must never look alike.  ``batch_plan_summary`` also keeps
 when the report predates them): the compiled-graph pool width and how the merge was
 split for it.
 
+The content-addressed plan-key table (``content.py``: ``batch_content_hits`` /
+``_misses`` / ``_rejects`` / ``_entries`` / ``_maxsize``) is a THIRD optional contract
+on the same module: ``batch_cache.content_before_workloads`` / ``content_after`` /
+``content_keys`` / ``content_totals`` window exactly the span the stage split does, and
+they price the surface a REBUILT-but-equal population hits (an unchanged ``Forest``
+object hits the identity tables and leaves the content table untouched).  It is
+getattr-probed the same way: a tree without ``batch_engine.batch_content_stats()``
+records ``content_totals`` with ``available: false`` and EVERY counter ``null`` plus a
+note -- never a fabricated ``0``.
+
 Two keys answer a question a timing alone cannot. ``batch_plans`` /
 ``batch_plan_summary`` (batch arms) are what the route actually merged -- the row
 dedupe, the band shape and the emitted op count, read off ``BATCH_PLAN_MEMO`` via
@@ -71,6 +81,7 @@ if _HERE not in sys.path:
 import common  # noqa: E402
 import arms as arms_mod  # noqa: E402
 import stages  # noqa: E402  (torch-free, evogp-free: the stage vocabulary + derived blocks)
+import content  # noqa: E402  (torch-free, evogp-free: the content-key vocabulary + derived blocks)
 
 
 class TimedFitness:
@@ -495,6 +506,7 @@ def main() -> int:
     batch_engine_module = None
     stage_stats = None
     stage_reset = None
+    content_stats = None
     if is_batch:
         try:
             from evogp.tree import batch_engine as _batch_engine_probe
@@ -508,6 +520,9 @@ def main() -> int:
         # (getattr-probed, ``None`` when absent) so every block below reads the same accessors
         stage_stats = stages.stage_stats_fn(_batch_engine_probe)
         stage_reset = stages.stage_reset_fn(_batch_engine_probe)
+        # the content-addressed plan-key table is a THIRD optional contract on the same module:
+        # a rebuilt-but-equal population's reuse surface, resolved the same getattr-probed way
+        content_stats = content.stats_fn(_batch_engine_probe)
 
     import torch
     from evogp.tree import dense_engine, evoxc_engine
@@ -557,6 +572,8 @@ def main() -> int:
         # the stage window opens here, i.e. before ``make_arm`` and before the first workload:
         # exactly where ``stats_before_workloads`` is taken, so the two windows are the same span
         stage_before_workloads = stage_stats() if stage_stats is not None else None
+        # the content window opens at exactly the same point, so it spans the same span
+        content_before_workloads = content_stats() if content_stats is not None else None
         record["batch_cache"] = {
             "available": batch_stats is not None,
             "stats_before_workloads": batch_stats() if batch_stats is not None else None,
@@ -572,6 +589,12 @@ def main() -> int:
             "stage_after": None,
             "stage_keys": [],
             "stage_totals": None,
+            # the content-addressed plan-key table (``content.py``): a third optional counter
+            # contract -- the reuse surface a REBUILT-but-equal population hits
+            "content_before_workloads": content_before_workloads,
+            "content_after": None,
+            "content_keys": [],
+            "content_totals": None,
         }
         record["notes"].append(
             "batch arm: one merged graph per population structure multiset, so a "
@@ -597,6 +620,14 @@ def main() -> int:
                 "stage counters are cumulative from process start: every block here is a "
                 "before -> after DELTA (never a per-call block), and batch_<stage>_max_ms is a "
                 "process-lifetime maximum"
+            )
+        if content_stats is None:
+            record["notes"].append(
+                f"batch arm: {content.STATS_FN_PATH}() is unavailable on this tree, so every "
+                "content counter in batch_cache.content_totals is null (NOT zero) with "
+                "available=false: plan-key reuse from a rebuilt-but-equal population was not "
+                "measured, which is not the same as it never happening -- the reuse surface this "
+                "record can show is the identity tables' (batch_exec_misses / batch_plan_misses)"
             )
 
     # -- what the policy resolves for this cell (per workload row count) -----
@@ -782,6 +813,17 @@ def main() -> int:
             stages.unavailable_block()
             if stage_stats is None
             else stage_window_block(record["batch_cache"]["stage_before_workloads"], stage_after)
+        )
+        # -- the same window for the content-addressed plan-key table -------------
+        # ``content.window_block`` never fabricates a 0: an absent accessor (or a half-read
+        # window) yields the ``available: false`` block with every counter null plus a note.
+        content_after = content_stats() if content_stats is not None else None
+        record["batch_cache"]["content_after"] = content_after
+        record["batch_cache"]["content_keys"] = stats_keys(
+            record["batch_cache"]["content_before_workloads"], content_after
+        )
+        record["batch_cache"]["content_totals"] = content.window_block(
+            record["batch_cache"]["content_before_workloads"], content_after
         )
         # what the route actually MERGED, read off the plan memo (compile-free): the
         # row dedupe and the band shape are what a long-tree population pays its

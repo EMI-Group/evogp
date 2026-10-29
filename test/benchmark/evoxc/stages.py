@@ -54,6 +54,20 @@ ABSENT_NOTE = (
     f"the batch route exposes no {STATS_FN_PATH}(), so every stage counter is null (NOT zero): the "
     "split was not measured, which is not the same as costing nothing"
 )
+#: ``compile_share`` divides two things of DIFFERENT kinds, and a reader must not have to
+#: infer that from prose: the numerator is a SUM of per-chunk stage timers that the
+#: compiled-graph pool runs concurrently, the denominator is the loop's wall clock.
+NUMERATOR_KIND = "parallel-stage-counter-sum"
+DENOMINATOR_KIND = "loop-wall-ms"
+#: Why a share can exceed 1 without anything being wrong (machine-readable as ``share_gt_one``).
+OVER_ONE_NOTE = (
+    "share > 1: numerator_kind is "
+    f"{NUMERATOR_KIND!r} -- the numerator SUMS the compile stage's PER-CHUNK timers, and the "
+    "compiled-graph pool (EVOGP_BATCH_COMPILE_WORKERS, the width stage_ms.plan.compile_workers "
+    "reports) runs those chunks CONCURRENTLY, so this is a concurrency-weighted stage-counter ratio "
+    f"against denominator_kind {DENOMINATOR_KIND!r} -- NOT wall-clock attribution; the pool width, "
+    "not an accounting error, explains the excess"
+)
 WINDOW_NOTE = (
     "stage window unavailable: both the before and the after snapshot must be dicts carrying "
     "batch_<stage>_* counters -- a half-read window is null (NOT a partial delta)"
@@ -311,11 +325,17 @@ def compile_share(generations: Sequence[Any]) -> Dict[str, Any]:
     Every number comes off already-recorded rows.  Rows whose compile state cannot be judged land in
     ``generations_unknown`` instead of being assumed clean, and a loop with an unreadable row reports
     ``None`` rather than a share over a partial total.
+
+    The block also STATES what the share divides (``numerator_kind`` / ``denominator_kind``) and
+    whether it exceeded 1 (``share_gt_one``, ``None`` when there is no share to judge): the numerator
+    sums PER-CHUNK stage timers that the compiled-graph pool runs concurrently, so a share above 1 is
+    a concurrency-weighted stage-counter ratio, not wall-clock attribution -- and the note says so.
     """
     rows = [row for row in generations if isinstance(row, dict)]
     block: Dict[str, Any] = {
         "available": False, "note": None, "share": None, "compile_ms": None, "loop_ms": None,
         "generations": len(rows), "generations_with_compile": None, "generations_unknown": None,
+        "share_gt_one": None, "numerator_kind": NUMERATOR_KIND, "denominator_kind": DENOMINATOR_KIND,
     }
     if not rows:
         block["note"] = "no generation row was recorded, so the compile share cannot be told"
@@ -342,20 +362,27 @@ def compile_share(generations: Sequence[Any]) -> Dict[str, Any]:
         compile_ms += value
         compiled += 1
     loop_ms = float(sum(wall))
+    share = _rounded(compile_ms / loop_ms) if loop_ms > 0 else None
     block.update({
         "available": True, "compile_ms": _rounded(compile_ms), "loop_ms": _rounded(loop_ms),
         "generations_with_compile": compiled, "generations_unknown": unknown,
-        "share": _rounded(compile_ms / loop_ms) if loop_ms > 0 else None,
+        "share": share,
+        "share_gt_one": None if share is None else bool(share > 1),
     })
     if unknown and not compiled:
         # No row says a generation compiled, but none can say it did not either: a 0.0 here would
         # read as "the loop never compiled", which is exactly what we cannot claim.
         block["share"] = None
+        block["share_gt_one"] = None
         block["note"] = (f"none of the {len(rows)} generation rows can tell whether it compiled, so "
                          "the compile share is null (NOT zero)")
     elif unknown:
         block["note"] = (f"{unknown} of {len(rows)} generation rows carry no compile counter, so the "
                          "share is computed from the rows that can tell")
+    if block["share_gt_one"] is True:
+        # The unknown-rows note above still comes first (it is about WHICH rows the share covers);
+        # this one states what the ratio divides, so nobody reads > 1 as wall-clock attribution.
+        block["note"] = f"{block['note']} {OVER_ONE_NOTE}" if block["note"] else OVER_ONE_NOTE
     return block
 
 
