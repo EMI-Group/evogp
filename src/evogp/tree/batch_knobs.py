@@ -1,18 +1,23 @@
 """The batch route's knob vocabulary, variant rules and decline type.
 
-One of the three modules the opt-in batch evaluation route lives in:
+One of the four modules the opt-in batch evaluation route lives in:
 
 * **this module** -- the ``EVOGP_BATCH_*`` constants, the ``resolve_*`` helpers
   that read them per call, the ``value`` / ``loss`` variant spellings with
   :func:`_normalize_variant`, and :class:`BatchUnsupported`.
 * :mod:`evogp.tree.batch_programs` -- host-side program handling: the input /
   label conversions, the per-function graph bodies, the structural dedup, the
-  trace and the merge, plus the :class:`BatchPlan` / :class:`BatchExecutable`
-  records.
+  trace and the merge, the plan digest, plus the :class:`BatchPlan` /
+  :class:`BatchChunk` / :class:`BatchExecutable` records.
+* :mod:`evogp.tree.batch_chunks` -- the compile-side chunk orchestration (the
+  partition arithmetic and the ``lower`` / ``compile`` / ``load`` pool).
 * :mod:`evogp.tree.batch_engine` -- the PUBLIC facade (import that one, not the
-  two siblings): the two front tables, :func:`plan_batch` / :func:`build_batch` /
-  :func:`evaluate_batch` / :func:`sr_fitness_batch` / :func:`describe_plan` and
-  :func:`batch_cache_stats`, which re-exports everything defined here.
+  two siblings): the three front tables, :func:`plan_batch` / :func:`build_batch` /
+  :func:`evaluate_batch` / :func:`sr_fitness_batch` / :func:`describe_plan`,
+  :func:`batch_cache_stats` / :func:`batch_content_stats` and the stage reporting,
+  which re-exports everything defined here.
+* :mod:`evogp.tree.batch_stages` -- the per-stage timer surface the facade's
+  ``batch_stage_stats()`` reports from.
 
 This module imports nothing but :func:`evogp.tree.evoxc_engine._env_int` (no
 ``evoxc``, no torch, no graph work), so it stays importable on its own and both
@@ -78,6 +83,23 @@ DEFAULT_MIN_POP = 64
 #: and a training loop presents a new population every generation.
 CACHE_SIZE_ENV = "EVOGP_BATCH_CACHE_SIZE"
 DEFAULT_CACHE_SIZE = 8
+#: Compile workers (``EVOGP_BATCH_COMPILE_WORKERS``): how many contiguous chunks the
+#: deduped function list is split into, whose ``lower`` / ``compile`` / ``load``
+#: bodies are then staged in a thread pool.  ``1`` (and ``0``, its alias) is the
+#: original single-executable plan verbatim -- one merged graph, one executable.
+#: 4 is deliberately modest: each live chunk holds its own device executable, and
+#: an iree session leaks device buffers per live executable (see ``BATCH_EVAL.md``
+#: "Memory, threads and iree fragility"), so the knob is a compile-wall lever for
+#: large populations, not something to raise by default.
+COMPILE_WORKERS_ENV = "EVOGP_BATCH_COMPILE_WORKERS"
+DEFAULT_COMPILE_WORKERS = 4
+#: Smallest chunk worth a separate compile (``MIN_CHUNK_FUNCTIONS``): below it the
+#: per-body fixed cost (one lower + one iree compile + one load) dominates, so a
+#: chunked plan is only taken when ``n_functions >= MIN_CHUNK_FUNCTIONS`` and every
+#: chunk keeps at least that many functions (``workers <= n // MIN_CHUNK_FUNCTIONS``).
+#: Read through the MODULE object by :mod:`evogp.tree.batch_programs` so a test can
+#: lower it to force chunking on a tiny fixture.
+MIN_CHUNK_FUNCTIONS = 32
 #: The two plan/graph variants: the value graph (``(pop, N, out_len)``) and the
 #: SR-loss graph (one scalar per function, reduced IN-GRAPH).
 VALUE_VARIANT = "value"
@@ -201,6 +223,56 @@ def resolve_alignment(value: Optional[str] = None) -> str:
 def resolve_min_pop(value: Optional[int] = None) -> int:
     """Resolve the population threshold ``EVOGP_BATCH_MIN_POP`` (argument wins)."""
     return _resolve_int(value, MIN_POP_ENV, DEFAULT_MIN_POP, 1)
+
+
+def resolve_compile_workers(value: Optional[int] = None) -> int:
+    """Resolve ``EVOGP_BATCH_COMPILE_WORKERS`` (explicit argument wins).
+
+    ``0`` and ``1`` both mean "today's single-executable path verbatim": the
+    deduped function list is merged into ONE graph and built as one body, so the
+    plan's whole-graph fields (``graphs`` / ``merged`` / ``specs`` / ``report`` and
+    ``executable``) keep their original meaning.  ``W > 1`` asks for ``W``
+    contiguous chunks, subject to the forcing rules in
+    :func:`evogp.tree.batch_programs._plan_host` -- a chunked plan also requires
+    ``n_functions >= MIN_CHUNK_FUNCTIONS`` and is refused whenever an explicit band
+    count or ``switch_ops`` is in play (those knobs must keep their documented
+    per-plan meaning, and the band sweep runs on the single-body path).
+
+    Anything negative or non-integer raises ``ValueError`` naming the variable.
+    """
+    if value is None:
+        raw = os.environ.get(COMPILE_WORKERS_ENV, "").strip()
+        if not raw:
+            return DEFAULT_COMPILE_WORKERS
+        try:
+            resolved = int(raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"unsupported {COMPILE_WORKERS_ENV}={raw!r}: expected a "
+                f"non-negative integer (0 and 1 both mean the single-executable "
+                f"path, default {DEFAULT_COMPILE_WORKERS})"
+            ) from exc
+    else:
+        if isinstance(value, bool):
+            raise ValueError(
+                f"unsupported {COMPILE_WORKERS_ENV}={value!r}: expected a "
+                f"non-negative integer, not a bool"
+            )
+        if isinstance(value, float) and not value.is_integer():
+            raise ValueError(
+                f"unsupported {COMPILE_WORKERS_ENV}={value!r}: expected a "
+                f"non-negative integer"
+            )
+        try:
+            resolved = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"unsupported {COMPILE_WORKERS_ENV}={value!r}: expected a "
+                f"non-negative integer"
+            ) from exc
+    if resolved < 0:
+        raise ValueError(f"{COMPILE_WORKERS_ENV}={resolved} must be >= 0")
+    return resolved
 
 
 def resolve_band_count(
