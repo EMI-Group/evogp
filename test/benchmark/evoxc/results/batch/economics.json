@@ -1,0 +1,111 @@
+{
+ "schema": "evogp-bench-evoxc-v1-batch-economics",
+ "created_utc": "2026-10-29T07:40:08Z",
+ "measurement": "batch-compile-economics",
+ "driver_env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-29T07:40:15Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A28/src",
+  "tree_root_sha": "94e9e7a00382e5bbfbe2428b2556d33f29b00222",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A28",
+  "arm": "driver",
+  "python": "3.14.8",
+  "python_executable": "/tmp/genesis/task_a996674198ffbcee/evogp-venv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "2b289f034f6f8e16b6c9b55932dfed76cc54690e",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A28/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "note": null,
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A28/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A28/test/benchmark/evoxc"
+ },
+ "protocol": {
+  "one_process_per_config": true,
+  "one_cell_per_process": true,
+  "sequential": true,
+  "cells": [
+   "p1000-L32-i8-N1024",
+   "p1000-L64-i32-N1024"
+  ],
+  "routes": [
+   "batch",
+   "dense"
+  ],
+  "route_arms": {
+   "batch": "evoxc-batch-iree",
+   "dense": "evoxc-dense-iree"
+  },
+  "generations": 4,
+  "warmup": 2,
+  "reps": 5,
+  "seed": 0,
+  "timeout_s": 3600,
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A28/src",
+  "src": "/root/evogp/.genesis/workers/worker_T1_A28/src",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A28/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A28/test/benchmark/evoxc",
+  "evoxc_disable_locations": {
+   "env": "EVOXC_DISABLE_LOCATIONS",
+   "value": "1",
+   "source": "caller",
+   "note": "honoured by every child: it speeds evoxc tracing up ~4x and is not part of the engine's cache key"
+  },
+  "batch_engine_present": true,
+  "out_dir": "/root/evogp/.genesis/workers/worker_T1_A28/test/benchmark/evoxc/results/batch"
+ },
+ "configs": [
+  {
+   "cell": "p1000-L32-i8-N1024",
+   "route": "batch",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 176.15,
+   "record": "test/benchmark/evoxc/results/batch/p1000-L32-i8-N1024/batch.json",
+   "log": "test/benchmark/evoxc/results/batch/p1000-L32-i8-N1024/batch.log",
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L32-i8-N1024",
+   "route": "dense",
+   "arm": "evoxc-dense-iree",
+   "status": "ok",
+   "wall_s": 12.14,
+   "record": "test/benchmark/evoxc/results/batch/p1000-L32-i8-N1024/dense.json",
+   "log": "test/benchmark/evoxc/results/batch/p1000-L32-i8-N1024/dense.log",
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "route": "batch",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 257.5,
+   "record": "test/benchmark/evoxc/results/batch/p1000-L64-i32-N1024/batch.json",
+   "log": "test/benchmark/evoxc/results/batch/p1000-L64-i32-N1024/batch.log",
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "route": "dense",
+   "arm": "evoxc-dense-iree",
+   "status": "ok",
+   "wall_s": 15.55,
+   "record": "test/benchmark/evoxc/results/batch/p1000-L64-i32-N1024/dense.json",
+   "log": "test/benchmark/evoxc/results/batch/p1000-L64-i32-N1024/dense.log",
+   "detail": ""
+  }
+ ],
+ "notes": [
+  "one child process per (cell, route): the merged-graph cache, the evoxc compile cache and the executable memo are per process, so a route loop inside one process would measure warm caches only"
+ ]
+}

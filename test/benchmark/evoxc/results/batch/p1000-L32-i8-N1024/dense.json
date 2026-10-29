@@ -1,0 +1,268 @@
+{
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-29T07:43:23Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A28/src",
+  "tree_root_sha": "94e9e7a00382e5bbfbe2428b2556d33f29b00222",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A28",
+  "arm": "evoxc-dense-iree",
+  "python": "3.14.8",
+  "python_executable": "/tmp/genesis/task_a996674198ffbcee/evogp-venv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "2b289f034f6f8e16b6c9b55932dfed76cc54690e",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A28/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOGP_EVAL_MODE": "dense",
+   "EVOGP_EVOXC_BACKEND": "iree",
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "applied_knobs": {
+   "eval_mode": "dense",
+   "backend": "iree",
+   "knobs": {}
+  },
+  "cell": {
+   "id": "p1000-L32-i8-N1024",
+   "pop": 1000,
+   "tree_len": 32,
+   "input_len": 8,
+   "rows": 1024
+  },
+  "route": "dense"
+ },
+ "cell": {
+  "id": "p1000-L32-i8-N1024",
+  "pop": 1000,
+  "tree_len": 32,
+  "input_len": 8,
+  "rows": 1024
+ },
+ "route": "dense",
+ "arm": "evoxc-dense-iree",
+ "measurement": "batch-compile-economics",
+ "protocol": {
+  "one_process_per_config": true,
+  "one_cell_per_process": true,
+  "generations": 4,
+  "warmup": 2,
+  "reps": 5,
+  "seed": 0,
+  "sync_bracketed": true,
+  "evoxc_disable_locations": "1",
+  "workload": "sr_fitness",
+  "route_is_batch": false,
+  "pipeline_warmup": false
+ },
+ "structures": {
+  "pop_size": 1000,
+  "max_tree_len": 32,
+  "tree_len_mean": 16.21,
+  "tree_len_median": 17.0,
+  "tree_len_max": 31,
+  "distinct_structures": 817,
+  "structure_signature": "6673e63d006553fc"
+ },
+ "routes": {
+  "sr_fitness": {
+   "eval_mode": "dense",
+   "backend": "iree",
+   "should_use_dense_pop_only": true,
+   "should_use_dense_with_rows": true,
+   "would_use_dense": true
+  }
+ },
+ "dense_policy": {
+  "auto_min_pop": 64,
+  "auto_max_rows": 2048
+ },
+ "first_call": {
+  "first_call_ms": 3405.6454,
+  "evoxc_cache": {
+   "before": {
+    "hits": 0,
+    "misses": 0,
+    "entries": 0,
+    "maxsize": 4096,
+    "memo_hits": 0,
+    "memo_misses": 0,
+    "memo_entries": 0,
+    "memo_maxsize": 4096
+   },
+   "after": {
+    "hits": 0,
+    "misses": 1,
+    "entries": 1,
+    "maxsize": 4096,
+    "memo_hits": 0,
+    "memo_misses": 0,
+    "memo_entries": 0,
+    "memo_maxsize": 4096
+   },
+   "compile_misses": 1
+  },
+  "digest": {
+   "shape": [
+    1000
+   ],
+   "sha256": "93799ace4dccfcb865cf4e6dd1063071",
+   "finite": 993,
+   "nan": 7,
+   "posinf": 0,
+   "neginf": 0,
+   "abs_sum": 9545314750976676.0
+  }
+ },
+ "sr_fitness": {
+  "warmup": 2,
+  "reps": 5,
+  "samples_ms": [
+   1.9229,
+   1.9204,
+   1.9063,
+   1.8771,
+   1.8823
+  ],
+  "warmup_call_ms": 2.0818,
+  "median_ms": 1.9063,
+  "min_ms": 1.8771,
+  "max_ms": 1.9229,
+  "mean_ms": 1.9018,
+  "cache": {
+   "before": {
+    "hits": 0,
+    "misses": 1,
+    "entries": 1,
+    "maxsize": 4096,
+    "memo_hits": 0,
+    "memo_misses": 0,
+    "memo_entries": 0,
+    "memo_maxsize": 4096
+   },
+   "after_first_call": {
+    "hits": 0,
+    "misses": 1,
+    "entries": 1,
+    "maxsize": 4096,
+    "memo_hits": 0,
+    "memo_misses": 0,
+    "memo_entries": 0,
+    "memo_maxsize": 4096
+   },
+   "after": {
+    "hits": 0,
+    "misses": 1,
+    "entries": 1,
+    "maxsize": 4096,
+    "memo_hits": 0,
+    "memo_misses": 0,
+    "memo_entries": 0,
+    "memo_maxsize": 4096
+   },
+   "compile_misses_first_call": 0,
+   "compile_misses_this_workload": 0
+  },
+  "digest": {
+   "shape": [
+    1000
+   ],
+   "sha256": "93799ace4dccfcb865cf4e6dd1063071",
+   "finite": 993,
+   "nan": 7,
+   "posinf": 0,
+   "neginf": 0,
+   "abs_sum": 9545314750976676.0
+  }
+ },
+ "generations": [
+  {
+   "g": 1,
+   "population_signature": "6673e63d006553fc",
+   "distinct_structures": 817,
+   "signature_seen_before": true,
+   "total_ms": 262.9293,
+   "eval_ms": 2.0124,
+   "ops_ms": 260.9169,
+   "compile_misses": 0,
+   "pop_size": 1000,
+   "best_fitness": -0.08501431345939636,
+   "compile_hit": true
+  },
+  {
+   "g": 2,
+   "population_signature": "a9c2a6b049c9805d",
+   "distinct_structures": 697,
+   "signature_seen_before": false,
+   "total_ms": 8.6742,
+   "eval_ms": 6.042,
+   "ops_ms": 2.6322,
+   "compile_misses": 0,
+   "pop_size": 1000,
+   "best_fitness": -0.08501431345939636,
+   "compile_hit": true
+  },
+  {
+   "g": 3,
+   "population_signature": "078d7625b71b52f4",
+   "distinct_structures": 447,
+   "signature_seen_before": false,
+   "total_ms": 7.3305,
+   "eval_ms": 4.8638,
+   "ops_ms": 2.4667,
+   "compile_misses": 0,
+   "pop_size": 1000,
+   "best_fitness": -0.08413252234458923,
+   "compile_hit": true
+  },
+  {
+   "g": 4,
+   "population_signature": "f738f7245d545cf4",
+   "distinct_structures": 408,
+   "signature_seen_before": false,
+   "total_ms": 7.1136,
+   "eval_ms": 4.6718,
+   "ops_ms": 2.4417,
+   "compile_misses": 0,
+   "pop_size": 1000,
+   "best_fitness": -0.08413252234458923,
+   "compile_hit": true
+  }
+ ],
+ "summary": {
+  "generations": 4,
+  "generations_with_compile": 0,
+  "generations_unknown": 0,
+  "generation_hit_rate": 1.0,
+  "distinct_population_signatures": 4,
+  "median_warm_eval_ms": 4.7678,
+  "median_cold_eval_ms": null,
+  "sum_total_ms": 286.0476,
+  "sum_eval_ms": 17.59,
+  "compile_ms_share": 0.0,
+  "first_call_ms": 3405.6454,
+  "warm_median_ms": 1.9063
+ },
+ "engine_cache_final": {
+  "hits": 0,
+  "misses": 1,
+  "entries": 1,
+  "maxsize": 4096,
+  "memo_hits": 0,
+  "memo_misses": 0,
+  "memo_entries": 0,
+  "memo_maxsize": 4096
+ },
+ "notes": [
+  "generation 1 evaluates the INITIAL population, whose graph the timed first call already compiled, so generation 1 is expected to hit; it is recorded as measured (not warmed up away) and the interesting number is generations 2..N",
+  "dense route (comparison column): no merged-graph cache exists, so batch_* counters are ABSENT rather than null; its per-generation compile misses are the evoxc engine's own and its first call is the dense-graph compile"
+ ]
+}
