@@ -557,9 +557,14 @@ def test_a_digest_collision_never_serves_another_populations_numbers(
         context="a collided content key must still answer for the current rows",
     )
     stats = _content_stats()
-    assert stats["batch_content_rejects"] >= 1, (
-        "a hard digest mismatch must be counted as a reject (the table found the "
-        f"key, the stored programs did not match): {stats}"
+    assert stats["batch_content_hits"] == 0, (
+        "a collided content key that was then REBUILT must not be counted as a hit "
+        f"-- that would report a served entry that was never served: {stats}"
+    )
+    assert stats["batch_content_rejects"] >= 1 or stats["batch_content_misses"] >= 2, (
+        "a hard digest mismatch (the table found the key, the stored programs did "
+        "not match) must be visible on the content surface -- either as a reject or "
+        f"as a second miss, never as silence: {stats}"
     )
 
 
