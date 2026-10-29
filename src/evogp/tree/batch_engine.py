@@ -83,6 +83,21 @@ pop        functions   bands  ops v/loss  plan ms             warm ms v/loss
   multiset, hence a new compile.  This route is opt-in and pays off on repeated
   evaluation of a stable or duplicate-rich population, not on a
   generation-per-step loop as-is.
+Default population threshold
+----------------------------
+:data:`DEFAULT_MIN_POP` is **64**, the measured break-even of the merged compile
+(loss variant, ``Forest.SR_fitness``, ``input_len=8``, ``N=1024``, ``L=32``,
+medians of 5 warm calls): at ``pop=4`` batch+iree costs 659 ms cold against 48 ms
+for specialized+numpy and 0.76 ms warm against 0.63 ms -- 13x more expensive cold
+and ~1.2x SLOWER warm, because one merged compile cannot amortize over four
+functions.  At ``pop=64`` the cold cost is 3.30 s against 0.18 s (specialized) /
+3.81 s (dense) but the warm call is 1.10 ms against 8.42 ms, i.e. 7.6x faster.
+So the route DECLINES below 64 by default (a single ``Tree`` / pop 1 included),
+and a caller that knows its population is stable and duplicate-rich overrides the
+threshold explicitly -- ``EVOGP_BATCH_MIN_POP`` in the environment, or
+:func:`resolve_min_pop` with a ``value`` argument -- to admit smaller populations.
+The threshold is a cost statement, not a safety floor: nothing below it is
+unsupported.
 
 Who to blame for what (reuse, never re-implement)
 -------------------------------------------------
@@ -262,8 +277,15 @@ ALIGNMENTS = ("variant", "occurrence", "auto")
 #: Population threshold (``EVOGP_BATCH_MIN_POP``): below it the merge (a compile
 #: is linear in the function count, and the whole route's win is amortizing ONE
 #: invocation) is not worth attempting, so the route declines.
+#: The default is the measured BREAK-EVEN, not a safety floor: at ``pop=4``
+#: batch+iree is 659 ms cold against 48 ms for specialized+numpy and 0.76 ms
+#: warm against 0.63 ms (1.2x SLOWER, because a merged compile cannot amortize
+#: over four functions), while from ``pop=64`` up it is 1.10 ms warm against
+#: 8.42 ms (7.6x faster) for a 3.30 s compile.  Raise ``EVOGP_BATCH_MIN_POP``
+#: (or pass ``value=`` to :func:`resolve_min_pop`) to admit smaller populations
+#: on purpose.
 MIN_POP_ENV = "EVOGP_BATCH_MIN_POP"
-DEFAULT_MIN_POP = 4
+DEFAULT_MIN_POP = 64
 #: Entries of the two front tables (``EVOGP_BATCH_CACHE_SIZE``, read at IMPORT
 #: time like ``EVOGP_EVOXC_CACHE_SIZE``).  Small on purpose: a plan entry holds
 #: the traced per-function graphs, the merged graph AND the compiled executable,
