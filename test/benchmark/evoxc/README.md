@@ -68,6 +68,7 @@ VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreemen
 | `evoxc-dense-iree` | `EVOGP_EVAL_MODE=dense` + iree (one all-ops graph per population shape) |
 | `evoxc-batch-iree` | `EVOGP_EVAL_MODE=batch` + iree (one merged graph per population structure multiset, built with `evoxc.batch_functions`; numpy is the fallback, as on the dense route) |
 | `evoxc-batch-iree-flat` | the same route with `EVOGP_BATCH_BANDS=flat`: one unbanded merge, O(N²) in the population, so the flat-vs-banded merge can be compared on real GP workloads (it is expected to lose badly at pop 1000 — that comparison is what the arm records) |
+| `evoxc-dense-iree-raised` | `EVOGP_EVAL_MODE=dense` + iree with the trace cap pinned to the **cell's** tree length (`EVOGP_DENSE_MAX_TREE_LEN={tree_len}`): identical to `evoxc-dense-iree` on a main-grid cell (L ≤ 64) and the same route with the cap raised on a long-tree cell, so dense actually serves that population instead of declining to `specialized` |
 
 Both torch arms are *implemented in this harness* (`arms_torch.py`), op semantics
 copied from the oracle: `DIV` → NaN on a zero divisor, `loose_div`/`loose_inv`
@@ -100,12 +101,32 @@ resolver > the documented default (`batch_policy.knobs_source` says which applie
 | `EVOGP_BATCH_MIN_POP` | `64` | population floor: below it one merged graph cannot amortize its build, so the route declines to `specialized` (the record's `routes.*.decline_reason` carries the sentence) |
 
 An arm spec may carry a `knobs` mapping (`{env var: value}`) beyond the two route
-selectors; `-flat` is exactly `{"EVOGP_BATCH_BANDS": "flat"}`. `arms.apply_arm_env`
-clears **every** `EVOGP_BATCH_*` first for every arm (torch arms included), so no
-value can leak from one arm's process environment into another's, and then writes
-the arm's own knobs; an unregistered arm name still raises `KeyError`. `--arms all`
-covers all nine arms and `--arms batch` selects exactly these two, in registry
-order (they are registered **last**, so no existing order or render changes).
+selectors; `-flat` is exactly `{"EVOGP_BATCH_BANDS": "flat"}` and
+`evoxc-dense-iree-raised` is exactly `{"EVOGP_DENSE_MAX_TREE_LEN": "{tree_len}"}`.
+`arms.apply_arm_env(arm, cell)` clears **every** route variable
+(`common.ROUTE_ENV_VARS`: the `EVOGP_BATCH_*` set and `EVOGP_DENSE_MAX_TREE_LEN`)
+first for every arm (torch arms included), so no value can leak from one arm's
+process environment into another's, and then writes the arm's own knobs. A knob
+value may be a per-cell template — `{tree_len}`, `{pop}`, `{input_len}`, `{rows}`
+are substituted from the cell dict (`arms.resolve_knob_value`), and a template
+without a cell raises `ValueError` naming the arm and the placeholder instead of
+exporting the literal. The record's `env.applied_knobs` carries the **resolved**
+values. An unregistered arm name still raises `KeyError`. `--arms all` covers all
+ten arms and `--arms batch` selects exactly the two batch arms, in registry order
+(the batch arms are registered last and `evoxc-dense-iree-raised` after them, so no
+existing order or render changes).
+
+The dense route's trace cap is `EVOGP_DENSE_MAX_TREE_LEN` (`dense_engine`,
+default **64**): the dense evaluator traces `L = min(cap, max_tree_len)` positions,
+and a population whose longest tree exceeds the cap raises `DenseUnsupported`,
+which is what makes the public API fall back to the per-tree `specialized` route
+(one compile per distinct structure) *silently*. `evoxc-dense-iree` therefore
+measures the fallback on a long-tree cell, `evoxc-dense-iree-raised` measures dense
+itself (cap raised to the cell's tree length), and each explicit-dense record
+states which of the two happened under `dense_route` (`supported`, `reason`,
+`max_tree_len_cap`, `tree_len_max`, `probe_ms`) with the resolved cap also echoed
+in `dense_policy.max_tree_len_cap`. `campaign.py` never forwards the variable from
+the caller's environment: it is per-arm provenance.
 
 Both arms need a tree that ships the module *and* declares `batch` in
 `dense_engine.EVAL_MODES`; where it does not, the worker's preflight fails the
@@ -126,7 +147,40 @@ Every arm is timed on the same four things, same population, same data:
 ## Grid and protocol
 
 `pop_size` ∈ {16, 64, 256, 1000} × `max_tree_len` ∈ {32, 64} × `input_len` ∈ {8, 32}
-at `N` = 1024 rows, plus an `N` = 64 column at tree_len 64 / input_len 32 — 20 cells.
+at `N` = 1024 rows, plus an `N` = 64 column at tree_len 64 / input_len 32 — 20 cells
+(`--cells main,n64`, the default).
+
+`--cells long` selects the **long-tree column** instead (`common.long_tree_cells()`,
+`max_tree_len` ∈ {128, 256} = `common.LONG_TREE_LENS`), all at `N` = 1024, built by the
+same `build_workload` recipe: six cells.
+
+| cell id | `max_tree_len` (row stride) | `max_layer_cnt` (depth cap) |
+|---|---|---|
+| `p256-L128-i32-N1024` | 128 | 5 |
+| `p256-L128-i32-N1024-d6` | 128 | 6 |
+| `p256-L128-i32-N1024-d7` | 128 | 7 |
+| `p1000-L128-i32-N1024-d7` | 128 | 7 |
+| `p256-L256-i32-N1024` | 256 | 5 |
+| `p256-L256-i32-N1024-d8` | 256 | 8 |
+
+The column has two axes, and the pair of cells per tree length separates them.
+`max_tree_len` (`tree_len`) is the row stride of the tree tensors and the length the
+dense route traces: the cap `EVOGP_DENSE_MAX_TREE_LEN` defaults to 64, so at stride
+128/256 dense declines the population and the API falls back to per-tree
+`specialized`, which is why the column is read as `evoxc-dense-iree` (the fallback)
+against `evoxc-dense-iree-raised` (dense itself) against the batch arms.
+`max_layer_cnt` (`-d<k>` in the id, 5 when absent) is what actually decides how many
+nodes the generated trees carry (a full tree is `2 ** d − 1` nodes), so it — not
+`tree_len` — governs the evaluation work: with seed 0 / pop 64 the node count is
+identical at stride 32, 64 and 128 for one depth cap and grows with the cap
+(`d=5` mean 15.8 / max 29 nodes, `d=6` mean 27.1 / max 57, `d=7` mean 35.5 / max 101,
+`d=8` mean 69.9 / max 187).
+The cap-5 cells are therefore the stock generation with only the row stride made
+long, and each `-d<k>` sibling raises the depth cap (the real node-count axis) at
+that same stride.
+Stride 128/256 and caps up to 8 are legal descriptor settings: the library's
+`MAX_STACK` = 1024 is not a constraint at these lengths, and `2 ** d − 1 ≤ tree_len`
+holds for every cell above.
 
 * Populations are generated deterministically: `torch.manual_seed(0)` +
   `Forest.random_generate(pop, GenerateDescriptor(...))` with the campaign function
@@ -243,7 +297,8 @@ EVOGP_EVOXC_ARTIFACT_DIR=$TMPDIR/evogp_training_art $PY training_run.py --arm en
 # 4. batch route round (records go to results/batch/**; nothing under results/final/** or
 #    results/baseline/** is re-rendered or rewritten by them). The full command list -- economics,
 #    the large-cell and small-cell campaigns, the banded-vs-flat comparison, the two validation
-#    sweeps, the gates and the renders -- is BATCH.md §10; the economics half is:
+#    sweeps, the gates and the renders -- is BATCH.md §10, and the long-tree round (§11) is
+#    BATCH.md §11 "Reproduce"; the economics half is:
 python3 batch_economics.py --dry-run --routes batch,dense,batch-flat
 $PY batch_economics.py --cells p256-L32-i8-N1024,p256-L64-i32-N1024,p1000-L32-i8-N1024,p1000-L64-i32-N1024 --routes batch,dense --generations 8 --warmup 2 --reps 5 --out-dir results/batch
 
@@ -379,10 +434,71 @@ Consequently the route is **dominated by the shipped `dense+iree` route at every
 dense's warm `sr_fitness`, a 10.9–12.2 s (pop 256) / 91–169 s (pop 1000) merged compile against dense's
 3.4–6.5 s, and a `gp_step` 193–2355× slower than dense (5.36 vs 3446.20 ms at p256-L32, 12.35 vs
 17524.31 ms at p1000-L64). It beats `specialized+numpy` warm by 8.7–29.6× but `auto` never selects it.
-Its one win is a **fixed** population of ~64 trees over few data rows — p64-L64-i32-N64: 0.979 ms vs
-dense's 1.410 ms, cold 2.17 s vs 6.18 s — a per-call win that a generation loop still loses.
+Its one win on this grid is a **fixed** population of ~64 trees over few data rows — p64-L64-i32-N64:
+0.979 ms vs dense's 1.410 ms, cold 2.17 s vs 6.18 s — a per-call win that a generation loop still loses.
 The loss and per-row paths match the oracle to ~1e-7 rel; `batch_forward` on the arithmetic set is
 non-bitwise where dense is exact, which is why the batch arms form their own digest group.
+
+### Long trees: where the route actually wins
+
+Every cell above holds 15–17-node trees, so none of them asks whether a route prices the trees a population
+really contains or the trace length it is allowed to emit. A second round prices that directly:
+`results/batch/long-trees/{l128,l256,p1000,gp}` — six `sr_fitness` cells (pop 256 at `tree_len` 128 with the
+generation depth pinned at d5/d6/d7, pop 256 at `tree_len` 256 at d5/d8, pop 1000 at d5) plus two `gp_step`
+cells, five arms each (`torch-per-tree`, `evoxc-specialized-numpy`, `evoxc-dense-iree`,
+`evoxc-dense-iree-raised` = the same route with `EVOGP_DENSE_MAX_TREE_LEN` pinned to the cell's stride, and
+`evoxc-batch-iree`; four in `gp`). Node counts are depth-driven, so the `-d<k>` suffix is the axis that makes
+the trees long, not `tree_len`.
+
+**Verdict in one line:** while the population's longest tree fits the shipped dense cap of 64, need-capped
+dense still wins by 1.05–1.41×; past that cap batch wins by 1.5–4.2× over dense with the cap raised and
+23.5–25× over the per-tree `specialized` fallback the cap forces — and loses by 190–460× inside a generation
+loop, so the win is a fixed-population win only. Raising the cap is itself the cost it removes: 2.030 →
+5.277 ms for cap 64 → 128 and 2.126 → 19.497 ms for 64 → 256 on 31-node trees, i.e. dense's per-call cost is
+stride-driven and batch's is node-count-driven. Tables, plan facts, the numeric split and the recommendation
+are in [`BATCH.md`](BATCH.md) §11.
+
+```bash
+PY=/path/to/venv/bin/python
+export PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1
+
+# 1. tree_len 128, generation depth d5/d6/d7 (the node-count axis at a 128-row stride)
+$PY test/benchmark/evoxc/campaign.py --out test/benchmark/evoxc/results/batch/long-trees/l128 \
+  --cells p256-L128-i32-N1024,p256-L128-i32-N1024-d6,p256-L128-i32-N1024-d7 \
+  --arms torch-per-tree,evoxc-batch-iree,evoxc-dense-iree,evoxc-dense-iree-raised,evoxc-specialized-numpy \
+  --workloads sr_fitness,batch_forward,forward --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 \
+  --timeout 1200
+
+# 2. tree_len 256, generation depth d5/d8 (the stride axis at two strides)
+$PY test/benchmark/evoxc/campaign.py --out test/benchmark/evoxc/results/batch/long-trees/l256 \
+  --cells p256-L256-i32-N1024,p256-L256-i32-N1024-d8 \
+  --arms torch-per-tree,evoxc-batch-iree,evoxc-dense-iree,evoxc-dense-iree-raised,evoxc-specialized-numpy \
+  --workloads sr_fitness,batch_forward,forward --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 \
+  --timeout 1200
+
+# 3. the population axis at d5
+$PY test/benchmark/evoxc/campaign.py --out test/benchmark/evoxc/results/batch/long-trees/p1000 \
+  --cells p1000-L128-i32-N1024 \
+  --arms torch-per-tree,evoxc-batch-iree,evoxc-dense-iree,evoxc-dense-iree-raised,evoxc-specialized-numpy \
+  --workloads sr_fitness,batch_forward,forward --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 \
+  --timeout 1200
+
+# 4. generation level: stride (d5) vs node count (d7), raised-cap dense only
+$PY test/benchmark/evoxc/campaign.py --out test/benchmark/evoxc/results/batch/long-trees/gp \
+  --cells p256-L128-i32-N1024,p256-L128-i32-N1024-d7 \
+  --arms torch-per-tree,evoxc-batch-iree,evoxc-dense-iree-raised,evoxc-specialized-numpy \
+  --workloads sr_fitness,batch_forward,forward,gp_step --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 \
+  --timeout 1200
+
+# 5. gate the four directories as one container, then render each
+python3 test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/batch/long-trees \
+  --allow-missing --allow-digest-mismatch --allow-snapshot
+# expected: 4 directories gated, 38 records / 1000 checks, 0 failures
+for d in l128 l256 p1000 gp; do
+  $PY test/benchmark/evoxc/summarize.py --results test/benchmark/evoxc/results/batch/long-trees/$d \
+    --out test/benchmark/evoxc/results/batch/long-trees/RENDERED-$d.md
+done
+```
 
 ## Report and gate (`summarize.py` / `check.py`)
 
@@ -395,7 +511,8 @@ The final campaign's three renders (after, before, and the after-vs-before compa
 are stored as plain text in `results/final/RENDERED.md`; the report of record that
 interprets them is [`FINAL.md`](FINAL.md). The batch round's renders are
 `results/batch/RENDERED-warm-r5.md`, `RENDERED-small-r5.md`, `RENDERED-flat-r5.md`
-and `RENDERED-flat1000-3w-r5.md`; [`BATCH.md`](BATCH.md) interprets them.
+and `RENDERED-flat1000-3w-r5.md`, plus the long-tree round's
+`results/batch/long-trees/RENDERED-{l128,l256,p1000,gp}.md`; [`BATCH.md`](BATCH.md) interprets them.
 
 A batch arm is rendered by the same rules as any other evoxc arm, with two
 additions: its `routes[...]` carries `kind: "batch"`, so the `auto route` column

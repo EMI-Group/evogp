@@ -122,7 +122,13 @@ def effective_cell(args: argparse.Namespace) -> Dict[str, Any]:
     """The cell actually measured (``--pop`` overrides the id's population)."""
     spec = common.parse_cell(args.cell)
     if args.pop is not None:
-        spec = common.cell(args.pop, spec["tree_len"], spec["input_len"], spec["rows"])
+        spec = common.cell(
+            args.pop,
+            spec["tree_len"],
+            spec["input_len"],
+            spec["rows"],
+            spec.get("max_layer_cnt", 5),
+        )
     return spec
 
 
