@@ -470,41 +470,45 @@ def test_band_size_rejects_values_below_one(
 # 3. resolve_bands (explicit band count, or the flat spellings)
 # =========================================================================== #
 def test_bands_defaults_to_the_size_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``None`` means "the band-size model decides".
+    """``None`` means "the band-size model decides" -- for unset/empty only.
 
-    Unset, empty and every flat spelling (``none`` / ``flat`` / ``0``) answer
-    ``None``; an integer ``0`` is the same "flat" request, never a count.
+    Every flat spelling (``none`` / ``flat`` / ``0``, and the integer ``0``) asks
+    for an explicit SINGLE band and answers ``1``: handing it back as ``None``
+    would drop the request into the band-size model, i.e. band a merge the caller
+    explicitly asked to keep flat.
     """
     assert B.resolve_bands() is None
     monkeypatch.setenv(B.BANDS_ENV, "")
     assert B.resolve_bands() is None, "an empty value must mean 'unset'"
     for spelling in ("none", "flat", "0"):
-        assert B.resolve_bands(spelling) is None, spelling
-    assert B.resolve_bands(0) is None
+        assert B.resolve_bands(spelling) == 1, spelling
+    assert B.resolve_bands(0) == 1, "an integer 0 is the same 'flat' request"
     assert B.resolve_bands("") is None
 
 
 def test_bands_returns_an_explicit_count(monkeypatch: pytest.MonkeyPatch) -> None:
     """An integer ``K`` (from the argument or the env) comes back as given.
 
-    Range validation against the function count is ``resolve_band_count``'s job:
-    the count is resolved before the population is decoded.
+    A flat spelling is an explicit ``1``, so it comes back as ``1`` too.  Range
+    validation against the function count is ``resolve_band_count``'s job: the
+    count is resolved before the population is decoded.
     """
     assert B.resolve_bands(3) == 3
     assert B.resolve_bands("3") == 3
     monkeypatch.setenv(B.BANDS_ENV, " 5 ")
     assert B.resolve_bands() == 5
     assert B.resolve_bands(2) == 2, "the explicit argument must win over the env"
-    assert B.resolve_bands("none") is None, "even a flat argument must win"
+    assert B.resolve_bands("none") == 1, "even a flat argument must win"
 
 
 def test_bands_folds_case_and_whitespace() -> None:
     """The flat spellings are case-insensitive and whitespace-trimmed.
 
-    ``EVOGP_BATCH_BANDS= NONE `` in a shell profile must not become a typo error.
+    ``EVOGP_BATCH_BANDS= NONE `` in a shell profile must not become a typo error,
+    and must still mean the single flat band (``1``), not "unset" (``None``).
     """
     for spelling in (" NONE ", "Flat", "\tnone\n", " 0 "):
-        assert B.resolve_bands(spelling) is None, repr(spelling)
+        assert B.resolve_bands(spelling) == 1, repr(spelling)
 
 
 @pytest.mark.parametrize("value", [True, False], ids=["true", "false"])
@@ -845,6 +849,10 @@ def test_band_count_rejects_a_nonpositive_function_count(n_functions: int) -> No
 #: ``bands=1`` and the band-size model's ``K == 1`` both take the flat emitter, so
 #: their strategy reads ``"flat"`` -- only an explicit ``K >= 2`` reads
 #: ``"explicit"``.
+#: NOTE: this fixture's four functions make the size model answer ``K == 1`` as
+#: well, so these cases cannot tell a flat spelling that reaches the emitter from
+#: one that fell through to the model; ``WIDE_POP_SIZE`` below is the
+#: discriminating shape.
 _BAND_PLAN_CASES = (
     pytest.param({}, 1, "flat", id="default-size-model-flat"),
     pytest.param({"bands": 1}, 1, "flat", id="bands-1-collapses-to-flat"),
@@ -882,6 +890,80 @@ def test_the_band_knobs_reach_the_plan(
     assert info["switch_ops"] is bool(knobs.get("switch_ops", False))
     assert info["alignment"] == B.DEFAULT_ALIGNMENT
     assert info["variant"] == B.LOSS_VARIANT and info["per_row"] is False
+
+
+#: More distinct programs than ``DEFAULT_BAND_SIZE`` (32) -- the only population
+#: shape on which the flat spellings and the band-SIZE model disagree, i.e. the
+#: shape that tells "the flat merge was selected" from "the model happened to ask
+#: for one band".  40 distinct programs put the default model at
+#: ``ceil(40 / 32) == 2`` bands.
+WIDE_POP_SIZE = 40
+WIDE_BAND_COUNT = -(-WIDE_POP_SIZE // B.DEFAULT_BAND_SIZE)
+
+#: The spellings that must all select the single flat band, ``bands=1`` included.
+_FLAT_SPELLINGS = (
+    pytest.param({"bands": 1}, id="bands-1"),
+    pytest.param({"bands": "none"}, id="bands-none"),
+    pytest.param({"bands": "flat"}, id="bands-flat"),
+    pytest.param({"bands": "0"}, id="bands-zero"),
+    pytest.param({"bands": 0}, id="bands-int-zero"),
+)
+
+
+def _wide_population() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """``WIDE_POP_SIZE`` pairwise-distinct programs: ``x0 + <distinct constant>``.
+
+    Distinct constants keep every row a separate merged function (nothing dedups),
+    which is what puts the band-size model above one band.
+    """
+    specs = [
+        te.fn(te.ADD, te.var(0), te.const(0.5 + index))
+        for index in range(WIDE_POP_SIZE)
+    ]
+    return te.rows_from_specs(specs, output_len=1, pad_to=ROW_LEN, tail_value=0.0)
+
+
+@pytest.mark.parametrize("knobs", _FLAT_SPELLINGS)
+def test_a_flat_spelling_selects_the_flat_merge_over_the_band_size_model(
+    tiny_pop: None, knobs: Dict[str, Any]
+) -> None:
+    """On a bandable population every flat spelling collapses the merge to ONE band.
+
+    ``test_the_band_knobs_reach_the_plan`` cannot see this: its four programs make
+    the size model answer ``K == 1`` too, so a flat spelling that fell through to
+    the model looked exactly like a flat merge (that is how the ``None`` regression
+    stayed green while measuring ``K == 8`` on a 231-function population).  Here
+    the model really bands (``WIDE_BAND_COUNT``), so each flat spelling -- and
+    ``bands=1`` -- has to return ``band_count == 1``, the ``"flat"`` strategy, one
+    band of all ``n_functions`` functions and the SAME emitted ops.
+    The cache is cleared between the plans: ``bands=1`` and ``bands="flat"``
+    resolve to the same memo key, so without it the later spelling would be
+    answered from the earlier plan instead of re-planning.
+    """
+    values, types, sizes = _wide_population()
+    x = _x()
+
+    model = _info(_plan(values, types, sizes, x))
+    assert model["functions"] == model["n_functions"] == WIDE_POP_SIZE
+    assert WIDE_BAND_COUNT >= 2
+    assert model["band_count"] == WIDE_BAND_COUNT, model["band_sizes"]
+    assert model["band_strategy"] == "explicit", model["band_strategy"]
+    assert len(model["band_sizes"]) == WIDE_BAND_COUNT
+    assert sum(model["band_sizes"]) == WIDE_POP_SIZE
+
+    E.clear_cache()
+    reference = _info(_plan(values, types, sizes, x, bands=1))
+    E.clear_cache()
+    flat = _info(_plan(values, types, sizes, x, **knobs))
+    assert flat["band_count"] == 1, (knobs, flat["band_sizes"])
+    assert flat["band_strategy"] == "flat", (knobs, flat["band_strategy"])
+    assert flat["band_sizes"] == [WIDE_POP_SIZE], (knobs, flat["band_sizes"])
+    assert flat["emitted_ops"] == reference["emitted_ops"]
+    assert flat["emitted_ops"] != model["emitted_ops"], (
+        "the banded and the flat merge must not emit the same graph, otherwise "
+        "this fixture could not tell them apart"
+    )
+    assert flat == reference
 
 
 @pytest.mark.parametrize("mode", list(B.ALIGNMENTS))
