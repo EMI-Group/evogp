@@ -336,3 +336,78 @@ value**; the digest split is low-bit arithmetic ordering, not a band-size accura
    1.0196, min-based `b16` 1.0214 / `b32` 1.0284.
 
 No recommendation is made here: the round-2 report of record owns the decision.
+
+## Recommendation (work item 2 decision)
+
+**`EVOGP_BATCH_BANDS=auto` must NOT become the shipped default. Keep a numeric default, and move
+`EVOGP_BATCH_BAND_SIZE` from 32 to 16.** Every number below is read off the nine records of this
+directory (`<cell>/{auto,b16,b32}.json`), the item-1 warm sweep (`../warm/`) where it is named as
+such, and the round-3 cold re-measure (`../round3-cold/`).
+
+1. **`auto` wins nothing.** It is the argmin in **0 of 9** warm columns of the three cells × three
+   workloads; it is the slowest of the three configs in **7 of 9** (the exceptions are `p256-L32
+   sr_fitness`, where `b32` is slowest at 1.066, and `p64 forward`, where `b16` is at 1.062); it is
+   inside the 2.6–6 % cross-config noise band in **4 of 9** columns (`p256-L32 sr_fitness` 1.014,
+   `p256-L64 sr_fitness` 1.032, `p64 sr_fitness` 1.027, `p64 forward` 1.029) and **outside it in
+   5**, worst **+18.9 %** on the band-sensitive `forward` at `p256-L32` (1.189 median-based, 1.275
+   min-based), then +14.5 % (`p256-L64 forward`), +14.1 % (`p64 batch_forward`), +9.9 %
+   (`p256-L64 batch_forward`) and +8.4 % (`p256-L32 batch_forward`). Cold, `auto` pays **1.12–1.35×**
+   the cheapest cold call of its column at the two pop-256 cells (`p256-L32 forward` 4 161 ms
+   against `b16`'s 3 075 ms is the worst row) and 1.01–1.11× at `p64`, and part of that excess is
+   the clamp's extra merge (point 3).
+2. **The cost model errs in BOTH directions, and its answer is not population-stable.** On the loss
+   and population-batched-value plans it requests **213 / 220** bands at the pop-256 cells
+   (225 / 232 deduped functions) where the ROCm/HIP HAL can bind **15** — a **14.2–14.7×**
+   overshoot, clamped (`band_clamped: true`, `band_note` names the requested count, the ceiling and
+   the `EVOGP_BATCH_BANDS=K` remedy); at `p64` it requests 16 for 63 functions and the `≥ 8
+   functions per band` rule clamps it to **7**. On the per-row `forward` plan the same model answers
+   **4** bands at pop 256 (`band_sizes` 1×62 + 3×61, **not** clamped) and a bare **1** — i.e. the
+   unbanded merge, `cost_estimate == flat_estimate` = 321 984 — at pop 64, below the banded region
+   item 1 measured on these plans (`b64` → K = 4 … `b8` → K = 29). And it answers differently for
+   the same population: on `p256-L32-i8-N1024` (structure signature `ad11cb66ffc21ac8`, 225 deduped
+   functions in both records) the band sweep's loss plan requested **K = 213** (`cost_estimate`
+   7 350 691 against a `flat_estimate` of 466 453 471) while the generation-loop column's first call
+   requested **K = 1** (`cost_estimate == flat_estimate` 3 663 871) — two different priced graphs
+   (`emitted_ops` 5 037 vs 4 141), so the model is not keyed on the deduped function count alone.
+   Across the records of that one cell the same policy answers K = 1, 4 and 213 (and 216 requested →
+   7 loaded per chunk once chunked); the per-generation answers inside a loop are not individually
+   recorded (each economics record keeps one report per plan variant), which is itself the finding:
+   there is no single "auto policy" to reason about, only a per-plan guess.
+3. **The clamp is not free.** It is not a separate stage: the route merges once at the model's K,
+   reads the report and, when the answer is unloadable, **merges a second time** at the capped count
+   — both inside one `timer.stage("merge")` block, so `batch_merge_calls` stays **1** in every row
+   and the second pass shows up as time in that block. Cold, the clamped rows pay
+   **1 219.5 / 1 048.9 / 1 395.2 / 1 209.5 / 285.5 / 221.9 ms** of merge against `b16`'s
+   **233.1 / 204.1 / 280.6 / 247.0 / 94.5 / 41.4 ms** for the *identical final band shape* —
+   **+0.18 s to +1.11 s** per cold call, **4.90–5.35×** on the four pop-256 wide-row plans
+   (3.02–5.35× across all six). Even the three **unclamped** `forward` rows pay 785.2 / 670.9 /
+   168.5 ms against 261.3 / 284.5 / 99.6 ms (**+0.07 s to +0.52 s**, 1.69–3.00×), because the model
+   run itself plus a merge at the model's K is what the block contains. `merge` is the **only** block
+   that separates `auto` from its same-shape twin `b16` (0.85–1.22× on decode/dedup/trace/lower/
+   compile/load), which is why `auto`'s whole cold call is 1.12–1.35× the cheapest.
+4. **32 → 16 is a second-order call, made on the worst column, not on the mean.** In this run `b16`
+   wins **5 of 9** warm columns and `b32` **4**; the pooled median-based geomean is a tie (`b16`
+   1.0196 against `b32` 1.0178 of the per-column argmin) and the min-based estimator favours 16
+   (1.0214 against 1.0284). Cold splits **5 : 4** for `b16` in this run (and 5 : 4 again in item 1).
+   The deciding evidence is the two-run worst column: pooled over the **18** columns of this run and
+   item 1, `b32`'s largest deviation is **1.143 median-based / 1.137 min-based**, both on
+   `forward` at `p256-L32`, where 16 measures 1.000 / 1.000 in item 1 and 1.023 / 1.096 here —
+   while `b16`'s largest is 1.102 median-based (`p64 forward`, item 1) and 1.109 min-based
+   (`p256-L64 batch_forward`, this run). So the mean is a tie inside noise (median-based 1.0248 vs
+   1.0224 over the 18 columns; min-based 1.0199 vs 1.0254) and **16 is the better minimax setting**,
+   which is the criterion a default has to satisfy on this box. It also lines up with the legality
+   cap: at n = 225–245 functions the clamp lands at K ≤ 15, i.e. band size ≈ 15–17 is where a capped
+   merge lands anyway. Cost of NOT moving: at most ~5 % on the worst column; that is the honest
+   bound — the gain is not larger than this box's cross-config noise on most columns, and this is a
+   minimax argument, not a speedup.
+5. **An explicit `EVOGP_BATCH_BANDS=K` still wins over any default** — a pinned K is the one arm
+   that says what it means, and an illegal K still raises with the cap named in the error. This
+   section only concerns what the engine picks when nobody says anything. Note the experiment the
+   round did not run: at both pop-256 cells `auto`'s clamp and `b16`'s request already load the same
+   K = 15, so pinning `EVOGP_BATCH_BANDS=15` directly would confirm in one run that the cap, not the
+   model, is what a wide-row plan wants.
+
+**One line:** ship a number — `EVOGP_BATCH_BAND_SIZE=16` — and keep `auto` opt-in (documented as
+unstable on a ROCm/HIP box: overshoots where it is clamped, undershoots to 4 bands or the flat merge
+where it is not, and answers differently for the same population). A run that only ever merges one
+fixed population and wants to sweep K should read `band_report` and pin `EVOGP_BATCH_BANDS` instead.
