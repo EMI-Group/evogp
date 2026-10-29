@@ -579,8 +579,8 @@ misses): 5318.0 ms per generation at d5 and 2177.2 ms at d7 against 11.6 / 11.2 
   per cell against 6.6 / 6.5 / 7.2 / 7.0 s for cap-64 dense where dense actually runs (the 69.0 / 81.1 s in
   the two declined cells is the fallback's per-structure compile, not dense) and 14.4 / 14.3 / 14.5 / 41.9 /
   43.9 / 15.8 s for the raised cap — which is itself stride-driven (14.4 s at stride 128 vs 41.9 s at 256).
-  At pop 1000 that 178.5 s compile is 25× dense's 7.0 s cold compile and buys ≈31 000 of batch's own 5.7 ms
-  warm calls — the break-even argument in one number.
+  At pop 1000 that 178.5 s compile is 25× dense's 7.0 s cold compile and buys ≈27 000 of batch's own 6.5 ms
+  warm calls (and ≈31 000 of dense's 5.7 ms ones) — the break-even argument in one number.
 
 ### 11.7 Reproduce
 

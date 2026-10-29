@@ -459,7 +459,7 @@ stride-driven and batch's is node-count-driven. Tables, plan facts, the numeric 
 are in [`BATCH.md`](BATCH.md) §11.
 
 ```bash
-PY=/tmp/genesis/task_a996674198ffbcee/evogp-venv/bin/python
+PY=/path/to/venv/bin/python
 export PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1
 
 # 1. tree_len 128, generation depth d5/d6/d7 (the node-count axis at a 128-row stride)
