@@ -837,5 +837,9 @@ $PY test/benchmark/evoxc/batch_economics.py --cells p64-L64-i32-N64 --routes bat
 # the over-1 compile share, on a cell the pool really chunks (4 chunks at the shipped default)
 $PY test/benchmark/evoxc/batch_economics.py --cells p256-L32-i8-N1024 --routes batch \
   --generations 3 --out-dir $OUT/content-blocks/chunked-p256
+# the gate unit: a campaign-format batch record carrying batch_cache.content_*
+$PY test/benchmark/evoxc/campaign.py --cells p64-L64-i32-N64 --arms evoxc-batch-iree \
+  --reps 5 --gp-reps 3 --out $OUT/content-blocks/campaign-content
 ```
-`batch_economics.py` and `reuse_probe.py` records carry their own schemas (`evogp-bench-evoxc-v1-batch-economics`, `evogp-bench-evoxc-v1-batch-reuse`), so the gate unit for this follow-up stays the round's campaign directory (`3 records / 88 checks / 0 failures`); the new directories are evidence beside it, and the frozen directories keep their counts (`warm-r5` 24/682, `small-r5` 36/1022, `flat-r5` 4/126, `flat1000-3w-r5` 1/36, `final/after` 130/3602 — all 0 failures).
+`batch_economics.py` and `reuse_probe.py` records carry their own schemas (`evogp-bench-evoxc-v1-batch-economics`, `evogp-bench-evoxc-v1-batch-reuse`), so the gate unit for this follow-up is a campaign-format directory whose batch record carries the new blocks: `content-blocks/campaign-content/` (`1 record / 40 checks / 0 failures`, `batch_cache.content_totals` = `{hits 0, misses 6, attempts 6}` — one content probe per plan shape in that config, none of them a rebuilt population) next to the round's own `campaign/` (`3 records / 88 checks / 0 failures`).
+The economics/reuse directories are evidence beside them, and the frozen directories keep their counts (`warm-r5` 24/682, `small-r5` 36/1022, `flat-r5` 4/126, `flat1000-3w-r5` 1/36, `final/after` 130/3602 — all 0 failures).
