@@ -95,7 +95,7 @@ except ImportError:  # pragma: no cover - only for the importlib import mode
     _spec.loader.exec_module(te)
 
 from evogp.tree import Forest, Tree  # noqa: E402
-from evogp.tree import batch_engine, dense_engine  # noqa: E402
+from evogp.tree import batch_engine, batch_knobs, dense_engine  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # the shape grid (small by design: the whole file must stay a few seconds)
@@ -131,12 +131,12 @@ def _pin_engine_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     ``EVOGP_EVOXC_BACKEND=numpy`` -- the wired call sites resolve the backend from the
     environment, and no test in this file may compile an iree graph.
 
-    The four merge knobs (``EVOGP_BATCH_BAND_SIZE`` / ``BANDS`` / ``SWITCH_OPS`` /
-    ``ALIGNMENT``) are REMOVED, so the library defaults apply and an ambient value
-    cannot change the merge shape under the assertions. ``EVOGP_BATCH_MIN_POP`` is
-    removed for the same reason: the tests that care about the threshold set it
-    explicitly, and the ones that must see the LIBRARY default (``64``) rely on it
-    being absent.
+    The merge knobs (``EVOGP_BATCH_BAND_SIZE`` / ``BANDS`` / ``SWITCH_OPS`` /
+    ``ALIGNMENT`` / ``COMPILE_WORKERS``) are REMOVED, so the library defaults apply
+    and an ambient value cannot change the merge shape (or split the compile into
+    chunks) under the assertions. ``EVOGP_BATCH_MIN_POP`` is removed for the same
+    reason: the tests that care about the threshold set it explicitly, and the ones
+    that must see the LIBRARY default (``64``) rely on it being absent.
 
     ``EVOGP_EVAL_MODE`` is deliberately NOT pinned here -- each test sets the mode it
     needs through ``monkeypatch`` (see :func:`_in_mode` / :func:`_force_batch`), which
@@ -150,6 +150,7 @@ def _pin_engine_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         batch_engine.BANDS_ENV,
         batch_engine.SWITCH_OPS_ENV,
         batch_engine.ALIGNMENT_ENV,
+        getattr(batch_knobs, "COMPILE_WORKERS_ENV", "EVOGP_BATCH_COMPILE_WORKERS"),
         batch_engine.MIN_POP_ENV,
         dense_engine.AUTO_MIN_POP_ENV,
         dense_engine.AUTO_MAX_ROWS_ENV,

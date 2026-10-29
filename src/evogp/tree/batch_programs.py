@@ -1,17 +1,21 @@
 """Host-side program handling of the batch route: decode, dedup, trace, merge.
 
-Everything between a population's three tensors and ONE merged
-:class:`evoxc.Graph` lives here: the input / label conversions, the per-function
-graph bodies, the structural dedup, the ``evoxc.trace`` / ``evoxc.batch_functions``
-calls with their two structural exception types converted into
-:class:`evogp.tree.batch_knobs.BatchUnsupported`, and :func:`_plan_host`, which
-produces the :class:`BatchPlan` of one call (the frozen programs, the row mapping,
-the traced graphs and the merged graph).
+Everything between a population's three tensors and its merged
+:class:`evoxc.Graph` objects lives here: the input / label conversions, the
+per-function graph bodies, the structural dedup, the ``evoxc.trace`` /
+``evoxc.batch_functions`` calls with their two structural exception types converted
+into :class:`evogp.tree.batch_knobs.BatchUnsupported`, :func:`plan_digest` (the
+content key of a plan), and :func:`_plan_host`, which produces the
+:class:`BatchPlan` of one call (the frozen programs, the row mapping, the traced
+graphs, and one :class:`BatchChunk` per compiled body -- the single-body plan's one
+chunk mirrors its whole-graph merged graph, a chunked plan's chunks are contiguous
+slices of the deduped functions).
 
 No compile, no front table and no torch tensor assembly happen here -- that is
-:mod:`evogp.tree.batch_engine`, which imports this module and re-exports every
-name in it (this module never imports ``batch_engine`` back at module level, so
-``evogp.tree.batch_engine`` stays the public facade).
+:mod:`evogp.tree.batch_engine` (front tables, run path) and
+:mod:`evogp.tree.batch_chunks` (the ``lower`` / ``compile`` / ``load`` pool).  This
+module never imports ``batch_engine`` back at module level, so
+``evogp.tree.batch_engine`` stays the public facade.
 
 Two invariants of this module:
 
@@ -34,7 +38,8 @@ economics: ``BATCH_EVAL.md``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -43,12 +48,20 @@ import torch
 import evoxc
 from evoxc.transforms import batching as _batching
 
+# ``batch_knobs`` is imported as a MODULE too: ``MIN_CHUNK_FUNCTIONS`` is read
+# through the module object at call time (never captured by value), so a test can
+# monkeypatch it to force chunking on a tiny fixture.
+from . import batch_knobs, batch_stages
+from .batch_chunks import chunk_sizes
 from .batch_knobs import (
     LOSS_VARIANT,
     BatchUnsupported,
     _normalize_variant,
     resolve_alignment,
     resolve_band_count,
+    resolve_band_size,
+    resolve_bands,
+    resolve_compile_workers,
     resolve_switch_ops,
 )
 from .evoxc_engine import (
@@ -57,6 +70,12 @@ from .evoxc_engine import (
     _walk_tokens,
     decode_population,
 )
+
+#: Version tag of :func:`plan_digest`.  Bump it whenever the encoded content or its
+#: order changes: an old digest can then never match a new plan (the content table
+#: stores plans, and serving a stale one would hand out another population's rows).
+PROGRAM_DIGEST_FORMAT = "evogp-batch-plan-digest-v1"
+
 
 # ---------------------------------------------------------------------------
 # host helpers
@@ -217,8 +236,54 @@ def _scalar(value: float) -> Any:
 # the plan
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
+class BatchChunk:
+    """One compiled body of a plan (a contiguous slice of the deduped functions).
+
+    EVERY plan carries one chunk per compiled body (:attr:`BatchPlan.chunks`), so
+    the record is always the authoritative read surface: a single-chunk plan's
+    ``chunks[0]`` covers the whole function list and its ``graphs`` / ``merged`` /
+    ``specs`` / ``report`` ARE the plan's whole-graph fields (same objects), while a
+    chunked plan's chunks are proper contiguous slices and the plan's whole-graph
+    fields stay empty.
+
+    Attributes:
+        index: the chunk's position (``0 <= index < chunk_count``); it is also the
+            key label of the ``build_stage_ms`` entries and the slot of the
+            executable in :attr:`BatchExecutable.executables`.
+        offset: the chunk's first index in the plan's GLOBAL ``functions`` /
+            ``function_rows`` tuples, i.e. where its rows are written back into the
+            ``(n_functions, ...)`` block; ``sum(previous sizes)`` by construction, so
+            the global output order is the function order (never the chunk order).
+        functions: this chunk's slice of the deduped ``(program, const_out)``
+            multiset (in global order).
+        function_rows: the matching slice of ``BatchPlan.function_rows`` (the
+            population row each function was first seen at, i.e. the ``x`` row a
+            ``per_row`` plan feeds it).
+        graphs: the traced per-function :class:`evoxc.Graph` objects of this chunk.
+        merged: this chunk's merged :class:`evoxc.Graph` (the plan's own graph for a
+            single-chunk plan).
+        specs: the chunk's merged tensor input specs (``evoxc.TensorSpec``).
+        report: ``merged.batch_report.as_dict()`` of this chunk.
+        band_count: the chunk's own band count, resolved with
+            ``resolve_band_count(len(functions), bands=None, band_size=...,
+            switch_ops=False)`` -- the band knobs and the chunk split are never
+            combined.
+    """
+
+    index: int
+    offset: int
+    functions: Tuple[Any, ...]
+    function_rows: Tuple[int, ...]
+    graphs: Tuple[Any, ...]
+    merged: Any
+    specs: Tuple[Any, ...]
+    report: Dict[str, Any]
+    band_count: int
+
+
+@dataclass(frozen=True)
 class BatchPlan:
-    """The host-side plan of one merged batch graph (no executable, no cache).
+    """The host-side plan of one population (one merged graph, or N chunk bodies).
 
     Attributes:
         input_len: problem input width.
@@ -234,20 +299,52 @@ class BatchPlan:
             constant tree, whose answer is then ``const_out``).
         functions: the DEDUPED ``(program, const_out)`` multiset actually merged, in
             first-appearance order: ``functions[row_index[row]] == programs[row]``.
-        row_index: per population row, its index into :attr:`functions`.
+            This is the GLOBAL function order for both plan shapes: a chunked plan's
+            :attr:`chunks` are contiguous slices of it and their rows are assembled
+            back into this order.
+        row_index: per population row, its (GLOBAL) index into :attr:`functions`.
         function_rows: per merged function, the population row it was first seen
             at (the ``x`` row a ``per_row`` plan feeds it).
-        band_count: number of merge bands (``1`` = the flat merge).
+        band_count: number of merge bands (``1`` = the flat merge).  A chunked plan
+            always reports ``1``; the per-chunk band counts live in
+            :attr:`BatchChunk.band_count`.
         switch_ops: whether op-switching was requested (forces ``band_count == 1``).
         alignment: the ``switch_ops`` class-alignment mode.
-        graphs: the traced per-function :class:`evoxc.Graph` objects.
-        merged: the merged :class:`evoxc.Graph` (``merged.batch_report`` describes it).
-        specs: the merged graph's tensor input specs (``evoxc.TensorSpec`` objects).
-        report: ``merged.batch_report.as_dict()`` -- ``n_functions``,
-            ``emitted_ops``, ``bands``, ``band_sizes``, ``band_strategy``, ...
+        graphs: the traced per-function :class:`evoxc.Graph` objects of the plan --
+            populated only when ``len(chunks) == 1`` (``()`` on a chunked plan, whose
+            per-chunk graphs live in :attr:`BatchChunk.graphs`).
+        merged: the merged :class:`evoxc.Graph` -- populated only when
+            ``len(chunks) == 1`` (``None`` on a chunked plan).  ``merged.batch_report``
+            describes it, and it IS ``chunks[0].merged``.
+        specs: the merged graph's tensor input specs (``evoxc.TensorSpec``) --
+            populated only when ``len(chunks) == 1`` (``()`` on a chunked plan), and
+            equal to ``chunks[0].specs``.
+        report: ``merged.batch_report.as_dict()`` when ``len(chunks) == 1`` (the same
+            dict as ``chunks[0].report``); for a chunked plan an honest aggregate
+            (``chunk_count`` / ``chunk_sizes`` / ``n_functions`` / the summed
+            ``emitted_ops``, with ``bands`` / ``band_sizes`` / ``band_strategy`` =
+            ``None``), because no single graph describes the build.
         backend_name: the backend the plan was resolved for (the default of
             :func:`build_batch`).
         device: the resolved ``evoxc.core.Device``.
+        stage_ms: the PLAN-side stage totals of the call that BUILT it
+            (``decode`` / ``dedup`` / ``trace`` / ``merge``; ``decode`` is absent
+            when the plan was built from an already-decoded population).
+        compile_workers: the number of compiled bodies this plan holds, i.e. the
+            worker count ACTUALLY used (``1`` for the single-body path, including
+            ``EVOGP_BATCH_COMPILE_WORKERS=0``).
+        chunk_sizes: per compiled body, its function count (``(len(functions),)``
+            for the single-body path); equal to
+            ``tuple(len(chunk.functions) for chunk in chunks)``.
+        chunks: one :class:`BatchChunk` per compiled body -- ALWAYS populated
+            (``len(chunks) >= 1``) and the authoritative read surface of the plan,
+            with ``chunk_count == len(chunks) >= 1``.
+
+    :attr:`chunks` is the authoritative read surface for both plan shapes; the
+    whole-graph fields (:attr:`graphs` / :attr:`merged` / :attr:`specs` /
+    :attr:`report`'s band keys) are populated only when ``len(chunks) == 1``, where
+    ``chunks[0]`` mirrors them object-for-object, and ``chunk_sizes`` says how many
+    bodies this plan holds in both shapes.
     """
 
     input_len: int
@@ -270,20 +367,37 @@ class BatchPlan:
     report: Dict[str, Any]
     backend_name: str
     device: Any
+    stage_ms: Dict[str, float] = field(default_factory=dict)
+    compile_workers: int = 1
+    chunk_sizes: Tuple[int, ...] = ()
+    chunks: Tuple[BatchChunk, ...] = ()
 
 
 @dataclass(frozen=True)
 class BatchExecutable:
-    """A plan plus its compiled executable (the value of both front tables).
+    """A plan plus its compiled executable(s) (the value of all three front tables).
 
     Attributes:
-        plan: the :class:`BatchPlan` this executable was built for.
-        executable: the loaded ``evoxc.Executable`` of the merged graph.
+        plan: the :class:`BatchPlan` this build is for.
+        executable: the single merged body's loaded ``evoxc.Executable`` --
+            ``executables[0]`` when ``len(plan.chunks) == 1`` and ``None`` on a
+            chunked plan (then :attr:`executables` is authoritative).
+            The single-body path is the default, so this field keeps its original
+            meaning; every internal read site goes through :attr:`executables` (or
+            ``plan.chunks``) and never assumes one body.
         backend: the backend name it was compiled for.
         device: the ``evoxc.core.Device`` it was loaded on.
         pins: strong references to the population/input storages the plan memo entry
             is keyed on (empty for an unmemorized build); they only keep the
             ``data_ptr`` identity tokens ABA-proof, so they are never inspected.
+        build_stage_ms: the compile-side stage totals of the call that BUILT it --
+            ``lower`` / ``compile`` / ``load`` (summed over the bodies) plus
+            ``lower#<i>`` / ``compile#<i>`` / ``load#<i>`` per chunk index.  All
+            zero for a build served entirely from :data:`BATCH_EXEC_MEMO`.
+        executables: one ``evoxc.Executable`` per compiled body, in chunk order
+            (``(executable,)`` for the single-body path); the run path iterates this
+            tuple together with ``plan.chunks`` and writes each chunk's rows at the
+            chunk's ``offset``.
     """
 
     plan: BatchPlan
@@ -291,6 +405,8 @@ class BatchExecutable:
     backend: str
     device: Any
     pins: Tuple[Any, ...] = ()
+    build_stage_ms: Dict[str, float] = field(default_factory=dict)
+    executables: Tuple[Any, ...] = ()
 
 
 def _dedup(pop: Any, x_host: np.ndarray, per_row: bool) -> Tuple[
@@ -392,6 +508,122 @@ def _require_batching_rules(merged: Any) -> None:
             )
 
 
+def plan_digest(
+    programs: Sequence[Tuple[Any, Any]],
+    x_host: Optional[np.ndarray],
+    per_row: bool,
+) -> bytes:
+    """A strong content digest of a population's decoded programs (32 bytes).
+
+    The plan's CONTENT key: two populations with the same bytes must answer with the
+    same plan, however their tensors were allocated.  Fed in POPULATION ORDER (the
+    function order IS the merged graph's leading axis, so the order is part of the
+    content):
+
+    * a version tag, then the ``per_row`` flag;
+    * per row, the row index, then either ``const:<len>|<bits>`` (a fully constant
+      tree, ``const_out`` float32 bit patterns) or ``prog:<out_len>:<len>|<tokens>``
+      (the frozen static program: ``(kind, value...)`` int tokens);
+    * for ``per_row``, that row's own ``x`` row bytes -- the dedup keys on them,
+      because tree ``i`` must see input row ``i``, so two rows that share a program
+      but not their input row are genuinely different functions.
+
+    ``blake2b(digest_size=32)`` is a MEMBERSHIP test, never the identity: a plan hit
+    derived from it is verified against the decoded programs before it is served
+    (:func:`evogp.tree.batch_engine._plan_entry`), so a collision costs a rebuild,
+    never a wrong number.  Nothing is memoized here; this is pure host work.
+    """
+    digest = hashlib.blake2b(digest_size=32)
+    digest.update(PROGRAM_DIGEST_FORMAT.encode("ascii"))
+    digest.update(b"|per_row=%d|" % int(bool(per_row)))
+    rows = 0 if x_host is None else int(x_host.shape[0])
+    for row, (program, const_out) in enumerate(programs):
+        digest.update(b"|row=%d|" % row)
+        if program is None:
+            digest.update(b"const=%d|" % len(const_out))
+            digest.update(_int_bytes(const_out))
+        else:
+            out_len, tokens = program
+            digest.update(b"prog=%d:%d|" % (int(out_len), len(tokens)))
+            digest.update(_int_bytes(tokens))
+        if per_row and row < rows:
+            digest.update(b"x=")
+            digest.update(
+                np.ascontiguousarray(x_host[row], dtype=np.float32).tobytes()
+            )
+    return digest.digest()
+
+
+def _int_bytes(tokens: Any) -> bytes:
+    """Little-endian int64 bytes of one program's token/int sequence.
+
+    The tokens are ints by construction (``(kind, value...)``); anything that does
+    not convert falls back to ``repr`` so an exotic program can never crash the
+    digest (it only costs a slower, still-injective encoding).
+    """
+    try:
+        return np.asarray(tokens, dtype=np.int64).tobytes()
+    except (TypeError, ValueError):  # pragma: no cover - tokens are int tuples
+        return repr(tokens).encode("utf-8")
+
+
+def _resolve_workers(
+    requested: Optional[int],
+    n_functions: int,
+    *,
+    bands: Optional[int],
+    switch_ops: bool,
+) -> int:
+    """The worker count ACTUALLY used for this plan (the ``W = 1`` forcing rules).
+
+    ``resolve_compile_workers`` answers the request (``explicit argument >
+    environment > default``); this clamp then decides whether the plan is chunked:
+
+    * ``W <= 1`` -- the single-body path verbatim (the original one-graph plan);
+    * ``n_functions < batch_knobs.MIN_CHUNK_FUNCTIONS`` -- one compile cannot be
+      split usefully below the per-body fixed cost, so the single-body path stays;
+    * an explicit band count (``bands is not None``, the flat spellings included,
+      since ``resolve_bands`` answers ``1`` for them) or ``switch_ops`` -- those
+      knobs keep their documented per-plan meaning, and both are measured on the
+      single-body path (the band sweep runs there), so chunking is refused rather
+      than silently changing the merge shape;
+    * otherwise ``W = min(W, n_functions // MIN_CHUNK_FUNCTIONS)``, so every chunk
+      keeps at least ``MIN_CHUNK_FUNCTIONS`` functions and the chunk count equals
+      ``W`` exactly.
+
+    ``MIN_CHUNK_FUNCTIONS`` is read through the MODULE object (never captured), so a
+    test can lower it to force chunking on a tiny fixture.
+    """
+    workers = int(resolve_compile_workers(requested))
+    if workers <= 1:
+        return 1
+    minimum = max(1, int(batch_knobs.MIN_CHUNK_FUNCTIONS))
+    if int(n_functions) < minimum:
+        return 1
+    if bands is not None or switch_ops:
+        return 1
+    return max(1, min(workers, int(n_functions) // minimum))
+
+
+def _trace_functions(
+    functions: Sequence[Any],
+    variant: str,
+    use_mse: bool,
+    n_rows: int,
+    specs: Sequence[Any],
+) -> List[Any]:
+    """Trace one graph per function, in order (the per-distinct-program loop)."""
+    graphs: List[Any] = []
+    for program, const_out in functions:
+        if variant == LOSS_VARIANT:
+            graphs.append(
+                _trace(_loss_fn(program, const_out, n_rows, bool(use_mse)), specs, "loss")
+            )
+        else:
+            graphs.append(_trace(_value_fn(program, const_out, n_rows), specs, "value"))
+    return graphs
+
+
 def _plan_host(
     batch_node_value: Any,
     batch_node_type: Any,
@@ -410,19 +642,47 @@ def _plan_host(
     alignment: Optional[str],
     backend_name: str,
     device: Any,
+    pop: Any = None,
+    compile_workers: Optional[int] = None,
 ) -> BatchPlan:
-    """The whole host planning step on already-converted inputs (see plan_batch)."""
+    """The whole host planning step on already-converted inputs (see plan_batch).
+
+    ``pop`` is the ALREADY-decoded population when the caller decoded it anyway
+    (:func:`evogp.tree.batch_engine._plan_entry` needs the programs for the plan's
+    content key) -- that is the only way the decode is not paid twice; ``None``
+    decodes here, which is what :func:`evogp.tree.batch_engine.plan_batch` relies on.
+
+    ``compile_workers`` is resolved with ``resolve_compile_workers`` and then
+    clamped by :func:`_resolve_workers`: the plan is CHUNKED only when the resolved
+    count is ``> 1``, the deduped population has at least
+    ``batch_knobs.MIN_CHUNK_FUNCTIONS`` functions and neither an explicit band count
+    nor ``switch_ops`` is in play.  A chunked plan keeps the GLOBAL function order
+    (``functions`` / ``row_index`` / ``function_rows`` are unchanged and each chunk
+    is a contiguous slice with an ``offset``), so the assembled output order is
+    exactly the single-body plan's.  Both shapes store one
+    :class:`BatchChunk` per compiled body in ``chunks`` (the single-body plan's one
+    chunk mirrors the whole-graph fields), so ``len(plan.chunks)`` is the plan's
+    chunk count.
+    """
+    timer = batch_stages.StageTimer()
     input_len = int(input_len)
     output_len = int(output_len)
-    pop = decode_population(
-        batch_node_value, batch_node_type, batch_subtree_size,
-        input_len, output_len,
-    )
+    if pop is None:
+        with timer.stage("decode"):
+            pop = decode_population(
+                batch_node_value,
+                batch_node_type,
+                batch_subtree_size,
+                input_len,
+                output_len,
+            )
     pop_size = int(pop.pop_size)
     per_row = bool(per_row)
     variant = _normalize_variant(variant, per_row)
     alignment = resolve_alignment(alignment)
     switch_ops = resolve_switch_ops(switch_ops)
+    band_size = resolve_band_size(band_size)
+    explicit_bands = resolve_bands(bands)
     n_rows = 1 if per_row else int(x_host.shape[0])
     if variant == LOSS_VARIANT:
         if n_rows <= 0:
@@ -431,30 +691,137 @@ def _plan_host(
             )
         if label_host is None:
             raise BatchUnsupported("batch_engine: the loss variant needs labels")
-    functions, row_index, function_rows = _dedup(pop, x_host, per_row)
-    band_count = resolve_band_count(
-        len(functions), bands=bands, band_size=band_size, switch_ops=switch_ops
+    with timer.stage("dedup"):
+        functions, row_index, function_rows = _dedup(pop, x_host, per_row)
+    n_functions = len(functions)
+    workers = _resolve_workers(
+        compile_workers, n_functions, bands=explicit_bands, switch_ops=switch_ops
     )
     spec = evoxc.TensorSpec((n_rows, input_len), evoxc.float32)
     label_spec = evoxc.TensorSpec((n_rows, output_len), evoxc.float32)
-    graphs: List[Any] = []
-    for program, const_out in functions:
-        if variant == LOSS_VARIANT:
-            fn = _loss_fn(program, const_out, n_rows, bool(use_mse))
-            graphs.append(_trace(fn, (spec, label_spec), "loss"))
-        else:
-            fn = _value_fn(program, const_out, n_rows)
-            graphs.append(_trace(fn, (spec,), "value"))
+    specs: Tuple[Any, ...] = (spec, label_spec) if variant == LOSS_VARIANT else (spec,)
     axes = 0 if per_row else (None,) * (2 if variant == LOSS_VARIANT else 1)
-    merged = _merge(
-        graphs,
-        axes,
-        switch_ops=switch_ops,
-        bands=None if band_count <= 1 else band_count,
-        alignment=alignment,
+    programs = tuple((tree.program, tree.const_out) for tree in pop.trees)
+    if workers <= 1:
+        band_count = resolve_band_count(
+            n_functions,
+            bands=explicit_bands,
+            band_size=band_size,
+            switch_ops=switch_ops,
+        )
+        with timer.stage("trace"):
+            graphs = _trace_functions(functions, variant, use_mse, n_rows, specs)
+        with timer.stage("merge"):
+            merged = _merge(
+                graphs,
+                axes,
+                switch_ops=switch_ops,
+                bands=None if band_count <= 1 else band_count,
+                alignment=alignment,
+            )
+        report = merged.batch_report.as_dict()
+        plan_band_count = int(report.get("bands", band_count) or 1)
+        plan_graphs = tuple(graphs)
+        plan_specs = tuple(merged.tensor_specs)
+        # One chunk per BODY in both plan shapes: the single-chunk chunk mirrors the
+        # whole-graph fields (same objects) so ``plan.chunks`` is always the
+        # authoritative read surface, while the top-level fields stay populated.
+        chunk = BatchChunk(
+            index=0,
+            offset=0,
+            functions=functions,
+            function_rows=function_rows,
+            graphs=plan_graphs,
+            merged=merged,
+            specs=plan_specs,
+            report=report,
+            band_count=plan_band_count,
+        )
+        plan = BatchPlan(
+            input_len=input_len,
+            output_len=output_len,
+            pop_size=pop_size,
+            variant=variant,
+            use_mse=bool(use_mse),
+            per_row=per_row,
+            n_rows=n_rows,
+            programs=programs,
+            functions=functions,
+            row_index=row_index,
+            function_rows=function_rows,
+            band_count=plan_band_count,
+            switch_ops=bool(switch_ops),
+            alignment=alignment,
+            graphs=plan_graphs,
+            merged=merged,
+            specs=plan_specs,
+            report=report,
+            backend_name=backend_name,
+            device=device,
+            stage_ms=timer.stage_ms,
+            compile_workers=1,
+            chunk_sizes=(n_functions,),
+            chunks=(chunk,),
+        )
+        timer.fold()
+        return plan
+    sizes = chunk_sizes(n_functions, workers)
+    bounds: List[Tuple[int, int]] = []
+    offset = 0
+    for size in sizes:
+        bounds.append((offset, offset + size))
+        offset += size
+    with timer.stage("trace"):
+        traced: List[List[Any]] = [
+            _trace_functions(functions[start:stop], variant, use_mse, n_rows, specs)
+            for start, stop in bounds
+        ]
+    with timer.stage("merge"):
+        merged_graphs: List[Any] = []
+        reports: List[Dict[str, Any]] = []
+        chunk_bands: List[int] = []
+        for (start, stop), graphs in zip(bounds, traced):
+            # Per-chunk band count: the band-SIZE model only -- an explicit band
+            # count and ``switch_ops`` both force the single-body path above.
+            band_count = resolve_band_count(
+                stop - start, bands=None, band_size=band_size, switch_ops=False
+            )
+            chunk_bands.append(band_count)
+            merged_chunk = _merge(
+                graphs,
+                axes,
+                switch_ops=False,
+                bands=None if band_count <= 1 else band_count,
+                alignment=alignment,
+            )
+            merged_graphs.append(merged_chunk)
+            reports.append(merged_chunk.batch_report.as_dict())
+    chunks = tuple(
+        BatchChunk(
+            index=index,
+            offset=start,
+            functions=functions[start:stop],
+            function_rows=function_rows[start:stop],
+            graphs=tuple(graphs),
+            merged=merged_graphs[index],
+            specs=tuple(merged_graphs[index].tensor_specs),
+            report=reports[index],
+            band_count=int(reports[index].get("bands", chunk_bands[index]) or 1),
+        )
+        for index, ((start, stop), graphs) in enumerate(zip(bounds, traced))
     )
-    report = merged.batch_report.as_dict()
-    return BatchPlan(
+    aggregate = {
+        "chunk_count": len(chunks),
+        "chunk_sizes": [len(chunk.functions) for chunk in chunks],
+        "n_functions": n_functions,
+        "emitted_ops": sum(
+            int((chunk.report or {}).get("emitted_ops") or 0) for chunk in chunks
+        ),
+        "bands": None,
+        "band_sizes": None,
+        "band_strategy": None,
+    }
+    plan = BatchPlan(
         input_len=input_len,
         output_len=output_len,
         pop_size=pop_size,
@@ -462,17 +829,23 @@ def _plan_host(
         use_mse=bool(use_mse),
         per_row=per_row,
         n_rows=n_rows,
-        programs=tuple((tree.program, tree.const_out) for tree in pop.trees),
+        programs=programs,
         functions=functions,
         row_index=row_index,
         function_rows=function_rows,
-        band_count=int(report.get("bands", band_count) or 1),
+        band_count=1,
         switch_ops=bool(switch_ops),
         alignment=alignment,
-        graphs=tuple(graphs),
-        merged=merged,
-        specs=tuple(merged.tensor_specs),
-        report=report,
+        graphs=(),
+        merged=None,
+        specs=(),
+        report=aggregate,
         backend_name=backend_name,
         device=device,
+        stage_ms=timer.stage_ms,
+        compile_workers=len(chunks),
+        chunk_sizes=sizes,
+        chunks=chunks,
     )
+    timer.fold()
+    return plan

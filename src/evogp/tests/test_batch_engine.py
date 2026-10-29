@@ -55,10 +55,11 @@ Hermeticity
 * ``backend="numpy"`` is passed EXPLICITLY on every call, so no test can compile
   an iree graph; the single iree leg is ``skipif``-guarded on the IREE packages
   (absent in this venv) plus a CUDA-visible device and therefore SKIPS here.
-* an autouse fixture clears the four merge knobs per test
-  (``EVOGP_BATCH_BAND_SIZE`` / ``BANDS`` / ``SWITCH_OPS`` / ``ALIGNMENT``) and
-  sets ``EVOGP_BATCH_MIN_POP=1``, because every fixture here is smaller than the
-  library's measured break-even (64); the ambient values are restored at teardown.
+* an autouse fixture clears the merge knobs per test
+  (``EVOGP_BATCH_BAND_SIZE`` / ``BANDS`` / ``SWITCH_OPS`` / ``ALIGNMENT`` /
+  ``COMPILE_WORKERS``) and sets ``EVOGP_BATCH_MIN_POP=1``, because every fixture
+  here is smaller than the library's measured break-even (64); the ambient values
+  are restored at teardown.
 * nothing outside ``src/evogp/tests/`` is touched, no file is written, and
   ``reference_eval.py`` (the oracle) is used as-is -- never re-implemented here.
 * neither entry point consults ``EVOGP_EVAL_MODE``, so the file behaves identically
@@ -104,6 +105,7 @@ except ImportError:  # pragma: no cover - only for the importlib import mode
 
 from evogp.tree import Forest  # noqa: E402
 from evogp.tree import batch_engine  # noqa: E402
+from evogp.tree import batch_knobs  # noqa: E402
 from evogp.tree import dense_engine  # noqa: E402
 from evogp.tree import evoxc_engine  # noqa: E402
 
@@ -160,13 +162,18 @@ _THREE_OUTPUT_SPECS: List[Any] = _TWO_OUTPUT_SPECS + [
     te.out_fn(te.SUB, 2, te.var(1), te.const(0.5)),
 ]
 
-#: The merge knobs an ambient value could change under the assertions (all four are
-#: cleared per test; ``MIN_POP`` is SET instead -- see the fixture).
+#: The merge knobs an ambient value could change under the assertions (all of them
+#: are cleared per test; ``MIN_POP`` is SET instead -- see the fixture).  The
+#: compile-worker knob joins them: it decides whether a merged compile is SPLIT into
+#: chunks, which is invisible in the numbers but not in the plan/build records.
+#: It is read through ``getattr`` so this module still COLLECTS while the tree layer
+#: that defines it is landing in parallel.
 _MERGE_KNOBS: Tuple[str, ...] = (
     batch_engine.BAND_SIZE_ENV,
     batch_engine.BANDS_ENV,
     batch_engine.SWITCH_OPS_ENV,
     batch_engine.ALIGNMENT_ENV,
+    getattr(batch_knobs, "COMPILE_WORKERS_ENV", "EVOGP_BATCH_COMPILE_WORKERS"),
 )
 
 #: Every ``describe_plan`` key the route documents (the report is a public seam).
@@ -199,11 +206,12 @@ _DESCRIBE_KEYS = frozenset(
 
 @pytest.fixture(autouse=True)
 def _batch_knobs() -> Iterator[None]:
-    """Clear the four merge knobs and admit small populations, per test.
+    """Clear the merge knobs and admit small populations, per test.
 
-    ``EVOGP_BATCH_BAND_SIZE`` / ``BANDS`` / ``SWITCH_OPS`` / ``ALIGNMENT`` are
-    DELETED (not pinned to a default) so each test states the merge shape it wants
-    through an explicit argument and an ambient value can never change it.
+    ``EVOGP_BATCH_BAND_SIZE`` / ``BANDS`` / ``SWITCH_OPS`` / ``ALIGNMENT`` /
+    ``COMPILE_WORKERS`` are DELETED (not pinned to a default) so each test states
+    the merge shape it wants through an explicit argument and an ambient value can
+    never change it (nor split a compile into chunks behind the numbers).
 
     ``EVOGP_BATCH_MIN_POP`` is SET to ``1``: the library default (64) is the
     measured call-count break-even, i.e. a real decline for every fixture in this
@@ -211,7 +219,7 @@ def _batch_knobs() -> Iterator[None]:
     the only way to admit a small population (the decline itself is exercised by
     :func:`test_population_below_the_threshold_declines`).
 
-    The previous values of all five names are restored at teardown, so the rest of
+    The previous values of all six names are restored at teardown, so the rest of
     the suite is unaffected.
     """
     names = _MERGE_KNOBS + (batch_engine.MIN_POP_ENV,)

@@ -85,21 +85,26 @@ Two variants exist: `value` (`(pop, N, out_len)`; `per_row` selects the `(pop, i
 | `EVOGP_BATCH_SWITCH_OPS` | off | op-switching transform; forces the flat merge (`K = 1`) and is **not** combined with banding |
 | `EVOGP_BATCH_ALIGNMENT` | `variant` | `variant` / `occurrence` / `auto`; a pure evoxc performance heuristic, can never change the numbers |
 | `EVOGP_BATCH_CACHE_SIZE` | `8` | entries of both front tables; read at **import** time like `EVOGP_EVOXC_CACHE_SIZE` |
+| `EVOGP_BATCH_COMPILE_WORKERS` | `4` | compile chunks per plan; `0`/`1` mean today's single-executable path verbatim (see §8.1); negative or non-integer raises `ValueError` |
 
 Banding trades dispatches for wasted work: `K` bands means `K` `select` cascades instead of one per
 population. `bands="auto"` is deliberately not offered (it is CPU-calibrated, resolves to `K=1` here,
 and only costs a static cost-model run). Only unset/empty hands the decision to the band-size model; the
 flat spellings are an explicit `K = 1` (§9.1).
 
-Front tables (`dense_memo.DenseMemo`, identity/count-keyed, **not** content-hashed): `BATCH_PLAN_MEMO`
-maps the three population identity tokens (`data_ptr`/shape/dtype/device/`_version`, so an in-place write
-is a miss by construction) plus every resolved plan parameter to a `BatchExecutable`, so an unchanged
-population re-decodes, re-traces and re-merges nothing; `BATCH_EXEC_MEMO` keys the *compiled body* on the
-actual function multiset + shape + backend/device/options and **re-binds** a hit to the caller's plan
-(pop size, row mapping and staged inputs are always the caller's — see the module docstring). Both are
-dropped by `evoxc_engine.clear_cache()`; `batch_cache_stats()` reports their 8 counters
-(`batch_plan_*`, `batch_exec_*`) and is a separate function because `cache_stats()` /
-`dense_cache_stats()` / `artifact_cache_stats()` are pinned by the suite.
+Front tables (`batch_keys.py`; `dense_memo.DenseMemo`, identity/count-keyed): `BATCH_PLAN_MEMO` maps the three
+population identity tokens (`data_ptr`/shape/dtype/device/`_version`, so an in-place write is a miss by
+construction) plus every resolved plan parameter (including `compile_workers`) to a `BatchExecutable`, so
+an unchanged population re-decodes, re-traces and re-merges nothing; `BATCH_EXEC_MEMO` keys the
+*compiled body* on the actual function multiset + shape + backend/device/options -- plus, when chunked, the
+partition `(chunk_count, chunk_sizes, chunk_index)` -- and **re-binds** a hit to the caller's plan (pop
+size, row mapping and staged inputs are always the caller's — see `batch_keys.py`'s module docstring).
+`BATCH_CONTENT_MEMO` is the third table: a *content*-addressed plan lookup (decoded programs + `x`, §8.3)
+that serves a rebuilt-but-equal `Forest` instead of re-planning it (§8).
+All three are dropped by `evoxc_engine.clear_cache()`; `batch_cache_stats()` reports only the 8 identity/
+executable counters (`batch_plan_*`, `batch_exec_*`), `batch_content_stats()` the 5 content counters, and
+both are separate functions because `cache_stats()` / `dense_cache_stats()` / `artifact_cache_stats()` are
+pinned by the suite.
 
 ## 5. Measurements
 
@@ -220,18 +225,68 @@ index (`DENSE_EVAL.md` §5), i.e. not a property of the merge.
   cold), which is the number to watch when raising `EVOGP_BATCH_MIN_POP` or lowering the band size; a very
   fine banding (~one band per function at 200+ functions) does not LOAD on the ROCm HAL (§5.1).
 
+## 8. Chunked compile, stage timer and content-addressed plan key
+
+### 8.1 Compile chunking (`EVOGP_BATCH_COMPILE_WORKERS`, `batch_chunks.py`)
+The plan's DEDUPED function list is cut into `W` contiguous chunks and each chunk is traced, merged, lowered, compiled and loaded as its own executable; the `W = 1` case is the single-body path verbatim.
+`W = resolve_compile_workers()` (`explicit argument > environment > DEFAULT_COMPILE_WORKERS = 4`); `0` and `1` both mean the single-executable path.
+`W` is forced to `1` when `W <= 1`, when the deduped function count is below `batch_knobs.MIN_CHUNK_FUNCTIONS` (`32`), when `resolve_bands(bands) is not None` (any explicit band count, the flat spellings included) or when `resolve_switch_ops(switch_ops)` is true -- those knobs keep their documented per-plan meaning, so ROUND 2's band sweep runs on the `W = 1` path.
+Otherwise `W = min(W, n_functions // MIN_CHUNK_FUNCTIONS)`, and the partition is `base = n // W` with the remainder handed to the first chunks (`chunk_sizes`).
+Chunks carry GLOBAL function indices (`BatchChunk.offset` is the chunk's first index, `BatchChunk.function_rows` are global population rows), so row order and the assembled `(pop_size,)` / `(pop_size, N, out_len)` / `(pop_size, out_len)` results are exactly the single-body plan's.
+Per-chunk band counts come from the band-SIZE model only (`resolve_band_count(chunk_len, bands=None, band_size=..., switch_ops=False)`); `BatchPlan.band_count` is `1` for a chunked plan and the truth lives in `BatchChunk.band_count`.
+Trace and merge stay SEQUENTIAL in the calling thread (evoxc's transforms are only proven thread-safe for the compile triple); only `evoxc.lower` / `evoxc.compile` / `evoxc.load` run in a `ThreadPoolExecutor(max_workers=W)` -- the iree compile is a subprocess and releases the GIL.
+Pool jobs each own a `batch_stages.StageTimer` and fold it once under the module lock; a chunk failure PROPAGATES (it is a bug, not a `BatchUnsupported` decline) and the first exception is re-raised.
+`plan.chunks` holds exactly one `BatchChunk` per compiled body in BOTH plan shapes, so `len(plan.chunks) == describe_plan(plan)["chunk_count"] >= 1` is always the chunk count and `plan.chunks` is always the authoritative read surface.
+A single-chunk plan's `chunks[0]` (`index=0`, `offset=0`) mirrors the whole-graph fields object-for-object: `plan.chunks[0].merged is plan.merged`, `plan.chunks[0].report is plan.report` and `plan.chunks[0].specs == plan.specs`.
+`plan.merged` / `plan.graphs` / `plan.specs` are populated only when `chunk_count == 1`; a chunked plan sets them empty (`()` / `None`) with an aggregate `plan.report` (`chunk_count`, `chunk_sizes`, `n_functions`, summed `emitted_ops`, `bands`/`band_sizes`/`band_strategy` `None`), and its per-chunk graphs/specs/reports live in `plan.chunks`.
+`BatchExecutable.executable` is `executables[0]` for a single-chunk plan and `None` when chunked; every internal read site goes through `executables`/`chunks`, and the build/run paths take the single-body branch exactly when `len(plan.chunks) == 1`.
+
+### 8.2 Stage timer surface (`batch_stages.py`)
+Ten stages: `decode`, `dedup`, `trace`, `merge`, `lower`, `compile`, `load`, `upload`, `run`, `gather`.
+`batch_engine.batch_stage_stats()` reports exactly 32 keys -- `batch_<stage>_calls` / `_total_ms` / `_max_ms` for each stage plus `batch_compile_wall_ms` (wall clock of the whole parallel compile/load region) and `batch_compile_jobs` (chunk bodies actually built in the call; `0` when every chunk was a memo hit).
+`batch_stage_reset()` zeroes all 32; both are thin delegations and are deliberately NOT folded into `batch_cache_stats()`.
+The same numbers are recorded per record: `BatchPlan.stage_ms` (`decode` / `dedup` / `trace` / `merge` of the call that built it) and `BatchExecutable.build_stage_ms` (`lower` / `compile` / `load` totals plus `lower#<chunk>` / `compile#<chunk>` / `load#<chunk>`).
+Timing is measurement only: it never reorders work, and `gather` covers the readback `.to(_CPU).numpy()` plus `_map_rows` plus the final `_to_tensor`.
+Thread safety: pool workers accumulate into their own `StageTimer` and fold once under one module lock; the main thread uses the module-level `stage()`.
+Runs stay SEQUENTIAL even when chunked -- one device, one stream, and the readbacks must stay ordered.
+
+### 8.3 Content-addressed plan key (`BATCH_CONTENT_MEMO`)
+`BATCH_PLAN_MEMO` is identity-keyed, so a rebuilt `Forest` with identical content used to re-plan from scratch.
+The lookup is now two-level: identity tokens first (a repeat call on unchanged tensors still skips even the decode), then, on an identity miss, ONE decode followed by a `blake2b(digest_size=32)` digest over each row's decoded representation (`program` tokens + `const_out`, in population order) plus the `per_row` flag and, when `per_row`, each row's `x` bytes.
+The content key also carries every resolved plan parameter (`input_len`, `output_len`, `n_rows`, `per_row`, `variant`, `use_mse`, `band_size`, `bands`, `switch_ops`, `alignment`, `compile_workers`, backend, device) and is versioned by `PROGRAM_DIGEST_FORMAT`.
+A content hit is served only after `plan.programs` is verified against the just-decoded programs; a collision or verification failure rebuilds, is counted as a content MISS and increments `batch_content_rejects`, and the refused entry is dropped.
+So `batch_content_hits` counts only entries actually SERVED, never a refused one.
+The content entry is stored with `pins=()` (no population-specific storage pinned) while the identity entry keeps the call's pins via `dataclasses.replace`; `batch_content_stats()` reports `batch_content_hits` / `_misses` / `_entries` / `_maxsize` / `_rejects`.
+The executable key stays ORDER-SENSITIVE on purpose: the function-axis order IS the output order (`row_index` indexes it and bands are contiguous slices of it), so an order-insensitive key could serve a body whose row mapping is wrong.
+`_plan_host` decodes only when `pop is None` and `_plan_entry` passes its already-decoded population in, so a rebuild still calls `_plan_host` exactly once and decodes exactly once.
+
+### 8.4 Measured (MI300X, iree, pop 256 x L=32 x i8 x N=1024, sequential single process, box shared with other agents)
+Cold `Forest.SR_fitness` wall (fresh process, `clear_cache()` first, 236 deduped functions): `W=1` 10.90 s -> `W=2` 6.68 s -> `W=4` 5.27 s -> `W=8` 4.53 s (7 chunks), i.e. 1.63x / 2.07x / 2.40x faster; the compile region's own wall goes 10.47 s -> 4.75 s (4.75x on the sum of per-chunk lower+compile+load work) because more bodies give the pool more parallel work.
+Warm call cost grows with the chunk count: 1.88 ms (`W=1`) / 2.45 ms (`W=2`) / 3.45 ms (`W=4`) / 5.84 ms (`W=8`) -- one extra upload + `evoxc.run` + readback per chunk, which is the price of the cold win; share the staged input across chunks (it is identical for `per_row=False`) before raising the default.
+Cold stage split at `W=4` (5.15 s call): compile region 4.75 s (92%), `merge` 225 ms + `trace` 88 ms (6%), `upload`/`run`/`gather` 59 ms (1%), `decode` 3.3 ms + `dedup` 0.1 ms (<0.1%).
+Inside the compile region the sum of per-chunk work is 18.2 s (`lower` 3.0 s, `compile` 14.9 s, `load` 0.33 s) compressed into a 4.75 s wall.
+Warm stage split at `W=4`: `run` 1.92 ms, `upload` 0.92 ms, `gather` 0.83 ms.
+Numerics: on **numpy** the chunked path is bitwise identical to the single-body path for all four variants (value `per_row`, value shared-`x`, loss MSE, loss MAE) -- identical finite bits and identical NaN masks.
+On **iree** the loss path was bitwise identical on the checked fixture while the value path differed on 78 of 16128 finite elements (max 2.4e-7 absolute / 1.4e-6 relative, values up to 1.6e25); repeated runs of the SAME partition are bit-identical, so the difference is the documented iree FMA-contraction class reacting to a different band merge, not a defect.
+
 ## 9. Contracts moved out of the module docstrings
 
-The batch route is three modules under `src/evogp/tree/` (one concern each); `batch_engine` stays the
+The batch route is six modules under `src/evogp/tree/` (one concern each); `batch_engine` stays the
 public facade and re-exports everything, so no caller changes:
 
 | module | owns |
 | --- | --- |
 | `batch_knobs.py` | the `EVOGP_BATCH_*` constants, the `resolve_*` helpers, the `value`/`loss` variant rules (`_normalize_variant`) and `BatchUnsupported` |
 | `batch_programs.py` | host-side program handling: input/label conversion, per-function graph bodies, dedup, trace, merge, `_plan_host`, and the `BatchPlan` / `BatchExecutable` records |
-| `batch_engine.py` | the plan/executable front tables, the plan memo (`_plan_entry`), `plan_batch` / `build_batch` / `evaluate_batch` / `sr_fitness_batch` / `describe_plan`, the backend resolution and `batch_cache_stats()` |
+| `batch_chunks.py` | the compile-side chunk orchestration: `chunk_sizes`, the `lower`/`compile`/`load` thread pool and its per-job stage timers |
+| `batch_stages.py` | the per-stage timer surface behind `batch_stage_stats()` |
+| `batch_keys.py` | the three front tables (`BATCH_PLAN_MEMO` / `BATCH_CONTENT_MEMO` / `BATCH_EXEC_MEMO`, incl. the `_ContentMemo` subclass), `_default_cache_size`, the invalidation hook `_clear_tables`, `batch_cache_stats()` / `batch_content_stats()`, the memo keys `_executable_key` / `_chunk_executable_key` (via `_body_key`) and the fit guard `_check_executable_matches` / `_spec_shapes` |
+| `batch_run.py` | the run path: `_input_block`, `_inputs` staging, `_run` (one `evoxc.run` per body), `_readback`, `_map_rows` and `_to_tensor` |
+| `batch_engine.py` | the plan memo (`_plan_entry`), `plan_batch` / `build_batch` / `evaluate_batch` / `sr_fitness_batch` / `describe_plan`, the backend resolution and `batch_stage_stats()` |
 
-`batch_engine` may import the two siblings; neither imports `batch_engine` back at module level.
+`batch_engine` may import the five siblings; none of them imports `batch_engine` back at module level.
+`batch_keys` and `batch_run` are read by the facade only, and the facade re-exports their names, so
+`evogp.tree.batch_engine.<name>` stays the one import path for callers, tests and the benchmark harness.
 
 ### 9.1 Bands and `switch_ops`, in detail
 
@@ -264,6 +319,7 @@ lifetime of the process.
 
 ### 9.3 Front tables: why a repeated call is cheap
 
+The tables and the memo keys they are driven by live in `batch_keys.py`.
 `BATCH_PLAN_MEMO` maps the three population identity tokens (`dense_memo.token`:
 `data_ptr`/shape/dtype/device/`_version`, so an in-place mutation is a miss by construction) plus every
 resolved plan parameter to the `BatchExecutable`: a repeated evaluation of an unchanged population does no
@@ -272,7 +328,8 @@ memoized — `_host_rows` (and, for the loss variant, `_host_labels`) run before
 because the key carries the converted row count and the label shape check needs the converted rows.
 `BATCH_EXEC_MEMO` keys the same executable on the ACTUAL program multiset plus the
 shape/backend/device/options, so the same programs in a fresh population object still hit. Both tables are
-dropped by `evoxc_engine.clear_cache()` (the engine's single invalidation point) and counted by
+dropped by `evoxc_engine.clear_cache()` (the engine's single invalidation point, which calls the
+`_clear_tables` hook registered there) and counted by
 `batch_cache_stats()` — a separate function, because `cache_stats()` (8 keys) and `dense_cache_stats()`
 are pinned by the suite.
 
@@ -310,8 +367,10 @@ would make `graph.static_values` differ per tree and make `batch_functions` rais
 
 ## 10. Pointers
 
-* `batch_engine.py` (public facade) / `batch_programs.py` / `batch_knobs.py` — the implementation; the
-  facade's module docstring carries the API, the decline list and the pointer to this document.
+* `batch_engine.py` (public facade) / `batch_keys.py` (front tables + memo keys) / `batch_run.py` (run
+  path) / `batch_programs.py` / `batch_chunks.py` / `batch_stages.py` / `batch_knobs.py` — the
+  implementation; the facade's module docstring carries the API, the decline list, the chunked-compile
+  contract and the pointer to this document, and §9's table says which module owns what.
 * `DENSE_EVAL.md` — the sibling route's design document (same role: scheme, knobs, economics, fallback).
 * `CONTEXT.md` (this directory) — where the three engines sit in the package and the route policy.
 * `ENGINE_SPEC.md` — semantics of record (op table, evaluation order, SR fitness); the batch route
