@@ -351,6 +351,11 @@ def resolve_band_count(
     clamped into ``1 <= K <= n_functions``; an explicit ``K`` outside that range
     raises ``ValueError`` naming ``EVOGP_BATCH_BANDS`` (it cannot be honoured, so
     silently clamping would hide a typo).
+
+    The ``auto`` spelling is REFUSED here: it names no count before the merge
+    (evoxc's cost model picks the partition at merge time), so a caller that wants
+    it must go through :func:`evogp.tree.batch_bands.plan_band_spec`, which is the
+    policy-aware resolver that can carry ``auto`` that far.
     """
     total = int(n_functions)
     if total < 1:
@@ -358,6 +363,14 @@ def resolve_band_count(
     if resolve_switch_ops(switch_ops):
         return 1
     explicit = resolve_bands(bands)
+    if isinstance(explicit, str):  # the ``auto`` spelling: no count to resolve here
+        raise ValueError(
+            f"{BANDS_ENV}={explicit!r} has no band count to resolve here: the "
+            "automatic partition is chosen by evoxc's cost model at merge time, so "
+            "the count only exists on the merged graph's batch_report (ask "
+            f"{BANDS_ENV}=auto through plan_band_spec, or pass an explicit integer "
+            f"K); this helper resolves / validates an explicit count only"
+        )
     if explicit is not None:
         if not 1 <= explicit <= total:
             raise ValueError(
