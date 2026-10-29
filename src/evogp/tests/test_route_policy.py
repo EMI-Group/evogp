@@ -1,4 +1,4 @@
-"""Route-policy regression tests: dense vs specialized AND the backend it picks.
+"""Route-policy regression tests: dense vs specialized vs the opt-in batch engine.
 
 ``evogp.tree.dense_engine.resolve_route`` is the ONE route policy the five wired
 call sites ask (``Forest.forward`` / ``Forest.batch_forward`` /
@@ -17,6 +17,13 @@ engine.  This module pins that policy:
   device;
 * ``EVOGP_EVAL_MODE=specialized`` never uses dense; ``EVOGP_EVAL_MODE=dense``
   uses the device backend on a device box and ``numpy`` elsewhere;
+* the OPT-IN batch route (``EVOGP_EVAL_MODE=batch``, the merged-graph engine in
+  ``evogp.tree.batch_engine``): always attempted, with NO pop/rows gate -- the
+  explicitly named backend, else ``iree`` on a device box and ``numpy``
+  elsewhere, with a specialized+``numpy`` fallback, and named by
+  ``Route.engine`` / ``Route.use_batch`` rather than by the dense flag;
+* ``auto`` NEVER selects batch, and neither does ``dense`` / ``dynamic`` /
+  ``specialized``: the opt-in switch is the only way into the batch engine;
 * the rows rule (``EVOGP_DENSE_AUTO_MAX_ROWS``, ``auto_rows_decline``) is
   unchanged and still only gates ``auto``;
 * ``resolve_route`` and ``should_use_dense`` agree everywhere (one rule).
@@ -239,12 +246,21 @@ def test_rows_rule_declines_auto_to_specialized_numpy(monkeypatch):
 # 6. one rule: `should_use_dense` is the boolean view of `resolve_route`
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("available", [True, False])
-@pytest.mark.parametrize("eval_mode", [None, "auto", "dense", "dynamic", "specialized"])
+@pytest.mark.parametrize(
+    "eval_mode", [None, "auto", "dense", "dynamic", "specialized", "batch"]
+)
 @pytest.mark.parametrize("backend", [None, "numpy", "iree"])
 @pytest.mark.parametrize("pop", [1, 16, 64, 256])
 def test_resolve_route_and_should_use_dense_agree(
     pop, backend, eval_mode, available, monkeypatch
 ):
+    """The boolean view and the full route never disagree, batch included.
+
+    ``batch`` is part of the matrix on purpose: it resolves to
+    ``use_dense=False`` everywhere, so the dense flag stays the DENSE half of the
+    policy only -- and the backend assertions below therefore also cover the
+    route the batch engine is handed (both fields are always engine names).
+    """
     on_device_box(monkeypatch, available=available)
     for rows in (None, ROWS_OK, ROWS_OVER):
         route = dense.resolve_route(
@@ -256,7 +272,164 @@ def test_resolve_route_and_should_use_dense_agree(
             )
             is route.use_dense
         ), (pop, backend, eval_mode, available, rows)
-        # the route always names a concrete backend for both halves
+        # the route always names a concrete engine and a concrete backend for
+        # both halves
+        assert route.engine in dense.ENGINES
+        assert route.backend in dense_engine_backends()
+        assert route.fallback_backend in dense_engine_backends()
+
+
+# --------------------------------------------------------------------------- #
+# 7. the opt-in batch route (`EVOGP_EVAL_MODE=batch`)
+# --------------------------------------------------------------------------- #
+def test_batch_on_a_device_box_runs_iree_with_a_numpy_fallback(monkeypatch):
+    """Batch is unconditional on a device box: iree, falling back to numpy.
+
+    The merged graph needs ONE backend for the whole population, so the device
+    branch mirrors the dense one (``iree``); the fallback is the specialized
+    engine on ``numpy``, because a per-tree iree compile can never amortize after
+    a ``BatchUnsupported``.  ``engine``/``use_batch`` -- not ``use_dense`` -- are
+    what report the batch engine.
+    """
+    on_device_box(monkeypatch)
+    for pop in (1, BELOW, ABOVE, 10 ** 3):
+        route = dense.resolve_route(pop, eval_mode="batch")
+        assert route.engine == "batch", pop
+        assert route.use_batch is True, pop
+        assert route.use_dense is False, pop
+        assert route.backend == "iree", pop
+        assert route.fallback_backend == "numpy", pop
+        assert "batch" in route.reason and "iree" in route.reason, pop
+
+
+@pytest.mark.parametrize("pop", [1, BELOW, ABOVE, 10 ** 3])
+def test_batch_on_a_cpu_box_stays_numpy_on_numpy(pop, monkeypatch):
+    """With no usable device the batch route is numpy on both halves, and says so."""
+    on_device_box(monkeypatch, available=False)
+    route = dense.resolve_route(pop, eval_mode="batch")
+    assert route.engine == "batch" and route.use_batch is True
+    assert route.use_dense is False
+    assert route.backend == "numpy" and route.fallback_backend == "numpy"
+    assert "batch" in route.reason and "device" in route.reason
+
+
+@pytest.mark.parametrize("name", ["numpy", "iree"])
+def test_batch_honours_an_explicitly_named_backend(name, monkeypatch):
+    """An explicit backend names BOTH halves of a batch route, on any box.
+
+    Precedence is the policy-wide one (``backend=`` argument, then
+    ``EVOGP_EVOXC_BACKEND``, then the device probe), so the name wins even when a
+    device is available and no probe is needed at all.
+    """
+    for available in (True, False):
+        on_device_box(monkeypatch, available=available)
+        for pop in (1, ABOVE, 10 ** 3):
+            explicit = dense.resolve_route(pop, eval_mode="batch", backend=name)
+            assert explicit.engine == "batch" and explicit.use_batch is True
+            assert explicit.backend == name and explicit.fallback_backend == name
+    # ... and the same name through the environment, with the probe never taken
+
+    def explode():
+        raise AssertionError("the route policy probed the device for an explicit backend")
+
+    monkeypatch.setattr(dense, "_DEVICE_AVAILABLE", None)
+    monkeypatch.setattr(dense.torch.cuda, "is_available", explode)
+    monkeypatch.setenv(EVOXC_BACKEND_ENV, name)
+    routed = dense.resolve_route(BELOW, eval_mode="batch")
+    assert routed.engine == "batch"
+    assert routed.backend == name and routed.fallback_backend == name
+    assert dense._DEVICE_AVAILABLE is None  # not even memoized
+
+
+@pytest.mark.parametrize("pop", [1, BELOW, ABOVE, 10 ** 3])
+def test_batch_route_has_no_pop_or_rows_gate(pop, monkeypatch):
+    """No threshold and no rows ceiling: the batch engine declines for itself.
+
+    ``EVOGP_DENSE_AUTO_MIN_POP`` and ``EVOGP_DENSE_AUTO_MAX_ROWS`` belong to the
+    dense half of the policy, which batch never enters -- a huge ``rows`` value
+    must not turn a batch route into a specialized one, and moving the thresholds
+    anywhere leaves the batch decision untouched.
+    """
+    on_device_box(monkeypatch)
+    for rows in (None, ROWS_OK, ROWS_OVER):
+        route = dense.resolve_route(pop, rows=rows, eval_mode="batch")
+        assert route.engine == "batch" and route.use_batch is True, (pop, rows)
+        assert route.use_dense is False and route.backend == "iree", (pop, rows)
+        assert dense.should_use_dense(pop, rows=rows, eval_mode="batch") is False
+    monkeypatch.setenv(dense.AUTO_MIN_POP_ENV, str(10 ** 6))
+    monkeypatch.setenv(dense.AUTO_MAX_ROWS_ENV, "1")
+    for rows in (None, ROWS_OK, ROWS_OVER):
+        route = dense.resolve_route(pop, rows=rows, eval_mode="batch")
+        assert route.engine == "batch" and route.use_batch is True, (pop, rows)
+        assert dense.AUTO_MIN_POP_ENV not in route.reason, "batch is not the dense half"
+
+
+def test_route_engine_and_use_dense_stay_consistent():
+    """``Route`` owns the invariant ``use_dense == (engine == "dense")``.
+
+    A call site can therefore never end up trying two engines at once: a batch
+    route must say ``use_dense=False``, a dense engine must say
+    ``use_dense=True``, an old-style ``Route(True, ...)`` (no ``engine=``) is
+    promoted to ``engine="dense"``, and an unknown engine name is rejected.
+    """
+    assert dense.Route(False, "numpy", "numpy").engine == "specialized"
+    assert dense.Route(False, "numpy", "numpy").use_batch is False
+    promoted = dense.Route(True, "iree", "numpy")
+    assert promoted.engine == "dense" and promoted.use_batch is False
+    batch = dense.Route(False, "iree", "numpy", "why", engine="batch")
+    assert batch.engine == "batch" and batch.use_batch is True
+    with pytest.raises(ValueError):
+        dense.Route(True, "iree", "numpy", engine="batch")
+    with pytest.raises(ValueError):
+        dense.Route(False, "iree", "numpy", engine="dense")
+    with pytest.raises(ValueError):
+        dense.Route(False, "iree", "numpy", engine="merged")
+
+
+def test_batch_route_equality_ignores_the_engine_field():
+    """``Route.engine`` is ``compare=False``: pin it, never compare whole routes.
+
+    A batch route compares EQUAL to an old three-field record with the same
+    backends and reason, so "the policy picked batch" can only be asserted
+    through ``route.engine`` / ``route.use_batch`` (which is what the tests above
+    do).  The exclusion is deliberate: it keeps every equality check written
+    against the previous three-field ``Route`` meaning the same thing.
+    """
+    old_style = dense.Route(False, "iree", "numpy", "why")
+    batch = dense.Route(False, "iree", "numpy", "why", engine="batch")
+    assert old_style == batch  # the derived field is excluded on purpose
+    assert old_style.engine != batch.engine
+    assert old_style.use_batch is False and batch.use_batch is True
+
+
+# --------------------------------------------------------------------------- #
+# 8. `auto` NEVER selects the batch engine
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("available", [True, False])
+@pytest.mark.parametrize("backend", [None, "numpy", "iree"])
+@pytest.mark.parametrize(
+    "eval_mode", [None, "auto", "dense", "dynamic", "specialized"]
+)
+@pytest.mark.parametrize("pop", [1, 16, 64, 256, 10 ** 4])
+def test_auto_never_selects_the_batch_route(
+    pop, backend, eval_mode, available, monkeypatch
+):
+    """Batch is opt-in ONLY: no policy combination may route a call there.
+
+    The merged graph is a different trade-off (one graph for the whole
+    population, its own ``EVOGP_BATCH_MIN_POP``), so it is never a silent default
+    -- not at the large-pop device case that picks dense, and not at any
+    ``dense`` / ``dynamic`` / ``specialized`` opt-in either.  Only
+    ``EVOGP_EVAL_MODE=batch`` (section 7) reaches it.
+    """
+    on_device_box(monkeypatch, available=available)
+    for rows in (None, ROWS_OK, ROWS_OVER):
+        route = dense.resolve_route(
+            pop, rows=rows, backend=backend, eval_mode=eval_mode
+        )
+        assert route.engine != "batch", (pop, backend, eval_mode, available, rows)
+        assert route.use_batch is False, (pop, backend, eval_mode, available, rows)
+        assert route.engine in dense.ENGINES
         assert route.backend in dense_engine_backends()
         assert route.fallback_backend in dense_engine_backends()
 

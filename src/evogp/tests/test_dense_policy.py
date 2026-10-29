@@ -14,6 +14,11 @@ Coverage
   folded, before validation), the canonical ``EVAL_MODES`` table, unknown values
   raising a ``ValueError`` naming ``EVOGP_EVAL_MODE``, empty/``None`` meaning
   ``auto``, the explicit-argument-wins rule and the per-call environment read.
+* ``batch``, the opt-in THIRD engine (:mod:`evogp.tree.batch_engine`): a
+  canonical mode of its own (no alias, and no alias value points at it), forced
+  through the same master switch from the argument or ``EVOGP_EVAL_MODE``, and
+  never reported by ``should_use_dense`` / the ``auto`` rows rule -- the batch
+  engine is named by ``Route.engine`` / ``Route.use_batch`` instead.
 * The alias as a FIRST-CLASS spelling: ``should_use_dense`` /
   ``auto_rows_decline`` behave exactly as for ``dense`` (an explicit opt-in is
   never second-guessed by the ``auto`` rows rule), while ``auto`` keeps its
@@ -43,8 +48,9 @@ outcomes).  Like the battery, this module
   scenario resets the process-global once-per-process flag through
   ``monkeypatch``, and warnings are captured inside
   ``warnings.catch_warnings`` so nothing leaks into the suite summary;
-* leaves the ROUTE policy (dense vs specialized and the backend it picks:
-  ``resolve_route`` / ``device_available``, the device-vs-CPU branches and the
+* leaves the ROUTE policy (dense vs specialized vs the opt-in batch engine, and
+  the backend it picks: ``resolve_route`` / ``device_available``, the
+  device-vs-CPU branches, the batch route's iree/numpy decision and the
   explicit-backend precedence) to ``test_route_policy.py``, and asks the policy
   here only through explicit ``backend=`` / ``eval_mode=`` arguments.
 * works under ``EVOGP_EVAL_MODE=dense`` (and any other forced mode), because every
@@ -289,14 +295,30 @@ def test_canonical_eval_modes_round_trip_case_insensitively(mode):
 
 
 def test_eval_mode_tables_stay_canonical():
-    """The alias lives in its own table; ``EVAL_MODES`` stays the canonical tuple."""
-    assert tuple(dense.EVAL_MODES) == ("dense", "specialized", "auto")
+    """The alias lives in its own table; ``EVAL_MODES`` stays the canonical tuple.
+
+    ``batch`` is the opt-in THIRD engine: a canonical mode (never an alias, and no
+    alias value may point at it), listed before ``auto`` so the default stays the
+    last entry, and named in ``ENGINES`` next to the two engines the policy had
+    before it.
+    """
+    assert tuple(dense.EVAL_MODES) == ("dense", "specialized", "batch", "auto")
+    assert tuple(dense.ENGINES) == ("specialized", "dense", "batch")
     assert dense.DEFAULT_EVAL_MODE == "auto"
+    assert dense.DEFAULT_EVAL_MODE == dense.EVAL_MODES[-1]
     assert dict(dense.EVAL_MODE_ALIASES) == {"dynamic": "dense"}
     assert dense.EVAL_MODE_ENV == "EVOGP_EVAL_MODE"
     # the alias target is canonical, i.e. `dynamic` is not a mode of its own
     assert set(dense.EVAL_MODE_ALIASES.values()) <= set(dense.EVAL_MODES)
     assert "dynamic" not in dense.EVAL_MODES
+    # every engine names a canonical mode, and `auto` (a policy, not an engine)
+    # names none
+    assert set(dense.ENGINES) <= set(dense.EVAL_MODES)
+    assert "auto" not in dense.ENGINES
+    # `batch` is reached by its own spelling only, never through the alias table
+    assert "batch" in dense.EVAL_MODES and "batch" in dense.ENGINES
+    assert "batch" not in dense.EVAL_MODE_ALIASES
+    assert "batch" not in set(dense.EVAL_MODE_ALIASES.values())
 
 
 @pytest.mark.parametrize("unknown", ["dynamic2", "dens", "DINAMIC", "0"])
@@ -306,6 +328,7 @@ def test_unknown_eval_mode_raises_naming_the_env_var(unknown, monkeypatch):
     message = str(excinfo.value)
     assert dense.EVAL_MODE_ENV in message
     assert "dynamic" in message  # the alias table is part of the message
+    assert "batch" in message  # ... and so is every canonical mode, batch included
     monkeypatch.setenv(dense.EVAL_MODE_ENV, unknown)
     with pytest.raises(ValueError, match=dense.EVAL_MODE_ENV):
         dense.resolve_eval_mode()
@@ -348,6 +371,59 @@ def test_eval_mode_env_is_read_per_call(monkeypatch):
     monkeypatch.setenv(dense.EVAL_MODE_ENV, "not-a-mode")
     with pytest.raises(ValueError, match=dense.EVAL_MODE_ENV):
         dense.resolve_eval_mode()
+
+
+# --------------------------------------------------------------------------- #
+# 1b. `batch`: the opt-in third engine is a mode of the same master switch
+# --------------------------------------------------------------------------- #
+def test_batch_mode_is_forced_by_the_argument_and_by_the_env(monkeypatch):
+    """``batch`` reaches ``resolve_eval_mode`` exactly like ``dense`` does.
+
+    The mode is resolved per call from the explicit argument or from
+    ``EVOGP_EVAL_MODE`` (no memo), so flipping either between calls flips the
+    resolved mode back -- which is what lets a process compare routes without a
+    restart, and what makes a forced-batch run independent of the caller.
+    """
+    assert dense.resolve_eval_mode("batch") == "batch"
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "batch")
+    assert dense.resolve_eval_mode() == "batch"
+    assert dense.resolve_eval_mode(None) == "batch"
+    # per-call read: the environment is consulted fresh on every call
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "specialized")
+    assert dense.resolve_eval_mode() == "specialized"
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "batch")
+    assert dense.resolve_eval_mode() == "batch"
+
+
+def test_batch_mode_obeys_the_explicit_argument_wins_rule(monkeypatch):
+    """An explicit ``eval_mode=`` always beats ``EVOGP_EVAL_MODE``, batch included."""
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "batch")
+    assert dense.resolve_eval_mode("specialized") == "specialized"
+    assert dense.resolve_eval_mode("dense") == "dense"
+    assert dense.resolve_eval_mode("auto") == "auto"
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "specialized")
+    assert dense.resolve_eval_mode("batch") == "batch"
+    # an explicit empty value still means the default, not the ambient batch
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "batch")
+    assert dense.resolve_eval_mode(" ") == "auto"
+
+
+@pytest.mark.parametrize("pop", [1, 4, POP_SIZE, 10 ** 4])
+@pytest.mark.parametrize("rows", [None, ROWS, HUGE_ROWS])
+def test_batch_mode_is_never_the_dense_half_of_the_policy(pop, rows):
+    """A ``batch`` opt-in is NOT a dense opt-in for the wired call sites.
+
+    The batch engine owns the whole population (reported by ``Route.engine`` /
+    ``Route.use_batch``), so ``should_use_dense`` must stay ``False`` at every
+    size and row count -- and the ``auto`` rows rule, which belongs to the dense
+    half, must not report a decline for it either.
+    """
+    for backend in ("numpy", "iree"):
+        assert (
+            dense.should_use_dense(pop, eval_mode="batch", backend=backend, rows=rows)
+            is False
+        ), (pop, backend, rows)
+    assert dense.auto_rows_decline(rows, eval_mode="batch") is None
 
 
 # --------------------------------------------------------------------------- #
