@@ -39,6 +39,17 @@ WHAT IT CHECKS
    ``EVOGP_FUSED_NUM_WARPS`` in {1,2,4} on the same six cells, one process per
    (config, cell).  The default is chosen by the WORST cell (minimax warm ratio
    against the torch arm), because a route ships one default, not six.
+5. **The route wiring.**  ``--stage wired`` drives the PUBLIC API
+   (``Forest.forward`` / ``Forest.batch_forward`` / ``Forest.SR_fitness``) with
+   ``EVOGP_EVAL_MODE=fused`` set in-process on three small cells and asserts the
+   numbers equal the ``specialized`` reference (value bitwise or ``<= 1e-6``
+   relative, loss ``<= 1e-5``), that the facade SERVED each call (its counters
+   move), that ``resolve_route(pop, eval_mode="fused")`` names the fused engine on
+   ``iree`` with a ``numpy`` fallback while ``pop_size == 1``, a population below
+   ``EVOGP_FUSED_MIN_POP`` and a box without a device stay ``specialized``+``numpy``,
+   that ``auto`` never selects it and that a multi-output population declines into
+   the fallback without launching a kernel.  ``--stage timing --wired`` re-times
+   the six cells through the same public calls.
 
 HOW TO RUN
 ----------
@@ -50,7 +61,10 @@ in the sandbox)::
     PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1 \
     /tmp/rocvenv/bin/python -m evogp.tree.fused_check --stage parity
     ... --stage goldens
+    ... --stage declines
+    ... --stage wired           # EVOGP_EVAL_MODE=fused through the public API
     ... --stage timing          # six cells, one subprocess each
+    ... --stage timing --wired  # the same six cells, through the public API
     ... --stage tuning          # 4 x 3 configs x six cells
     ... --stage all
 
@@ -1025,6 +1039,320 @@ def stage_declines(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# stage 2c: the ROUTE WIRING, driven through the public API only
+# --------------------------------------------------------------------------- #
+def _set_eval_mode(mode: Optional[str]) -> None:
+    """Set ``EVOGP_EVAL_MODE`` in-process (the wired stage drives the public API)."""
+    if mode is None:
+        os.environ.pop("EVOGP_EVAL_MODE", None)
+    else:
+        os.environ["EVOGP_EVAL_MODE"] = mode
+
+
+def _out_node_value(function_id: int, out_index: int) -> float:
+    """float32 bit-reinterpretation of ``struct OutNodeValue{function, outIndex}``.
+
+    The multi-output protocol packs the output index into a node's ``node_value``
+    (``outIndex`` in the high 16 bits, the function id in the low ones), so a
+    hand-built multi-output row needs the raw bit pattern rather than a number.
+    """
+    import struct
+
+    bits = ((int(out_index) & 0xFFFF) << 16) | (int(function_id) & 0xFF)
+    return struct.unpack("<f", struct.pack("<I", bits & 0xFFFFFFFF))[0]
+
+
+def _wired_cells() -> List[Dict[str, Any]]:
+    """The wired stage's cells: two timing cells plus the harness's ``p64`` niche.
+
+    All three are small enough that the specialized+numpy REFERENCE they are
+    compared against costs a few tens of milliseconds, and the ``p64`` cell is
+    exactly the smallest population the fused route serves at the shipped
+    ``EVOGP_FUSED_MIN_POP`` (64).
+    """
+    common = _harness()
+    wanted = {"p256-L32-i8-N1024", "p256-L64-i32-N1024"}
+    cells = [cell for cell in _cells() if cell["id"] in wanted]
+    cells.append(common.cell(64, 64, 32, 64))
+    return cells
+
+
+def _close(stats: Dict[str, Any], limit: float) -> bool:
+    """Value/loss closeness of the wired stage: bitwise OR ``max_rel <= limit``."""
+    if "shape_mismatch" in stats:
+        return False
+    if stats.get("nan_mismatch", 0) or stats.get("inf_mismatch", 0):
+        return False
+    if stats.get("bitwise_equal"):
+        return True
+    return float(stats.get("max_rel", 0.0)) <= limit
+
+
+def stage_wired(args: argparse.Namespace) -> int:
+    """``EVOGP_EVAL_MODE=fused`` end to end, through the PUBLIC API only.
+
+    The parity/goldens stages call :func:`fused_engine.evaluate_fused` directly, so
+    they say nothing about the POLICY.  This stage drives ``Forest.forward`` /
+    ``Forest.batch_forward`` / ``Forest.SR_fitness`` with ``EVOGP_EVAL_MODE`` set
+    in-process and asserts the two things a wiring bug would break:
+
+    1. **The numbers.**  The same three calls under ``fused`` must equal the same
+       calls under ``specialized`` (the reference): the value path bitwise or
+       ``<= VALUE_RTOL`` relative, the loss ``<= LOSS_RTOL`` relative.  The fused
+       facade's counters prove the calls were actually SERVED by this route
+       (``fused_calls`` moves by exactly three per cell) rather than silently
+       falling back, which a passing comparison alone would not show.
+    2. **The decision.**  ``resolve_route(pop, eval_mode="fused")`` names the
+       fused engine on ``iree`` with a ``numpy`` fallback on a device box, is
+       ``specialized``+``numpy`` for ``pop_size == 1`` (a single ``Tree``) and for
+       any population below ``EVOGP_FUSED_MIN_POP``, is ``specialized``+``numpy``
+       when ``device_available()`` is False, and is NEVER produced by ``auto``;
+       ``should_use_dense`` is False for it and the ``Route`` invariant refuses
+       ``use_dense=True`` with ``engine="fused"``.
+
+    A multi-output population (``output_len=2``) must DECLINE into the
+    specialized fallback: same numbers, one ``fused_declines``, and no kernel
+    compiled or scratch buffer allocated (that is what "no fused launch" means --
+    the facade counts the attempt in ``fused_calls`` before it declines).
+    """
+    import torch
+
+    from evogp.tree import Forest
+    from evogp.tree import dense_engine, fused_engine
+
+    common = _harness()
+    compare = _comparator()
+    checks: List[Tuple[str, bool, str]] = []
+
+    def check(name: str, ok: bool, detail: str = "") -> None:
+        checks.append((name, bool(ok), detail))
+
+    saved = {
+        name: os.environ.get(name)
+        for name in ("EVOGP_EVAL_MODE", "EVOGP_EVOXC_BACKEND", "EVOGP_FUSED_MIN_POP")
+    }
+    # Hermetic: the reference leg must be the specialized engine on numpy, so an
+    # ambient backend spelling goes away for the whole stage.
+    os.environ.pop("EVOGP_EVOXC_BACKEND", None)
+    os.environ.pop("EVOGP_FUSED_MIN_POP", None)
+    try:
+        # ---- 1. the policy surface -------------------------------------- #
+        minimum = dense_engine.resolve_fused_min_pop()
+        check(
+            "policy: resolve_fused_min_pop delegates to the one parser",
+            minimum == fused_engine.resolve_min_pop() == 64,
+            f"{minimum} vs fused_engine {fused_engine.resolve_min_pop()}",
+        )
+        route = dense_engine.resolve_route(256, eval_mode="fused")
+        check(
+            "policy: resolve_route(256, fused).engine == 'fused'",
+            route.engine == "fused",
+            route.reason,
+        )
+        check(
+            "policy: fused route is iree with a numpy fallback",
+            (route.backend, route.fallback_backend) == ("iree", "numpy"),
+            f"{route.backend} / {route.fallback_backend}",
+        )
+        check(
+            "policy: fused route is use_fused and not use_dense",
+            route.use_fused and not route.use_dense,
+            f"use_fused={route.use_fused} use_dense={route.use_dense}",
+        )
+        for pop in (1, minimum - 1):
+            below = dense_engine.resolve_route(pop, eval_mode="fused")
+            check(
+                f"policy: pop_size={pop} < {minimum} -> specialized+numpy",
+                (below.engine, below.backend, below.fallback_backend)
+                == ("specialized", "numpy", "numpy"),
+                below.reason,
+            )
+        at_min = dense_engine.resolve_route(minimum, eval_mode="fused")
+        check(
+            f"policy: pop_size={minimum} == EVOGP_FUSED_MIN_POP -> fused",
+            at_min.engine == "fused",
+            at_min.reason,
+        )
+        explicit = dense_engine.resolve_route(256, backend="numpy", eval_mode="fused")
+        check(
+            "policy: an explicit backend spelling is honoured (and declines)",
+            explicit.engine == "fused" and explicit.backend == "numpy",
+            f"{explicit.engine} on {explicit.backend}: {explicit.reason}",
+        )
+        # A CPU box: the monkeypatched probe is the battery's stand-in for
+        # unplugging the GPU.
+        original_probe = dense_engine.device_available
+        dense_engine.device_available = lambda: False
+        try:
+            cpu_route = dense_engine.resolve_route(256, eval_mode="fused")
+        finally:
+            dense_engine.device_available = original_probe
+        check(
+            "policy: no usable device -> specialized+numpy (engine stays default)",
+            (cpu_route.engine, cpu_route.backend, cpu_route.fallback_backend)
+            == ("specialized", "numpy", "numpy"),
+            cpu_route.reason,
+        )
+        engines = set()
+        for pop in (1, 16, 63, 64, 256, 1024, 2048):
+            for backend in (None, "numpy", "iree"):
+                for rows in (None, 1024):
+                    engines.add(
+                        dense_engine.resolve_route(
+                            pop, backend=backend, rows=rows, eval_mode="auto"
+                        ).engine
+                    )
+        check(
+            "policy: auto NEVER selects fused",
+            "fused" not in engines,
+            "engines seen: " + ", ".join(sorted(engines)),
+        )
+        for pop in (1, minimum, 256):
+            check(
+                f"policy: should_use_dense({pop}, fused) is False",
+                dense_engine.should_use_dense(pop, eval_mode="fused") is False,
+            )
+        try:
+            dense_engine.Route(True, "iree", "numpy", engine="fused")
+        except ValueError as exc:
+            check(
+                "policy: Route(use_dense=True, engine='fused') is refused",
+                "fused" in str(exc),
+                str(exc),
+            )
+        else:
+            check(
+                "policy: Route(use_dense=True, engine='fused') is refused",
+                False,
+                "did NOT raise",
+            )
+        # The knob has ONE parser, so the policy reader must refuse a bad value too.
+        os.environ["EVOGP_FUSED_MIN_POP"] = "0"
+        try:
+            dense_engine.resolve_fused_min_pop()
+        except ValueError as exc:
+            check(
+                "policy: EVOGP_FUSED_MIN_POP=0 refused by the policy reader",
+                "EVOGP_FUSED_MIN_POP" in str(exc),
+                str(exc),
+            )
+        else:
+            check(
+                "policy: EVOGP_FUSED_MIN_POP=0 refused by the policy reader",
+                False,
+                "did NOT raise",
+            )
+        finally:
+            os.environ.pop("EVOGP_FUSED_MIN_POP", None)
+
+        # ---- 2. the numbers, through the public API --------------------- #
+        for cell in _wired_cells():
+            workload = common.build_workload(cell)
+            forest = workload["forest"]
+            x = workload["x"]
+            labels = workload["labels"]
+            x_per_row = workload["x_per_row"]
+            _set_eval_mode("specialized")
+            ref_batch = forest.batch_forward(x)
+            ref_row = forest.forward(x_per_row)
+            ref_loss = forest.SR_fitness(x, labels)
+            before = fused_engine.fused_cache_stats()
+            _set_eval_mode("fused")
+            got_batch = forest.batch_forward(x)
+            got_row = forest.forward(x_per_row)
+            got_loss = forest.SR_fitness(x, labels)
+            after = fused_engine.fused_cache_stats()
+            for tag, ref, got, limit in (
+                ("batch_forward (per_row=False)", ref_batch, got_batch, VALUE_RTOL),
+                ("forward (per_row=True)", ref_row, got_row, VALUE_RTOL),
+                ("SR_fitness (MSE)", ref_loss, got_loss, LOSS_RTOL),
+            ):
+                stats = compare(ref, got)
+                check(
+                    f"wired {cell['id']}: {tag} == specialized",
+                    _close(stats, limit),
+                    f"bitwise={stats.get('bitwise_equal')} "
+                    f"max_rel={stats.get('max_rel', 0.0):.3e} (<= {limit:g})",
+                )
+            served = after["fused_calls"] - before["fused_calls"]
+            declined = after["fused_declines"] - before["fused_declines"]
+            check(
+                f"wired {cell['id']}: the fused engine served all three calls",
+                served == 3 and declined == 0,
+                f"fused_calls +{served} declines +{declined}",
+            )
+
+        # ---- 3. a multi-output population: decline, never launch -------- #
+        from evogp.tree.utils import Func
+
+        # 64 rows so the population clears EVOGP_FUSED_MIN_POP: below it the route
+        # IS specialized, and the decline this check is about would never happen.
+        multi_rows: List[Any] = [
+            (
+                "raw",
+                _out_node_value(int(Func.ADD), 0),
+                0x80 | 3,
+                (("var", 0), ("var", 1)),
+            ),
+            (
+                "raw",
+                _out_node_value(int(Func.MUL), 1),
+                0x80 | 3,
+                (("var", 2), ("const", 2.0)),
+            ),
+        ] * 32
+        multi = Forest(3, 2, *pack_rows(multi_rows, pad_to=8))
+        mx = torch.rand(16, 3, device="cuda")
+        _set_eval_mode("specialized")
+        ref_multi = multi.batch_forward(mx)
+        before = fused_engine.fused_cache_stats()
+        _set_eval_mode("fused")
+        got_multi = multi.batch_forward(mx)
+        after = fused_engine.fused_cache_stats()
+        stats = compare(ref_multi, got_multi)
+        check(
+            "wired output_len=2: declines into specialized+numpy (same values)",
+            _close(stats, VALUE_RTOL),
+            f"bitwise={stats.get('bitwise_equal')} "
+            f"max_rel={stats.get('max_rel', 0.0):.3e} (<= {VALUE_RTOL:g})",
+        )
+        check(
+            "wired output_len=2: NO fused launch (no kernel, no scratch)",
+            after["fused_kernel_compiles"] == before["fused_kernel_compiles"]
+            and after["fused_scratch_allocs"] == before["fused_scratch_allocs"],
+            "compiles +"
+            f"{after['fused_kernel_compiles'] - before['fused_kernel_compiles']} "
+            f"scratch_allocs +{after['fused_scratch_allocs'] - before['fused_scratch_allocs']}",
+        )
+        check(
+            "wired output_len=2: the facade was consulted and declined",
+            after["fused_declines"] == before["fused_declines"] + 1,
+            f"declines +{after['fused_declines'] - before['fused_declines']}",
+        )
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+    print("=" * 96)
+    print(
+        "WIRED: EVOGP_EVAL_MODE=fused through Forest.forward / batch_forward / "
+        "SR_fitness"
+    )
+    print("=" * 96)
+    passed = 0
+    for name, ok, detail in checks:
+        print(f"  [{'ok ' if ok else 'FAIL'}] {name:<62} {detail}")
+        passed += 1 if ok else 0
+    print("-" * 96)
+    print(f"WIRED: {passed}/{len(checks)} checks passed")
+    print("-" * 96)
+    return 0 if passed == len(checks) else 1
+
+
+# --------------------------------------------------------------------------- #
 # stage 3: timings (driver + one-cell child)
 # --------------------------------------------------------------------------- #
 def _arm(forest):
@@ -1093,12 +1421,22 @@ def _stage_split(
 
 
 def stage_time_one(args: argparse.Namespace) -> int:
-    """One cell in this process: warm medians, cold first call, stage split."""
+    """One cell in this process: warm medians, cold first call, stage split.
+
+    ``--wired`` times the same three surfaces through the PUBLIC API
+    (``Forest.batch_forward`` / ``Forest.SR_fitness`` / ``Forest.forward``) with
+    ``EVOGP_EVAL_MODE=fused`` set in-process, so the number includes the route
+    decision and the facade instead of a direct :func:`fused_engine.evaluate_fused`
+    call.  Everything else (the torch arm, the warmup/rep protocol, the cold
+    first-call column, the stage split) is identical.
+    """
     import torch
 
     common = _harness()
     from evogp.tree import fused_engine, fused_kernels
 
+    if args.wired:
+        os.environ["EVOGP_EVAL_MODE"] = "fused"
     cell = _cell_by_id(args.cell)
     workload = common.build_workload(cell)
     forest = workload["forest"]
@@ -1128,27 +1466,39 @@ def stage_time_one(args: argparse.Namespace) -> int:
         import triton  # noqa: F401
         import_ms = (time.perf_counter() - start) * 1e3
 
-    fused_value = common.time_call(
-        lambda: fused_engine.evaluate_fused(
-            node_value, node_type, subtree_size, input_len, 1, x, per_row=False
-        ),
-        warmup=2,
-        reps=10,
-    )
-    fused_loss = common.time_call(
-        lambda: fused_engine.sr_fitness_fused(
-            node_value, node_type, subtree_size, input_len, 1, x, labels, use_MSE=True
-        ),
-        warmup=2,
-        reps=10,
-    )
-    fused_per_row = common.time_call(
-        lambda: fused_engine.evaluate_fused(
-            node_value, node_type, subtree_size, input_len, 1, x_per_row, per_row=True
-        ),
-        warmup=2,
-        reps=10,
-    )
+    if args.wired:
+        # The public API: the route decision and the facade are inside the number.
+        fused_value = common.time_call(
+            lambda: forest.batch_forward(x), warmup=2, reps=10
+        )
+        fused_loss = common.time_call(
+            lambda: forest.SR_fitness(x, labels), warmup=2, reps=10
+        )
+        fused_per_row = common.time_call(
+            lambda: forest.forward(x_per_row), warmup=2, reps=10
+        )
+    else:
+        fused_value = common.time_call(
+            lambda: fused_engine.evaluate_fused(
+                node_value, node_type, subtree_size, input_len, 1, x, per_row=False
+            ),
+            warmup=2,
+            reps=10,
+        )
+        fused_loss = common.time_call(
+            lambda: fused_engine.sr_fitness_fused(
+                node_value, node_type, subtree_size, input_len, 1, x, labels, use_MSE=True
+            ),
+            warmup=2,
+            reps=10,
+        )
+        fused_per_row = common.time_call(
+            lambda: fused_engine.evaluate_fused(
+                node_value, node_type, subtree_size, input_len, 1, x_per_row, per_row=True
+            ),
+            warmup=2,
+            reps=10,
+        )
     xt = x.t().contiguous()
     split = _stage_split(
         node_value,
@@ -1165,6 +1515,7 @@ def stage_time_one(args: argparse.Namespace) -> int:
     stats = fused_engine.fused_cache_stats()
     payload = {
         "kind": "timing",
+        "wired": bool(args.wired),
         "cell": cell["id"],
         "pop": pop,
         "rows": rows,
@@ -1187,8 +1538,10 @@ def stage_time_one(args: argparse.Namespace) -> int:
         "stats": stats,
     }
     print(
-        f"{cell['id']:<28} arm={arm_value['median_ms']:.3f} fused={fused_value['median_ms']:.3f} ms "
-        f"({arm_value['median_ms'] / fused_value['median_ms']:.2f}x) cold={fused_value['first_call_ms']:.1f} ms",
+        f"{cell['id']:<28} arm={arm_value['median_ms']:.3f} "
+        f"fused{'(wired)' if args.wired else ''}={fused_value['median_ms']:.3f} ms "
+        f"({arm_value['median_ms'] / fused_value['median_ms']:.2f}x) "
+        f"cold={fused_value['first_call_ms']:.1f} ms",
         flush=True,
     )
     # Cross-check the TIMED population against the torch arm: the parity stage
@@ -1196,14 +1549,20 @@ def stage_time_one(args: argparse.Namespace) -> int:
     # would be worthless, so the exact workload that was just timed is compared too.
     compare = _comparator()
     arm_out = arm.batch_forward(x)
-    fused_out = fused_engine.evaluate_fused(
-        node_value, node_type, subtree_size, input_len, 1, x, per_row=False
-    )
+    if args.wired:
+        fused_out = forest.batch_forward(x)
+    else:
+        fused_out = fused_engine.evaluate_fused(
+            node_value, node_type, subtree_size, input_len, 1, x, per_row=False
+        )
     value_check = compare(arm_out, fused_out)
     arm_loss_out = arm.sr_fitness(x, labels)
-    fused_loss_out = fused_engine.sr_fitness_fused(
-        node_value, node_type, subtree_size, input_len, 1, x, labels, use_MSE=True
-    )
+    if args.wired:
+        fused_loss_out = forest.SR_fitness(x, labels)
+    else:
+        fused_loss_out = fused_engine.sr_fitness_fused(
+            node_value, node_type, subtree_size, input_len, 1, x, labels, use_MSE=True
+        )
     loss_check = compare(arm_loss_out, fused_loss_out)
     payload["arm_vs_fused_value"] = value_check
     payload["arm_vs_fused_loss"] = loss_check
@@ -1238,13 +1597,29 @@ def _spawn(extra: List[str]) -> Optional[Dict[str, Any]]:
 def stage_timing(args: argparse.Namespace) -> int:
     """Driver: one subprocess per cell, then the honest comparison table."""
     print("=" * 96)
-    print("TIMING: fused vs torch-batched (warm medians, 2 warmup + 10 sync-bracketed reps)")
+    if args.wired:
+        print(
+            "TIMING (WIRED): EVOGP_EVAL_MODE=fused through Forest.batch_forward / "
+            "Forest.SR_fitness /"
+        )
+        print(
+            "Forest.forward vs torch-batched (warm medians, 2 warmup + 10 "
+            "sync-bracketed reps)"
+        )
+    else:
+        print(
+            "TIMING: fused vs torch-batched (warm medians, 2 warmup + 10 "
+            "sync-bracketed reps)"
+        )
     print("=" * 96)
     records = []
     for cell in _cells():
         if args.only and cell["id"] not in args.only:
             continue
-        payload = _spawn(["--stage", "time-one", "--cell", cell["id"]])
+        extra = ["--stage", "time-one", "--cell", cell["id"]]
+        if args.wired:
+            extra.append("--wired")
+        payload = _spawn(extra)
         if payload:
             records.append(payload)
     if not records:
@@ -1481,6 +1856,7 @@ def build_parser() -> argparse.ArgumentParser:
             "parity",
             "goldens",
             "declines",
+            "wired",
             "timing",
             "tuning",
             "all",
@@ -1490,6 +1866,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="which leg to run (default: all)",
     )
     parser.add_argument("--cell", default=None, help="cell id for the single-process legs")
+    parser.add_argument(
+        "--wired",
+        action="store_true",
+        help="time through the public API with EVOGP_EVAL_MODE=fused (--stage timing)",
+    )
     parser.add_argument("--block", type=int, default=256, help="EVOGP_FUSED_BLOCK_ROWS for tune-one")
     parser.add_argument("--warps", type=int, default=4, help="EVOGP_FUSED_NUM_WARPS for tune-one")
     parser.add_argument(
@@ -1521,6 +1902,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         status |= stage_goldens(args)
     if args.stage in ("declines", "all"):
         status |= stage_declines(args)
+    if args.stage in ("wired", "all"):
+        status |= stage_wired(args)
     if args.stage in ("timing", "all"):
         status |= stage_timing(args)
     if args.stage in ("tuning", "all"):
