@@ -128,6 +128,21 @@ The SR loss is accumulated in-graph (``d = label[r] - val; acc += d*d`` or
 path's only device output is the ``(pop, n_rb)`` partial chart -- ``1/rows`` of
 the traffic of the value path, and no prediction ever leaves the device.
 
+Multi-output (`OUT_NODE`)
+-------------------------
+``output_len >= 2`` selects :func:`_fused_multi_kernel`, a second kernel (the
+single-output one is untouched, so its six benchmark cells keep their numbers).
+It is the same walk plus the two rules of the legacy ``treeGPEvalKernel<true>``:
+the base kind is ``node_type & 0x7F`` and a tagged FUNCTION node resolves its
+operator from the packed value bits (``function = bits & 0xFFFF``,
+``outIndex = (bits >> 16) & 0xFFFF``) and adds its own value into
+``acc[outIndex]`` (an index ``>= out_len`` is dropped -- the oracle's unsigned
+compare), while every node passes its RIGHT-MOST operand up to its parent
+instead of its own value.  Tagged leaves accumulate nothing and untagged outputs
+stay ``0.0``; the value epilogue writes the whole ``[out_len, BLOCK_R]``
+accumulator tile, the loss epilogue loads the ``(rows, out_len)`` label tile,
+sums over both axes and still divides by ``rows`` only.
+
 Laziness
 --------
 ``import evogp.tree`` must keep working on a box with no triton and no GPU, and
@@ -417,7 +432,9 @@ def _fused_kernel(
         tl.store(out_ptr + t * rows + r, val, mask=rmask)
 
 
-#: ``NType.OUT_NODE`` -- the multi-output tag OR-ed into ``node_type``.
+#: ``NType.OUT_NODE`` -- the multi-output tag OR-ed into ``node_type`` (the kernel
+#: body spells both masks as literals: a Triton kernel may only read ``tl.constexpr``
+#: globals, and ``tl`` does not exist at this module's import time).
 OUT_NODE_BIT = 1 << 7
 #: ``NType.TYPE_MASK`` -- the base kind under that tag.
 TYPE_MASK_BITS = 0x7F
@@ -444,29 +461,30 @@ def _fused_multi_kernel(
 ):
     """One (tree, row-block) program of the MULTI-OUTPUT protocol (``OUT_LEN >= 2``).
 
-    Same reverse-prefix walk as :func:`_fused_kernel` with the two differences the
-    multi-output protocol adds (``_treeGPEvalByStack<true>``,
+    Same reverse-prefix walk as :func:`_fused_kernel`, plus the two rules the
+    multi-output protocol adds (the legacy ``treeGPEvalKernel<true>``, mirrored by
     ``reference_eval.forward_tree(multi_output=True)``):
 
-    * the node type is masked with ``TYPE_MASK`` (``0x7F``) and the ``OUT_NODE``
-      bit (``0x80``) is the tag; a TAG-GED FUNCTION NODE resolves its operator from
-      the packed value bits (``function = bits & 0xFFFF``, ``outIndex = (bits >> 16)
-      & 0xFFFF``) and adds its OWN value into ``acc[outIndex]`` (an index ``>=
-      OUT_LEN`` is dropped, exactly like the oracle's unsigned compare);
+    * the base kind is ``node_type & 0x7F`` and ``node_type & 0x80`` is the
+      ``OUT_NODE`` tag; a TAGGED FUNCTION NODE resolves its operator from the packed
+      value bits (``function = bits & 0xFFFF``, ``outIndex = (bits >> 16) & 0xFFFF``)
+      and adds its OWN value into ``out[outIndex]`` (an index ``>= OUT_LEN`` is
+      dropped, exactly like the oracle's unsigned compare);
     * every node passes its RIGHT-MOST operand up to its parent instead of its own
-      value, so ``prev``/the stack carry ``pass_up`` -- the second operand of a
-      binary node, the third of a ternary one, the operand of a unary one and its
-      own value for a leaf.
+      value, so ``prev``/the stack carry ``pass_up``: the second operand of a binary
+      node, the third of a ternary one, the operand of a unary one and its own value
+      for a leaf.
 
-    Tagged LEAVES accumulate nothing (the oracle returns before it reads an out
-    index on a VAR/CONST node), and the root's own value is ignored: the result is
-    the accumulated ``acc`` chart, whose untagged outputs stay ``0.0`` because the
-    accumulator is initialised to zero and every (row, output) lane is written in
-    the epilogue.
+    The accumulator is the program's own slice of ``out_ptr`` (``(pop, rows,
+    OUT_LEN)``, zeroed here and then read-modify-written at the tagged nodes), not a
+    register tile: shifting a ``[OUT_LEN, BLOCK_R]`` tile across the loop phis makes
+    triton unify two layouts for the value registers and the LLVM translation then
+    fails on an unrealized conversion cast.  One zero-store pass plus one load/store
+    per tagged node is ~nothing next to the walk, and only 1-D tiles remain.
 
-    ``acc`` is a ``[OUT_LEN, BLOCK_R]`` register tile; the accumulation is a
-    dynamic ``if`` on the tag (uniform across the block), so an untagged node pays
-    nothing beyond the one tag test.
+    Tagged LEAVES accumulate nothing (the oracle returns before it ever reads an out
+    index on a VAR/CONST node) and untagged outputs stay ``0.0`` (the zeroing pass).
+    The root's own value is ignored, exactly like the kernel.
     """
     t = tl.program_id(0)
     rb = tl.program_id(1)
@@ -475,25 +493,27 @@ def _fused_multi_kernel(
     off = tl.arange(0, BLOCK_R)
     r = rb * BLOCK_R + off
     rmask = r < rows
-    k_idx = tl.arange(0, OUT_LEN)
-    k_col = k_idx[:, None]
-    k_row = tl.broadcast_to(k_col, [OUT_LEN, BLOCK_R])
-    r_row = tl.broadcast_to(rmask[None, :], [OUT_LEN, BLOCK_R])
 
     row_base = t * tree_len
     n = tl.load(subtree_size_ptr + row_base).to(tl.int32)
     stack = scratch_ptr + pid.to(tl.int64) * (stack_cap * BLOCK_R)
+    # Address of output 0 of every row of this program: output k is ``base + k``.
+    base = (t.to(tl.int64) * rows + r.to(tl.int64)) * OUT_LEN
+    # Clear this program's slice: an output no node ever tags must read 0.0.
+    for _k in tl.static_range(0, OUT_LEN):
+        tl.store(out_ptr + base + _k, tl.zeros([BLOCK_R], tl.float32), mask=rmask)
 
-    acc = tl.zeros([OUT_LEN, BLOCK_R], tl.float32)
     sp = 0
     prev = tl.zeros([BLOCK_R], tl.float32)
     val = tl.zeros([BLOCK_R], tl.float32)
+    # The value handed to the parent: a fresh tile, never an alias of ``val`` (an
+    # alias makes the loop phi carry two layouts for one register).
+    pass_up = tl.zeros([BLOCK_R], tl.float32)
     j = n - 1
     raw = tl.load(node_type_ptr + row_base + tl.maximum(j, 0))
-    for _k in range(0, n):
-        tt = raw & TYPE_MASK_BITS
-        tagged = (raw & OUT_NODE_BIT) != 0
-        pass_up = val
+    for _i in range(0, n):
+        tt = raw & 127
+        tagged = (raw & 128) != 0
         if tt == 0:  # VAR
             vi = tl.load(node_value_ptr + row_base + j).to(tl.int32)
             inb = (vi >= 0) & (vi < input_len)
@@ -513,7 +533,9 @@ def _fused_multi_kernel(
             val = _unary(func_id, prev)
             if tagged:
                 oi = (bits >> 16) & 0xFFFF
-                acc = acc + tl.where((k_col == oi) & (oi < OUT_LEN), val[None, :], 0.0)
+                keep = rmask & (oi < OUT_LEN)
+                addr = out_ptr + base + oi
+                tl.store(addr, tl.load(addr, mask=keep, other=0.0) + val, mask=keep)
             pass_up = prev
         elif tt == 3:  # BFUNC
             value = tl.load(node_value_ptr + row_base + j)
@@ -525,7 +547,9 @@ def _fused_multi_kernel(
             val = _binary(func_id, prev, second)
             if tagged:
                 oi = (bits >> 16) & 0xFFFF
-                acc = acc + tl.where((k_col == oi) & (oi < OUT_LEN), val[None, :], 0.0)
+                keep = rmask & (oi < OUT_LEN)
+                addr = out_ptr + base + oi
+                tl.store(addr, tl.load(addr, mask=keep, other=0.0) + val, mask=keep)
             pass_up = second
         else:  # TFUNC -- every other base kind, and the function id is ignored
             bits = tl.load(node_value_ptr + row_base + j).to(tl.int32, bitcast=True)
@@ -537,11 +561,15 @@ def _fused_multi_kernel(
             val = tl.where(prev > 0.0, then_value, else_value)
             if tagged:
                 oi = (bits >> 16) & 0xFFFF
-                acc = acc + tl.where((k_col == oi) & (oi < OUT_LEN), val[None, :], 0.0)
+                keep = rmask & (oi < OUT_LEN)
+                addr = out_ptr + base + oi
+                tl.store(addr, tl.load(addr, mask=keep, other=0.0) + val, mask=keep)
             pass_up = else_value
         j = j - 1
+        # Lookahead: this is also the next iteration's ``raw``, so the walk costs one
+        # node_type load per node.  Clamped at the root (j == -1).
         raw = tl.load(node_type_ptr + row_base + tl.maximum(j, 0))
-        if ((raw & TYPE_MASK_BITS) == 0) | ((raw & TYPE_MASK_BITS) == 1):
+        if ((raw & 127) == 0) | ((raw & 127) == 1):
             slot_next = tl.minimum(tl.maximum(sp, 0), stack_cap - 1)
             tl.store(stack + slot_next * BLOCK_R + off, pass_up, mask=rmask)
             sp = sp + 1
@@ -549,21 +577,16 @@ def _fused_multi_kernel(
             prev = pass_up
 
     if REDUCE:
-        # labels is (rows, OUT_LEN) row-major: one 2-D tile load, both axes summed.
-        lab = tl.load(
-            labels_ptr + r[None, :] * OUT_LEN + k_row, mask=r_row, other=0.0
-        )
-        diff = lab - acc
-        if USE_MSE:
-            err = diff * diff
-        else:
-            err = tl.abs(diff)
-        total = tl.sum(tl.sum(tl.where(r_row, err, 0.0), axis=0), axis=0)
-        tl.store(partial_ptr + t * n_rb + rb, total)
-    else:
-        # Every (row, output) lane of this program's slice is written.
-        addr = (t.to(tl.int64) * rows + r[None, :].to(tl.int64)) * OUT_LEN + k_row
-        tl.store(out_ptr + addr, acc, mask=r_row)
+        # Sum over outputs first, then over the block's rows: the oracle's order.
+        err_all = tl.zeros([BLOCK_R], tl.float32)
+        for _k in tl.static_range(0, OUT_LEN):
+            lab = tl.load(labels_ptr + r * OUT_LEN + _k, mask=rmask, other=0.0)
+            diff = lab - tl.load(out_ptr + base + _k, mask=rmask, other=0.0)
+            if USE_MSE:
+                err_all = err_all + diff * diff
+            else:
+                err_all = err_all + tl.abs(diff)
+        tl.store(partial_ptr + t * n_rb + rb, tl.sum(tl.where(rmask, err_all, 0.0)))
 
 
 # --------------------------------------------------------------------------- #
@@ -764,6 +787,7 @@ def _launch(
     use_mse: bool,
     block_rows: int,
     num_warps: int,
+    out_len: int = 1,
 ) -> Tuple[torch.Tensor, Dict[str, int]]:
     """Shared launch: geometry, scratch, dispatch on the (device, flags) key.
 
@@ -771,26 +795,56 @@ def _launch(
     (``PER_ROW``/``REDUCE`` decide what it means); the caller owns its meaning.  The whole call is dispatched on the tensors'
     device index (a Triton launch compiles/streams against the CURRENT device, so
     the launch is wrapped in ``torch.cuda.device(...)``).
+
+    ``out_len == 1`` runs :func:`_fused_kernel` (the single-output protocol, its
+    original code path, unchanged); ``out_len >= 2`` runs
+    :func:`_fused_multi_kernel`, which carries the ``[out_len, BLOCK_R]``
+    accumulator tile.
     """
     pop = int(node_value.shape[0])
+    out_len = int(out_len)
+    if out_len < 1:
+        raise ValueError(f"out_len must be >= 1, got {out_len}")
+    multi = out_len > 1
     geom = plan(rows, per_row=per_row, block_rows=block_rows, num_warps=num_warps)
     device_index = _device_index(node_value.device)
     n_prog = pop * geom["n_rb"]
     stack_cap = max(1, int(tree_len))
     scratch = _scratch_for(device_index, n_prog, stack_cap, geom["block_rows"])
 
-    if reduce:
+    if multi:
+        # The multi-output kernel accumulates INTO the prediction buffer, so the
+        # loss path needs it materialized even though only the chart is returned.
+        values = torch.empty(
+            (pop, rows, out_len), dtype=torch.float32, device=node_value.device
+        )
+        if reduce:
+            out = torch.empty(
+                (pop, geom["n_rb"]), dtype=torch.float32, device=node_value.device
+            )
+            label_ptr, partial_ptr = labels, out
+        else:
+            out = values
+            label_ptr = partial_ptr = values
+        value_ptr = values
+    elif reduce:
         # One partial per (tree, row-block); the facade sums the chart.
         out = torch.empty((pop, geom["n_rb"]), dtype=torch.float32, device=node_value.device)
         label_ptr = labels
+        value_ptr = partial_ptr = out
     else:
-        out = torch.empty((pop, rows, 1), dtype=torch.float32, device=node_value.device)
+        out = torch.empty(
+            (pop, rows, out_len), dtype=torch.float32, device=node_value.device
+        )
         # ``labels`` and the partial chart are behind the REDUCE constexpr, i.e.
         # never traced on this path; the value buffer stands in for both so the
         # signature stays single.
         label_ptr = out
-    kernel = kernels()["eval"]
+        value_ptr = partial_ptr = out
+    kernel = kernels()["eval_multi" if multi else "eval"]
     key = (
+        "multi" if multi else "single",
+        int(out_len),
         bool(per_row),
         bool(reduce),
         bool(use_mse),
@@ -803,15 +857,16 @@ def _launch(
         if key not in specializations:
             specializations.add(key)
             _STATS["specializations"] += 1
+    extra = {"OUT_LEN": out_len} if multi else {}
     with torch.cuda.device(device_index):
         kernel[(pop, geom["n_rb"])](
             node_value,
             node_type,
             subtree_size,
             x,
-            out,
+            value_ptr,
             label_ptr,
-            out,
+            partial_ptr,
             scratch,
             int(input_len),
             int(tree_len),
@@ -821,10 +876,11 @@ def _launch(
             PER_ROW=bool(per_row),
             REDUCE=bool(reduce),
             USE_MSE=bool(use_mse),
-            num_warps=int(geom["num_warps"]),
             # SEE THE MODULE DOCSTRING: without this, LLVM fuses `a*b` into the
             # parent `+`/`-` and the arithmetic path stops being bitwise.
             enable_fp_fusion=False,
+            num_warps=int(geom["num_warps"]),
+            **extra,
         )
     return out, geom
 
@@ -841,12 +897,15 @@ def launch_value(
     per_row: bool,
     block_rows: int = DEFAULT_BLOCK_ROWS,
     num_warps: int = DEFAULT_NUM_WARPS,
+    out_len: int = 1,
 ) -> torch.Tensor:
-    """Evaluate the population's value: ``(pop, rows, 1)`` fp32 (fresh).
+    """Evaluate the population's value: ``(pop, rows, out_len)`` fp32 (fresh).
 
     ``x`` is the ``(pop, input_len)`` per-tree block when ``per_row`` and the
     PRETRANSPOSED ``(input_len, rows)`` block otherwise; the facade owns that
-    conversion (it is the only host-visible prep in the call path).
+    conversion (it is the only host-visible prep in the call path).  ``out_len >= 2``
+    selects the multi-output protocol (``OUT_NODE`` tags, the accumulated chart),
+    ``out_len == 1`` the original single-output walk.
     """
     out, _geom = _launch(
         node_value=node_value,
@@ -862,6 +921,7 @@ def launch_value(
         use_mse=True,
         block_rows=block_rows,
         num_warps=num_warps,
+        out_len=int(out_len),
     )
     return out
 
@@ -879,13 +939,15 @@ def launch_loss(
     use_mse: bool,
     block_rows: int = DEFAULT_BLOCK_ROWS,
     num_warps: int = DEFAULT_NUM_WARPS,
+    out_len: int = 1,
 ) -> torch.Tensor:
     """SR-loss partial chart: ``(pop, n_rb)`` fp32 (fresh).
 
     ``xt`` is the PRETRANSPOSED ``(input_len, rows)`` block and ``labels`` the
-    flattened ``(rows,)`` view of the ``(rows, 1)`` label column (``out_len == 1``
-    is enforced by the facade).  Dividing by ``rows`` and summing the chart is
-    the facade's one-line epilogue.
+    label block: a flattened ``(rows,)`` view for ``out_len == 1`` and the
+    row-major ``(rows, out_len)`` column block otherwise.  Dividing by ``rows``
+    and summing the chart is the facade's one-line epilogue; ``out_len >= 2``
+    sums the per-output errors in-kernel and still divides by ``rows`` only.
     """
     partial, _geom = _launch(
         node_value=node_value,
@@ -901,5 +963,6 @@ def launch_loss(
         use_mse=bool(use_mse),
         block_rows=block_rows,
         num_warps=num_warps,
+        out_len=int(out_len),
     )
     return partial

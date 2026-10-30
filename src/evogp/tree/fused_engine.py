@@ -47,8 +47,9 @@ Contracts (they mirror :func:`evogp.tree.dense_engine.evaluate_dense` /
   human-readable ``reason`` -- never a wrong number and never a crash.  The
   reasons are: triton not importable; no CUDA/HIP device; the population or
   ``x`` not on a device tensor; an explicit ``backend="numpy"`` (a Triton kernel
-  cannot run on the evoxc reference interpreter); ``output_len != 1``
-  (multi-output lands later); ``pop_size < 1``; ``rows < 1``; or the scratch
+  cannot run on the evoxc reference interpreter); ``output_len > MAX_OUT_LEN``
+  (8 -- the multi-output kernel's accumulator is a ``[output_len, BLOCK_R]``
+  register tile); ``pop_size < 1``; ``rows < 1``; or the scratch
   envelope (``pop * tree_len * rows * 4`` bytes vs ``EVOGP_FUSED_MAX_SCRATCH_MB``)
   being exceeded.  ``FusedUnsupported.device_fallback`` exists for symmetry with
   ``DenseUnsupported`` but the fused route never sets it: it has no numpy twin,
@@ -190,6 +191,7 @@ __all__ = [
     "DEFAULT_MIN_POP",
     "DEFAULT_NUM_WARPS",
     "FusedUnsupported",
+    "MAX_OUT_LEN",
     "clear_fused_cache",
     "evaluate_fused",
     "fused_available",
@@ -217,6 +219,12 @@ DEFAULT_HOST_MEMO = 16
 #: (consulted by ``dense_engine.resolve_fused_min_pop``; not used here).
 MIN_POP_ENV = "EVOGP_FUSED_MIN_POP"
 DEFAULT_MIN_POP = 64
+#: Outputs the multi-output kernel serves.  Its accumulator is an
+#: ``[output_len, BLOCK_R]`` register tile, so the cost is linear in ``output_len``
+#: per out-node; the library's multi-output trees use 2-3 (``Classification`` at
+#: ``output_len`` classes, multi-task policies) and a call above this declines
+#: into the specialized fallback with a reason naming the constant.
+MAX_OUT_LEN = 8
 
 #: ``(pop*rows*L*4)`` bytes per MiB.
 _MIB = 2**20
@@ -540,10 +548,14 @@ def _prepare(
     """
     _decline_if_numpy(backend)
     pop, tree_len = _population_shape(batch_subtree_size)
-    if int(output_len) != 1:
+    if int(output_len) < 1:
+        raise ValueError(f"output_len must be >= 1, got {int(output_len)}")
+    if int(output_len) > MAX_OUT_LEN:
         raise FusedUnsupported(
-            f"output_len={int(output_len)}: the fused route implements the "
-            "single-output protocol only (multi-output lands later)"
+            f"output_len={int(output_len)} > {MAX_OUT_LEN}: the multi-output kernel "
+            f"keeps a [output_len, BLOCK_R] accumulator tile, so this route serves "
+            f"up to {MAX_OUT_LEN} outputs (raise fused_engine.MAX_OUT_LEN if a model "
+            "really needs more)"
         )
     if tree_len < 1:
         raise ValueError(f"max_tree_len must be >= 1, got {tree_len}")
@@ -697,8 +709,10 @@ def _evaluate_fused(
             per_row=True,
             block_rows=prepared.block_rows,
             num_warps=prepared.num_warps,
+            out_len=int(output_len),
         )
-        result = out.squeeze(1)  # (pop, 1, 1) -> (pop, 1) view of the fresh buffer
+        # (pop, 1, out_len) -> (pop, out_len) view of the fresh buffer
+        result = out.squeeze(1)
     else:
         result = _launch(
             fused_kernels.launch_value,
@@ -712,6 +726,7 @@ def _evaluate_fused(
             per_row=False,
             block_rows=prepared.block_rows,
             num_warps=prepared.num_warps,
+            out_len=int(output_len),
         )
     if out_device is not None and torch.device(out_device) != result.device:
         result = result.to(out_device)
@@ -737,7 +752,7 @@ def sr_fitness_fused(
     """Symbolic-regression fitness via the fused evaluator (IN-KERNEL loss).
 
     ``inputs`` is ``(N, input_len)``, ``labels`` is ``(N, output_len)``
-    (``output_len == 1`` on this route) and the result is a ``(pop_size,)``
+    (``1 <= output_len <= MAX_OUT_LEN``) and the result is a ``(pop_size,)``
     float32 POSITIVE loss ``sum_N sum_out err / N`` (MSE or MAE) on the
     computation device unless ``out_device``; NaN/inf propagate unsanitized --
     same formula, same float32 placement and the same ``label - prediction``
@@ -834,9 +849,9 @@ def _sr_fitness_fused(
     inputs = _as_device_tensor(inputs, torch.float32, prepared.device, "inputs")
     label_column = _as_device_tensor(labels, torch.float32, prepared.device, "labels")
     _check_envelope(prepared.pop, prepared.tree_len, rows, max_scratch_mb)
-    # (N, 1) -> (N,) pointer view: ``out_len == 1`` is enforced by _prepare, so the
-    # label column is contiguous and the flatten is free.
-    label_ptr = label_column.reshape(-1)
+    # ``out_len == 1`` wants the flat ``(N,)`` view (a free reshape of the label
+    # column); the multi-output kernel indexes the row-major ``(N, out_len)`` block.
+    label_ptr = label_column.reshape(-1) if int(output_len) == 1 else label_column
     partials = _launch(
         fused_kernels.launch_loss,
         prepared.node_value,
@@ -850,6 +865,7 @@ def _sr_fitness_fused(
         use_mse=bool(use_MSE),
         block_rows=prepared.block_rows,
         num_warps=prepared.num_warps,
+        out_len=int(output_len),
     )
     # ``sum_points sum_outputs err / N`` -- outputs are already summed (there is
     # exactly one), the divisor is the data-point count only.
