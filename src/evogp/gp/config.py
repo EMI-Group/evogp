@@ -47,10 +47,17 @@ from ._constants import (
     Func,
 )
 
-__all__ = ["GPTreeConfig", "GPConfig"]
+__all__ = ["GPTreeConfig", "GPConfig", "SELECTION_MODES", "MUTATION_KINDS"]
 
 #: ``using_funcs`` in either accepted spelling.
 UsingFuncs = Union[Tuple[str, ...], Tuple[Tuple[str, float], ...]]
+
+#: The selection modes :mod:`evogp.gp.selection` implements (the canonical list
+#: lives here so a config can validate itself without importing the operator).
+SELECTION_MODES = ("tournament", "rank", "roulette")
+
+#: The mutation operators :mod:`evogp.gp.mutation` implements.
+MUTATION_KINDS = ("point", "subtree", "hoist")
 
 
 def _normalize_funcs(using_funcs) -> Tuple[Tuple[str, float], ...]:
@@ -345,6 +352,18 @@ class GPConfig:
         tournament_size: Number of candidates drawn by tournament selection.
         crossover_prob: Per-individual probability of being recombined.
         mutation_prob: Per-individual probability of being mutated.
+        selection: The selection mode, one of :data:`SELECTION_MODES` --
+            ``"tournament"`` (default, the pressure knob is
+            ``tournament_size``), ``"rank"`` (linear rank distribution, the
+            pressure knob is ``selection_pressure``) or ``"roulette"``
+            (fitness-proportional).
+        selection_pressure: Rank selection's ``sp`` in ``[0, 1]`` (``0`` = no
+            pressure, ``1`` = the best individual is twice as likely as the
+            worst).  Unused by the other modes.
+        mutation_kind: The mutation operator, one of :data:`MUTATION_KINDS` --
+            ``"subtree"`` (default: replace one subtree with a fresh random
+            tree), ``"point"`` (one same-arity node edit) or ``"hoist"``
+            (shrink to one subtree).
     """
 
     pop_size: int
@@ -352,6 +371,9 @@ class GPConfig:
     tournament_size: int = 2
     crossover_prob: float = 0.9
     mutation_prob: float = 0.1
+    selection: str = "tournament"
+    selection_pressure: float = 0.5
+    mutation_kind: str = "subtree"
 
     def __post_init__(self) -> None:
         if not isinstance(self.pop_size, int) or isinstance(self.pop_size, bool):
@@ -373,10 +395,19 @@ class GPConfig:
             raise ValueError(
                 f"tournament_size must be an int >= 1, got {self.tournament_size!r}"
             )
-        for name in ("crossover_prob", "mutation_prob"):
+        for name in ("crossover_prob", "mutation_prob", "selection_pressure"):
             value = float(getattr(self, name))
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be in [0.0, 1.0], got {value}")
+        if self.selection not in SELECTION_MODES:
+            raise ValueError(
+                f"selection={self.selection!r} is not one of {SELECTION_MODES}"
+            )
+        if self.mutation_kind not in MUTATION_KINDS:
+            raise ValueError(
+                f"mutation_kind={self.mutation_kind!r} is not one of "
+                f"{MUTATION_KINDS}"
+            )
 
     def replace(self, **changes) -> "GPConfig":
         """A new config with ``changes`` applied (the receiver is unchanged)."""
