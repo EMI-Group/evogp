@@ -903,14 +903,24 @@ def _rows_decline_reason(
         else "an unknown population shape"
     )
     pin = resolve_auto_max_rows(auto_max_rows)
+    known_shape = pop_size is not None and tree_len is not None
     if pin > 0 and pin <= allowance:
+        # The PIN is what bound the allowance; report what the envelope alone allows
+        # (the pin can only tighten, so the envelope's own allowance is >= this one).
+        envelope_rows = (
+            auto_row_allowance(
+                pop_size, tree_len, auto_max_rows=0, auto_budget_mb=auto_budget_mb
+            )
+            if known_shape
+            else 0
+        )
         return (
             f"auto policy: {int(rows)} data rows exceed {AUTO_MAX_ROWS_ENV}={pin}, "
             f"the explicit row ceiling of the dense route at {shape}"
             + (
                 f" (the {resolve_auto_budget_mb(auto_budget_mb)} MiB envelope alone "
-                f"would allow {allowance} rows and the pin is tighter)"
-                if pop_size is not None and tree_len is not None
+                f"would allow {envelope_rows} rows, so the pin is the tighter term)"
+                if known_shape
                 else ""
             )
             + f"; unset it (or set 0) to let {AUTO_BUDGET_MB_ENV} decide, or set "
