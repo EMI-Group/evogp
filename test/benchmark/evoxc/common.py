@@ -149,6 +149,40 @@ EVOXC_ARMS: Dict[str, Dict[str, Optional[str]]] = {
         "family": "evoxc",
         "knobs": {"EVOGP_BATCH_DISPATCH_FORMATION": "default"},
     },
+    # the artifact arm with the compiled-graph POOL WIDTH pinned
+    # (``EVOGP_BATCH_COMPILE_WORKERS``): the pool is not otherwise reachable from a
+    # campaign, because ``arms.apply_arm_env`` clears every route knob before an arm's
+    # own spec, so a caller export cannot decide it.  The pool width IS part of the
+    # merged plan's shape (``chunk_count``), hence of the disk tier's artifact keys,
+    # so these three arms are how a pool sweep is measured against the disk tier
+    # (``evoxc-batch-iree-artifact`` itself is the shipped pool of 4).
+    "evoxc-batch-iree-artifact-p1": {
+        "eval_mode": "batch",
+        "backend": "iree",
+        "family": "evoxc",
+        "knobs": {
+            "EVOGP_EVOXC_ARTIFACT_DIR": "{artifact_dir}",
+            "EVOGP_BATCH_COMPILE_WORKERS": "1",
+        },
+    },
+    "evoxc-batch-iree-artifact-p2": {
+        "eval_mode": "batch",
+        "backend": "iree",
+        "family": "evoxc",
+        "knobs": {
+            "EVOGP_EVOXC_ARTIFACT_DIR": "{artifact_dir}",
+            "EVOGP_BATCH_COMPILE_WORKERS": "2",
+        },
+    },
+    "evoxc-batch-iree-artifact-p8": {
+        "eval_mode": "batch",
+        "backend": "iree",
+        "family": "evoxc",
+        "knobs": {
+            "EVOGP_EVOXC_ARTIFACT_DIR": "{artifact_dir}",
+            "EVOGP_BATCH_COMPILE_WORKERS": "8",
+        },
+    },
 }
 TORCH_ARMS: Dict[str, Dict[str, Any]] = {
     "torch-per-tree": {"impl": "per_tree", "family": "torch"},

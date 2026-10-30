@@ -200,6 +200,26 @@ CONFIG_KNOBS: Dict[str, Dict[str, str]] = {
         "EVOGP_BATCH_CHUNK_BANDS": "1",
         "EVOGP_BATCH_COMPILE_WORKERS": "4",
     },
+    #: The band SIZE through the same composition (``b16-cw4`` with the size changed).  A chunked
+    #: plan partitions each chunk separately, so a chunk of ``n / pool`` functions asks the size
+    #: model for ``n / (pool * size)`` bands: on a large population the shipped size 16 saturates
+    #: the ``K <= 15`` binding cap per chunk while 32 and 64 do not, i.e. the band size becomes
+    #: OBSERVABLE at a population where the single-body plan clamps every size to one partition.
+    "b8-cw4": {
+        "EVOGP_BATCH_BAND_SIZE": "8",
+        "EVOGP_BATCH_CHUNK_BANDS": "1",
+        "EVOGP_BATCH_COMPILE_WORKERS": "4",
+    },
+    "b32-cw4": {
+        "EVOGP_BATCH_BAND_SIZE": "32",
+        "EVOGP_BATCH_CHUNK_BANDS": "1",
+        "EVOGP_BATCH_COMPILE_WORKERS": "4",
+    },
+    "b64-cw4": {
+        "EVOGP_BATCH_BAND_SIZE": "64",
+        "EVOGP_BATCH_CHUNK_BANDS": "1",
+        "EVOGP_BATCH_COMPILE_WORKERS": "4",
+    },
     #: ---- round 3: the band COUNT pinned at the device's binding cap -------------------------
     #: ``k15`` pins ``EVOGP_BATCH_BANDS=15`` -- the largest count the CUDA/ROCm HAL can load (one
     #: exported dispatch binds <= 16 tensors, the measured safe count is 15) -- instead of asking
@@ -235,7 +255,9 @@ CONFIGS: Tuple[str, ...] = tuple(CONFIG_KNOBS)
 BAND_PARTITION_CONFIGS: Tuple[str, ...] = ("b8", "b16", "b32", "b64", "flat", "auto", "k15", "k7")
 #: The COMPOSITION configs: they run the compiled-graph pool (``auto-cw4`` / ``b16-cw4``
 #: additionally opt into banding each chunk), which is a different question from the band size.
-COMPOSITION_CONFIGS: Tuple[str, ...] = ("auto-cw4", "flat-cw4", "b16-cw4", "k15-cw4", "k7-cw4")
+COMPOSITION_CONFIGS: Tuple[str, ...] = (
+    "auto-cw4", "flat-cw4", "b16-cw4", "b8-cw4", "b32-cw4", "b64-cw4", "k15-cw4", "k7-cw4",
+)
 #: The configs that pin an explicit band COUNT (the ``k*`` family).  They are the only ones with a
 #: population floor: the engine validates an explicit ``K`` hard and raises instead of clamping.
 BAND_CAP_CONFIGS: Tuple[str, ...] = ("k15", "k7", "k15-cw4", "k7-cw4")

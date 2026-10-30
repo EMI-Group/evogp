@@ -147,6 +147,9 @@ def test_new_arm_ids_are_appended_last_and_are_batch_arms():
         "evoxc-batch-iree-aggressive",
         "evoxc-batch-iree-artifact",
         "evoxc-batch-iree-default",
+        "evoxc-batch-iree-artifact-p1",
+        "evoxc-batch-iree-artifact-p2",
+        "evoxc-batch-iree-artifact-p8",
     )
     assert tuple(common.EVOXC_ARMS)[-len(new):] == new
     assert tuple(common.ALL_ARMS)[-len(new):] == new
@@ -208,6 +211,30 @@ def test_artifact_arm_points_at_the_harness_hook(tmp_path, monkeypatch):
     assert os.environ[ARTIFACT_DIR_VAR] == expected
     # the placeholder is the harness's, not a cell property: no cell was passed
     assert common.arm_knob_env("evoxc-batch-iree-artifact") == {ARTIFACT_DIR_VAR: expected}
+
+
+def test_pool_pinned_artifact_arms_set_the_pool_and_the_disk_tier(tmp_path, monkeypatch):
+    """A pool width is only reachable through an ARM: every route knob is cleared first."""
+    hook = tmp_path / "shared-cache"
+    expected = os.path.abspath(str(hook))
+    for pool in ("1", "2", "8"):
+        arm = f"evoxc-batch-iree-artifact-p{pool}"
+        assert common.is_batch_arm(arm), arm
+        assert common.EVOXC_ARMS[arm]["knobs"] == {
+            "EVOGP_EVOXC_ARTIFACT_DIR": "{artifact_dir}",
+            "EVOGP_BATCH_COMPILE_WORKERS": pool,
+        }
+        monkeypatch.setenv(common.ARTIFACT_DIR_ENV, str(hook))
+        applied = arms.apply_arm_env(arm)
+        assert applied["knobs"] == {
+            ARTIFACT_DIR_VAR: expected, "EVOGP_BATCH_COMPILE_WORKERS": pool,
+        }, arm
+        assert os.environ["EVOGP_BATCH_COMPILE_WORKERS"] == pool
+        assert os.environ[ARTIFACT_DIR_VAR] == expected
+    # the shipped artifact arm keeps the engine's own pool default: no pin at all
+    assert "EVOGP_BATCH_COMPILE_WORKERS" not in (
+        common.EVOXC_ARMS["evoxc-batch-iree-artifact"]["knobs"]
+    )
 
 
 def test_artifact_dir_falls_back_to_a_fixed_directory(monkeypatch):
@@ -408,7 +435,8 @@ def test_dry_run_states_the_new_knobs_once(tmp_path, monkeypatch, capsys):
     ):
         assert f"would run p64-L64-i32-N64 {arm}" in printed, arm
     assert printed.count(DISPATCH_ENV) == 2
-    assert printed.count(ARTIFACT_DIR_VAR) == 1
+    # the disk tier now has four arms: the artifact arm plus its three pool pins
+    assert printed.count(ARTIFACT_DIR_VAR) == 4
     assert f"{DISPATCH_ENV}=aggressive" in printed
     assert f"{DISPATCH_ENV}=default" in printed
     # ... and the dry run resolves the route per arm, so the control reads ``default``
