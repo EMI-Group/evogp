@@ -397,3 +397,64 @@ scope**; the parent agent should move (or copy) the directory there and add the 
 | `fused_results/validation-fused.json` | `validate.py` output, 18 cases × 15 checks |
 | `fused_results/fused_campaign.py`, `fused_gate.py`, `fused_probe.py`, `campaign_index.py` | the tooling that produced the above |
 | `fused_sibling_patches.md` | the exact cross-node edits (test pin, harness arm registry, route reporting, worker counters, doc drift) |
+
+## Measured detail (moved from tree/CONTEXT.md)
+
+Facade bookkeeping and route-shape facts that this campaign's sections above rely on (no number below replaces one
+stated above; where they overlap, the campaign's own tables win):
+
+- `fused_cache_stats()` returns 13 keys: `fused_calls` / `fused_declines` (facade attempts / declines),
+  `fused_xt_hits` / `fused_xt_misses` / `fused_xt_entries` / `fused_xt_maxsize` (the transpose table, touched ONLY
+  by `per_row=False` and the loss path), `fused_kernel_launches` / `fused_kernel_compiles` / `fused_scratch_allocs`
+  / `fused_scratch_reuses` / `fused_scratch_entries` (the launch side), plus the informational `fused_block_rows` /
+  `fused_num_warps`.
+- `fused_calls` counts ATTEMPTS (bumped before the try, `fused_engine.py:608` / `:747`), so a decline moves BOTH
+  counters and a shape-contract `ValueError` moves `fused_calls` alone: proving a call was served means
+  `Δcalls − Δdeclines == n` AND `Δfused_kernel_launches == n`, while `fused_kernel_compiles` is "first launch of
+  this `(per_row, reduce, use_mse, block, warps)` key" — the key set lives in `fused_kernels._KERNELS` and is NOT
+  reset by `clear_caches()`, so a counter reset can under-report it.
+- `EVOGP_FUSED_HOST_MEMO` has NO per-call reader: `_default_host_memo` reads it once at import to size `XT_MEMO`
+  (`fused_engine.py:296-305`), so a change needs a fresh process.
+- There is NO per-stage timer surface on this route (unlike `batch_stages.py`): the split must be reconstructed by
+  timing `_prepare` / `_transposed` / `fused_kernels.launch_value` / `launch_loss` separately, which is what
+  `fused_check._stage_split` does for the value/loss kernel-vs-host columns; the route has no host readback, so a
+  "readback" stage does not exist.
+- An explicit `EVOGP_EVOXC_BACKEND` changes the route's shape: `iree` makes the FALLBACK `iree` as well
+  (`Route(False, 'iree', 'iree', engine='fused')`, so a decline lands on per-tree iree compiles) and `numpy` still
+  returns `engine='fused'` with `backend='numpy'`, which `_decline_if_numpy` refuses on every call — a probe
+  printing only `resolve_route(pop, eval_mode='fused').engine` therefore cannot distinguish a served call from a
+  guaranteed decline.
+- The facade declines (never guesses) on no triton, no device, a host tensor, `backend != "iree"`,
+  `output_len != 1`, `rows < 1`, `pop < 1` and the `EVOGP_FUSED_MAX_SCRATCH_MB` envelope, and maps
+  `fused_kernels.FusedUnavailable` onto that decline so an optional route never raises `ImportError`.
+- Prep is device-side only: `per_row=False` transposes `x` once into the identity-memoized `XT_MEMO` (a
+  `DenseMemo`), `per_row=True` needs nothing.
+- `fused_check.py` is ~1.9k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is
+  one self-contained dev battery (parity sets, the golden cross-check, the decline matrix, the wiring gate, the
+  six-cell timing and the geometry sweep share one workload builder and one comparison helper), so do not split it
+  into modules.
+- `--stage wired` is the wiring gate: it drives the three `Forest` call sites with `EVOGP_EVAL_MODE=fused` set
+  in-process and asserts they equal the `specialized` reference (value bitwise or ≤1e-6 relative, loss ≤1e-5), that
+  the facade SERVED each call (its counters move), that `resolve_route` names fused on `iree` with a `numpy`
+  fallback while `pop_size == 1` / a population below `EVOGP_FUSED_MIN_POP` / a box with no device stay
+  `specialized`+`numpy`, that `auto` never selects it, and that a 64-row `output_len=2` population declines into
+  the fallback with no kernel compiled and no scratch buffer allocated; `--stage timing --wired` re-times the six
+  cells through the same public calls. Recorded: 56/56 oracle comparisons, 10/10 goldens at 1e-4, 21/21
+  decline/contract checks, 30/30 wiring checks.
+
+The earlier six-cell sweep that preceded this campaign (kept for the record; `BLOCK_R` 256 / 1 warp): **48.6x-167.6x**
+faster than the `torch-batched` arm on the value path, 43.4x-156.4x on the loss path, 56x-150x `per_row`; the kernel
+was 72-82 % of a warm call (0.060-0.128 of 0.083-0.157 ms), the transpose 0.018-0.020 ms, and the cold first call
+375 ms (warm Triton disk cache) to 1.38 s (cold) per specialization, ~1.9 ms for the next one.
+
+### Facade surface and route wiring (relocated from tree/CONTEXT.md)
+`fused_engine` is the facade in the dense shape: `FusedUnsupported(reason, device_fallback=False)`, `evaluate_fused`, `sr_fitness_fused`, `fused_available`, `fused_cache_stats()` (13 all-`fused_*` keys), `clear_fused_cache` (registered with `evoxc_engine._register_cache_reset`) and the knob readers `resolve_block_rows` / `resolve_num_warps` / `resolve_max_scratch_mb` / `resolve_min_pop`.
+It declines (never guesses) on no triton, no device, a host tensor, `backend != "iree"`, `output_len != 1`, `rows < 1`, `pop < 1` and the `EVOGP_FUSED_MAX_SCRATCH_MB` envelope, and it maps `fused_kernels.FusedUnavailable` onto that decline so an optional route never raises `ImportError`.
+Prep is device-side only: `per_row=False` transposes `x` once into the identity-memoized `XT_MEMO` (a `DenseMemo`, `EVOGP_FUSED_HOST_MEMO` 16 entries), `per_row=True` needs nothing.
+Route wiring: `EVOGP_EVAL_MODE=fused` is named by `EVAL_MODES` and `ENGINES`, `Route.use_fused` reports it and `resolve_route`'s `fused` branch decides — on an explicitly named backend, or with a device usable from torch AND `pop_size >= EVOGP_FUSED_MIN_POP` (64); otherwise (and on a CPU box) the route IS specialized+`numpy` with `engine="specialized"`.
+Its backend SPELLING is `iree` and its fallback is always specialized+`numpy`; an explicit `EVOGP_EVOXC_BACKEND` changes the shape (`iree` makes the fallback `iree` too, `numpy` still reports `engine='fused'` while every call declines — the engine name is never a served-call proof).
+`Route.__post_init__` refuses `use_dense=True` with `engine="fused"`; `should_use_dense` is `False` for it; `resolve_fused_min_pop` is the single parser of `EVOGP_FUSED_MIN_POP` and delegates to `fused_engine.resolve_min_pop` through a LOCAL import so the module DAG stays one-way.
+All five call sites carry the fused attempt between the dense one and the specialized tail, catching exactly `fused_engine.FusedUnsupported` and continuing on `route.fallback_backend`.
+There is NO per-stage timer surface on this route (the split must be reconstructed by timing `_prepare` / `_transposed` / `fused_kernels.launch_value` / `launch_loss` separately, which is what `fused_check._stage_split` does), and there is no readback stage at all.
+`import triton` happens only inside `fused_kernels.kernels()`, so `import evogp.tree` stays GPU/triton-free; `TRITON_CACHE_DIR` must be writable or the first launch dies with `OSError: [Errno 30] Read-only file system: '/root/.triton'` — on this box `$HOME` is read-only, so every fused run needs `TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache`.
+`fused_check.py` is ~1.9k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is one self-contained dev battery (parity sets, the golden cross-check, the decline matrix, the wiring gate, the six-cell timing and the geometry sweep share one workload builder and one comparison helper), so do not split it into modules.

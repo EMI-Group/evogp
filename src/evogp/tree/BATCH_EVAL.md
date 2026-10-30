@@ -525,3 +525,75 @@ entries, and the disk tier's key carries them too (`§9.2`).
 * `CONTEXT.md` (this directory) — where the three engines sit in the package and the route policy.
 * `ENGINE_SPEC.md` — semantics of record (op table, evaluation order, SR fitness); the batch route
   changes none of it.
+
+## Measured detail (moved from tree/CONTEXT.md)
+
+The route's economics are per CALL, not per generation: the merged compile is population-specific, so a GP loop
+recompiles every generation and the route only pays on repeated evaluation of a stable/duplicate-rich population.
+On the shipped default a warm `sr_fitness` is 3.7250 / 3.7720 / 1.1141 ms at `p256-L32-i8-N1024` /
+`p256-L64-i32-N1024` / `p64-L64-i32-N64` against dense's 1.1015 / 2.0560 / 1.4378 ms (3.38× / 1.84× dearer, 1.29×
+faster at the `p64` niche); the cold call is 4 064.48 / 4 071.43 / 2 274.46 ms, and 15 517.88 ms at
+`p1000-L32-i8-N1024` (817 deduped functions, `chunk_sizes [205, 204, 204, 204]`, warm 6.9384 ms there); 7 of 8
+generations recompile (`generation_hit_rate` 0.125, 8 distinct signatures in 8 steps), so an 8-generation
+`StandardPipeline.step` loop costs 64.9× / 71.5× / 17.8× dense's wall (eval-only 868× / 680× / 229×).
+
+Compile cost is quadratic in the plan's EMITTED OPS and nearly rows-insensitive: on the shipped band-size-16 /
+pool-4 path 5 497 ops cold-compile in 4.2 s, 21 339 in 19.6 s, 41 376 in 48.3 s, 78 189 in 190.6 s and 93 751 in
+250.0 s, while the row axis moves that <15 % (p256 4.2 s at `N=4096` vs 4.9 s at `N=16384`; p1000 19.1 vs 19.6 s);
+the compile pool (`lower()` + device compile) is 86-97 % of the cold call and the host pre-compile
+(decode/dedup/trace/merge) 7-9 %. Consequence: the route's large-scale envelope ends well below pop 8 192 — pop
+8 192 (6 544 structures, ≈156-190k emitted ops) never finished compiling inside a 900 s cap and
+`p2048-L256-i32-N1024-d8` was declared infeasible the same way — so the largest measured feasible plans are
+`p4096-L64` (78 189 ops / 191 s) and `p2048-L128-d7` (93 751 ops / 250 s)
+(`test/benchmark/evoxc/results/largescale/probe/PROBE.md`).
+
+A warm large-pop call is dispatch-bound and recompile-free: at `p2048-L64-i32-N1024` a 12.85 ms `sr_fitness` is
+`run` 84.2 % (four chunk executables), `upload` 6.6 %, `gather` 6.1 % and host residual 3.0 %, with
+`decode`/`dedup`/`trace`/`merge`/`lower`/`compile`/`load` all at 0 CALLS (the content-addressed plan key plus the
+exec table serve it) — the same shape as dense, so only fewer dispatch/upload/gather trios can improve it, never a
+band or merge change (`test/benchmark/evoxc/results/largascale/economics/p2048-L64-i32-N1024/batch.json`).
+
+Large-scale ordering (`test/benchmark/evoxc/results/largascale/main`, report of record
+`test/benchmark/evoxc/LARGE_SCALE.md`): the merge beats dense on 7 of the 8 measured large cells — 1.1× at
+`p256-L64-i32-N4096` (5.23 vs 5.82 ms), 6.2× at `p256-L64-i32-N16384` (12.61 vs 78.12), 3.0× at
+`p1000-L64-i32-N4096` (13.03 vs 39.31), 3.1× at `p1000-L64-i32-N16384` (37.41 vs 117.19), 1.6× at
+`p4096-L64-i32-N1024` (23.24 vs 37.06), 1.5× at `p4096-L64-i64-N1024` (24.56 vs 37.02) and 4.2× against a
+raised-cap dense on 123-node trees at pop 2 048 (25.07 vs 105.65 ms) — and loses 0.86× at `p2048-L64-i32-N1024`
+(12.79 vs 11.06 ms), while a whole-population torch-batched implementation is cheaper still on the loss workload
+at `N=1024` from pop 2 048 up (7.12 / 10.51 / 17.64 ms against dense's 11.06 / 37.06 / 76.23). The loop verdict is
+unchanged and worse in absolute terms: a pop-2 048 turnover loop recompiles a 41 k-op merge every generation
+(36 740.9 ms for 3 generations against dense's 329.8 ms = 111× total / 698× eval-only), and at pop 8 192 the
+compile does not finish inside 900 s.
+
+`auto` is a spelling, never the default: it is unbounded by a device's dispatch-binding cap (14.2–14.7× overshoot
+on the wide-row plans at pop 256, then clamped; a bare 4 bands or the flat merge on the per-row plan) and won 0 of
+9 warm columns, while band size 16 is the measured minimax setting (never more than ~6 % off any column) and lands
+on `K = 15–16` at a pop-256 population's 225–245 functions, i.e. at the `K <= 15` cap. Pinning the count at that
+cap is a same-merge control at pop 256 (identical `band_sizes` and `emitted_ops`, because the model is already
+clamped to `K = 15`) and a plan-changing `K = 7` at `p64` that stays inside ±5 % noise, so no pin beat size 16 and
+the partition is scheduling, not numerics; where the cold call goes, the compile pool is 89–96 % of it while
+`lower` is only 0.8–11.6 % — the cost is the device-code compile, not MLIR construction.
+
+At pop 2 048 the band SIZE knob is unobservable: every band size in the grid asks `K = 210/105/53` at the
+single-body 1 680 functions, i.e. above the rocm cap, so b8/b16/b32 all clamp to the identical `15 × 112` merge
+with identical `emitted_ops` (spread 3.4 % = noise) and `EVOGP_BATCH_BANDS=15` reproduces it with no clamp note,
+while `flat` costs 3.11-3.22× the warm call (and 1.20-1.27× the cold) despite 17.9 % fewer emitted ops — so the
+flat-vs-banded decision holds at large pop too (`results/largascale/band/`).
+
+The compile pool trades cold for warm — 2.64× / 2.94× / 4.58× cheaper cold for 1.87× / 1.69× / 1.46× dearer
+`sr_fitness` warm — and repays the dearer cold call only after 3 849 / 5 103 / 18 702 warm calls of ONE population,
+so a GP loop never repays it. At pop 2 048 the pool width also changes the band partition (1×1 680 → 15 bands of
+112 / 38 640 ops, 2×840 → 15 of 56 / 39 852, 4×420 → 15 of 28 / 41 376, 8×210 → 14 of 15 with no clamp / 43 254):
+pool 8 halves the cold call (47.2 → 28.8 s) at 1.17× the warm one (12.85 → 15.09 ms, an 8 223-call break-even of
+ONE population), pool 2 costs 4× the cold (189.3 s) for 8 % warm and pool 1 23× the cold (1 086 s), so 4 stays the
+cold/warm compromise (`results/largascale/{pool2,pool8}`, `results/largascale/band/p2048-L64-i32-N1024/b16.json`).
+
+**A chunked numpy plan must not be the process's first build**: the numpy backend registers its kernel table lazily
+and not thread-safely, so a chunked plan whose first numpy build happens inside the compile pool fails with
+`BackendError: duplicate kernel registration for op(s): ...` — warm a single-body build first (what the battery and
+the campaign recordings do); iree is unaffected.
+
+### Plan/band read surface (relocated from tree/CONTEXT.md)
+`plan.chunks` holds one `BatchChunk` per compiled body in BOTH plan shapes, so `len(plan.chunks) == describe_plan(plan)["chunk_count"]`; `plan.merged` / `.graphs` / `.specs` are populated only when `chunk_count == 1`.
+`describe_plan` carries the band seam — `bands`, `band_sizes`, `band_strategy`, `cost_estimate`, `flat_cost_estimate`, `band_requested` (`flat`/`explicit`/`size`/`auto`), `band_requested_bands` (the `auto` `K` before clamping), `band_clamped`, `band_note`, `band_policy` — plus the per-body `chunk_bands` / `chunk_band_strategies`, and `BatchPlan` holds `band_requested`/`band_clamped`/`band_note`/`band_policy` while every `BatchChunk.report` carries the five `band_*` keys.
+An explicit band request (an explicit `K`, `auto` or a flat spelling) forces a single compiled body; `EVOGP_BATCH_CHUNK_BANDS` (default off) composes banding with chunking instead, re-planning the request per chunk (an explicit `K` split proportionally, the size model re-applied, `auto` per chunk), with the numbers equal to the unchunked plan's and the setting in both plan memo keys.

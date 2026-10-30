@@ -735,3 +735,122 @@ specialized+`numpy`, which dense beats at `N` = 4096–16384 by 1.4–8.7×, `te
   harness, its recorded grid and the firm-up round (root cause of the old model's ~3× warm inflation,
   the direct full-population iree measurements and the corrected ratios; check `status`/`source` before
   quoting a cell).
+
+## Measured detail (moved from tree/CONTEXT.md)
+
+The `auto` trace-cap raise is a graph-key stability rule, measured on the large-scale column: `L` is part of the
+dense graph key, so tracing the drifting realized length exactly paid one compile per `gp_step` (10 014.83 ms
+against 124.46 ms at a pinned 128), while `L=123` → `L=128` costs a few percent per call (103.34 → ~105.6 ms,
+at 123 nodes); a generation that crosses a power of two still recompiles once.
+
+The rows half is a memory envelope, not a row ceiling: `EVOGP_DENSE_AUTO_MAX_ROWS` defaults to `0` (unpinned) and
+`auto`'s allowance is `min(PIN, floor(EVOGP_DENSE_AUTO_BUDGET_MB · 2^20 / (pop_size · tree_len · 4)))`, because what
+grows is the `pop_size * tree_len * rows` product — a row ceiling declines cells where dense beats the
+specialized+numpy fallback it picks by 3.8–8.7× per call (p256-L64-i32-N4096 `auto` 50.47 vs dense 5.82 ms;
+p1000-L64-i32-N16384 446.60 vs 117.19) and 19–27× per `gp_step` (289.47 vs 10.53 and 881.66 vs 47.33).
+
+`auto` raises an over-cap population instead of declining it to `specialized`+numpy: a population whose realized
+longest tree exceeds the base cap but whose power-of-two-ROUNDED length (`next_power_of_two(max(base, longest))`)
+fits the ceiling and the envelope of `EVOGP_DENSE_AUTO_MAX_TREE_LEN` / `EVOGP_DENSE_AUTO_BUDGET_MB` is traced at
+that rounded cap on the device backend, and only a REFUSED raise (the 256-node ceiling or the envelope, re-checked
+at the rounded value) falls back — on `specialized`+`iree`, which is per-structure-compile-bound and unbounded in
+artifacts at large populations, so the opt-in `batch` route is the genuinely good answer there rather than the
+fallback.
+
+A dense request on a large-population long-tree cell exhausts memory: when the population's longest tree exceeds
+`EVOGP_DENSE_MAX_TREE_LEN` (64), an explicit `EVOGP_EVAL_MODE=dense` (which the automatic raise never applies to, so
+the cap is respected) declines into per-structure `specialized`+iree, whose artifact growth has no bound at large
+populations — pop 2 048 at 123-node trees hit the 236 GB cgroup cap in ~8 min and was OOM-killed together with its
+driver (the 201-node cell is strictly larger, so it was not retried), and neither cell has an `evoxc-dense-iree`
+record (`test/benchmark/evoxc/results/largescale/main/campaign-g1-nonbatch.json`).
+
+Dense-route host crossings (steady state = same `Forest`/dataset): a pre-conversion decline from `inputs.shape`,
+memoized host copies of `x`/`labels`, the population tensors only on a `DENSE_PLAN_MEMO` miss, and ONE
+`(p_chunk,)` loss readback per chunk; the **value** path still assembles the full `(P, N, 1)` host prediction and
+uploads it once, so `forward`/`batch_forward` stay readback-bound on device backends
+(`device_resident_findings.md` §2).
+
+**IREE device numerics (both paths, not dense-specific)**: iree-compile's own lowering drops the C99
+`pow(x, ±0) = 1` case when the exponent is a runtime value (`pow(0,0)` / `pow(NaN,0)` → NaN) and computes the
+emitted f32 `sqrt` 1 ulp low on some inputs; both classes vanish on numpy, are bit-identical across the dense and
+specialized paths, and are reported (not chased) by the batteries; tolerances: §5.
+
+**iree sessions are fragile**: the evoxc/iree binding leaks device buffers per live executable and the failure mode
+is a **teardown-only** crash, not a cap on compiled executables (P=64 with 55 builds wrote a correct JSON before the
+nanobind traceback; a single-family 338-row session SIGSEGVs) — run iree checks staged, one family per process,
+`clear_cache()` between stages (§7).
+
+The 12 GB sandbox `MemoryMax` kills `dense_spike_check.py --backend numpy --full` with measurements on (the
+`(L, P, N)` numpy graphs are host-memory heavy) — use `--skip-measure` for parity; `dense_peak_bytes` is a design
+bound, not an RSS predictor.
+
+With `EVOGP_EVAL_MODE=dense` (or `=batch`) a population outside that route's subset silently falls back to the
+specialized engine, so a passing test does not prove the route ran — count `DenseUnsupported` / `BatchUnsupported`
+(or use `dense_integration_check.py` / `dense_adversarial_check.py`); the last dense-forced full-suite run
+(32-node cap) had 18 declines of 510 attempts, all supported at the 64-node cap.
+
+On the numpy backend `auto` never selects dense (a full-chain verdict, 0.006–0.91× of the specialized warm
+throughput — slow *by design*, the interpreter pays per-op overhead); the pruned default cuts dense's op count ~7×
+on low-id populations, so this verdict is **not re-measured under the pruned chain** (§9.1).
+
+The `dense_spike_check.py` name is historical (`dense_adversarial_check.py` imports its `TreeSpec`/`pack_trees`
+builders); it is the engine-level parity + measurement harness, `case_compile_reuse` pins compile reuse at
+used-id-set granularity, its IR introspection reads `evoxc.trace(...)`'s `Graph.module.main.entry_block.ops`, and
+the `who=` / `got_path` labels name the deviating path(s).
+
+Dev-battery acceptance counts (the recorded numbers behind §8): `device_resident_check.py` → 104/104
+(`--stage policy,hotpath,parity,seam` → 79/79, the prune stage is the other 25),
+`dense_spike_check.py --backend numpy --quick --skip-measure` → 37/37,
+`dense_integration_check.py --stage numpy` → 109/109,
+`dense_adversarial_check.py --only binary_var --skip-batch --skip-sr` → 4/4 against
+`src/evogp/tests/reference_eval.py`, `runner_check.py` → 48/48 numpy, `executable_memo_check.py --reps 20` → 32/32
+(its k1–k7 keys on the real option shape: `opt_level`, `split_reduction`, a list-valued `tags`).
+
+iree legs are staged (executable leak / teardown instability, see above): one family per fresh process —
+`CUDA_VISIBLE_DEVICES=<physical> ... dense_adversarial_check.py --backend iree --gpu <visible index> --iree-max-pop 2 --only <family>`,
+`runner_check.py --backend iree --gpu <visible index>`, and `evoxc_engine.clear_cache()` between stages. Larger
+budgets expose the shared-path iree-compile classes that stride-2 sampling hides — `--iree-max-pop 32` gives
+`nan_ok=False` on the `POW(0,0)` row for BOTH paths — recorded, not chased (§5).
+
+On-disk artifact economics: a 3.28 s / 6.23 s compile becomes a 160 / 174 ms load in a second process, a truncated
+file costs one rebuild, and `python -m evogp.sr_test` reads 15.30 s cold against 9.25 s warm-artifact (§2.6/§6).
+
+### The on-disk artifact layer, shared by every route (relocated from `tree/CONTEXT.md`)
+
+- Unset/empty `EVOGP_EVOXC_ARTIFACT_DIR` changes nothing (one environment read, no key, no directory, no file);
+  set, a front-table miss first tries `artifact_cache.load`, and an executable built or loaded is stored in the
+  route's executable memo.
+- Key: `"<slug>-<sha256 hex>"` from `evoxc.persist.cache.compute_key` over `(KEY_FORMAT, graph name, the build's
+  spec tuple incl. static content, backend name, "kind:index", frozen options, evoxc.__version__,
+  iree-base-compiler version)`; the specialized graph name is `evoxc_engine.ARTIFACT_NAME = "specialized"`
+  (program in the spec tuple), so a distinct tree structure is a distinct file, while the dense route writes one
+  artifact per shape and used-id set (`DENSE_ARTIFACT_NAMES`: `dense:value` / `dense:loss`).
+- `signature_matches` accepts a loaded artifact only on agreeing tensor shapes/dtypes and flattened static values;
+  any load exception or mismatch deletes the file, and a successful build is `save`d atomically (temp file +
+  `os.replace`, best effort — no usable backend `save` yields `False` and no file).
+- Two lifetimes: `clear_cache()` is the in-memory point (compile cache + `_EXECUTABLE_MEMO` + the dense front
+  tables) and never deletes a file, while `clear_artifacts()` deletes every `*.evoxcart` and resets the disk
+  counters without touching memory; `artifact_cache_stats()` reports `artifact_enabled`, `artifact_files`,
+  `artifact_hits`, `artifact_misses`, `artifact_load_failures`, `artifact_stores`, `artifact_save_failures`
+  (disjoint from `cache_stats()`'s 8 keys and from `dense_cache_stats()`).
+- Not in the key (the same blind spot `build_cached` has): the ambient `EVOXC_*` process-env compile knobs. The
+  safety net is validation, not keying — evoxc's loader refuses an artifact whose compile targets do not fit the
+  requested device kind (`BackendError`) and `signature_matches` refuses a mismatched call shape, so a stale file
+  costs one rebuild, never a wrong number.
+- All three routes share the layer and one directory: `artifact_path(..., subdir=...)` puts the batch route's
+  bodies under `batch/` (never colliding with the dense/specialized files in the root), `count_files` and
+  `clear()` walk one nesting level, and each route keeps its own counters (`artifact_cache_stats()` for the
+  layer, `batch_artifact_stats()` for the batch region).
+- It buys a fresh process's first call and nothing else: the specialized route writes one file per distinct tree
+  structure (a random population fills the directory), so the dense route plus an occasional `clear_artifacts()`
+  is the sensible pairing, and the batch tier pays a fixed structure multiset only (a fresh generation is a new
+  key); no pytest test covers the disk layer yet.
+
+### Dense route module facts (relocated from tree/CONTEXT.md)
+Supported subset: single-output populations (`output_len == 1`) with every tree within the effective trace cap; an over-cap population emits a deduped once-per-process `RuntimeWarning` (device backends only) and falls back, and every decline is that route's own `*Unsupported`.
+`DENSE_CACHE` IS `evoxc_engine.CACHE`, keyed on the compiled body identity + `(L, P, N, input_len, per_row, update_mode, used_func_ids[, use_mse], backend, device, options)` — ONE miss per (shape, used-id set) against pop_size misses on the specialized path; `_dense_step` / `_dense_loss_step` must stay module-level (`id()` is part of the key).
+The used-id set (sorted unique ids 1..28, `DensePrep.used_func_ids`, empty when there is no function node) rides as a static `cfg[6]` entry, so it joins the cache key and a population whose set differs from the last compiled one recompiles; an empty set emits no candidate and every position keeps a defined value.
+`DENSE_EXECUTABLE_MEMO` / `DENSE_PLAN_MEMO` / `DENSE_INPUT_MEMO` (`dense_memo.py`) are the three front tables behind `dense_cache_stats()`'s 12 keys, invalidated by `evoxc_engine.clear_cache()` via `_register_cache_reset`.
+The SR loss is computed **in-graph** (`_dense_loss_step`, static `use_mse` in `cfg[7]`), so only the `/ N` divide and the `(pop_size,)` assembly stay host-side.
+The `auto` cap raise itself is `_next_power_of_two(max(base, longest))` re-checked against `auto_tree_len_allowance(pop_size, rows)` at the ROUNDED value (no clamping, no partial raise); a pinned cap or an explicit `EVOGP_EVAL_MODE=dense` keeps the base cap and the unflagged decline and adds no host read.
+The on-disk artifact layer's dense keys are `DENSE_ARTIFACT_NAMES`: `dense:value` / `dense:loss` — one artifact per shape and used-id set; the shared layer's contract, stat keys and recovery legs are `§2.6` / `§6` of this file.
