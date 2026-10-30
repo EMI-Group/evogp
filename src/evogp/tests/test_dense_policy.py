@@ -104,6 +104,18 @@ ENVELOPE_TREE_LEN = 64
 #: an explicit ``dense``/``dynamic`` never does.
 HUGE_ROWS = dense.auto_row_allowance(ENVELOPE_POP, ENVELOPE_TREE_LEN) + 1
 
+#: The cell the ``auto`` trace-cap RAISE was designed for (``LARGE_SCALE.md`` §7):
+#: 123-node trees at pop 2 048, a 128-wide row stride and N = 1 024 data rows.
+#: The default cap (64) is exceeded there while the raise's allowance (256) covers
+#: the population, so ``auto`` serves it instead of falling back to per-tree numpy.
+CAP_POP = 2048
+CAP_ROW_LEN = 128
+CAP_LONGEST = 123
+CAP_ROWS = 1024
+#: A budget (MiB) whose ``auto`` envelope allows exactly ONE trace node at that
+#: shape: ``8 * 2**20 // (2048 * 1024 * 4) == 1`` -- the envelope refusing the raise.
+CAP_TIGHT_BUDGET_MB = 8
+
 #: Budgets (MiB) walked to force a plan with BOTH chunk counts > 1 -- ported from
 #: the battery's ``_CANDIDATE_BUDGETS``.  ``_chunk_shape`` shaves ``n_chunk`` only
 #: from ``pop_size`` individuals up, and shaves ``P`` below one individual's
@@ -132,6 +144,7 @@ def hermetic_knobs(monkeypatch):
         dense.AUTO_MIN_POP_ENV,
         dense.AUTO_MAX_ROWS_ENV,
         dense.AUTO_BUDGET_MB_ENV,
+        dense.AUTO_MAX_TREE_LEN_ENV,
         EVOXC_BACKEND_ENV,
     ):
         monkeypatch.delenv(name, raising=False)
@@ -724,3 +737,497 @@ def test_other_declines_stay_silent_and_do_not_consume_the_once_flag(monkeypatch
     assert over_prep is None and "70 nodes" in over_reason
     assert len(runtime_warnings(recorded)) == 1
     assert dense._TRACE_CAP_WARNED is True
+
+
+# --------------------------------------------------------------------------- #
+# 7. the `auto` trace-cap raise (EVOGP_DENSE_AUTO_MAX_TREE_LEN)
+# --------------------------------------------------------------------------- #
+# Under `auto` ONLY, and only when the trace cap was not pinned, the entry points
+# (`evaluate_dense` / `sr_fitness_dense`) raise the cap for an over-cap population
+# to `min(longest, min(ceiling, envelope))` -- the cap-axis twin of the rows rule
+# -- and, when that allowance cannot reach the population's longest tree, decline
+# with `DenseUnsupported(..., device_fallback=True)` so the call site continues on
+# the DEVICE backend instead of per-tree numpy.
+#
+# Everything below is policy algebra plus a `_plan_entry` seam: the raise is
+# inspected at the scale it was designed for (pop 2 048, 123-node trees, N = 1 024)
+# WITHOUT building a graph, which is why those caps are large numbers while the
+# only compiled plans in this module stay at L = 16 (sections 1-6).  The call-site
+# half (`decline_backend`) lives in `test_route_policy.py`.
+
+#: The entry points' data payloads at the reference cell's shape.
+CAP_X = host_rows(CAP_ROWS, INPUT_LEN, seed=21)
+CAP_LABELS = host_rows(CAP_ROWS, 1, seed=22)
+CAP_PER_ROW_X = host_rows(CAP_POP, INPUT_LEN, seed=23)
+
+
+class PlanCaptured(Exception):
+    """Sentinel raised by the ``_plan_entry`` seam: carries the cap it was handed."""
+
+
+def cap_population(pop_size: int = CAP_POP):
+    """``(node_value, node_type, subtree_size)`` of the raise's reference population.
+    One ``CAP_LONGEST``-node chain in row 0 (so the realized longest tree is what
+    ``subtree_size[:, 0].max()`` answers) and single-``VAR`` padding rows, at the
+    ``CAP_ROW_LEN`` stride -- i.e. every tree past the default cap of 64, which is
+    the only state in which the raise (or its refusal) is decided.
+    """
+    return chain_rows(CAP_LONGEST, CAP_ROW_LEN, pop_size)
+
+
+def capture_plan(monkeypatch) -> dict:
+    """Replace ``_plan_entry`` by a recorder; the dense plan is never built.
+
+    The fake records the arguments the entry point resolved (that is where the
+    raised cap becomes visible, and ``n_rows`` is the sixth POSITIONAL argument)
+    and raises :class:`PlanCaptured`, which is NOT a ``DenseUnsupported`` -- so no
+    fallback can hide a call that reached the plan.
+    """
+    recorded: dict = {}
+
+    def fake(*args, **kwargs):
+        recorded.update(kwargs)
+        recorded["args"] = args
+        recorded["n_rows"] = args[5]
+        raise PlanCaptured(kwargs.get("max_tree_len"))
+
+    monkeypatch.setattr(dense, "_plan_entry", fake)
+    return recorded
+
+
+def forbid_plan(monkeypatch) -> None:
+    """Make the plan seam AND the population's host decode explode when reached."""
+
+    def explode(*args, **kwargs):
+        raise AssertionError(
+            "a population the auto raise refused must not reach the dense plan"
+        )
+
+    monkeypatch.setattr(dense, "_plan_entry", explode)
+    monkeypatch.setattr(dense, "prepare_dense", explode)
+
+
+def call_cap_entry(entry: str, **kwargs):
+    """Drive one of the two ``auto`` entry points on the reference population."""
+    values, types, sizes = cap_population()
+    if entry == "value":
+        return dense.evaluate_dense(
+            values,
+            types,
+            sizes,
+            INPUT_LEN,
+            1,
+            CAP_PER_ROW_X,
+            per_row=True,
+            **kwargs,
+        )
+    return dense.sr_fitness_dense(
+        values, types, sizes, INPUT_LEN, 1, CAP_X, CAP_LABELS, **kwargs
+    )
+
+
+def test_auto_cap_rule_arithmetic_is_exact():
+    """``min(longest, min(ceiling, envelope))`` on the documented cells."""
+    assert dense.AUTO_MAX_TREE_LEN_ENV == "EVOGP_DENSE_AUTO_MAX_TREE_LEN"
+    assert dense.DEFAULT_AUTO_MAX_TREE_LEN == 256
+    assert dense.resolve_auto_max_tree_len() == dense.DEFAULT_AUTO_MAX_TREE_LEN
+    # p2048-L128-i32-N1024-d7: envelope 1024, ceiling 256 -> allowance 256
+    envelope = dense.DEFAULT_AUTO_BUDGET_MB * 2 ** 20 // (CAP_POP * CAP_ROWS * 4)
+    assert envelope == 1024
+    assert dense.auto_tree_len_allowance(CAP_POP, CAP_ROWS) == 256
+    assert (
+        dense.auto_trace_cap(
+            CAP_LONGEST,
+            CAP_ROW_LEN,
+            eval_mode="auto",
+            pop_size=CAP_POP,
+            rows=CAP_ROWS,
+        )
+        == CAP_LONGEST
+    )
+    assert (
+        dense.auto_cap_decline(
+            CAP_LONGEST, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        is None
+    )
+    # the hypothetical 201-node cell at a 256-wide stride / N 1024 is served too
+    assert (
+        dense.auto_trace_cap(
+            201, 256, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        == 201
+    )
+    # per_row=True is ONE data row per tree, so the envelope cannot bind there
+    assert dense.auto_tree_len_allowance(CAP_POP, None) == 256
+    assert (
+        dense.auto_trace_cap(
+            CAP_LONGEST, CAP_ROW_LEN, eval_mode="auto", pop_size=CAP_POP
+        )
+        == CAP_LONGEST
+    )
+    # ... and the raise never invents a cap: an allowance below `longest` refuses
+    assert (
+        dense.auto_trace_cap(
+            300, 512, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        == dense.DEFAULT_MAX_TREE_LEN
+    )
+    assert (
+        dense.auto_cap_decline(300, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS)
+        is not None
+    )
+
+
+def test_auto_tree_len_allowance_is_the_envelope_solved_for_the_trace_length(
+    monkeypatch,
+):
+    """``min(ceiling, floor(budget_bytes / (pop_size * rows * 4)))``, term by term."""
+    # no population shape: the ceiling alone (the envelope cannot be applied)
+    assert dense.auto_tree_len_allowance(None, CAP_ROWS) == 256
+    # rows=None is the per_row=True shape, i.e. ONE data row per tree
+    assert dense.auto_tree_len_allowance(CAP_POP, None) == dense.auto_tree_len_allowance(
+        CAP_POP, 1
+    )
+    # the ceiling is a KNOB (it may exceed the default) ...
+    assert dense.auto_tree_len_allowance(CAP_POP, CAP_ROWS, auto_max_tree_len=512) == 512
+    # ... while the envelope can be the tighter term
+    assert dense.DEFAULT_AUTO_BUDGET_MB * 2 ** 20 // (8192 * 2048 * 4) == 128
+    assert dense.auto_tree_len_allowance(8192, 2048) == 128
+    # a tight budget is the tighter term, and the allowance never reaches 0
+    assert (
+        dense.auto_tree_len_allowance(
+            CAP_POP, CAP_ROWS, auto_budget_mb=CAP_TIGHT_BUDGET_MB
+        )
+        == 1
+    )
+    assert dense.auto_tree_len_allowance(10 ** 6, 10 ** 6, auto_budget_mb=1) == 1
+    # both knobs are also read from the environment, per call
+    monkeypatch.setenv(dense.AUTO_MAX_TREE_LEN_ENV, "64")
+    assert dense.auto_tree_len_allowance(CAP_POP, CAP_ROWS) == 64
+    monkeypatch.setenv(dense.AUTO_BUDGET_MB_ENV, str(CAP_TIGHT_BUDGET_MB))
+    assert dense.auto_tree_len_allowance(CAP_POP, CAP_ROWS) == 1
+
+
+def test_resolve_auto_max_tree_len_default_env_and_explicit(monkeypatch):
+    """The ceiling resolves like every other knob: argument, env, documented default."""
+    assert dense.resolve_auto_max_tree_len() == 256
+    assert dense.resolve_auto_max_tree_len(64) == 64
+    assert dense.resolve_auto_max_tree_len(512) == 512
+    monkeypatch.setenv(dense.AUTO_MAX_TREE_LEN_ENV, "128")
+    assert dense.resolve_auto_max_tree_len() == 128
+    assert dense.resolve_auto_max_tree_len(64) == 64  # explicit argument wins
+    monkeypatch.setenv(dense.AUTO_MAX_TREE_LEN_ENV, " 128 ")
+    assert dense.resolve_auto_max_tree_len() == 128
+    monkeypatch.setenv(dense.AUTO_MAX_TREE_LEN_ENV, "")
+    assert dense.resolve_auto_max_tree_len() == 256
+    monkeypatch.delenv(dense.AUTO_MAX_TREE_LEN_ENV)
+    assert dense.resolve_auto_max_tree_len() == 256
+
+
+@pytest.mark.parametrize("bad", [0, -1, -64])
+def test_resolve_auto_max_tree_len_rejects_non_positive_values(bad, monkeypatch):
+    with pytest.raises(ValueError, match=dense.AUTO_MAX_TREE_LEN_ENV):
+        dense.resolve_auto_max_tree_len(bad)
+    monkeypatch.setenv(dense.AUTO_MAX_TREE_LEN_ENV, str(bad))
+    with pytest.raises(ValueError, match=dense.AUTO_MAX_TREE_LEN_ENV):
+        dense.resolve_auto_max_tree_len()
+
+
+@pytest.mark.parametrize("raw", ["junk", "64.5", "auto"])
+def test_resolve_auto_max_tree_len_rejects_non_integers(raw, monkeypatch):
+    monkeypatch.setenv(dense.AUTO_MAX_TREE_LEN_ENV, raw)
+    with pytest.raises(ValueError, match=dense.AUTO_MAX_TREE_LEN_ENV):
+        dense.resolve_auto_max_tree_len()
+
+
+def test_trace_cap_pinned_reports_the_argument_and_the_env(monkeypatch):
+    """A cap the user asked for is never second-guessed by the raise."""
+    assert dense.trace_cap_pinned() is False
+    assert dense.trace_cap_pinned(64) is True
+    for blank in ("", "   "):
+        monkeypatch.setenv(dense.MAX_TREE_LEN_ENV, blank)
+        assert dense.trace_cap_pinned() is False
+    monkeypatch.setenv(dense.MAX_TREE_LEN_ENV, "128")
+    assert dense.trace_cap_pinned() is True
+    # a pinned cap IS the raise's answer -- and can never be refused
+    assert (
+        dense.auto_trace_cap(
+            CAP_LONGEST, 256, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        == 128
+    )
+    assert (
+        dense.auto_cap_decline(
+            CAP_LONGEST, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        is None
+    )
+    monkeypatch.delenv(dense.MAX_TREE_LEN_ENV)
+    assert dense.trace_cap_pinned() is False
+
+
+@pytest.mark.parametrize("mode", ["dense", "dynamic", "specialized", "batch"])
+def test_the_raise_is_auto_only(mode):
+    """Every explicit mode (and the alias) keeps the base cap and never declines."""
+    assert (
+        dense.auto_trace_cap(
+            CAP_LONGEST, CAP_ROW_LEN, eval_mode=mode, pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        == dense.DEFAULT_MAX_TREE_LEN
+    )
+    assert (
+        dense.auto_cap_decline(
+            CAP_LONGEST, eval_mode=mode, pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        is None
+    )
+    # ... even when the allowance could not cover the population
+    assert (
+        dense.auto_trace_cap(
+            300, 512, eval_mode=mode, pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        == dense.DEFAULT_MAX_TREE_LEN
+    )
+    assert (
+        dense.auto_cap_decline(300, eval_mode=mode, pop_size=CAP_POP, rows=CAP_ROWS)
+        is None
+    )
+
+
+def test_a_population_that_fits_the_cap_takes_no_raise():
+    """``longest <= base`` -- and a row stride that already fits -- is the identity."""
+    assert (
+        dense.auto_trace_cap(64, 128, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS)
+        == 64
+    )
+    assert (
+        dense.auto_trace_cap(8, 128, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS)
+        == 64
+    )
+    assert (
+        dense.auto_cap_decline(8, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS)
+        is None
+    )
+    # a row stride inside the cap cannot contain an over-cap tree: defensive, since
+    # the realized longest tree of a valid population never exceeds its stride
+    assert (
+        dense.auto_trace_cap(
+            CAP_LONGEST, 64, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        == 64
+    )
+
+
+def test_auto_cap_decline_names_the_binding_term():
+    """The reason names BOTH terms of the allowance and says which one bound it."""
+    ceiling_reason = dense.auto_cap_decline(
+        CAP_LONGEST,
+        eval_mode="auto",
+        pop_size=CAP_POP,
+        rows=CAP_ROWS,
+        auto_max_tree_len=64,
+    )
+    assert ceiling_reason is not None
+    assert f"the longest tree is {CAP_LONGEST} nodes" in ceiling_reason
+    assert f"pop_size={CAP_POP} x {CAP_ROWS} row(s)" in ceiling_reason
+    assert "above the 64 nodes the automatic trace-cap raise allows" in ceiling_reason
+    assert f"{dense.AUTO_MAX_TREE_LEN_ENV}=64 is the tighter term" in ceiling_reason
+    assert "would allow 1024 nodes" in ceiling_reason  # the envelope alone
+    assert ceiling_reason.count("is the tighter term") == 1
+    budget_reason = dense.auto_cap_decline(
+        CAP_LONGEST,
+        eval_mode="auto",
+        pop_size=CAP_POP,
+        rows=CAP_ROWS,
+        auto_budget_mb=CAP_TIGHT_BUDGET_MB,
+    )
+    assert "above the 1 nodes the automatic trace-cap raise allows" in budget_reason
+    assert (
+        f"{dense.AUTO_BUDGET_MB_ENV}={CAP_TIGHT_BUDGET_MB} MiB is the tighter term"
+        in budget_reason
+    )
+    assert "would allow 256 nodes" in budget_reason  # the ceiling alone
+    assert budget_reason.count("is the tighter term") == 1
+    # an unknown population shape can only apply the ceiling, and says so
+    shape_reason = dense.auto_cap_decline(300, eval_mode="auto", rows=CAP_ROWS)
+    assert "a population of unknown shape" in shape_reason
+    assert "the population shape is unknown, so the envelope cannot be applied" in (
+        shape_reason
+    )
+    # every refusal carries the same remedies
+    for reason in (ceiling_reason, budget_reason, shape_reason):
+        assert f"Raise {dense.AUTO_MAX_TREE_LEN_ENV} or {dense.AUTO_BUDGET_MB_ENV}" in reason
+        assert f"set an explicit {dense.MAX_TREE_LEN_ENV}" in reason
+        assert "EVOGP_EVAL_MODE=dense" in reason
+
+
+@pytest.mark.parametrize("entry", ["value", "loss"])
+def test_the_raise_reaches_the_plan_of_both_entry_points(entry, monkeypatch):
+    """``auto`` SERVES the population: the plan is built at the RAISED cap."""
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    recorded = capture_plan(monkeypatch)
+    with pytest.raises(PlanCaptured) as excinfo:
+        call_cap_entry(entry, backend="numpy")
+    assert excinfo.value.args[0] == CAP_LONGEST  # the cap the plan was handed
+    assert recorded["max_tree_len"] == CAP_LONGEST
+    assert recorded["max_tree_len"] == dense.auto_trace_cap(
+        CAP_LONGEST,
+        CAP_ROW_LEN,
+        eval_mode="auto",
+        pop_size=CAP_POP,
+        rows=None if entry == "value" else CAP_ROWS,
+    )
+    if entry == "value":
+        assert recorded["per_row"] is True and recorded["variant"] == dense.VALUE_VARIANT
+        assert recorded["n_rows"] == CAP_POP  # one data row per tree
+    else:
+        assert recorded["per_row"] is False and recorded["variant"] == dense.LOSS_VARIANT
+        assert recorded["n_rows"] == CAP_ROWS
+
+
+def test_a_population_that_fits_the_cap_pays_no_host_read(monkeypatch):
+    """The raise's population read is behind the row-stride check (hot path)."""
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    reads = []
+
+    def explode(sizes):  # pragma: no cover - it must not run
+        reads.append(1)
+        raise AssertionError(
+            "the auto raise read the population although the row stride fits the cap"
+        )
+
+    monkeypatch.setattr(dense, "_population_longest", explode)
+    recorded = capture_plan(monkeypatch)
+    values, types, sizes = chain_rows(CHAIN_LEN, ROW_LEN, POP_SIZE)  # stride 16 <= cap 64
+    with pytest.raises(PlanCaptured):
+        dense.evaluate_dense(
+            values, types, sizes, INPUT_LEN, 1, X, per_row=True, backend="numpy"
+        )
+    assert reads == []
+    assert recorded["max_tree_len"] is None  # the caller's value, untouched
+
+
+def test_a_long_row_stride_reads_the_longest_but_raises_nothing(monkeypatch):
+    """A stride above the cap whose every tree fits: one read, no raise."""
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    reads = []
+    original = dense._population_longest
+
+    def spy(sizes):
+        reads.append(1)
+        return original(sizes)
+
+    monkeypatch.setattr(dense, "_population_longest", spy)
+    recorded = capture_plan(monkeypatch)
+    values, types, sizes = chain_rows(CHAIN_LEN, 128, POP_SIZE)  # stride 128, longest 8
+    with pytest.raises(PlanCaptured):
+        dense.evaluate_dense(
+            values, types, sizes, INPUT_LEN, 1, X, per_row=True, backend="numpy"
+        )
+    assert reads == [1]
+    assert recorded["max_tree_len"] is None
+
+
+@pytest.mark.parametrize("entry", ["value", "loss"])
+def test_a_refused_raise_declines_flagged_before_the_plan(entry, monkeypatch):
+    """The ceiling refusing the raise is a DELIBERATE, device-fallback decline."""
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    monkeypatch.setenv(dense.AUTO_MAX_TREE_LEN_ENV, "64")
+    monkeypatch.setattr(dense, "_TRACE_CAP_WARNED", False)
+    forbid_plan(monkeypatch)
+    # ``backend="iree"`` is only a NAME: the refusal is decided before the backend
+    # is resolved, so nothing compiles and no device is touched.
+    with pytest.raises(dense.DenseUnsupported) as excinfo:
+        call_cap_entry(entry, backend="iree")
+    exc = excinfo.value
+    assert exc.device_fallback is True
+    assert f"{dense.AUTO_MAX_TREE_LEN_ENV}=64 is the tighter term" in exc.reason
+    assert "automatic trace-cap raise" in exc.reason
+    # ... and it is not the once-per-process over-cap surprise (that warning belongs
+    # to the pinned paths, which reach ``prepare_dense``)
+    assert dense._TRACE_CAP_WARNED is False
+
+
+def test_a_budget_refused_raise_declines_flagged(monkeypatch):
+    """The envelope refusing the raise declines the same way (``per_row=True``).
+    The loss entry point cannot see this refusal at the reference shape: both rules
+    are solved from the same byte budget, and the ROWS rule (which is checked
+    first) sizes its envelope with the full 128-wide row stride, so it fires
+    before the cap axis gets a chance.  A per-row call has no data-row axis, which
+    is where the cap envelope is the only bound.
+    """
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    monkeypatch.setenv(dense.AUTO_BUDGET_MB_ENV, "1")
+    assert dense.auto_tree_len_allowance(CAP_POP * 2, None, auto_budget_mb=1) == 64
+    forbid_plan(monkeypatch)
+    values, types, sizes = chain_rows(CAP_LONGEST, CAP_ROW_LEN, CAP_POP * 2)
+    with pytest.raises(dense.DenseUnsupported) as excinfo:
+        dense.evaluate_dense(
+            values,
+            types,
+            sizes,
+            INPUT_LEN,
+            1,
+            np.zeros((CAP_POP * 2, INPUT_LEN), dtype=np.float32),
+            per_row=True,
+            backend="numpy",
+        )
+    assert excinfo.value.device_fallback is True
+    assert (
+        f"{dense.AUTO_BUDGET_MB_ENV}=1 MiB is the tighter term" in excinfo.value.reason
+    )
+
+
+@pytest.mark.parametrize("pin", ["argument", "env", "mode"])
+def test_a_pinned_cap_keeps_the_unflagged_over_cap_decline(pin, monkeypatch):
+    """A pinned cap (or an explicit mode) is never raised: the OLD decline stands."""
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    kwargs = {}
+    if pin == "argument":
+        kwargs["max_tree_len"] = dense.DEFAULT_MAX_TREE_LEN
+        assert dense.trace_cap_pinned(kwargs["max_tree_len"]) is True
+    elif pin == "env":
+        monkeypatch.setenv(dense.MAX_TREE_LEN_ENV, str(dense.DEFAULT_MAX_TREE_LEN))
+        assert dense.trace_cap_pinned() is True
+    else:
+        monkeypatch.setenv(dense.EVAL_MODE_ENV, "dense")
+    values, types, sizes = chain_rows(CAP_LONGEST, CAP_ROW_LEN, 2)
+    with pytest.raises(dense.DenseUnsupported) as excinfo:
+        dense.sr_fitness_dense(
+            values, types, sizes, INPUT_LEN, 1, X, LABELS, backend="numpy", **kwargs
+        )
+    exc = excinfo.value
+    assert exc.device_fallback is False  # the numpy fallback, as before the rule
+    assert f"longest tree is {CAP_LONGEST} nodes" in exc.reason
+    assert f"cap is {dense.DEFAULT_MAX_TREE_LEN}" in exc.reason
+    assert dense.MAX_TREE_LEN_ENV in exc.reason
+
+
+def test_the_longest_read_is_one_memoized_host_read(monkeypatch):
+    """The raise costs ONE population read, and a repeat decline repays nothing."""
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    monkeypatch.setenv(dense.AUTO_MAX_TREE_LEN_ENV, "64")
+    evoxc_engine.clear_cache()  # start from empty front tables
+    values, types, sizes = (torch.as_tensor(row) for row in cap_population())
+    inputs = torch.as_tensor(CAP_X)
+    labels = torch.as_tensor(CAP_LABELS)
+    with pytest.raises(dense.DenseUnsupported) as excinfo:
+        dense.sr_fitness_dense(
+            values, types, sizes, INPUT_LEN, 1, inputs, labels, backend="numpy"
+        )
+    assert excinfo.value.device_fallback is True
+    token = dense.dense_memo.token(sizes)
+    assert token is not None
+    assert dense.DENSE_INPUT_MEMO.lookup(("longest", token)) == CAP_LONGEST
+    # ... and a repeat call is served by the front tables: the real host conversion
+    # of ``inputs`` is never repeated (the reduction's memo is the entry above).
+    def explode(*args, **kwargs):
+        raise AssertionError("the repeat call re-read the host")
+
+    monkeypatch.setattr(dense, "_as_numpy", explode)
+    with pytest.raises(dense.DenseUnsupported) as repeat:
+        dense.sr_fitness_dense(
+            values, types, sizes, INPUT_LEN, 1, inputs, labels, backend="numpy"
+        )
+    assert repeat.value.device_fallback is True

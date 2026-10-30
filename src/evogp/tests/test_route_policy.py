@@ -740,9 +740,9 @@ def test_a_wired_call_site_continues_on_the_device_backend_after_a_refused_raise
     methods relocate their inputs to the hard-coded ``"cuda"`` string through
     ``check_tensor``, so their *composition* is what is reproduced here -- the
     dense entry point, the exception and ``decline_backend`` -- and
-    ``backend="iree"`` stays a NAME, because the decline is decided (from
-    ``.shape`` and ``subtree_size[:, 0]`` alone) before any backend or graph is
-    resolved.
+    ``backend="iree"`` stays a NAME, because the refusal is decided from sizes
+    (``x.shape``'s row count and the population's ``subtree_size[:, 0]``) before
+    any backend name or graph is resolved.
     """
     on_device_box(monkeypatch)
     monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
