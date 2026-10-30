@@ -1,0 +1,122 @@
+{
+ "schema": "evogp-bench-evoxc-v1-campaign",
+ "driver_env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T04:18:23Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A19/src",
+  "tree_root_sha": "009d47b28db280760c527edb06bf248c0ca74116",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A19",
+  "arm": "driver",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": null,
+  "evoxc_sha": "b0544d57b8687645c8a27de536c85fed4fb3212e",
+  "evogp_file": null,
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_import_error": "ModuleNotFoundError(\"No module named 'evoxc'\")",
+  "evogp_import_error": "ModuleNotFoundError(\"No module named 'evogp'\")",
+  "note": "large-scale campaign: batch d8 (declared-infeasible attempt)",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A19/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A19/test/benchmark/evoxc"
+ },
+ "protocol": {
+  "one_process_per_config": true,
+  "sequential": true,
+  "workloads": [
+   "sr_fitness",
+   "batch_forward",
+   "forward",
+   "gp_step"
+  ],
+  "warmup": 2,
+  "reps": 5,
+  "gp_warmup": 1,
+  "gp_reps": 3,
+  "seed": 0,
+  "guard_wait": 120.0,
+  "scope_rule": {
+   "evoxc-specialized-iree": [
+    16,
+    64
+   ]
+  },
+  "scope_dropped": [],
+  "specialized_iree_compile_ms_per_structure": {
+   "measured_range": [
+    271.6,
+    283.9
+   ],
+   "source": "probe p16/p64, this box"
+  },
+  "batch_arms": {
+   "evoxc-batch-iree": {
+    "eval_mode": "batch",
+    "backend": "iree",
+    "family": "evoxc"
+   },
+   "evoxc-batch-iree-flat": {
+    "eval_mode": "batch",
+    "backend": "iree",
+    "family": "evoxc",
+    "knobs": {
+     "EVOGP_BATCH_BANDS": "flat"
+    }
+   }
+  },
+  "batch_engine_present": true,
+  "batch_route_note": "the batch route compiles ONE merged graph per population structure multiset, so its compile is expected to take minutes and a batch-arm overrun shows up as status 'timeout' with the worker log as evidence, not as a defect to be retried away"
+ },
+ "configs": [
+  {
+   "index": 1,
+   "cell": "p2048-L256-i32-N1024-d8",
+   "arm": "evoxc-batch-iree",
+   "record": "test/benchmark/evoxc/results/largescale/main/p2048-L256-i32-N1024-d8/evoxc-batch-iree.json",
+   "log": "test/benchmark/evoxc/results/largescale/main/p2048-L256-i32-N1024-d8/evoxc-batch-iree.log",
+   "status": "timeout",
+   "detail": ">900s",
+   "wall_s": 900.63,
+   "guard": {
+    "python": [
+     "2300339: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-23551f6d29888b5c --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 0.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      2300343
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "2300343\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  }
+ ],
+ "elapsed_s": 900.8,
+ "failures": 1
+}
