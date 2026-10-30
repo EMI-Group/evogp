@@ -77,7 +77,8 @@ SECTIONS = ("env", "workloads", "speedup", "gp_step", "cold", "digest", "compare
 #: Presentation order of the batch knobs.  The TABLE itself is ``common.BATCH_KNOBS``
 #: (the single owner); this only says in which order its keys are quoted, and any
 #: knob ``common`` gains later is appended instead of silently disappearing.
-_BATCH_KNOB_ORDER = ("band_size", "bands", "alignment", "switch_ops", "min_pop", "cache_size")
+_BATCH_KNOB_ORDER = ("band_size", "bands", "alignment", "dispatch_formation", "switch_ops",
+                     "min_pop", "cache_size")
 BATCH_KNOB_KEYS = tuple(
     [key for key in _BATCH_KNOB_ORDER
      if key in {entry[0] for entry in common.BATCH_KNOBS}]

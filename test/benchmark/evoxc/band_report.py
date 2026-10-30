@@ -8,7 +8,8 @@ module is the ONE place that key list and the block-builder live, so ``worker.py
 ``reuse_probe.py`` state the shape without carrying a second, subtly different key list.
 
 The route-side contract is optional and getattr-probed: ``describe_plan(plan)`` is the cheap mapping view
-(carrying ``band_count``/``chunk_count``/``chunk_bands`` and the un-clamped request), and the plan's OWN
+(carrying ``band_count``/``chunk_count``/``chunk_bands``, the un-clamped request and the merged compile's
+``dispatch_formation`` spelling), and the plan's OWN
 ``report`` (``merged.batch_report.as_dict()``) is where ``bands``, the two cost-model estimates and the
 per-body ``cost_estimate``/``flat_cost_estimate`` live.  Nothing here imports ``evogp`` or ``torch``: it
 only receives a plan object and/or the mapping a caller already has.
@@ -34,6 +35,11 @@ from typing import Any, Dict, List, Optional, Tuple
 #: snapshot, and the per-body band counts of a chunked plan (which only
 #: ``describe_plan`` carries) -- i.e. "what the cost model chose" next to the measured
 #: shape.  Appended LAST so the older eight keep their order.
+#: The final two are the merged compile's ``dispatch_formation`` seam: ``dispatch_formation``
+#: is the EFFECTIVE spelling in the compile options (and therefore in every memo /
+#: executable / artifact key) while ``dispatch_formation_requested`` is the request it
+#: came from (the harness's ``EVOGP_BATCH_DISPATCH_FORMATION`` spelling), so a record
+#: states what ran instead of what the environment asked for.
 BAND_REPORT_KEYS: Tuple[str, ...] = (
     "bands",
     "band_sizes",
@@ -49,6 +55,8 @@ BAND_REPORT_KEYS: Tuple[str, ...] = (
     "band_note",
     "band_policy",
     "chunk_bands",
+    "dispatch_formation",
+    "dispatch_formation_requested",
 )
 #: Why the two cost estimates are usually null here (the row is machine-readable too).
 BAND_COST_NOTE = (
@@ -129,7 +137,12 @@ def band_report(plan_or_described: Any = None, described: Any = None) -> Dict[st
     ``torch``/``evogp`` or raises: this is compile-free introspection of a plan the route
     has already stored, so a missing memo costs a block, never a record.
     ``chunk_count`` rides along from the ``describe_plan`` view (it lives there, not in
-    the report) so a chunked plan's nulls can be read for what they are.
+    the report) so a chunked plan's nulls can be read for what they are, and the
+    compile-option seam reads the same way: ``dispatch_formation`` is the spelling the
+    merged bodies were compiled with (``"default"`` or ``"aggressive"``, part of every
+    memo / executable / artifact key) and ``dispatch_formation_requested`` the request
+    it came from -- both ``None`` on a plan that predates the knob, never a fabricated
+    ``"default"``.
     """
     mapping = (
         described
@@ -169,6 +182,10 @@ def band_report(plan_or_described: Any = None, described: Any = None) -> Dict[st
         "band_policy": _copied_mapping(pick("band_policy")),
         # per-body band counts of a CHUNKED plan (describe_plan only; null when absent)
         "chunk_bands": _band_sizes(pick("chunk_bands")),
+        # the compile-option seam: the EFFECTIVE dispatch formation (what the bodies were
+        # compiled with, i.e. part of every memo/artifact key) next to the request
+        "dispatch_formation": pick("dispatch_formation"),
+        "dispatch_formation_requested": pick("dispatch_formation_requested"),
     }
     if report and mapping:
         source = "plan-report+described"

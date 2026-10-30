@@ -30,6 +30,13 @@ Usage (from the repository root, project venv)::
 ``--cells`` takes the named columns ``main`` / ``n64`` / ``long`` / ``large`` (the
 token -> cell-list mapping is ``CELL_COLUMNS`` behind ``select_cells``) or a
 comma-separated list of single cell ids such as ``p256-L64-i32-N1024-d7``.
+
+``--artifact-dir`` is the persistent on-disk executable tier's directory: it is
+exported to every worker as ``EVOGP_BENCH_ARTIFACT_DIR`` and only the
+``evoxc-batch-iree-artifact`` arm turns it into ``EVOGP_EVOXC_ARTIFACT_DIR`` (every
+other arm clears that variable).  The default is ``<out>/artifacts`` -- per run -- so
+passing (or exporting) one fixed path is how a later process reloads artifacts
+instead of recompiling.
 """
 
 from __future__ import annotations
@@ -247,6 +254,24 @@ def log_path(out_dir: str, cell: str, arm: str) -> str:
     return os.path.join(out_dir, cell, f"{arm}.log")
 
 
+def resolve_artifact_dir(args: Any) -> str:
+    """The disk tier's directory this campaign points its artifact arm at.
+
+    Precedence: ``--artifact-dir`` (an explicit path, the way to REUSE one cache across
+    campaigns), then the caller's ``EVOGP_BENCH_ARTIFACT_DIR`` export, then
+    ``<out>/artifacts`` -- a per-RUN directory, so two runs of the same result directory
+    share and every other run starts empty.  Absolute, and nothing is created here: the
+    engine creates it on the first save, and an arm that never turns the tier on never
+    touches it.
+    """
+    if args.artifact_dir:
+        return os.path.abspath(args.artifact_dir)
+    exported = os.environ.get(common.ARTIFACT_DIR_ENV, "").strip()
+    if exported:
+        return os.path.abspath(exported)
+    return os.path.abspath(os.path.join(args.out, "artifacts"))
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tree-root", default="src", help="src root holding evogp (or a snapshot's src/)")
@@ -270,6 +295,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--full-specialized-iree", action="store_true",
                     help="also time specialized-iree on the large populations (1-5 min of compile each)")
     ap.add_argument("--note", default="")
+    ap.add_argument("--artifact-dir", default=None,
+                    help="directory the disk-tier arm (`evoxc-batch-iree-artifact`) points "
+                         "EVOGP_EVOXC_ARTIFACT_DIR at. Default: $EVOGP_BENCH_ARTIFACT_DIR when "
+                         "exported, else <out>/artifacts (a per-run directory). Exported to every "
+                         "worker as EVOGP_BENCH_ARTIFACT_DIR, so one cache is reused across "
+                         "processes and across campaigns when the same path is passed twice")
     args = ap.parse_args(argv)
 
     cells = select_cells(args.cells)
@@ -307,7 +338,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     env["EVOXC_DISABLE_LOCATIONS"] = os.environ.get("EVOXC_DISABLE_LOCATIONS", "1")
     for key in ("EVOGP_EVAL_MODE", "EVOGP_EVOXC_BACKEND", "EVOGP_EVOXC_DEVICE",
                 "EVOGP_EVOXC_OPT_LEVEL", "EVOGP_EVOXC_CACHE_SIZE",
-                "EVOGP_DENSE_AUTO_MIN_POP", "EVOGP_DENSE_AUTO_MAX_ROWS"):
+                "EVOGP_DENSE_AUTO_MIN_POP", "EVOGP_DENSE_AUTO_MAX_ROWS",
+                "EVOGP_DENSE_AUTO_BUDGET_MB"):
         if key in os.environ:
             env[key] = os.environ[key]
     # the batch route's knobs travel the same way, so an operator's explicit override
@@ -321,7 +353,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     # dense trace cap is per-ARM provenance (``evoxc-dense-iree-raised`` pins it to the
     # cell's tree length, ``evoxc-dense-iree`` wants the shipped default), so an
     # inherited value would silently turn one arm into another.  ``apply_arm_env``
-    # clears it for every arm and writes the arm's own resolved spec.
+    # clears it for every arm and writes the arm's own resolved spec.  The disk tier's
+    # ``EVOGP_EVOXC_ARTIFACT_DIR`` is per-arm provenance for the same reason: only
+    # ``evoxc-batch-iree-artifact`` may have it set, so the caller's value is NOT
+    # forwarded -- the harness's own hook below is (``EVOGP_BENCH_ARTIFACT_DIR``).
+    artifact_dir = resolve_artifact_dir(args)
+    env[common.ARTIFACT_DIR_ENV] = artifact_dir
 
     os.makedirs(args.out, exist_ok=True)
     driver_path = os.path.join(args.out, "campaign.json")
@@ -332,11 +369,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         # ... and for the batch arms, WHERE the route resolves on the tree being
         # measured -- the point of the dry run is to see that before a multi-minute
         # merged-graph compile is paid.  The arm's own knob spec is applied around the
-        # resolution (restored afterwards) so the ``-flat`` variant reports bands=flat.
+        # resolution (restored afterwards) so the ``-flat`` variant reports bands=flat
+        # and the dispatch-formation arm reports its pinned spelling.
         for arm in [a for a in arms if common.is_batch_arm(a)]:
-            arm_knobs = dict((common.EVOXC_ARMS.get(arm) or {}).get("knobs") or {})
+            arm_knobs = common.arm_knob_env(arm)
             previous = {key: os.environ.get(key) for key in arm_knobs}
-            os.environ.update({key: str(value) for key, value in arm_knobs.items()})
+            os.environ.update(arm_knobs)
             try:
                 policy = common.batch_policy(src)
             finally:
@@ -352,10 +390,34 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"alignment={policy['alignment']}",
                 f"switch_ops={policy['switch_ops']}",
                 f"min_pop={policy['min_pop']}",
+                # the REQUESTED spelling: the effective one is on the plan
+                # (``batch_plan_summary.band_report.dispatch_formation``)
+                f"dispatch_formation={policy['dispatch_formation']}",
                 f"declared_modes={policy['declared_modes']!r}",
                 f"module_present={policy['module_present']}",
                 f"mode_supported={policy['mode_supported']}",
             )
+        # ... and the knob spec of every scheduled arm, i.e. the env its worker writes
+        # after clearing ``common.ROUTE_ENV_VARS``.  One line per arm (not per cell), so
+        # the disk tier's directory -- the campaign's own hook below -- is stated once:
+        # it is the ARM's env, and an arm without knobs says so instead of staying silent.
+        previous_hook = os.environ.get(common.ARTIFACT_DIR_ENV)
+        os.environ[common.ARTIFACT_DIR_ENV] = artifact_dir
+        try:
+            for arm in dict.fromkeys(cfg["arm"] for cfg in configs):
+                knobs = common.arm_knob_env(arm)
+                literal = {k: v for k, v in knobs.items() if "{" not in v}
+                templated = {k: v for k, v in knobs.items() if "{" in v}
+                parts = [f"{key}={value}" for key, value in sorted(literal.items())]
+                if templated:
+                    parts.append("per-cell: " + " ".join(
+                        f"{key}={value}" for key, value in sorted(templated.items())))
+                print("arm knobs", arm, " ".join(parts) or "<none>")
+        finally:
+            if previous_hook is None:
+                os.environ.pop(common.ARTIFACT_DIR_ENV, None)
+            else:
+                os.environ[common.ARTIFACT_DIR_ENV] = previous_hook
         # ... and for an arm whose knob value is a per-CELL template (the dense route's
         # trace cap pinned to the cell's tree length), the value each scheduled cell
         # will export.  The substitution is repeated here, on purpose, instead of
@@ -365,6 +427,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             spec = common.EVOXC_ARMS.get(cfg["arm"]) or {}
             for env_name, value in (spec.get("knobs") or {}).items():
                 if not (isinstance(value, str) and "{" in value):
+                    continue
+                if value == common.ARTIFACT_DIR_PLACEHOLDER:
+                    # not a per-cell template: the disk tier's directory is the arm's own
+                    # env (one ``arm knobs`` line above), not something a cell decides
                     continue
                 resolved = value
                 for key in ("tree_len", "pop", "input_len", "rows"):
@@ -397,6 +463,17 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if common.is_batch_arm(arm)
             },
             "batch_engine_present": common.batch_engine_present(src),
+            "artifact_dir": artifact_dir,
+            "artifact_dir_env": common.ARTIFACT_DIR_ENV,
+            "artifact_note": (
+                "the disk tier's directory (exported as "
+                f"{common.ARTIFACT_DIR_ENV}) is where `evoxc-batch-iree-artifact` points "
+                f"{common.ARTIFACT_ENV_VARS[0]}; every other arm clears that variable, so "
+                "only the artifact arm's cold column can be served from disk. Pass "
+                "--artifact-dir (or export "
+                f"{common.ARTIFACT_DIR_ENV}) with the same path to reuse one cache across "
+                "campaigns; the default is <out>/artifacts, i.e. per run"
+            ),
             "batch_route_note": (
                 "the batch route compiles ONE merged graph per population structure "
                 "multiset, so its compile is expected to take minutes and a batch-arm "

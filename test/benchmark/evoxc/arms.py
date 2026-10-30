@@ -20,14 +20,20 @@ gets.
 
 An arm spec may also carry a ``knobs`` mapping of extra engine knobs
 (``{env var: value}``) beyond the two route selectors -- the batch route's
-``EVOGP_BATCH_BANDS=flat`` variant and the dense route's cell-pinned
-``EVOGP_DENSE_MAX_TREE_LEN={tree_len}`` are the two; ``apply_arm_env`` applies
-them, and every route knob is cleared for every arm first so a value can never
+``EVOGP_BATCH_BANDS=flat`` / ``EVOGP_BATCH_DISPATCH_FORMATION=aggressive`` variants,
+the batch route's on-disk tier (``EVOGP_EVOXC_ARTIFACT_DIR``) and the dense route's
+cell-pinned ``EVOGP_DENSE_MAX_TREE_LEN={tree_len}`` are the four; ``apply_arm_env``
+applies them, and every route knob is cleared for every arm first so a value can never
 leak from one arm's process environment into another's.
 A knob value may be a per-cell *template*: ``{tree_len}`` / ``{pop}`` /
 ``{input_len}`` / ``{rows}`` are substituted from the cell dict the worker passes
 in (``apply_arm_env(arm, cell)``), so one registry entry can mean "the cell's own
-tree length" instead of a fixed number.
+tree length" instead of a fixed number.  The one further placeholder is
+``{artifact_dir}`` (:data:`common.ARTIFACT_DIR_PLACEHOLDER`), which is NOT a cell
+property: it resolves to :func:`common.artifact_dir` -- this harness's
+``EVOGP_BENCH_ARTIFACT_DIR`` hook, else :data:`common.DEFAULT_ARTIFACT_DIR` -- so the
+disk-tier arm points at one directory several processes can share, and it works
+without a cell.
 """
 
 from __future__ import annotations
@@ -129,7 +135,11 @@ class EvoxcArm:
 #: these), so a registry entry can say "the cell's own tree length" instead of a
 #: number that is only right for one column.
 KNOB_PLACEHOLDERS = ("tree_len", "pop", "input_len", "rows")
+_VALID_PLACEHOLDERS = KNOB_PLACEHOLDERS + ("artifact_dir",)
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
+#: The one placeholder that is NOT a cell property: the disk tier's directory, resolved
+#: from the harness's own hook so a knob needs no cell (see ``common.artifact_dir``).
+ARTIFACT_PLACEHOLDER = "artifact_dir"
 
 
 def resolve_knob_value(
@@ -146,11 +156,13 @@ def resolve_knob_value(
     (L <= 64, i.e. the plain ``evoxc-dense-iree`` route) and on a long-tree cell (the
     cap raised so dense actually serves the population).  ``cell`` is the dict
     ``common.cell`` / ``common.parse_cell`` produce and only its own keys
-    (:data:`KNOB_PLACEHOLDERS`) are substitutable.
+    (:data:`KNOB_PLACEHOLDERS`) are substitutable -- plus ``{artifact_dir}``, which
+    :func:`apply_arm_env` supplies from :func:`common.artifact_dir` because it is the
+    harness's hook rather than a property of a cell.
 
     A value carrying no placeholder is returned UNCHANGED -- every pre-existing knob
     (``"flat"``) therefore behaves exactly as before and works without a cell.  A
-    templated value with no cell, or with a placeholder the cell does not carry,
+    templated value with no cell, or with a placeholder the mapping does not carry,
     raises ``ValueError`` naming the arm and the placeholder instead of exporting a
     literal ``{tree_len}`` that the engine would reject (or, worse, read as garbage).
     """
@@ -162,14 +174,14 @@ def resolve_knob_value(
     if not isinstance(cell, dict):
         raise ValueError(
             f"{where}: templated value {value!r} needs a cell to resolve its "
-            f"placeholders {list(KNOB_PLACEHOLDERS)} -- call "
+            f"placeholders {list(_VALID_PLACEHOLDERS)} -- call "
             "apply_arm_env(arm, cell) with the cell dict"
         )
     placeholders = _PLACEHOLDER_RE.findall(value)
     if not placeholders:
         raise ValueError(
             f"{where}: templated value {value!r} carries no resolvable placeholder "
-            f"{list(KNOB_PLACEHOLDERS)}"
+            f"{list(_VALID_PLACEHOLDERS)}"
         )
     out = value
     for placeholder in placeholders:
@@ -177,7 +189,7 @@ def resolve_knob_value(
             raise ValueError(
                 f"{where}: unknown placeholder {{{placeholder}}} for cell "
                 f"{cell.get('id')!r}; the substitutable placeholders are "
-                f"{list(KNOB_PLACEHOLDERS)}"
+                f"{list(_VALID_PLACEHOLDERS)}"
             )
         out = out.replace("{" + placeholder + "}", str(cell[placeholder]))
     return out
@@ -186,17 +198,20 @@ def resolve_knob_value(
 def apply_arm_env(arm: str, cell: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Set the arm's engine knobs in ``os.environ`` (one arm per process).
 
-    Every route variable (:data:`common.ROUTE_ENV_VARS`: the ``EVOGP_BATCH_*`` set
-    and ``EVOGP_DENSE_MAX_TREE_LEN``) is cleared first, for every arm including the
-    torch ones: the knobs are per-arm provenance, so an inherited (or leftover) value
-    from a previous arm in the same process must never decide what a later arm
-    measures.  Then the arm's own spec is written.
+    Every route variable (:data:`common.ROUTE_ENV_VARS`: the ``EVOGP_BATCH_*`` set,
+    the two dense knobs and the disk tier's ``EVOGP_EVOXC_ARTIFACT_DIR``) is cleared
+    first, for every arm including the torch ones: the knobs are per-arm provenance, so
+    an inherited (or leftover) value from a previous arm in the same process must never
+    decide what a later arm measures -- and a stale ``EVOGP_EVOXC_ARTIFACT_DIR`` would
+    silently turn ANY arm into a disk-cached run.  Then the arm's own spec is written.
 
     ``cell`` resolves a *templated* knob value (``"{tree_len}"`` -> ``"128"``) through
-    :func:`resolve_knob_value`; an arm whose knobs are all literal works without it,
-    and a templated one raises ``ValueError`` rather than guessing.  ``knobs`` in the
-    return value is the knob mapping the arm actually applied, RESOLVED (``{}`` when
-    it applied none), so a record states the value that reached the engine; the
+    :func:`resolve_knob_value`; the disk-tier placeholder ``{artifact_dir}`` needs no
+    cell (it comes from :func:`common.artifact_dir`, i.e. the harness's
+    ``EVOGP_BENCH_ARTIFACT_DIR`` hook), an arm whose knobs are all literal works without
+    one, and a cell-templated one raises ``ValueError`` rather than guessing.  ``knobs``
+    in the return value is the knob mapping the arm actually applied, RESOLVED (``{}``
+    when it applied none), so a record states the value that reached the engine; the
     ``eval_mode`` and ``backend`` keys keep their old meaning for every existing
     caller.  An unregistered arm name still raises ``KeyError``.
     """
@@ -216,8 +231,13 @@ def apply_arm_env(arm: str, cell: Optional[Dict[str, Any]] = None) -> Dict[str, 
             os.environ.pop(env, None)
         else:
             os.environ[env] = value
+    # the substitution mapping: the cell's own keys, plus the disk tier's directory --
+    # the ONE placeholder that is the harness's hook and not a property of a cell, so
+    # the artifact arm resolves without one
+    placeholders: Dict[str, Any] = dict(cell) if isinstance(cell, dict) else {}
+    placeholders[ARTIFACT_PLACEHOLDER] = common.artifact_dir()
     knobs = {
-        env_name: resolve_knob_value(value, cell, arm=arm, env_name=env_name)
+        env_name: resolve_knob_value(value, placeholders, arm=arm, env_name=env_name)
         for env_name, value in (spec.get("knobs") or {}).items()
     }
     for env_name, value in knobs.items():

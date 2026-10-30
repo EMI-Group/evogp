@@ -49,6 +49,18 @@ getattr-probed the same way: a tree without ``batch_engine.batch_content_stats()
 records ``content_totals`` with ``available: false`` and EVERY counter ``null`` plus a
 note -- never a fabricated ``0``.
 
+The persistent on-disk executable tier (``artifact.py``: ``batch_artifact_enabled`` /
+``_files`` / ``_hits`` / ``_misses`` / ``_load_failures`` / ``_stores`` /
+``_save_failures``, switched by ``EVOGP_EVOXC_ARTIFACT_DIR``) is a FOURTH optional
+contract on the same module, windowed at the same two points into
+``batch_cache.artifact_before_workloads`` / ``artifact_after`` / ``artifact_keys`` /
+``artifact_totals``.  It is the one counter surface that can turn the cold call into a
+reload -- a disk hit skips ``lower`` / ``compile`` / ``load`` -- so a record whose
+``artifact_totals.available`` is true and whose ``batch_artifact_enabled`` is 0 was
+measured with the tier OFF, which is a different statement from ``available: false``
+(the tree has no tier at all).  ``batch_cache.artifact_dir`` states the directory the
+arm actually pointed ``EVOGP_EVOXC_ARTIFACT_DIR`` at.
+
 Two keys answer a question a timing alone cannot. ``batch_plans`` /
 ``batch_plan_summary`` (batch arms) are what the route actually merged -- the row
 dedupe, the band shape and the emitted op count, read off ``BATCH_PLAN_MEMO`` via
@@ -82,6 +94,7 @@ import common  # noqa: E402
 import arms as arms_mod  # noqa: E402
 import stages  # noqa: E402  (torch-free, evogp-free: the stage vocabulary + derived blocks)
 import content  # noqa: E402  (torch-free, evogp-free: the content-key vocabulary + derived blocks)
+import artifact  # noqa: E402  (torch-free, evogp-free: the disk-tier vocabulary + derived blocks)
 
 
 class TimedFitness:
@@ -138,6 +151,22 @@ def _stats_delta(before: Any, after: Any, key: str) -> Optional[int]:
 def _has_stat_key(before: Any, after: Any, key: str) -> bool:
     """Does at least one of the two snapshots actually carry ``key``?"""
     return any(isinstance(stats, dict) and key in stats for stats in (before, after))
+
+
+def _optional_policy_value(module: Any, name: str) -> Optional[int]:
+    """``module.<name>()`` as an int, or ``None`` when this tree does not expose it.
+
+    A policy accessor the tree under measurement predates (``resolve_auto_budget_mb``
+    before ``auto``'s rows rule became a memory envelope) is a REPORTED state: the
+    record reads ``null``, never a fabricated default that the engine did not apply.
+    """
+    getter = getattr(module, name, None)
+    if not callable(getter):
+        return None
+    try:
+        return int(getter())
+    except Exception:  # noqa: BLE001 - a broken accessor must not cost the record
+        return None
 
 
 #: The counter names the batch route's compile misses can live under, in preference
@@ -519,6 +548,7 @@ def main() -> int:
     stage_stats = None
     stage_reset = None
     content_stats = None
+    artifact_stats = None
     if is_batch:
         try:
             from evogp.tree import batch_engine as _batch_engine_probe
@@ -535,6 +565,9 @@ def main() -> int:
         # the content-addressed plan-key table is a THIRD optional contract on the same module:
         # a rebuilt-but-equal population's reuse surface, resolved the same getattr-probed way
         content_stats = content.stats_fn(_batch_engine_probe)
+        # the persistent on-disk executable tier is a FOURTH: a disk hit skips
+        # lower/compile/load, so it is the one counter that can move a cold column
+        artifact_stats = artifact.stats_fn(_batch_engine_probe)
 
     import torch
     from evogp.tree import dense_engine, evoxc_engine
@@ -586,6 +619,10 @@ def main() -> int:
         stage_before_workloads = stage_stats() if stage_stats is not None else None
         # the content window opens at exactly the same point, so it spans the same span
         content_before_workloads = content_stats() if content_stats is not None else None
+        # ... and so does the disk tier's, so ``hits``/``misses`` are this config's own
+        artifact_before_workloads = (
+            artifact_stats() if artifact_stats is not None else None
+        )
         record["batch_cache"] = {
             "available": batch_stats is not None,
             "stats_before_workloads": batch_stats() if batch_stats is not None else None,
@@ -607,6 +644,14 @@ def main() -> int:
             "content_after": None,
             "content_keys": [],
             "content_totals": None,
+            # the persistent on-disk executable tier (``artifact.py``): the FOURTH optional
+            # counter contract -- a hit skips lower/compile/load, so this is the block that
+            # says whether a cold call was a compile or a reload
+            "artifact_before_workloads": artifact_before_workloads,
+            "artifact_after": None,
+            "artifact_keys": [],
+            "artifact_totals": None,
+            "artifact_dir": os.environ.get(common.ARTIFACT_ENV_VARS[0]),
         }
         record["notes"].append(
             "batch arm: one merged graph per population structure multiset, so a "
@@ -641,15 +686,27 @@ def main() -> int:
                 "measured, which is not the same as it never happening -- the reuse surface this "
                 "record can show is the identity tables' (batch_exec_misses / batch_plan_misses)"
             )
+        if artifact_stats is None:
+            record["notes"].append(
+                f"batch arm: {artifact.STATS_FN_PATH}() is unavailable on this tree, so every "
+                "disk-tier counter in batch_cache.artifact_totals is null (NOT zero) with "
+                "available=false: this tree has no persistent artifact tier for the merged "
+                "bodies, so a cold call always compiles -- a zero here would mean 'the tier "
+                "served nothing', which this record cannot claim"
+            )
 
     # -- what the policy resolves for this cell (per workload row count) -----
+    # ``tree_len`` is the population's row stride (the cell's), i.e. the shape term of
+    # ``auto``'s memory envelope: passing it makes the reported rows half the one the
+    # engine really applies instead of a pin-only reading.
     for name, rows in (
         ("sr_fitness", cell["rows"]),
         ("batch_forward", cell["rows"]),
         ("forward", 1),
     ):
         record["routes"][name] = common.route_decision(
-            cell["pop"], rows, knobs["eval_mode"], knobs["backend"]
+            cell["pop"], rows, knobs["eval_mode"], knobs["backend"],
+            tree_len=cell["tree_len"],
         )
 
     # -- evaluation workloads ------------------------------------------------
@@ -837,6 +894,20 @@ def main() -> int:
         record["batch_cache"]["content_totals"] = content.window_block(
             record["batch_cache"]["content_before_workloads"], content_after
         )
+        # -- the same window for the persistent on-disk executable tier -----------
+        # The only counter surface that can turn a cold compile into a reload: a
+        # ``available: false`` + null block means the tree has no tier, while a served
+        # block with ``batch_artifact_enabled`` 0 means the tier exists and was OFF for
+        # this arm (``EVOGP_EVOXC_ARTIFACT_DIR`` unset -- every arm but
+        # ``evoxc-batch-iree-artifact``).  The two must not look alike.
+        artifact_after = artifact_stats() if artifact_stats is not None else None
+        record["batch_cache"]["artifact_after"] = artifact_after
+        record["batch_cache"]["artifact_keys"] = stats_keys(
+            record["batch_cache"]["artifact_before_workloads"], artifact_after
+        )
+        record["batch_cache"]["artifact_totals"] = artifact.window_block(
+            record["batch_cache"]["artifact_before_workloads"], artifact_after
+        )
         # what the route actually MERGED, read off the plan memo (compile-free): the
         # row dedupe and the band shape are what a long-tree population pays its
         # merged-graph compile for.  A tree without the introspection records
@@ -882,7 +953,11 @@ def main() -> int:
     record["engine_cache_final"] = evoxc_engine.cache_stats()
     record["dense_policy"] = {
         "auto_min_pop": dense_engine.resolve_auto_min_pop(),
+        # ``0`` = unpinned: the memory envelope (``auto_budget_mb``) decides the allowance
         "auto_max_rows": dense_engine.resolve_auto_max_rows(),
+        # the envelope ``auto``'s rows rule applies: pop_size * tree_len * rows * 4 bytes
+        # must fit it (``None`` on a tree that predates the memory rule)
+        "auto_budget_mb": _optional_policy_value(dense_engine, "resolve_auto_budget_mb"),
         # the trace cap this record's process ran with (the arm's knob, else the
         # engine default): what ``dense_route`` is measured against
         "max_tree_len_cap": int(dense_cap),

@@ -495,7 +495,9 @@ def config_env(config: str) -> Dict[str, Optional[str]]:
     """The exact route env one config runs with (``None`` = the child must UNSET it).
 
     EVERY ``common.ROUTE_ENV_VARS`` entry is named (band size / bands / switch ops / alignment /
-    cache size / min pop / compile workers / chunk bands, plus ``EVOGP_DENSE_MAX_TREE_LEN``), so
+    cache size / min pop / compile workers / chunk bands / dispatch formation, plus the dense
+    route's ``EVOGP_DENSE_MAX_TREE_LEN`` / ``EVOGP_DENSE_AUTO_BUDGET_MB`` /
+    ``EVOGP_DENSE_AUTO_MAX_ROWS`` and the disk tier's ``EVOGP_EVOXC_ARTIFACT_DIR``), so
     the child clears the whole table before writing its own value: a caller-exported knob can
     never leak into a config, and a knob the config does not set records ``<unset>``.  The two
     role knobs come from :data:`BASE_ENV`, the rest from the config's own spec;
@@ -640,7 +642,8 @@ def dry_run(
     print("config table: " + "; ".join(config_text(config) for config in configs))
     print(f"route env table: every config names all {len(common.ROUTE_ENV_VARS)} "
           "common.ROUTE_ENV_VARS entries (<unset> = the child clears it), so a caller-exported "
-          "EVOGP_BATCH_* or EVOGP_DENSE_MAX_TREE_LEN value can never leak into a config")
+          "EVOGP_BATCH_* / EVOGP_DENSE_* / EVOGP_EVOXC_ARTIFACT_DIR value can never leak "
+          "into a config")
     print("band count model: b<N> -> K = ceil(n_functions / N) clamped into 1..n_functions; "
           "k<K> -> K pinned as the band COUNT (an explicit EVOGP_BATCH_BANDS, which the engine "
           "validates HARD: it raises instead of clamping, and a chunked plan splits it "

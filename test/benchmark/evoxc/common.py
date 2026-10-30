@@ -11,9 +11,15 @@ What lives here and nowhere else:
 * the arm registry (torch arms + the evoxc engine routes) and the environment
   knobs each arm sets -- including the batch route's own knob table
   (``BATCH_KNOBS``: band size/bands/switch ops/alignment/cache size/min pop, the
-  compiled-graph pool width ``EVOGP_BATCH_COMPILE_WORKERS`` and the banded+chunked
-  composition opt-in ``EVOGP_BATCH_CHUNK_BANDS``), which is also the list
+  compiled-graph pool width ``EVOGP_BATCH_COMPILE_WORKERS``, the banded+chunked
+  composition opt-in ``EVOGP_BATCH_CHUNK_BANDS`` and the merged compile's
+  ``EVOGP_BATCH_DISPATCH_FORMATION``), which is also the list
   ``batch_economics.py --knob NAME=VALUE`` validates against;
+* the disk tier's env var (``ARTIFACT_ENV_VARS``: ``EVOGP_EVOXC_ARTIFACT_DIR``, ONE
+  name for the dense AND the batch route) plus this harness's own hook for where it
+  points (``ARTIFACT_DIR_ENV`` = ``EVOGP_BENCH_ARTIFACT_DIR``, default
+  ``DEFAULT_ARTIFACT_DIR``): ``arm_knob_env``/``apply_arm_env`` resolve the
+  ``{artifact_dir}`` placeholder from it, so several processes can share one cache;
 * the timing helper (sync-bracketed, warmup + reps, median/min/max/samples);
 * the value digest used to prove cross-process numeric agreement;
 * the environment block written into every record.
@@ -47,6 +53,7 @@ import os
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -105,6 +112,30 @@ EVOXC_ARMS: Dict[str, Dict[str, Optional[str]]] = {
         "family": "evoxc",
         "knobs": {"EVOGP_DENSE_MAX_TREE_LEN": "{tree_len}"},
     },
+    # the batch route with the merged compile's aggressive dispatch formation pinned
+    # (``EVOGP_BATCH_DISPATCH_FORMATION=aggressive``): on an iree GPU target the
+    # route's ``auto`` default already resolves there, so this arm exists to price the
+    # spelling where ``auto`` does NOT take it (a non-GPU compile target) and to state
+    # the effective value a record's plan report carries when it is pinned rather
+    # than derived.
+    "evoxc-batch-iree-aggressive": {
+        "eval_mode": "batch",
+        "backend": "iree",
+        "family": "evoxc",
+        "knobs": {"EVOGP_BATCH_DISPATCH_FORMATION": "aggressive"},
+    },
+    # the batch route on the persistent on-disk executable tier (the SAME
+    # ``EVOGP_EVOXC_ARTIFACT_DIR`` the dense route uses).  ``{artifact_dir}`` is
+    # resolved by ``arms.apply_arm_env`` from ``ARTIFACT_DIR_ENV`` -- so an operator
+    # points every process at ONE directory and a later process reloads instead of
+    # recompiling.  This is the only arm whose cold column can change by reloading;
+    # every other arm clears the variable (``ROUTE_ENV_VARS``).
+    "evoxc-batch-iree-artifact": {
+        "eval_mode": "batch",
+        "backend": "iree",
+        "family": "evoxc",
+        "knobs": {"EVOGP_EVOXC_ARTIFACT_DIR": "{artifact_dir}"},
+    },
 }
 TORCH_ARMS: Dict[str, Dict[str, Any]] = {
     "torch-per-tree": {"impl": "per_tree", "family": "torch"},
@@ -131,6 +162,15 @@ ALL_ARMS: List[str] = list(TORCH_ARMS) + list(EVOXC_ARMS)
 #: (``batch_knobs.resolve_chunk_bands``), default OFF: with it off a band request
 #: (``EVOGP_BATCH_BANDS``) forces the single-body path, so a chunked plan's bodies
 #: are unbanded.
+#: ``EVOGP_BATCH_DISPATCH_FORMATION`` is the merged compile's evoxc compile option
+#: (``batch_knobs.resolve_dispatch_formation``): ``auto`` (docs default) enables
+#: ``aggressive`` only for an iree backend whose compile target is a GPU
+#: (``rocm``/``cuda``) and whose installed evoxc declares the option, ``default`` /
+#: ``off`` derives no flag, and an explicit ``aggressive`` is honoured even where the
+#: target is not a GPU (it may be slower there).  The REQUEST is what this table
+#: resolves; the EFFECTIVE spelling is on the plan (``BatchPlan.dispatch_formation``,
+#: surfaced by ``describe_plan`` and therefore by ``band_report``) and the arm
+#: ``evoxc-batch-iree-aggressive`` pins the request.
 BATCH_KNOBS: Tuple[Tuple[str, str, str, Tuple[str, ...]], ...] = (
     # (spec key, env var, documented default, candidate resolver attribute names)
     ("band_size", "EVOGP_BATCH_BAND_SIZE", "32", ("resolve_band_size",)),
@@ -141,17 +181,37 @@ BATCH_KNOBS: Tuple[Tuple[str, str, str, Tuple[str, ...]], ...] = (
     ("min_pop", "EVOGP_BATCH_MIN_POP", "64", ("resolve_min_pop",)),
     ("compile_workers", "EVOGP_BATCH_COMPILE_WORKERS", "default", ("resolve_compile_workers",)),
     ("chunk_bands", "EVOGP_BATCH_CHUNK_BANDS", "off", ("resolve_chunk_bands",)),
+    # ``auto`` / ``aggressive`` / ``default`` (alias ``off``); the resolver answers the
+    # REQUEST, and the plan's own ``dispatch_formation`` the effective spelling
+    ("dispatch_formation", "EVOGP_BATCH_DISPATCH_FORMATION", "auto",
+     ("resolve_dispatch_formation",)),
 )
 #: Every env var the table above owns -- the arms clear all of them per process.
 BATCH_ENV_VARS: Tuple[str, ...] = tuple(entry[1] for entry in BATCH_KNOBS)
-#: The DENSE route's trace-cap knob (``dense_engine.MAX_TREE_LEN_ENV``, single-sourced
-#: here so the harness names it once): the longest trace ``L = min(cap,
-#: max_tree_len)`` the dense evaluator will build, default 64 -- above it the route
-#: declines with ``DenseUnsupported`` and the public API falls back to specialized.
-DENSE_ENV_VARS: Tuple[str, ...] = ("EVOGP_DENSE_MAX_TREE_LEN",)
+#: The DENSE route's knobs (single-sourced here so the harness names them once):
+#: ``EVOGP_DENSE_MAX_TREE_LEN`` (``dense_engine.MAX_TREE_LEN_ENV``) is the longest
+#: trace ``L = min(cap, max_tree_len)`` the dense evaluator will build, default 64 --
+#: above it the route declines with ``DenseUnsupported`` and the public API falls back
+#: to specialized; ``EVOGP_DENSE_AUTO_BUDGET_MB`` (``dense_engine.AUTO_BUDGET_MB_ENV``,
+#: default 8192) is the memory envelope of ``auto``'s rows rule
+#: (``pop_size * tree_len * rows * 4`` bytes), and
+#: ``EVOGP_DENSE_AUTO_MAX_ROWS`` (``dense_engine.AUTO_MAX_ROWS_ENV``, default 0 =
+#: unpinned) is now only an optional TIGHTENING pin on that envelope's allowance.
+DENSE_ENV_VARS: Tuple[str, ...] = (
+    "EVOGP_DENSE_MAX_TREE_LEN",
+    "EVOGP_DENSE_AUTO_BUDGET_MB",
+    "EVOGP_DENSE_AUTO_MAX_ROWS",
+)
+#: The opt-in persistent on-disk executable tier: ONE env var, and it is the DENSE
+#: route's AND the batch route's (the batch route keeps its bodies in the ``batch/``
+#: subdirectory of that directory).  Named here so it is cleared like every other route
+#: knob -- an inherited directory would silently make an arm a disk-cached run -- and
+#: so only ``evoxc-batch-iree-artifact`` turns it on.
+ARTIFACT_ENV_VARS: Tuple[str, ...] = ("EVOGP_EVOXC_ARTIFACT_DIR",)
 #: Every env var the arms clear before applying their own knob spec, so a route knob
-#: can never leak between arms (``BATCH_ENV_VARS`` + ``DENSE_ENV_VARS``).
-ROUTE_ENV_VARS: Tuple[str, ...] = BATCH_ENV_VARS + DENSE_ENV_VARS
+#: can never leak between arms (``BATCH_ENV_VARS`` + ``DENSE_ENV_VARS`` + the disk
+#: tier's ``ARTIFACT_ENV_VARS``).
+ROUTE_ENV_VARS: Tuple[str, ...] = BATCH_ENV_VARS + DENSE_ENV_VARS + ARTIFACT_ENV_VARS
 #: The counter names the batch route's compile misses can live under, in preference
 #: order.  ``evogp.tree.batch_engine.batch_cache_stats()`` names its two front tables
 #: explicitly: ``batch_exec_*`` describes ``BATCH_EXEC_MEMO`` -- the real compile
@@ -165,6 +225,51 @@ BATCH_PLAN_MISS_KEYS: Tuple[str, ...] = ("batch_plan_misses",)
 BATCH_EXEC_MISS_KEY = BATCH_EXEC_MISS_KEYS[0]
 #: Location of the batch engine relative to the ``src`` directory (import-free check).
 BATCH_MODULE_REL = os.path.join("evogp", "tree", "batch_engine.py")
+
+#: This harness's own hook for the disk tier's directory: the operator exports it once
+#: (or ``campaign.py --artifact-dir`` writes it into every child's environment) and
+#: EVERY process of a round then points ``EVOGP_EVOXC_ARTIFACT_DIR`` at that one path,
+#: so a later process reloads instead of recompiling.  It is NOT an engine variable:
+#: the engine only ever sees ``EVOGP_EVOXC_ARTIFACT_DIR``.
+ARTIFACT_DIR_ENV = "EVOGP_BENCH_ARTIFACT_DIR"
+#: Where the artifact arm points the disk tier when nothing is exported: a fixed
+#: per-box scratch directory (never the temp-file namespace of one process, so two
+#: runs can share it).  ``campaign.py`` defaults it to ``<out>/artifacts`` instead --
+#: a per-RUN directory -- and exports ``ARTIFACT_DIR_ENV``, so the default only
+#: applies to a bare ``worker.py`` invocation.
+DEFAULT_ARTIFACT_DIR = os.path.join(tempfile.gettempdir(), "evogp_bench_artifacts")
+#: The placeholder an arm's ``knobs`` value uses to mean "the resolved disk directory"
+#: (``arms.apply_arm_env`` substitutes it; a literal path works there too).
+ARTIFACT_DIR_PLACEHOLDER = "{artifact_dir}"
+
+
+def artifact_dir() -> str:
+    """The absolute directory the disk tier points at (``ARTIFACT_DIR_ENV``, else default).
+
+    Read per call, so a campaign driver that exports the hook before spawning a child
+    and a hand-run worker agree without any further wiring.  An empty export reads as
+    unset (the engine treats ``EVOGP_EVOXC_ARTIFACT_DIR=""`` as off, so an empty
+    directory must never be handed to an arm).
+    """
+    value = os.environ.get(ARTIFACT_DIR_ENV, "").strip()
+    return os.path.abspath(value) if value else DEFAULT_ARTIFACT_DIR
+
+
+def arm_knob_env(arm: str) -> Dict[str, str]:
+    """The env vars an arm's ``knobs`` spec sets, with ``{artifact_dir}`` resolved.
+
+    A read-only view for a dry run and for a test, so an arm's environment can be stated
+    without a device: the disk tier's placeholder is resolved from :func:`artifact_dir`
+    (it is the harness's hook, not a property of a cell), while a per-CELL template such
+    as ``{tree_len}`` is left verbatim -- ``campaign.py`` already prints that one per
+    scheduled cell, and resolving it here would need a cell this helper does not take.
+    An arm with no knobs (and an unknown arm) reads ``{}``.
+    """
+    knobs = dict((EVOXC_ARMS.get(arm) or {}).get("knobs") or {})
+    return {
+        env_name: artifact_dir() if value == ARTIFACT_DIR_PLACEHOLDER else str(value)
+        for env_name, value in knobs.items()
+    }
 
 
 def is_batch_arm(arm: str) -> bool:
@@ -858,7 +963,8 @@ def batch_policy(src: Optional[str] = None) -> Dict[str, Any]:
         except (TypeError, ValueError) as exc:
             policy.setdefault("resolver_errors", {})[spec_key] = repr(exc)
             policy[spec_key] = int(defaults[spec_key])
-    for spec_key in ("bands", "switch_ops", "alignment", "cache_size", "compile_workers"):
+    for spec_key in ("bands", "switch_ops", "alignment", "cache_size", "compile_workers",
+                     "dispatch_formation"):
         policy[spec_key] = str(values[spec_key])
     policy["knobs"] = knobs
     policy["knobs_source"] = sources
@@ -928,6 +1034,10 @@ def batch_route_decision(pop: int, rows: Optional[int] = None) -> Dict[str, Any]
         "bands": policy["bands"],
         "alignment": policy["alignment"],
         "switch_ops": policy["switch_ops"],
+        # the REQUESTED spelling only: the effective one is on the plan
+        # (``batch_plan_summary.band_report.dispatch_formation``), because ``auto``
+        # resolves per compile target and ``batch_policy`` never builds a plan
+        "dispatch_formation": policy.get("dispatch_formation"),
         "module_present": policy["module_present"],
         "mode_supported": policy["mode_supported"],
         "rows": rows,
@@ -936,14 +1046,25 @@ def batch_route_decision(pop: int, rows: Optional[int] = None) -> Dict[str, Any]
 
 
 def route_decision(
-    pop: int, rows: int, eval_mode: Optional[str], backend: Optional[str]
+    pop: int,
+    rows: int,
+    eval_mode: Optional[str],
+    backend: Optional[str],
+    *,
+    tree_len: Optional[int] = None,
 ) -> Dict[str, Any]:
     """What ``Forest.forward``/``SR_fitness`` would do for this cell, per the policy.
 
     ``should_use_dense`` is the ONE policy function every wired call site asks,
     so this reports the real decision (not a re-derivation).  ``rows`` is the
     data-row count for the ``per_row=False`` workloads, ``1`` for the per-row
-    one (which is never rows-gated).
+    one (which is never rows-gated).  ``pop``/``rows``/``tree_len`` are the
+    population SHAPE and are passed through as ``pop_size=``/``rows=``/``tree_len=``,
+    which is what the rows half needs: ``auto``'s rule is a memory envelope
+    (``pop_size * tree_len * rows * 4`` bytes against ``EVOGP_DENSE_AUTO_BUDGET_MB``,
+    tightened by an optional ``EVOGP_DENSE_AUTO_MAX_ROWS`` pin), so without the
+    shape the report could only apply the pin and would under-state a decline --
+    exactly the shape-blind reading the engine itself has where the shape is known.
     """
     # The batch route is intercepted BEFORE the dense policy is imported: on the
     # current tree dense_engine.EVAL_MODES == ("dense", "specialized", "auto"), so
@@ -954,19 +1075,25 @@ def route_decision(
 
     from evogp.tree import dense_engine
 
+    shape = {"pop_size": pop, "tree_len": tree_len}
     decision = {
         "eval_mode": dense_engine.resolve_eval_mode(eval_mode),
         "backend": dense_engine.resolve_backend_name(backend, None),
     }
     # The wired call sites pass pop_size only; evaluate_dense/sr_fitness_dense
-    # enforce the rows half, so both are reported.
+    # enforce the rows half, so both are reported -- the pop-only view unchanged,
+    # the shape-aware one next to it.
     decision["should_use_dense_pop_only"] = bool(
         dense_engine.should_use_dense(pop, eval_mode=eval_mode, backend=backend)
     )
     decision["should_use_dense_with_rows"] = bool(
-        dense_engine.should_use_dense(pop, eval_mode=eval_mode, backend=backend, rows=rows)
+        dense_engine.should_use_dense(
+            pop, eval_mode=eval_mode, backend=backend, rows=rows, tree_len=tree_len
+        )
     )
     decision["would_use_dense"] = decision["should_use_dense_pop_only"] and not bool(
-        dense_engine.auto_rows_decline(rows, eval_mode=decision["eval_mode"])
+        dense_engine.auto_rows_decline(
+            rows, eval_mode=decision["eval_mode"], **shape
+        )
     )
     return decision

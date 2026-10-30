@@ -76,6 +76,8 @@ VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreemen
 | `evoxc-dense-iree` | `EVOGP_EVAL_MODE=dense` + iree (one all-ops graph per population shape) |
 | `evoxc-batch-iree` | `EVOGP_EVAL_MODE=batch` + iree (one merged graph per population structure multiset, built with `evoxc.batch_functions`; numpy is the fallback, as on the dense route) |
 | `evoxc-batch-iree-flat` | the same route with `EVOGP_BATCH_BANDS=flat`: one unbanded merge, O(N²) in the population, so the flat-vs-banded merge can be compared on real GP workloads (it is expected to lose badly at pop 1000 — that comparison is what the arm records) |
+| `evoxc-batch-iree-aggressive` | the same route with `EVOGP_BATCH_DISPATCH_FORMATION=aggressive`: the merged compile's evoxc dispatch-formation option pinned instead of derived, so `auto`'s own choice can be compared against it (and the spelling can be priced where `auto` does *not* take it) |
+| `evoxc-batch-iree-artifact` | the same route on the **persistent on-disk executable tier** (`EVOGP_EVOXC_ARTIFACT_DIR`, pointing at `campaign.py --artifact-dir` / `$EVOGP_BENCH_ARTIFACT_DIR`, default `<out>/artifacts`): a disk hit skips `lower`/`compile`/`load`, so this is the only arm whose *cold* column can change without the route changing |
 | `evoxc-dense-iree-raised` | `EVOGP_EVAL_MODE=dense` + iree with the trace cap pinned to the **cell's** tree length (`EVOGP_DENSE_MAX_TREE_LEN={tree_len}`): identical to `evoxc-dense-iree` on a main-grid cell (L ≤ 64) and the same route with the cap raised on a long-tree cell, so dense actually serves that population instead of declining to `specialized` |
 
 Both torch arms are *implemented in this harness* (`arms_torch.py`), with op semantics
@@ -89,9 +91,40 @@ evaluation route** (`EVOGP_EVAL_MODE=batch`, `src/evogp/tree/batch_engine.py` th
 `evoxc.batch_functions`): instead of one graph per population *shape* (`dense`) or per
 tree *structure* (`specialized`), it compiles **one merged graph per population**,
 keyed on the multiset of tree structures. `auto` resolves to `dense` or `specialized`
-only, so both arms pin the mode; neither is a default-route claim, and the measured
+only, so all batch arms pin the mode; none is a default-route claim, and the measured
 verdict is in [`BATCH.md`](BATCH.md) and
 [Batch route: compile economics](#batch-route-compile-economics-batch_economicspy).
+
+**The improved batch route** is those same two arms plus the two below it, and they
+answer two questions the shipped route could not:
+
+* `evoxc-batch-iree-aggressive` — `EVOGP_BATCH_DISPATCH_FORMATION=aggressive`. The knob
+  (single-sourced in `common.BATCH_KNOBS`, default `auto`) resolves the merged compile's
+  `dispatch_formation` evoxc option: `auto` picks `aggressive` only for an iree backend
+  whose compile target is a GPU (`rocm`/`cuda`) **and** whose installed evoxc declares
+  the option (feature-detected off the iree adapter, `batch_chunks.supports_dispatch_formation`),
+  and falls back to `default` everywhere else; `default`/`off` derive no flag at all; an
+  explicit `aggressive` is honoured even on a non-GPU target (where it may be slower).
+  The REQUEST is what the env var says, the EFFECTIVE spelling is on the plan
+  (`BatchPlan.dispatch_formation`, reported by `describe_plan`) — a record states both,
+  as `batch_plan_summary.band_report.dispatch_formation` /
+  `dispatch_formation_requested` next to `batch_policy.dispatch_formation` (the request)
+  and `routes.*.dispatch_formation` (the route's view of it).
+* `evoxc-batch-iree-artifact` — the same route with the **persistent on-disk executable
+  tier** on. `EVOGP_EVOXC_ARTIFACT_DIR` is ONE variable for the dense **and** the batch
+  route (the batch route keeps its bodies in that directory's `batch/` region); a hit
+  loads the compiled body and skips `lower`/`compile`/`load`, a partial hit compiles only
+  the missing chunks. It is the only thing in this harness that changes the **cold**
+  column without changing the route, so the arm's `first_call_ms` is the number to read
+  next to its `batch_cache.artifact_totals` block (7 counters off
+  `batch_engine.batch_artifact_stats()`: `enabled`/`files` are the tier's state,
+  `hits`/`misses`/`load_failures`/`stores`/`save_failures` are the window's deltas). An
+  operator points every process at ONE directory and a later process reloads instead of
+  recompiling: `campaign.py --artifact-dir /abs/path` (exported to every worker as
+  `EVOGP_BENCH_ARTIFACT_DIR`) or `export EVOGP_BENCH_ARTIFACT_DIR=/abs/path`; the default
+  is `<out>/artifacts`, i.e. per run. `EVOGP_EVOXC_ARTIFACT_DIR` itself is per-arm
+  provenance and is cleared for every other arm (`common.ROUTE_ENV_VARS`), so no
+  pre-existing arm silently becomes a disk-cached run.
 
 Its knobs are all `EVOGP_BATCH_*`, single-sourced in `common.BATCH_KNOBS` and
 resolved in a record as arm value > inherited environment > the engine's own
@@ -106,20 +139,29 @@ resolver > the documented default (`batch_policy.knobs_source` says which applie
 | `EVOGP_BATCH_CACHE_SIZE` | unset (engine default) | the merged-graph cache size; the harness records the resolved value and never sets it |
 | `EVOGP_BATCH_MIN_POP` | `64` | population floor: below it one merged graph cannot amortize its build, so the route declines to `specialized` (the record's `routes.*.decline_reason` carries the sentence) |
 | `EVOGP_BATCH_COMPILE_WORKERS` | `default` | the compiled-graph pool width: how many chunk compiles of the merged graph may run at once (the route default is on, 4 workers; `0`/`1` is the old single-executable path). It moves the route's **cold** cost, so it is swept with `batch_economics.py --knob EVOGP_BATCH_COMPILE_WORKERS=N` rather than with one arm per value, and the record reads the resolved width and its source |
+| `EVOGP_BATCH_DISPATCH_FORMATION` | `auto` | the merged compile's evoxc `dispatch_formation` option: `auto` enables `aggressive` only for an iree backend whose compile target is a GPU (`rocm`/`cuda`) and whose evoxc declares the option, `default`/`off` derive no flag, an explicit `aggressive` is honoured everywhere (it may be slower on a non-GPU target). The record keeps the request (`batch_policy.dispatch_formation`) and the effective spelling (`batch_plan_summary.band_report.dispatch_formation`), because `auto` resolves per compile target; the `evoxc-batch-iree-aggressive` arm pins it |
 
 An arm spec may carry a `knobs` mapping (`{env var: value}`) beyond the two route
-selectors; `-flat` is exactly `{"EVOGP_BATCH_BANDS": "flat"}` and
-`evoxc-dense-iree-raised` exactly `{"EVOGP_DENSE_MAX_TREE_LEN": "{tree_len}"}`.
+selectors; `-flat` is exactly `{"EVOGP_BATCH_BANDS": "flat"}`, `-aggressive` exactly
+`{"EVOGP_BATCH_DISPATCH_FORMATION": "aggressive"}`, `-artifact` exactly
+`{"EVOGP_EVOXC_ARTIFACT_DIR": "{artifact_dir}"}` and `evoxc-dense-iree-raised` exactly
+`{"EVOGP_DENSE_MAX_TREE_LEN": "{tree_len}"}`.
 `arms.apply_arm_env(arm, cell)` clears **every** route variable
-(`common.ROUTE_ENV_VARS`: the `EVOGP_BATCH_*` set and `EVOGP_DENSE_MAX_TREE_LEN`) first
+(`common.ROUTE_ENV_VARS`: the `EVOGP_BATCH_*` set, the dense route's
+`EVOGP_DENSE_MAX_TREE_LEN` / `EVOGP_DENSE_AUTO_BUDGET_MB` / `EVOGP_DENSE_AUTO_MAX_ROWS`
+and the disk tier's `EVOGP_EVOXC_ARTIFACT_DIR`) first
 for every arm (torch arms included) and then writes the arm's own knobs, so no value
 can leak from one arm's environment into another's. A knob value may be a per-cell
 template (`{tree_len}`, `{pop}`, `{input_len}`, `{rows}`, resolved by
 `arms.resolve_knob_value`; a template without a cell raises `ValueError` naming the arm
-and the placeholder) and `env.applied_knobs` carries the **resolved** values; an
-unregistered arm name raises `KeyError`. `--arms all` covers all ten arms and `--arms
-batch` exactly the two batch arms, in registry order (registered last, so no existing
-order or render changes).
+and the placeholder) -- plus `{artifact_dir}`, which is the harness's own hook
+(`$EVOGP_BENCH_ARTIFACT_DIR`, else `<out>/artifacts`, resolved by
+`common.artifact_dir`) and therefore needs no cell -- and `env.applied_knobs` carries the
+**resolved** values; an
+unregistered arm name raises `KeyError`. `--arms all` covers all twelve arms and `--arms
+batch` exactly the four batch arms, in registry order (registered last, so no existing
+order or render changes). `campaign.py --dry-run` prints each arm's resolved knob spec
+once (`arm knobs <arm> ...`), which is how an operator checks the env without a device.
 
 The dense route's trace cap is `EVOGP_DENSE_MAX_TREE_LEN` (`dense_engine`,
 default **64**): the evaluator traces `L = min(cap, max_tree_len)` positions, and a
@@ -132,10 +174,25 @@ states which happened under `dense_route` (`supported`, `reason`,
 `dense_policy.max_tree_len_cap`; `campaign.py` never forwards the variable from the
 caller's environment, because it is per-arm provenance.
 
-Both arms need a tree that ships the module *and* declares `batch` in
+`auto`'s rows half is a **memory envelope** now, not a row ceiling:
+`EVOGP_DENSE_AUTO_BUDGET_MB` (default **8192**) bounds
+`pop_size * tree_len * rows * 4` bytes — dense's largest intermediate — and
+`EVOGP_DENSE_AUTO_MAX_ROWS` is only an optional *tightening* pin (default unset/`0`, i.e.
+unpinned). Every record states the policy it ran under in `dense_policy`
+(`auto_min_pop`, `auto_max_rows`, `auto_budget_mb`, `max_tree_len_cap`) and the decision
+per workload in `routes.*`, which is now computed WITH the cell's shape
+(`common.route_decision` passes `pop_size=` / `rows=` / `tree_len=`), so a large-row cell
+reports the envelope's own verdict instead of a pin-only reading.
+
+Every batch arm needs a tree that ships the module *and* declares `batch` in
 `dense_engine.EVAL_MODES`; where it does not, the worker's preflight fails the config
 with one readable paragraph and writes **no** record (the dry runs below are the
-torch-free way to learn that before paying a compile).
+torch-free way to learn that before paying a compile).  A tree that predates one of the
+newer seams is not a failure: the missing accessor is reported as `null` with a note
+(`batch_cache.artifact_totals` with `available: false` when there is no
+`batch_artifact_stats()`, `band_report.dispatch_formation` as `null` when the plan
+description predates the knob, `dense_policy.auto_budget_mb` as `null` when the policy
+has no `resolve_auto_budget_mb`).
 
 ## Workloads
 
