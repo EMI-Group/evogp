@@ -256,7 +256,10 @@ Environment knobs
                                             envelope))`` instead of falling back;
                                             ``auto`` only, and a pinned
                                             ``EVOGP_DENSE_MAX_TREE_LEN`` /
-                                            ``max_tree_len=`` wins
+                                            ``max_tree_len=`` wins; the raise is
+                                            skipped entirely -- no host read at
+                                            all -- for a pinned cap or a
+                                            non-``auto`` mode
 ``EVOGP_DENSE_MAX_TREE_LEN``    64          max trace length ``L``; longer trees
                                             -> :class:`DenseUnsupported`
 ``EVOGP_DENSE_BUDGET_MB``       2048        chunking memory budget (MiB)
@@ -3237,8 +3240,19 @@ def evaluate_dense(
     # -- the ``auto`` trace-cap raise (the cap-axis twin of the rows rule) -----
     # Hot path: the row stride comes from ``.shape``, so a population that fits
     # the cap changes nothing here -- no host conversion, no device sync.
+    # The pinned/explicit cases short-circuit here for the same reason: under a
+    # pinned cap (``max_tree_len=`` / a non-empty ``EVOGP_DENSE_MAX_TREE_LEN``)
+    # or a non-``auto`` ``EVOGP_EVAL_MODE`` :func:`_cap_decision` can only return
+    # the base cap, so skipping the block costs no host read and is bit-identical
+    # to the previous behaviour.
     cap = _resolve_max_tree_len(max_tree_len)
-    if pop_size and tree_len is not None and tree_len > cap:
+    if (
+        pop_size
+        and tree_len is not None
+        and tree_len > cap
+        and not trace_cap_pinned(max_tree_len)
+        and resolve_eval_mode() == "auto"
+    ):
         longest = _population_longest(batch_subtree_size)
         plan_rows = (
             None
@@ -3371,8 +3385,19 @@ def sr_fitness_dense(
     # -- the ``auto`` trace-cap raise (the cap-axis twin of the rows rule) -----
     # Hot path: the row stride comes from ``.shape``, so a population that fits
     # the cap changes nothing here -- no host conversion, no device sync.
+    # The pinned/explicit cases short-circuit here for the same reason: under a
+    # pinned cap (``max_tree_len=`` / a non-empty ``EVOGP_DENSE_MAX_TREE_LEN``)
+    # or a non-``auto`` ``EVOGP_EVAL_MODE`` :func:`_cap_decision` can only return
+    # the base cap, so skipping the block costs no host read and is bit-identical
+    # to the previous behaviour.
     cap = _resolve_max_tree_len(max_tree_len)
-    if pop_size and tree_len is not None and tree_len > cap:
+    if (
+        pop_size
+        and tree_len is not None
+        and tree_len > cap
+        and not trace_cap_pinned(max_tree_len)
+        and resolve_eval_mode() == "auto"
+    ):
         longest = _population_longest(batch_subtree_size)
         plan_rows = rows if rows is not None else int(xt.shape[0])
         decline = auto_cap_decline(
