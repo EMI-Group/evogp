@@ -383,9 +383,10 @@ def _copysign_delta(y):
     The sign comes from the SIGN BIT (``y`` bitcast to int32), not from ``y >= 0``:
     ``-0.0`` is a "negative" clamp (``loose_inv(-0.0) = -1e9`` is pinned by
     ``ENGINE_SPEC.md`` §3 and by the ``03_edge_nan`` golden), and every
-    arithmetic sign test answers "+" for it.
+    arithmetic sign test answers "+" for it.  ``_DELTA`` is ``utils.DELTA``, installed
+    as a ``tl.constexpr`` by :func:`kernels` (a kernel may only read constexpr globals).
     """
-    return tl.where(y.to(tl.int32, bitcast=True) < 0, -1e-9, 1e-9)
+    return tl.where(y.to(tl.int32, bitcast=True) < 0, -_DELTA, _DELTA)
 
 
 def _unary(func_id, a):
@@ -514,7 +515,13 @@ def _fused_kernel(
     rmask = r < rows
 
     row_base = t * tree_len
-    n = tl.load(subtree_size_ptr + row_base).to(tl.int32)
+    # CLAMP this row's own length: subtree_size[0] is the ONLY value that drives
+    # the walk (the loop bound, the first index and the child lookahead), so an
+    # oversized one would read the next row's cells and -- on the last row -- past
+    # the allocation.  Clamped, a malformed row walks its own row only.
+    n = tl.minimum(
+        tl.maximum(tl.load(subtree_size_ptr + row_base).to(tl.int32), 0), tree_len
+    )
     # One scratch region per program; only slots < the walk's stack depth are
     # ever touched, so the allocation is sparse in practice (see scratch_stats).
     stack = scratch_ptr + pid.to(tl.int64) * (stack_cap * BLOCK_R)
@@ -541,14 +548,23 @@ def _fused_kernel(
         elif tt == 3:  # BFUNC
             func_id = tl.load(node_value_ptr + row_base + j).to(tl.int32)
             slot = tl.minimum(tl.maximum(sp - 1, 0), stack_cap - 1)
-            second = tl.load(stack + slot * BLOCK_R + off, mask=rmask, other=0.0)
+            # An UNDERFLOW (sp < 1, i.e. a malformed tree popping an empty stack)
+            # reads NOTHING: `other=0.0` makes the operand a defined 0.0 instead of
+            # whatever the shared scratch block holds from an earlier call.
+            second = tl.load(
+                stack + slot * BLOCK_R + off, mask=rmask & (sp >= 1), other=0.0
+            )
             sp = sp - 1
             val = _binary(func_id, prev, second)
         else:  # TFUNC -- every other type, and the function id is ignored
             slot_b = tl.minimum(tl.maximum(sp - 1, 0), stack_cap - 1)
             slot_c = tl.minimum(tl.maximum(sp - 2, 0), stack_cap - 1)
-            then_value = tl.load(stack + slot_b * BLOCK_R + off, mask=rmask, other=0.0)
-            else_value = tl.load(stack + slot_c * BLOCK_R + off, mask=rmask, other=0.0)
+            then_value = tl.load(
+                stack + slot_b * BLOCK_R + off, mask=rmask & (sp >= 1), other=0.0
+            )
+            else_value = tl.load(
+                stack + slot_c * BLOCK_R + off, mask=rmask & (sp >= 2), other=0.0
+            )
             sp = sp - 2
             val = tl.where(prev > 0.0, then_value, else_value)
         j = j - 1
@@ -639,7 +655,11 @@ def _fused_multi_kernel(
     rmask = r < rows
 
     row_base = t * tree_len
-    n = tl.load(subtree_size_ptr + row_base).to(tl.int32)
+    # CLAMP this row's own length (see _fused_kernel): the walk, its first index
+    # and its child lookahead all derive from it.
+    n = tl.minimum(
+        tl.maximum(tl.load(subtree_size_ptr + row_base).to(tl.int32), 0), tree_len
+    )
     stack = scratch_ptr + pid.to(tl.int64) * (stack_cap * BLOCK_R)
     # Address of output 0 of every row of this program: output k is ``base + k``.
     base = (t.to(tl.int64) * rows + r.to(tl.int64)) * OUT_LEN
@@ -686,7 +706,9 @@ def _fused_multi_kernel(
             bits = value.to(tl.int32, bitcast=True)
             func_id = tl.where(tagged, bits & 0xFFFF, value.to(tl.int32))
             slot = tl.minimum(tl.maximum(sp - 1, 0), stack_cap - 1)
-            second = tl.load(stack + slot * BLOCK_R + off, mask=rmask, other=0.0)
+            second = tl.load(
+                stack + slot * BLOCK_R + off, mask=rmask & (sp >= 1), other=0.0
+            )
             sp = sp - 1
             val = _binary(func_id, prev, second)
             if tagged:
@@ -699,8 +721,12 @@ def _fused_multi_kernel(
             bits = tl.load(node_value_ptr + row_base + j).to(tl.int32, bitcast=True)
             slot_b = tl.minimum(tl.maximum(sp - 1, 0), stack_cap - 1)
             slot_c = tl.minimum(tl.maximum(sp - 2, 0), stack_cap - 1)
-            then_value = tl.load(stack + slot_b * BLOCK_R + off, mask=rmask, other=0.0)
-            else_value = tl.load(stack + slot_c * BLOCK_R + off, mask=rmask, other=0.0)
+            then_value = tl.load(
+                stack + slot_b * BLOCK_R + off, mask=rmask & (sp >= 1), other=0.0
+            )
+            else_value = tl.load(
+                stack + slot_c * BLOCK_R + off, mask=rmask & (sp >= 2), other=0.0
+            )
             sp = sp - 2
             val = tl.where(prev > 0.0, then_value, else_value)
             if tagged:
@@ -738,7 +764,6 @@ def _fused_multi_kernel(
 # --------------------------------------------------------------------------- #
 _LOCK = threading.RLock()
 _KERNELS: Optional[Dict[str, Any]] = None
-_TRITON_IMPORT_ERROR: Optional[BaseException] = None
 
 
 def triton_available() -> bool:
@@ -756,16 +781,19 @@ def triton_available() -> bool:
 
 
 def _install_globals(triton_module: Any, language: Any, libd: Any) -> None:
-    """Publish ``triton`` / ``tl`` / ``libdevice`` into THIS module's globals.
+    """Publish ``triton`` / ``tl`` / ``libdevice`` / ``_DELTA`` into module globals.
 
     Separate from :func:`kernels` on purpose: the names must not become locals of
     the builder, or the kernel bodies would reference them as closure cells while
     triton's code generator resolves free names through ``fn.__globals__``.
+    ``_DELTA`` is ``utils.DELTA`` as a ``tl.constexpr`` -- the only form a kernel
+    body may read a global in.
     """
     g = globals()
     g["triton"] = triton_module
     g["tl"] = language
     g["libdevice"] = libd
+    g["_DELTA"] = language.constexpr(float(DELTA))
 
 
 def kernels() -> Dict[str, Any]:
@@ -776,7 +804,7 @@ def kernels() -> Dict[str, Any]:
     :class:`FusedUnavailable` when triton cannot be imported at all; a GPU-less
     box is NOT an error here (the caller checks ``torch.cuda.is_available``).
     """
-    global _KERNELS, _TRITON_IMPORT_ERROR
+    global _KERNELS
     with _LOCK:
         if _KERNELS is not None:
             return _KERNELS
@@ -784,7 +812,6 @@ def kernels() -> Dict[str, Any]:
             import triton as triton_module
             import triton.language as language
         except Exception as exc:  # pragma: no cover - broken install only
-            _TRITON_IMPORT_ERROR = exc
             raise FusedUnavailable(f"triton is not importable: {exc}") from exc
         try:
             from triton.language.extra import libdevice as libd
@@ -824,36 +851,73 @@ def kernels() -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # launch geometry, scratch cache and counters
 # --------------------------------------------------------------------------- #
-#: ``(device_index, n_prog, stack_cap, block_rows)`` -> the scratch tensor.  A
+#: ``(device_index, n_prog, stack_cap, block_rows)`` -> ``(scratch, nbytes)``.  A
 #: training loop keeps the population shape for a whole run, so this is a single
-#: entry in practice; the bound only protects a caller that sweeps shapes.
-_SCRATCH: "OrderedDict[Tuple[int, int, int, int], torch.Tensor]" = OrderedDict()
+#: entry in practice; the bounds only protect a caller that sweeps shapes.
+#:
+#: The table is bounded by BYTES, not by an entry count: one entry is
+#: ``n_prog * stack_cap * block_rows * 4`` (the same quantity the facade's envelope
+#: is derived from), so ``_SCRATCH_MAX_ENTRIES`` alone would let it hold up to 8x
+#: the budget.  The budget is ``EVOGP_FUSED_MAX_SCRATCH_MB`` (default 8192 MiB,
+#: :data:`DEFAULT_SCRATCH_BUDGET_MB`) as resolved for the CALL and passed down to
+#: :func:`_scratch_for`; least-recently-used entries are evicted until the new entry
+#: fits, and an entry larger than the whole budget is kept ALONE (the envelope check
+#: that admitted the call is the caller's, and the table must not thrash).
+#:
+#: Concurrency: the buffer of a shape class is shared by every call of that shape,
+#: which is safe on ONE stream (torch's default; a launch is ordered after the
+#: previous launch and the kernel is synchronous with respect to its own launch) and
+#: is why the route is documented single-stream.  Two streams must use different
+#: shapes or serialize, because they would otherwise write each other's stack slots.
+#: A call cannot observe another call's BYTES even then: a well-formed tree writes
+#: every slot before it reads it, and an underflowing pop reads nothing (masked, see
+#: the module docstring).
+_SCRATCH: "OrderedDict[Tuple[int, int, int, int], Tuple[torch.Tensor, int]]" = (
+    OrderedDict()
+)
 _SCRATCH_MAX_ENTRIES = 8
+_SCRATCH_BYTES = 0
+#: Default total-byte budget of the scratch table when the caller names none (the
+#: facade always passes its resolved ``EVOGP_FUSED_MAX_SCRATCH_MB``).
+DEFAULT_SCRATCH_BUDGET_MB = 8192
 _STATS: Dict[str, int] = {
     "kernels": 0,
     "specializations": 0,
     "scratch_allocs": 0,
     "scratch_reuses": 0,
+    "scratch_evictions": 0,
 }
+
+
+def _pow2_floor(value: int) -> int:
+    """Largest power of two ``<= value`` (at least 1).
+
+    ``tl.arange(0, BLOCK_R)`` needs a power of two, so a knob value like ``100``
+    must never reach the kernel: the geometry rounds it DOWN here instead of failing
+    inside Triton.
+    """
+    value = max(1, int(value))
+    return 1 << (value.bit_length() - 1)
 
 
 def plan(rows: int, *, per_row: bool, block_rows: int, num_warps: int) -> Dict[str, int]:
     """Resolve the launch geometry of one call.
 
     ``rows`` is the DATA-row count of the call (``1`` for ``per_row``: tree ``t``
-    sees its own row).  ``block_rows`` is clamped to
-    ``min(next_pow2(rows), block_rows)`` so a small dataset does not launch a
-    256-lane block over 8 live lanes, and ``num_warps`` is capped so the block
-    holds at least one element per warp lane (a wider block than the row count
+    sees its own row).  The block cap is ``pow2_floor(block_rows)`` and the block
+    itself is the largest power of two ``<= min(rows, cap)``, so a small dataset does
+    not launch a 256-lane block over 8 live lanes, and ``num_warps`` is capped so the
+    block holds at least one element per warp lane (a wider block than the row count
     wastes lanes; a block narrower than 64*warps is legal but pointless).
     """
     rows = int(rows)
     if rows < 1:
         raise ValueError(f"rows must be >= 1, got {rows}")
+    cap = _pow2_floor(block_rows)
     block = 1
-    while block < rows and block < int(block_rows):
+    while block < rows and block < cap:
         block *= 2
-    block = max(1, min(block, int(block_rows)))
+    block = max(1, min(block, cap))
     warps = max(1, int(num_warps))
     while warps > 1 and warps * 32 > block:
         warps //= 2
@@ -866,32 +930,51 @@ def plan(rows: int, *, per_row: bool, block_rows: int, num_warps: int) -> Dict[s
 
 
 def _scratch_for(
-    device_index: int, n_prog: int, stack_cap: int, block_rows: int
+    device_index: int,
+    n_prog: int,
+    stack_cap: int,
+    block_rows: int,
+    budget_bytes: Optional[int] = None,
 ) -> torch.Tensor:
     """The scratch block of one shape class, allocated once and reused."""
+    global _SCRATCH_BYTES
     key = (int(device_index), int(n_prog), int(stack_cap), int(block_rows))
+    budget = (
+        int(DEFAULT_SCRATCH_BUDGET_MB) * 2**20
+        if budget_bytes is None
+        else max(0, int(budget_bytes))
+    )
     with _LOCK:
         cached = _SCRATCH.get(key)
         if cached is not None:
             _SCRATCH.move_to_end(key)
             _STATS["scratch_reuses"] += 1
-            return cached
+            return cached[0]
+        nbytes = int(n_prog) * int(stack_cap) * int(block_rows) * 4
+        while _SCRATCH and (
+            len(_SCRATCH) >= _SCRATCH_MAX_ENTRIES
+            or _SCRATCH_BYTES + nbytes > budget
+        ):
+            _, (_old, old_bytes) = _SCRATCH.popitem(last=False)
+            _SCRATCH_BYTES -= old_bytes
+            _STATS["scratch_evictions"] += 1
         scratch = torch.empty(
             (int(n_prog) * int(stack_cap) * int(block_rows),),
             dtype=torch.float32,
             device=torch.device("cuda", int(device_index)),
         )
-        _SCRATCH[key] = scratch
+        _SCRATCH[key] = (scratch, nbytes)
+        _SCRATCH_BYTES += nbytes
         _STATS["scratch_allocs"] += 1
-        while len(_SCRATCH) > _SCRATCH_MAX_ENTRIES:
-            _SCRATCH.popitem(last=False)
         return scratch
 
 
 def clear_caches() -> None:
     """Drop the scratch blocks and reset the launch counters (memory only)."""
+    global _SCRATCH_BYTES
     with _LOCK:
         _SCRATCH.clear()
+        _SCRATCH_BYTES = 0
         for name in _STATS:
             _STATS[name] = 0
 
@@ -904,7 +987,9 @@ def scratch_stats() -> Dict[str, int]:
             "fused_kernel_compiles": _STATS["specializations"],
             "fused_scratch_allocs": _STATS["scratch_allocs"],
             "fused_scratch_reuses": _STATS["scratch_reuses"],
+            "fused_scratch_evictions": _STATS["scratch_evictions"],
             "fused_scratch_entries": len(_SCRATCH),
+            "fused_scratch_bytes": _SCRATCH_BYTES,
         }
 
 
@@ -932,6 +1017,7 @@ def _launch(
     block_rows: int,
     num_warps: int,
     out_len: int = 1,
+    max_scratch_mb: Optional[int] = None,
 ) -> Tuple[torch.Tensor, Dict[str, int]]:
     """Shared launch: geometry, scratch, dispatch on the (device, flags) key.
 
@@ -940,6 +1026,10 @@ def _launch(
     The whole call is dispatched on the tensors'
     device index (a Triton launch compiles/streams against the CURRENT device, so
     the launch is wrapped in ``torch.cuda.device(...)``).
+
+    ``max_scratch_mb`` is the total-byte budget of the scratch TABLE for this call
+    (the facade passes its resolved ``EVOGP_FUSED_MAX_SCRATCH_MB``; ``None`` uses
+    :data:`DEFAULT_SCRATCH_BUDGET_MB`).
 
     ``out_len == 1`` runs :func:`_fused_kernel` (the single-output protocol, its
     original code path, unchanged); ``out_len >= 2`` runs
@@ -955,7 +1045,10 @@ def _launch(
     device_index = _device_index(node_value.device)
     n_prog = pop * geom["n_rb"]
     stack_cap = max(1, int(tree_len))
-    scratch = _scratch_for(device_index, n_prog, stack_cap, geom["block_rows"])
+    budget_bytes = None if max_scratch_mb is None else int(max_scratch_mb) * 2**20
+    scratch = _scratch_for(
+        device_index, n_prog, stack_cap, geom["block_rows"], budget_bytes
+    )
 
     if multi:
         # The multi-output kernel accumulates INTO the prediction buffer, so the
@@ -1043,6 +1136,7 @@ def launch_value(
     block_rows: int = DEFAULT_BLOCK_ROWS,
     num_warps: int = DEFAULT_NUM_WARPS,
     out_len: int = 1,
+    max_scratch_mb: Optional[int] = None,
 ) -> torch.Tensor:
     """Evaluate the population's value: ``(pop, rows, out_len)`` fp32 (fresh).
 
@@ -1067,6 +1161,7 @@ def launch_value(
         block_rows=block_rows,
         num_warps=num_warps,
         out_len=int(out_len),
+        max_scratch_mb=max_scratch_mb,
     )
     return out
 
@@ -1085,6 +1180,7 @@ def launch_loss(
     block_rows: int = DEFAULT_BLOCK_ROWS,
     num_warps: int = DEFAULT_NUM_WARPS,
     out_len: int = 1,
+    max_scratch_mb: Optional[int] = None,
 ) -> torch.Tensor:
     """SR-loss partial chart: ``(pop, n_rb)`` fp32 (fresh).
 
@@ -1109,5 +1205,11 @@ def launch_loss(
         block_rows=block_rows,
         num_warps=num_warps,
         out_len=int(out_len),
+        max_scratch_mb=max_scratch_mb,
     )
     return partial
+
+
+# The operator table is verified at IMPORT time (no triton needed): a function id
+# with no branch in the kernels evaluates to 0.0, which must never happen silently.
+_verify_operator_table()
