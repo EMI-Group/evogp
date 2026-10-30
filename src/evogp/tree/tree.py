@@ -108,8 +108,8 @@ class Tree:
                     backend=backend,
                 )
                 return res[0]
-            except dense_engine.DenseUnsupported:
-                backend = route.fallback_backend
+            except dense_engine.DenseUnsupported as exc:
+                backend = dense_engine.decline_backend(route, exc)
 
         pop = evoxc_engine.decode_population(
             self.node_value.unsqueeze(0),
@@ -190,8 +190,8 @@ class Tree:
                     use_MSE=use_MSE,
                     backend=backend,
                 )
-            except dense_engine.DenseUnsupported:
-                backend = route.fallback_backend
+            except dense_engine.DenseUnsupported as exc:
+                backend = dense_engine.decline_backend(route, exc)
 
         pop = evoxc_engine.decode_population(
             self.node_value[None, :],
