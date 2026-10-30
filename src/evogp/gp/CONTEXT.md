@@ -23,6 +23,9 @@ Design idiom is copied from Evox 2.0 (`/root/evox/src/evox/DESIGN.md`): frozen c
   `live_mask(channels)`, `row_length(channels)`, `is_leaf(size)` — host-side numpy helpers, all derived (nothing is stored).
   `validate_channels(channels, input_len=None)` — the host-side decode validation; raises `ValueError` naming the row and node.
   `to_legacy_triple(channels)` / `from_legacy_triple(value, type, size)` — numpy in / numpy out, float32 / int16 / int16, the exact `Forest` layout of `../tree/`.
+  `_channel_arrays(channels)` is the ONE channel parser and accepts the three forms everywhere: a `GPState`, the three `[pop_size, max_nodes]` channels, or the three 1-D channel rows of ONE individual, which are promoted to a one-row population `[1, max_nodes]`.
+  `validate_channels`, `to_legacy_triple`, `row_length`, `live_mask` and the evaluator/problem layers all read channels through it, so the accepted forms cannot diverge.
+  A rank-3 channel or three 1-D rows of unequal length still raises the informative `ValueError`.
   `cache_stats()`, `clear_cache()`, `CACHE_SIZE_ENV` (`EVOGP_GP_COMPILE_CACHE_SIZE`, default 64).
 - `selection.py` — one traced `(fitness, key) -> int32 [pop_size] indices` graph per static knob tuple: `select(fitness, key, *, pop_size=None, mode="tournament", tournament_size=2, selection_pressure=0.5, backend, device)`, its trace-time counterpart `select_indices(evoxc_module, fitness, key, pop_size, mode, tournament_size, selection_pressure)`, `rank_probabilities(pop_size, selection_pressure)` and `SELECTION_MODES`.
   `tournament` is `argmax` over `tournament_size` `randint` contenders (linear, the default), `rank` and `roulette` sample an inverse-CDF (quadratic in the population, opt-in).
