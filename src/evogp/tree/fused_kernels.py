@@ -52,9 +52,9 @@ well onto a GPU whose parallel axes are (population x rows / BLOCK_R): at
 ``pop 256``/``N 1024``/``BLOCK_R 256`` there are 1 024 programs of 64-iterations
 each, i.e. thousands of independent dependency chains to hide the per-node
 scalar-load latency behind.  ``BLOCK_R`` is ``min(next_pow2(rows), cap)`` with
-``cap = EVOGP_FUSED_BLOCK_ROWS`` (default 256) and the launch is
-``num_warps = EVOGP_FUSED_NUM_WARPS`` (default 4); the measured sweep is in
-``fused_engine``'s docstring.
+``cap = EVOGP_FUSED_BLOCK_ROWS`` (default 256, rounded DOWN to a power of two --
+``tl.arange`` needs one) and the launch is ``num_warps = EVOGP_FUSED_NUM_WARPS``
+(default 1); the measured sweep is in ``fused_engine``'s docstring.
 
 The kernel body
 ---------------
@@ -83,14 +83,21 @@ single-output mode -- is a ternary ``if`` node, and a ternary node ignores its
 function id.
 
 Malformed rows (a tree that underflows the stack, an absurd ``subtree_size``, a
-VAR index out of range) never read out of bounds: the stack slot is clamped into
-``[0, stack_cap-1]``, VAR loads are masked with
-``(vi >= 0) & (vi < input_len) & rmask`` and read ``0.0`` outside, and
-``stack_cap == tree_len`` so the deepest legal tree (a right-leaning chain) still
-fits.  A malformed tree therefore produces a defined-but-arbitrary number, which
-is why the route DECLINES nothing on structure: the specialized engine
-(``evoxc_engine.decode_population``) owns the malformed-tree ``ValueError``
-contract, and the wiring round falls back to it before this kernel is reached.
+VAR index out of range) never read out of bounds and never read a previous
+call's bytes: ``n = min(max(subtree_size[0], 0), tree_len)`` CLAMPS the row's own
+length before it drives ``range(0, n)``, the first loop index and the child
+lookahead, so an oversized ``subtree_size`` walks this row only instead of
+spilling into the next one (and past the allocation on the last row); VAR loads
+are masked with ``(vi >= 0) & (vi < input_len) & rmask`` and read ``0.0``
+outside; and a stack POP ON AN EMPTY STACK reads nothing at all
+(``mask=rmask & (sp >= 1)``/``(sp >= 2)``, ``other=0.0``), so the operand is a
+deterministic ``0.0`` rather than whatever the shared scratch block held from an
+earlier call.  ``stack_cap == tree_len`` so the deepest legal tree (a
+right-leaning chain) still fits.  A malformed tree therefore produces a
+defined-but-arbitrary number, which is why the route DECLINES nothing on
+structure: the specialized engine (``evoxc_engine.decode_population``) owns the
+malformed-tree ``ValueError`` contract, and the wiring round falls back to it
+before this kernel is reached.
 
 Numeric contract (bit-for-bit with ``src/evogp/tests/reference_eval.py``)
 -----------------------------------------------------------------------
@@ -165,19 +172,25 @@ it: compiling into ``/root/.triton`` raises ``OSError: Read-only file system``).
 
 from __future__ import annotations
 
-import math
+import ast
+import inspect
+import textwrap
 import threading
 from collections import OrderedDict
 from typing import Any, Dict, Optional, Tuple
 
 import torch
 
+from .utils import DELTA, FUNCS, Func
+
 __all__ = [
     "BLOCK_ROWS_ENV",
     "DEFAULT_BLOCK_ROWS",
     "DEFAULT_NUM_WARPS",
+    "DEFAULT_SCRATCH_BUDGET_MB",
     "FusedUnavailable",
     "clear_caches",
+    "emitted_function_ids",
     "kernels",
     "launch_loss",
     "launch_value",
@@ -214,6 +227,134 @@ class FusedUnavailable(RuntimeError):
     the per-call "this population cannot use the fused route" decline: this one
     is an environment fact and is raised only by :func:`kernels`.
     """
+
+
+# --------------------------------------------------------------------------- #
+# the operator table: data here, ``if/elif`` chains in the kernels, one check
+# --------------------------------------------------------------------------- #
+# ``utils.FUNCS`` is the single source of truth for the function-id vocabulary, so
+# the id sets the kernels emit are declared here against ``utils.Func`` and
+# cross-checked at import (see :func:`_verify_operator_table`).  A kernel body can
+# only read ``tl.constexpr`` globals, so the branches themselves spell the ids out
+# as literals -- which is exactly why the literals need a guard.
+_EMITTED_BINARY_IDS: Tuple[int, ...] = (
+    Func.ADD,
+    Func.SUB,
+    Func.MUL,
+    Func.DIV,
+    Func.LOOSE_DIV,
+    Func.POW,
+    Func.LOOSE_POW,
+    Func.MAX,
+    Func.MIN,
+    Func.LT,
+    Func.GT,
+    Func.LE,
+    Func.GE,
+)
+_EMITTED_UNARY_IDS: Tuple[int, ...] = (
+    Func.SIN,
+    Func.COS,
+    Func.TAN,
+    Func.SINH,
+    Func.COSH,
+    Func.TANH,
+    Func.LOG,
+    Func.LOOSE_LOG,
+    Func.EXP,
+    Func.INV,
+    Func.LOOSE_INV,
+    Func.NEG,
+    Func.ABS,
+    Func.SQRT,
+    Func.LOOSE_SQRT,
+)
+#: ``utils.DELTA`` -- single-sourced, but installed as a ``tl.constexpr`` (see
+#: :func:`_install_globals`) because the kernel bodies may only read constexpr
+#: globals.  Before the first :func:`kernels` call this is the plain float.
+_DELTA = float(DELTA)
+
+
+def emitted_function_ids() -> Dict[str, Tuple[int, ...]]:
+    """The function ids the kernels implement, split by arity (``binary``/``unary``).
+
+    ``if`` (id 0) needs no branch: every node type that is not VAR/CONST/UFUNC/
+    BFUNC walks the ternary path and ignores its function id, which is what the
+    oracle's ``_kind_from_type`` fall-through does too.
+    """
+    return {"binary": _EMITTED_BINARY_IDS, "unary": _EMITTED_UNARY_IDS}
+
+
+def _comparison_ids(body) -> Tuple[int, ...]:
+    """The literal ids an un-jitted kernel helper compares ``func_id`` against.
+
+    Reads the helper's own source, which is only available from a source checkout:
+    that is why this is the SECOND half of the check and the data above is the
+    first (see :func:`_verify_operator_table`).
+    """
+    tree = ast.parse(textwrap.dedent(inspect.getsource(body)))
+    found = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Compare)
+            and isinstance(node.left, ast.Name)
+            and node.left.id == "func_id"
+        ):
+            for comparator in node.comparators:
+                if isinstance(comparator, ast.Constant) and isinstance(
+                    comparator.value, int
+                ):
+                    found.append(int(comparator.value))
+    return tuple(sorted(found))
+
+
+def _expected_ids() -> Dict[str, Tuple[int, ...]]:
+    """``utils.FUNCS`` split by the arity ranges of ``utils.Func``."""
+    binary = tuple(f for f in FUNCS if Func.BF_START <= f < Func.UF_START)
+    unary = tuple(f for f in FUNCS if Func.UF_START <= f < Func.END)
+    return {"binary": binary, "unary": unary}
+
+
+def _verify_operator_table() -> None:
+    """Fail the IMPORT if the kernels' operator table is not exactly ``utils.FUNCS``.
+
+    An uncovered function id silently evaluates to ``0.0`` in both kernels, so a new
+    operator must never be able to slip in unreported.  Two independent comparisons:
+
+    1. the declared id sets vs ``utils.FUNCS`` (no source needed), which catches an
+       operator ADDED to or REMOVED from the vocabulary;
+    2. the declared id sets vs the literals the ``if/elif`` chains actually compare
+       (needs the source file, i.e. a checkout), which catches a branch edited
+       without the declaration.
+    """
+    declared = emitted_function_ids()
+    expected = _expected_ids()
+    for arity in ("binary", "unary"):
+        if tuple(sorted(declared[arity])) != tuple(sorted(expected[arity])):
+            missing = sorted(set(expected[arity]) - set(declared[arity]))
+            extra = sorted(set(declared[arity]) - set(expected[arity]))
+            raise RuntimeError(
+                f"fused_kernels: the {arity} operator table is out of step with "
+                f"utils.FUNCS (missing ids {missing}, unknown ids {extra}); a "
+                "function id with no branch evaluates to 0.0 in both kernels"
+            )
+    try:
+        wired = {
+            "binary": _comparison_ids(_binary),
+            "unary": _comparison_ids(_unary),
+        }
+    except (OSError, TypeError, SyntaxError):
+        # No source (a byte-code-only install): the data check above still ran.
+        return
+    for arity in ("binary", "unary"):
+        if tuple(sorted(wired[arity])) != tuple(sorted(expected[arity])):
+            missing = sorted(set(expected[arity]) - set(wired[arity]))
+            extra = sorted(set(wired[arity]) - set(expected[arity]))
+            raise RuntimeError(
+                f"fused_kernels: the {arity} kernel body and its declared operator "
+                f"table disagree (branches missing ids {missing}, branches for "
+                f"unknown ids {extra})"
+            )
 
 
 # --------------------------------------------------------------------------- #
