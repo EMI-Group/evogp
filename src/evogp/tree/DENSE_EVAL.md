@@ -279,7 +279,7 @@ expensive outcome (`pop_size` per-structure compiles), emits a deduped once-per-
 `RuntimeWarning` naming the longest tree, the cap, `EVOGP_DENSE_MAX_TREE_LEN` and that compile
 consequence (`dense_engine._warn_trace_cap`, pinned by the `policy` stage of
 `device_resident_check.py`). Every other decline reason — multi-output, structural doubt, the `auto`
-rows ceiling — stays silent, and the dedupe flag is only consumed by a real warning.
+rows memory envelope — stays silent, and the dedupe flag is only consumed by a real warning.
 
 **The SR hot path is LOSS-FOLDED.** `Forest.SR_fitness` / `Tree.SR_fitness` compile the *loss* variant
 (`_dense_loss_step`, `DensePlan.variant="loss"`, static `use_mse` in `cfg[7]`): the graph returns the
@@ -300,7 +300,8 @@ accepted and still all mapping to the same engine path.
 | --- | --- | --- |
 | `EVOGP_EVAL_MODE` | `auto` | `dense` = always try dense (still falling back on `DenseUnsupported`); `specialized` = never; `auto` = the measured policy. `dynamic` is a first-class ALIAS of `dense` (case/whitespace-insensitive, in `EVAL_MODE_ALIASES`, never gated by the rows rule); unknown → `ValueError` |
 | `EVOGP_DENSE_AUTO_MIN_POP` | `64` | `auto`'s `pop_size` threshold for the dense route (`< 1` → `ValueError`); 64 is the measured break-even point on a device box (see the policy section) |
-| `EVOGP_DENSE_AUTO_MAX_ROWS` | `2048` | `auto`'s data-row ceiling for `per_row=False` calls: dense is rows-linear while the specialized engine is rows-flat, so more rows decline inside `evaluate_dense` (→ normal `DenseUnsupported` fallback; `< 1` → `ValueError`). `per_row=True` and an explicit `dense` are never gated |
+| `EVOGP_DENSE_AUTO_MAX_ROWS` | unset (`0`) | user PIN on `auto`'s row allowance for `per_row=False` calls: `0`/unset = unpinned (the memory envelope below decides), `N` = "at most `N` data rows, or the envelope's allowance if that is smaller" — the pin can only TIGHTEN the envelope (`< 0` → `ValueError`); more rows decline inside `evaluate_dense` / `sr_fitness_dense` (→ normal `DenseUnsupported` fallback). `per_row=True` and an explicit `dense` are never gated |
+| `EVOGP_DENSE_AUTO_BUDGET_MB` | `8192` | the MEMORY ENVELOPE of `auto`'s rows rule: dense's largest intermediate is `pop_size * tree_len * rows * 4` bytes (`tree_len` = the population's row stride), so `auto` declines a `per_row=False` call whose product exceeds this — the same rule the benchmark harness enforces as `CELL_TENSOR_CEILING_BYTES` (8 GiB). `< 1` → `ValueError`. This is the knob that WIDENS the allowance (the pin above only tightens it) |
 | `EVOGP_DENSE_MAX_TREE_LEN` | `64` | trace cap `L`; a longer tree → `DenseUnsupported` (`<= 0` → `ValueError`) and — on a non-numpy backend only — a once-per-process `RuntimeWarning` (`L = min(cap, row_len)`, so a `max_tree_len=32` population still traces `L=32`) |
 | `EVOGP_DENSE_PRUNE` | `1` | emit the per-position candidate chain for the population's used function ids only (`DensePrep.used_func_ids`, §9 item 1) instead of all 28; the set is a static `cfg` entry, i.e. part of the compiled-graph cache key, and a different set recompiles. `0`/`false`/`no`/`off` restores the full `FULL_FUNC_IDS` chain byte-for-byte (the A/B baseline); anything else → `ValueError` |
 | `EVOGP_DENSE_BUDGET_MB` | `2048` | chunking budget in MiB (`<= 0` → `ValueError`) |
@@ -323,8 +324,8 @@ which is why only `O0`/`O1` are accepted and the set is not widened.
 
 ### The `auto` policy, exactly
 
-`resolve_route(pop_size, *, rows=None, backend=None, iree_device_index=None, eval_mode=None, auto_min_pop=None, auto_max_rows=None)` in `dense_engine.py` is the SINGLE route resolver, returning a frozen `Route(use_dense, backend, fallback_backend, reason)`.
-`should_use_dense` is `resolve_route(...).use_dense` and `auto_rows_decline` is the rows half of the same rule, so there is no second copy of the policy.
+`resolve_route(pop_size, *, rows=None, backend=None, iree_device_index=None, eval_mode=None, auto_min_pop=None, auto_max_rows=None, tree_len=None, auto_budget_mb=None)` in `dense_engine.py` is the SINGLE route resolver, returning a frozen `Route(use_dense, backend, fallback_backend, reason)`.
+`should_use_dense` is `resolve_route(...).use_dense` and `auto_rows_decline` is the rows half of the same rule, so there is no second copy of the policy; the allowance itself is `auto_row_allowance(pop_size, tree_len, *, auto_max_rows=None, auto_budget_mb=None)` — `min(pin, floor(EVOGP_DENSE_AUTO_BUDGET_MB · 2^20 / (pop_size · tree_len · 4)))`, `0` meaning "unlimited" when the shape is unknown and no pin is set — with `resolve_auto_max_rows` / `resolve_auto_budget_mb` as the two knob resolvers (`0` = unpinned / `>= 1` MiB).
 The five wired call sites (`Forest.forward`, `Forest.batch_forward`, `Forest.SR_fitness`, `Tree.forward`, `Tree.SR_fitness`) resolve the route once per call and pass the resolved `backend=` explicitly into the engine (`evaluate_dense` / `sr_fitness_dense` / `evoxc_engine.evaluate` / `evoxc_engine.sr_fitness`).
 `evoxc_engine._resolve_backend` keeps its `numpy` default, so raw engine callers see exactly the old behaviour; the device backend is chosen by the route policy and passed in, never inferred inside the engine.
 
@@ -333,7 +334,7 @@ The five wired call sites (`Forest.forward`, `Forest.batch_forward`, `Forest.SR_
 | `auto` (default), no explicit backend, device usable, `pop_size >= EVOGP_DENSE_AUTO_MIN_POP` (64) | dense | `iree` |
 | `auto`, no explicit backend, device usable, `pop_size < 64` | specialized | `numpy` |
 | `auto`, no explicit backend, no device (pure-CPU box) | specialized | `numpy` |
-| `auto` on a device box but dense says `DenseUnsupported` (multi-output, over-cap tree, rows > 2048, unsafe shape) | specialized | `numpy` (the route's `fallback_backend`) |
+| `auto` on a device box but dense says `DenseUnsupported` (multi-output, over-cap tree, outside the rows memory envelope, unsafe shape) | specialized | `numpy` (the route's `fallback_backend`) |
 | `EVOGP_EVOXC_BACKEND=<name>` exported, or `backend=` passed | unchanged: dense iff `EVOGP_EVAL_MODE=dense`, else `auto` with `<name> != "numpy"` and `pop_size >= min_pop` | `<name>` |
 | `EVOGP_EVAL_MODE=specialized` | never dense | the resolved backend (`numpy` unless named) |
 | `EVOGP_EVAL_MODE=dense` (`dynamic`), no explicit backend | dense | `iree` on a device box, `numpy` otherwise |
@@ -345,10 +346,11 @@ Rules and consequences:
 * a long training run at a small population can lower the knob to 16; a one-shot evaluation must not lower it below its own call count;
 * a single `Tree` (`pop_size == 1`) is below the threshold on every backend, so `Tree.forward` / `Tree.SR_fitness` stay specialized+numpy and never start a per-tree iree compile (271–284 ms per distinct tree, which a single-evaluation call site can never amortize);
 * on numpy `auto` **never** uses dense — dense lost at every measured size (0.006–0.91× of the specialized warm throughput; the interpreter pays per-op overhead on `(L, P, N)` tensors and the graph carries ≈264 ops per traced position, i.e. ≈264·L ops: 2110 at L=8, 9214 at L=32);
-* on iree a population is still dense-supported only if the call is either `per_row=True` (one row per tree — never row-gated) or `per_row=False` with at most `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) data rows; multi-output populations, over-cap trees and larger rows-per-tree workloads fall back to specialized+numpy;
+* on iree a population is still dense-supported only if the call is either `per_row=True` (one row per tree — never row-gated) or `per_row=False` while its `pop_size * tree_len * rows * 4` bytes fit the memory envelope `EVOGP_DENSE_AUTO_BUDGET_MB` (8192 MiB by default) and the row count is inside an explicit `EVOGP_DENSE_AUTO_MAX_ROWS` pin; multi-output populations, over-cap trees and larger workloads fall back to specialized+numpy;
 * `CombinedForest` sub-forests are single-output populations forwarded through `Forest.forward` / `Forest.batch_forward`, so each sub-forest gets the same policy decision as any other population;
 * the threshold is a **flat** `pop_size` gate (it ignores `L`): the compile term is per distinct graph shape, so the call-count crossover shifts with `L` (a `L=64` compile is ≈2× a `L=32` one);
-* the rows ceiling is the second half of the measured rule: dense cost grows with the data-row count while the specialized engine's warm cost is rows-flat (1.24–1.94 ms/tree from N=64 to N=10000), so the warm crossover sits at ≈3.4–6.8k rows (P=16), 7.5–8.4k (P=32) and ~11k (P=64) and dense never wins above ~10k rows — the default 2048 is the measured SAFE boundary, ~2× below the tightest crossover (`dense_bench_findings.md` §4–5, §6 below).
+* the rows half is a **memory envelope, not a row ceiling** (`auto_row_allowance` / `auto_rows_decline`): what grows on this route is the `pop_size * tree_len * rows` product the graph sizes its buffers by, so `auto` keeps dense while `pop_size * tree_len * rows * 4` fits `EVOGP_DENSE_AUTO_BUDGET_MB` (8192 MiB, the harness's `CELL_TENSOR_CEILING_BYTES` rule). The old fixed 2048-row ceiling was calibrated at P=16 against the per-tree *device* engine (`dense_bench_findings.md` §4–6), a comparison the shipped policy never makes — `auto` admits no population below 64 and its dense fallback is specialized+`numpy` — and on the large-scale column it routed every `N ≥ 4096` cell to a fallback dense beats by 1.4–8.7× per call and 1.6–8.7× per generation (`test/benchmark/evoxc/LARGE_SCALE.md` §7.1), so it is gone and `EVOGP_DENSE_AUTO_MAX_ROWS` defaulted to `0` (unpinned);
+* the envelope needs the shape: `resolve_route` / `should_use_dense` take an optional `tree_len` (the population's row stride) and a shape-less caller can only apply the row pin, never an inferred decline — which is why the wired call sites, that pass `pop_size` only, have the envelope enforced inside `evaluate_dense` / `sr_fitness_dense`, where `_population_shape(batch_subtree_size)` and `_decline_rows(x)` read `.shape` only, before any host conversion;
 * the `specialized` mode is unchanged in substance: forced specialized on iree still compiles one graph per distinct tree structure, which is why forcing it is never a performance win.
 
 ### Measured effect of the new default (this box, MI300X VF, warm medians)
@@ -540,7 +542,10 @@ slope (`dense_bench_findings.md` §1). Scaling laws from the direct cells (`dens
 specialized is pop-linear and rows-flat (1.24–1.94 ms/tree, independent of N up to 10000), dense is
 pop- and rows-linear (P=16 slope ≈2.2e-3 ms/row over N 64→1024, 1.35e-3 over 1024→10000), which puts the
 warm crossover at ≈3.4–6.8k rows (P=16), 7.5–8.4k (P=32) and ~11k (P=64) — dense never wins above
-roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) encodes (§3, §9).
+roughly 10k rows **against the per-tree device engine at those populations**. That was a *device*-backend
+crossover the shipped `auto` never faces (it admits no population below 64 and its dense fallback is
+specialized+`numpy`, which dense beats at `N` = 4096–16384 by 1.4–8.7×, `test/benchmark/evoxc/LARGE_SCALE.md`
+§7.1), so the rows half is a memory envelope now (`EVOGP_DENSE_AUTO_BUDGET_MB`, §3, §9), not a row count.
 
 ---
 ## 7. evoxc / IREE constraints encountered (and the work-arounds)
@@ -651,10 +656,12 @@ roughly 10k rows. That crossover is what `EVOGP_DENSE_AUTO_MAX_ROWS` (2048) enco
    is unmeasured at that pop. Repeat spreads of 30–50% are normal (foreign tenants kept the GPU at
    39–79% utilization), so single numbers are only comparable within one process — a same-process A/B
    at P≥64 is what would settle the warm crossover.
-3. **Shape-aware selection.** The rows half of the policy is now implemented
-   (`EVOGP_DENSE_AUTO_MAX_ROWS`, 2048 — ~2× below the tightest measured crossover), but
-   `EVOGP_DENSE_AUTO_MIN_POP` is still a flat pop gate and the crossover also depends on `L`
-   (compile ∝ L); a gate on `(pop_size, L, N)` is the obvious refinement.
+3. **Shape-aware selection.** The rows half of the policy is now a memory envelope
+   (`EVOGP_DENSE_AUTO_BUDGET_MB`, 8192 MiB of `pop_size * tree_len * rows * 4` bytes, with
+   `EVOGP_DENSE_AUTO_MAX_ROWS` as an optional tightening pin — §3), so the `(pop_size, L, N)`
+   question is answered on its `N` axis by a budget rather than a fixed row count;
+   `EVOGP_DENSE_AUTO_MIN_POP` is still a flat pop gate, and that half still ignores `L`
+   (compile ∝ L), which is the refinement left.
 4. **`L > 32` economics — measured, and the cap is now 64 (item 5, done).** The trace cap bounds
    compile time and chunk memory (the graph op count is linear in `L`), so the raise was measured before
    it was made: iree compile per shape signature ≈13.9 s (`L=32`) / ≈31.6 s (`L=64`) / ≈69.0 s

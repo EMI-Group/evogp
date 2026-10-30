@@ -223,7 +223,8 @@ Environment knobs
                                             bytes exceed it (the harness's
                                             ``CELL_TENSOR_CEILING_BYTES`` rule); a
                                             decline -> ``DenseUnsupported``
-                                            fallback
+                                            fallback; ``per_row=True`` and an
+                                            explicit ``dense`` are never gated
 ``EVOGP_DENSE_MAX_TREE_LEN``    32          max trace length ``L``; longer trees
                                             -> :class:`DenseUnsupported`
 ``EVOGP_DENSE_BUDGET_MB``       2048        chunking memory budget (MiB)
