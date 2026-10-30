@@ -24,8 +24,11 @@ engine.  This module pins that policy:
   ``Route.engine`` / ``Route.use_batch`` rather than by the dense flag;
 * ``auto`` NEVER selects batch, and neither does ``dense`` / ``dynamic`` /
   ``specialized``: the opt-in switch is the only way into the batch engine;
-* the rows rule (``EVOGP_DENSE_AUTO_MAX_ROWS``, ``auto_rows_decline``) is
-  unchanged and still only gates ``auto``;
+* the rows rule (``auto_rows_decline``) still only gates ``auto``, but it is
+  now a per-shape MEMORY ENVELOPE (``EVOGP_DENSE_AUTO_BUDGET_MB`` over
+  ``pop_size * tree_len * rows * 4`` bytes) with ``EVOGP_DENSE_AUTO_MAX_ROWS`` as
+  an optional tightening pin -- so the large-row / large-population cells stay on
+  dense instead of falling back to the rows-flat specialized engine;
 * ``resolve_route`` and ``should_use_dense`` agree everywhere (one rule).
 
 Like ``test_dense_policy.py`` this module never builds or runs a graph:
@@ -46,9 +49,13 @@ assert EVOXC_BACKEND_ENV == "EVOGP_EVOXC_BACKEND"
 #: A population at / above the ``auto`` threshold, and one below it.
 ABOVE = dense.DEFAULT_AUTO_MIN_POP
 BELOW = dense.DEFAULT_AUTO_MIN_POP - 1
-#: Rows inside / above the ``auto`` ceiling.
-ROWS_OK = dense.DEFAULT_AUTO_MAX_ROWS
-ROWS_OVER = dense.DEFAULT_AUTO_MAX_ROWS + 1
+#: The row stride the rows envelope is evaluated at (the population's
+#: ``max_tree_len``, the harness's ``tree_len``).
+TREE_LEN = 64
+#: Rows at / above the ``auto`` memory envelope's allowance for that shape.
+ROWS_OK = dense.auto_row_allowance(ABOVE, TREE_LEN)
+ROWS_OVER = ROWS_OK + 1
+assert ROWS_OVER > 2048, "the reference shape must be well above the old ceiling"
 
 
 @pytest.fixture(autouse=True)
@@ -63,6 +70,7 @@ def hermetic_knobs(monkeypatch):
         dense.MAX_TREE_LEN_ENV,
         dense.AUTO_MIN_POP_ENV,
         dense.AUTO_MAX_ROWS_ENV,
+        dense.AUTO_BUDGET_MB_ENV,
         EVOXC_BACKEND_ENV,
     ):
         monkeypatch.delenv(name, raising=False)
@@ -222,24 +230,135 @@ def test_explicit_dense_uses_the_device_backend_when_one_is_available(monkeypatc
 
 
 # --------------------------------------------------------------------------- #
-# 5. the rows rule is unchanged and still only gates `auto`
+# 5. the rows rule is a memory envelope and still only gates `auto`
 # --------------------------------------------------------------------------- #
 def test_rows_rule_declines_auto_to_specialized_numpy(monkeypatch):
     on_device_box(monkeypatch)
-    assert dense.resolve_route(ABOVE, rows=ROWS_OK).use_dense is True
-    declined = dense.resolve_route(ABOVE, rows=ROWS_OVER)
+    ok = dense.resolve_route(ABOVE, rows=ROWS_OK, tree_len=TREE_LEN)
+    assert ok.use_dense is True, ok.reason
+    declined = dense.resolve_route(ABOVE, rows=ROWS_OVER, tree_len=TREE_LEN)
     assert declined.use_dense is False
     assert declined.backend == "numpy"
-    assert dense.AUTO_MAX_ROWS_ENV in declined.reason
+    assert dense.AUTO_BUDGET_MB_ENV in declined.reason
     # per_row=True (unknown row count) and an explicit dense are never gated
-    assert dense.resolve_route(ABOVE, rows=None).use_dense is True
-    assert dense.resolve_route(ABOVE, rows=ROWS_OVER, eval_mode="dense").use_dense is True
+    assert dense.resolve_route(ABOVE, rows=None, tree_len=TREE_LEN).use_dense is True
+    assert (
+        dense.resolve_route(
+            ABOVE, rows=ROWS_OVER, tree_len=TREE_LEN, eval_mode="dense"
+        ).use_dense
+        is True
+    )
     # an explicit backend keeps today's behaviour: specialized on THAT backend
-    explicit = dense.resolve_route(ABOVE, rows=ROWS_OVER, backend="iree")
+    explicit = dense.resolve_route(
+        ABOVE, rows=ROWS_OVER, tree_len=TREE_LEN, backend="iree"
+    )
     assert explicit.use_dense is False and explicit.backend == "iree"
     # the public rows helper still reports the same decline
-    assert dense.auto_rows_decline(ROWS_OVER, eval_mode="auto") is not None
-    assert dense.auto_rows_decline(ROWS_OVER, eval_mode="dense") is None
+    assert (
+        dense.auto_rows_decline(
+            ROWS_OVER, eval_mode="auto", pop_size=ABOVE, tree_len=TREE_LEN
+        )
+        is not None
+    )
+    assert (
+        dense.auto_rows_decline(
+            ROWS_OVER, eval_mode="dense", pop_size=ABOVE, tree_len=TREE_LEN
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("pop", [ABOVE, 256, 1000])
+@pytest.mark.parametrize("rows", [4096, 16384])
+def test_rows_envelope_keeps_dense_on_the_large_row_cells(pop, rows, monkeypatch):
+    """The large-row cells stay on dense: the blunt 2048-row ceiling is gone.
+
+    ``p256-L64-i32-N4096`` / ``p256-L64-i32-N16384`` / ``p1000-L64-i32-N4096`` /
+    ``p1000-L64-i32-N16384`` are the cells where ``auto`` used to decline into
+    ``specialized`` + numpy, which is 1.4-8.7x slower there
+    (``test/benchmark/evoxc/LARGE_SCALE.md``).
+    """
+    on_device_box(monkeypatch)
+    route = dense.resolve_route(pop, rows=rows, tree_len=TREE_LEN)
+    assert route.use_dense is True, route.reason
+    assert route.backend == "iree"
+    assert dense.auto_rows_decline(rows, pop_size=pop, tree_len=TREE_LEN) is None
+    assert rows > 2048  # the old fixed ceiling would have declined every one
+
+
+def test_rows_envelope_scales_with_population_and_tree_length(monkeypatch):
+    """The allowance is a byte budget: it shrinks as pop_size / tree_len grow."""
+    on_device_box(monkeypatch)
+    base = dense.auto_row_allowance(ABOVE, TREE_LEN)
+    assert dense.auto_row_allowance(ABOVE * 4, TREE_LEN) == base // 4
+    assert dense.auto_row_allowance(ABOVE, TREE_LEN * 2) == base // 2
+    assert dense.auto_row_allowance(ABOVE, TREE_LEN, auto_budget_mb=16384) == base * 2
+    # an unknown shape cannot apply the envelope (only an explicit pin)
+    assert dense.auto_row_allowance(None, TREE_LEN) == 0
+    assert dense.auto_row_allowance(ABOVE, None) == 0
+    # the envelope itself declines above the byte budget, naming the knob
+    over = dense.resolve_route(ABOVE * 4, rows=base // 4 + 1, tree_len=TREE_LEN)
+    assert over.use_dense is False
+    assert dense.AUTO_BUDGET_MB_ENV in over.reason and "GiB" in over.reason
+
+
+def test_auto_max_rows_pin_still_wins(monkeypatch):
+    """``EVOGP_DENSE_AUTO_MAX_ROWS`` is an optional, tightening pin over the envelope."""
+    on_device_box(monkeypatch)
+    pin = 1024
+    assert dense.auto_row_allowance(ABOVE, TREE_LEN, auto_max_rows=pin) == pin
+    # a pin ABOVE the envelope cannot loosen it
+    assert dense.auto_row_allowance(ABOVE, TREE_LEN, auto_max_rows=ROWS_OK * 4) == ROWS_OK
+    declined = dense.resolve_route(
+        ABOVE, rows=pin + 1, tree_len=TREE_LEN, auto_max_rows=pin
+    )
+    assert declined.use_dense is False
+    assert f"{dense.AUTO_MAX_ROWS_ENV}={pin}" in declined.reason
+    assert "memory envelope" not in declined.reason
+    # ... and through the environment, the documented user-facing knob
+    monkeypatch.setenv(dense.AUTO_MAX_ROWS_ENV, str(pin))
+    assert dense.resolve_auto_max_rows() == pin
+    assert dense.resolve_route(ABOVE, rows=pin, tree_len=TREE_LEN).use_dense is True
+    assert dense.resolve_route(ABOVE, rows=pin + 1, tree_len=TREE_LEN).use_dense is False
+    # 0 is the "unpinned" spelling
+    assert dense.resolve_auto_max_rows("0") == 0
+
+
+def test_rows_rule_needs_a_shape_or_a_pin():
+    """Without ``(pop_size, tree_len)`` only an explicit pin can decline.
+
+    The wired call sites pass ``pop_size`` only, so this is what keeps them from
+    re-creating the old false ceiling: the envelope is enforced inside
+    ``evaluate_dense`` / ``sr_fitness_dense``, which know the real shape.
+    """
+    assert dense.auto_rows_decline(10 ** 7, eval_mode="auto") is None
+    assert (
+        dense.auto_rows_decline(10 ** 7, eval_mode="auto", auto_max_rows=1024)
+        is not None
+    )
+    assert dense.auto_rows_decline(1024, eval_mode="auto", auto_max_rows=1024) is None
+
+
+def test_cpu_box_rows_never_reach_dense(monkeypatch):
+    """A non-device box stays specialized+numpy at every row count (unchanged)."""
+    on_device_box(monkeypatch, available=False)
+    for rows in (None, 4096, 16384, ROWS_OVER):
+        for pop in (BELOW, ABOVE, 10 ** 4):
+            route = dense.resolve_route(pop, rows=rows, tree_len=TREE_LEN)
+            assert route.use_dense is False
+            assert route.backend == "numpy"
+
+
+def test_auto_never_picks_batch_at_large_rows(monkeypatch):
+    """The rows half of ``auto`` may only flip dense <-> specialized."""
+    on_device_box(monkeypatch)
+    for rows in (ROWS_OK, ROWS_OVER, 16384):
+        route = dense.resolve_route(
+            ABOVE, rows=rows, tree_len=TREE_LEN, eval_mode="auto"
+        )
+        assert route.engine != "batch"
+        assert route.use_batch is False
+        assert route.use_dense is (route.engine == "dense")
 
 
 # --------------------------------------------------------------------------- #

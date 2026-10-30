@@ -89,9 +89,12 @@ INPUT_LEN = 2
 ROW_LEN = 16
 CHAIN_LEN = 8
 
-#: A row count far above ``DEFAULT_AUTO_MAX_ROWS``: what the ``auto`` rows rule
-#: declines and an explicit ``dense``/``dynamic`` never does.
-HUGE_ROWS = 10 ** 6
+#: The reference shape the ``auto`` rows envelope is evaluated at.
+ENVELOPE_POP = dense.DEFAULT_AUTO_MIN_POP
+ENVELOPE_TREE_LEN = 64
+#: One row above that shape's allowance: what the ``auto`` rows rule declines and
+#: an explicit ``dense``/``dynamic`` never does.
+HUGE_ROWS = dense.auto_row_allowance(ENVELOPE_POP, ENVELOPE_TREE_LEN) + 1
 
 #: Budgets (MiB) walked to force a plan with BOTH chunk counts > 1 -- ported from
 #: the battery's ``_CANDIDATE_BUDGETS``.  ``_chunk_shape`` shaves ``n_chunk`` only
@@ -120,6 +123,7 @@ def hermetic_knobs(monkeypatch):
         dense.MAX_TREE_LEN_ENV,
         dense.AUTO_MIN_POP_ENV,
         dense.AUTO_MAX_ROWS_ENV,
+        dense.AUTO_BUDGET_MB_ENV,
         EVOXC_BACKEND_ENV,
     ):
         monkeypatch.delenv(name, raising=False)
@@ -410,7 +414,7 @@ def test_batch_mode_obeys_the_explicit_argument_wins_rule(monkeypatch):
 
 @pytest.mark.parametrize("pop", [1, 4, POP_SIZE, 10 ** 4])
 @pytest.mark.parametrize("rows", [None, ROWS, HUGE_ROWS])
-def test_batch_mode_is_never_the_dense_half_of_the_policy(pop, rows):
+def test_batch_mode_is_never_the_dense_half_of_the_policy(pop, rows, monkeypatch):
     """A ``batch`` opt-in is NOT a dense opt-in for the wired call sites.
 
     The batch engine owns the whole population (reported by ``Route.engine`` /
@@ -418,24 +422,48 @@ def test_batch_mode_is_never_the_dense_half_of_the_policy(pop, rows):
     size and row count -- and the ``auto`` rows rule, which belongs to the dense
     half, must not report a decline for it either.
     """
+    monkeypatch.setattr(dense, "_DEVICE_AVAILABLE", True)
     for backend in ("numpy", "iree"):
         assert (
-            dense.should_use_dense(pop, eval_mode="batch", backend=backend, rows=rows)
+            dense.should_use_dense(
+                pop,
+                eval_mode="batch",
+                backend=backend,
+                rows=rows,
+                tree_len=ENVELOPE_TREE_LEN,
+            )
             is False
         ), (pop, backend, rows)
-    assert dense.auto_rows_decline(rows, eval_mode="batch") is None
+    assert (
+        dense.auto_rows_decline(
+            rows,
+            eval_mode="batch",
+            pop_size=ENVELOPE_POP,
+            tree_len=ENVELOPE_TREE_LEN,
+        )
+        is None
+    )
 
 
 # --------------------------------------------------------------------------- #
 # 2. the alias is a first-class spelling of `dense`
 # --------------------------------------------------------------------------- #
-def test_dynamic_alias_targets_dense_in_the_policy():
+def test_dynamic_alias_targets_dense_in_the_policy(monkeypatch):
     """`dynamic` is an explicit opt-in: dense is attempted, never rows-declined."""
+    monkeypatch.setattr(dense, "_DEVICE_AVAILABLE", True)
     assert dense.should_use_dense(4, eval_mode="dynamic", backend="numpy") is True
     assert dense.should_use_dense(4, eval_mode="dense", backend="numpy") is True
     assert dense.auto_rows_decline(HUGE_ROWS, eval_mode="dynamic") is None
     assert dense.auto_rows_decline(HUGE_ROWS, eval_mode="dense") is None
-    assert dense.auto_rows_decline(HUGE_ROWS, eval_mode="auto") is not None
+    assert (
+        dense.auto_rows_decline(
+            HUGE_ROWS,
+            eval_mode="auto",
+            pop_size=ENVELOPE_POP,
+            tree_len=ENVELOPE_TREE_LEN,
+        )
+        is not None
+    )
     # ... and the rows rule does not sneak back in through should_use_dense
     assert (
         dense.should_use_dense(4, eval_mode="dynamic", backend="numpy", rows=HUGE_ROWS)
@@ -455,41 +483,39 @@ def test_dynamic_alias_targets_dense_in_the_policy():
     )
 
 
-def test_auto_rows_rule_keeps_its_measured_thresholds():
-    """Only ``auto`` is gated, and only above the inclusive ``AUTO_MAX_ROWS`` ceiling."""
+def test_auto_rows_rule_is_a_memory_envelope():
+    """Only ``auto`` is gated, and it is gated on a BYTE budget, not a row count."""
     assert dense.DEFAULT_AUTO_MIN_POP == 64
-    assert dense.DEFAULT_AUTO_MAX_ROWS == 2048
+    # unpinned by default: the memory envelope alone decides (``0`` = no pin)
+    assert dense.DEFAULT_AUTO_MAX_ROWS == 0
     assert dense.resolve_auto_min_pop() == dense.DEFAULT_AUTO_MIN_POP
-    assert dense.resolve_auto_max_rows() == dense.DEFAULT_AUTO_MAX_ROWS
-    assert dense.auto_rows_decline(None, eval_mode="auto") is None  # unknown row count
-    assert dense.auto_rows_decline(dense.DEFAULT_AUTO_MAX_ROWS, eval_mode="auto") is None
-    decline = dense.auto_rows_decline(dense.DEFAULT_AUTO_MAX_ROWS + 1, eval_mode="auto")
-    assert decline is not None and dense.AUTO_MAX_ROWS_ENV in decline
+    assert dense.resolve_auto_max_rows() == 0
+    assert dense.resolve_auto_budget_mb() == dense.DEFAULT_AUTO_BUDGET_MB == 8192
+    # unknown row count, or an unknown shape: nothing the rule can decline
+    assert dense.auto_rows_decline(None, eval_mode="auto") is None
+    assert dense.auto_rows_decline(10 ** 9, eval_mode="auto") is None
+    allowance = dense.auto_row_allowance(64, 64)
+    assert allowance == 8 * 2 ** 30 // (64 * 64 * 4)
+    assert (
+        dense.auto_rows_decline(allowance, eval_mode="auto", pop_size=64, tree_len=64)
+        is None
+    )
+    decline = dense.auto_rows_decline(
+        allowance + 1, eval_mode="auto", pop_size=64, tree_len=64
+    )
+    assert decline is not None and dense.AUTO_BUDGET_MB_ENV in decline
     # `resolve_backend_name('iree')` only NAMES the backend here: nothing compiles,
     # nothing runs, no device is touched.
     assert dense.resolve_backend_name("iree") == "iree"
-    assert (
-        dense.should_use_dense(
-            64,
-            eval_mode="auto",
-            backend="iree",
-            rows=dense.DEFAULT_AUTO_MAX_ROWS,
-            auto_min_pop=dense.DEFAULT_AUTO_MIN_POP,
-            auto_max_rows=dense.DEFAULT_AUTO_MAX_ROWS,
-        )
-        is True
+    kwargs = dict(
+        eval_mode="auto",
+        backend="iree",
+        auto_min_pop=dense.DEFAULT_AUTO_MIN_POP,
+        auto_max_rows=0,
+        tree_len=64,
     )
-    assert (
-        dense.should_use_dense(
-            64,
-            eval_mode="auto",
-            backend="iree",
-            rows=dense.DEFAULT_AUTO_MAX_ROWS + 1,
-            auto_min_pop=dense.DEFAULT_AUTO_MIN_POP,
-            auto_max_rows=dense.DEFAULT_AUTO_MAX_ROWS,
-        )
-        is False
-    )
+    assert dense.should_use_dense(64, rows=allowance, **kwargs) is True
+    assert dense.should_use_dense(64, rows=allowance + 1, **kwargs) is False
 
 
 
