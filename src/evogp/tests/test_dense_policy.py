@@ -30,6 +30,13 @@ Coverage
   ``L = min(cap, row_len)`` rule, the over-cap decline's message, and the deduped
   ``RuntimeWarning`` -- emitted only on a non-numpy backend, once per process,
   never consuming the flag for any other decline reason.
+* The ``auto`` trace-cap RAISE (``EVOGP_DENSE_AUTO_MAX_TREE_LEN``, bounded by the
+  cap-axis envelope of ``EVOGP_DENSE_AUTO_BUDGET_MB``): the exact
+  ``min(longest, min(ceiling, envelope))`` arithmetic, the identity outside
+  ``auto`` / under a pinned cap / for a population that fits, the refusal's
+  message naming the binding term, and both entry points handing the raised cap
+  to the plan seam -- plus the ``DenseUnsupported(device_fallback=True)``
+  refusal, decided before the plan so no numpy fallback can be reached.
 
 Provenance and constraints
 --------------------------
@@ -64,6 +71,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 import pytest
+import torch
 
 from evogp.tree import NType, dense_engine as dense, evoxc_engine
 from evogp.tree.utils import Func
