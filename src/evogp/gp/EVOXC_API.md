@@ -32,7 +32,8 @@ Read this before writing any traced code here; every claim below is a source fac
 `evoxc.random` exports exactly: `key, split, split_n, uniform, normal, randint, permutation, multinomial, Algorithm, ALGORITHMS`.
 - `key(seed, algorithm="splitmix64")` — rank-0 int64, usable both inside a trace (inlined constant) and outside (concrete `Tensor` you can pass to `run`).
 - `split(key) -> (a, b)`; `split_n(key, n) -> n keys` — **only inside a trace** (`TraceError` outside; you cannot split at Python level).
-- `uniform(key, shape, low=0.0, high=1.0, dtype=float32)`, `normal(...)`, `randint(key, shape, low, high, dtype=int32)` (**high exclusive, low/high required**), `permutation(key, n)`, `multinomial(key, input, num_samples)` (**numpy backend only**).
+- `uniform(key, shape, low=0.0, high=1.0, dtype=float32)`, `normal(...)`, `randint(key, shape, low, high, dtype=int32)` (**high exclusive, low/high required**), `permutation(key, n)`, `multinomial(key, input, num_samples)`.
+- Backend support: `random_key_mix/uniform/normal/randint/permutation` all have StableHLO special emitters (`evoxc/backends/stablehlo/ops.py`, `random_export.py`), so they work on `backend="iree"` too — verified here by building one graph on numpy and on iree from the same key and getting identical values. **Only `multinomial` is deferred (numpy-only)** — never depend on it.
 - Ops never consume a key: same key + operands ⇒ bit-identical output. No global state, no `choice`/`fold_in`/`shuffle`/`Generator`.
 - `low`/`high` may be broadcastable SymbolicTensors but not `np.float32` scalars.
 
