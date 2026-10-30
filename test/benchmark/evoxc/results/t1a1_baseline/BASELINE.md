@@ -14,26 +14,27 @@ Six cells (`p<pop>-L<tree_len>-i<input_len>-N<rows>`, `-d7` = `max_layer_cnt 7`)
 **Protocol.** One process per (cell, arm) behind an idle-device guard (25/25 configs on an idle device, 0
 contaminated), seed 0, `warmup 2` untimed calls, `reps 5` sync-bracketed samples, **warm medians**, the cold
 first call timed separately (`first_call_ms`, never in the medians), workloads `sr_fitness,batch_forward`,
-`EVOXC_DISABLE_LOCATIONS=1`; campaign elapsed 622.7 s. Two invocations share this directory:
+`EVOXC_DISABLE_LOCATIONS=1`; campaign elapsed 622.7 s. Two invocations share `main/`:
 `campaign.json` = the five safe cells × five arms (25 configs, all `status ok`), `campaign.d7.json` = the d7
 cell × four arms. `evoxc-dense-iree` was deliberately **not scheduled** on the d7 cell: an explicit dense
 route there gets no trace-cap raise/envelope and degrades into per-structure `specialized`+iree with
 unbounded artifact growth (measured cgroup OOM kill), so `check.py` reports it as an allowed missing arm.
 
+**Layout.** `main/` is the gateable campaign directory (`campaign.json` + one subdirectory per cell);
+`decompose/` and `validation/` are sibling columns with their own schemas, and `RENDERED.md` / this report sit
+at this level. `check.py` gates `main/` only (a directory holding `decompose*/` is documented as not gateable
+in one run).
+
 **Status.** 29 records (5×5 + 4), **0 failed configs**.
-Gate: `python3 test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/t1a1_baseline --allow-snapshot --allow-missing --allow-digest-mismatch`
+Gate: `python3 test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/t1a1_baseline/main --allow-snapshot --allow-missing --allow-digest-mismatch`
 → **29 records / 538 checks / 6 failures**, the six being exactly the declared `no digest anywhere in the cell`
 class for the `forward` workload this campaign did not schedule (an expectation of the scoped schedule, **not**
 numeric mismatches: one per cell). WARNs: **1 missing-arm** (d7 `evoxc-dense-iree`, `never scheduled`) plus the
 **6 digest-split** WARNs listed in §3. The gate exits 1 by design on that declared class.
-(The same command over the container *as committed* also folds `decompose/` and `validation/` in as if they were
-cells — 586 checks / 24 failures; a container holding `decompose*/` is documented as not gateable in one run, so
-538/6 over the campaign+cells scope is the figure of record. `RENDERED.md` picks the same two directories up as
-extra "cells"/arms for the same reason; §1 below is the authoritative table set.)
 
 **Ratio convention used everywhere below.** `torch_median / arm_median`, i.e. **> 1.00 means the arm is faster
 than that torch baseline** and **< 1.00 means it is slower**. Columns are read from
-`<cell>/<arm>.json` → `workloads.<name>.median_ms` and `workloads.<name>.first_call_ms`.
+`main/<cell>/<arm>.json` → `workloads.<name>.median_ms` and `workloads.<name>.first_call_ms`.
 
 ---
 
@@ -133,9 +134,9 @@ plan), shipped defaults (`EVOGP_BATCH_BAND_SIZE=16`, pool 4, `CHUNK_BANDS` off):
 | | value | 232 | 4 589 | 4 / [58,58,58,58] | 4 | `aggressive` (`auto`) | 4 (no) |
 | `p1000-L64-i32-N1024` | loss | 841 | 21 339 | 4 / [211,210,210,210] | 4 | `aggressive` (`auto`) | 14 (no) |
 | | value | 841 | 17 986 | 4 / [211,210,210,210] | 4 | `aggressive` (`auto`) | 14 (no) |
-| `p4096-L64-i32-N1024` | loss | 3 265 | 78 189 | 4 / [817,816,816,816] | 4 | `aggressive` (`auto`) | **15 (clamped from 52)** |
+| `p4096-L64-i32-N1024` | loss | 3 265 | 78 189 | 4 / [817,816,816,816] | 4 | `aggressive` (`auto`) | **15 (clamped from 51–52)** |
 | | value | 3 265 | 65 227 | 4 / [817,816,816,816] | 4 | `aggressive` (`auto`) | **15 (clamped)** |
-| `p2048-L128-i32-N1024-d7` | loss | 1 664 | 93 751 | 4 / [416,416,416,416] | 4 | `aggressive` (`auto`) | **15 (clamped from 51)** |
+| `p2048-L128-i32-N1024-d7` | loss | 1 664 | 93 751 | 4 / [416,416,416,416] | 4 | `aggressive` (`auto`) | **15 (clamped from 26)** |
 | | value | 1 664 | 87 121 | 4 / [416,416,416,416] | 4 | `aggressive` (`auto`) | **15 (clamped)** |
 
 Cold compile cost (`workloads.<name>.first_call_ms` / `cache.compile_misses_first_call`):
@@ -178,8 +179,9 @@ against the oracle and against both torch arms.
   ≤7.8e-7 relative (abs 64 vs the oracle, abs 256 / 6.35e-7 against the torch arms, on a 2.99e9 scale). `rich`
   reads the same 1.61 / 1.42 abs spread. This is why the batch records form their own digest group.
 * **Cross-arm digests (`check.py`):** NaN/finite/±Inf counts agree across **all** arms on every cell for both
-  workloads (the NaN counts are the population's own NaN trees: 1/3/27/44 on `sr_fitness`), as does `abs_sum` to
-  ≤4e-6 relative. The `sr_fitness` sha256 nevertheless splits into 4 groups per cell (`torch-batched`,
+  workloads (the NaN counts are the population's own NaN trees: 1 / 3 / 27 / 44 on `sr_fitness` at
+  `p256-L32-i8`, `p1000`, `p4096` and the d7 cell, 0 at the two `p256-L64` cells), as does `abs_sum` to
+  ≤3.8e-6 relative. The `sr_fitness` sha256 nevertheless splits into 4 groups per cell (`torch-batched`,
   `torch-per-tree`, `dense`+`auto`, `batch`) — last-bit reduction-order differences; the gate does not sha-gate
   `sr_fitness`, so this is not a WARN. `batch_forward` splits into **2 sha256 groups on three cells**
   (`p256-L32-i8`, `p256-L64-i32-N1024`, `p256-L64-i32-N4096` — always the batch arm alone) and **3 on three cells**
@@ -225,18 +227,19 @@ cd <repo root>
 export PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1
 PY=/tmp/rocvenv/bin/python
 OUT=test/benchmark/evoxc/results/t1a1_baseline      # a RE-RUN must write to a fresh directory
+MAIN=$OUT/main                                     # the gateable campaign directory
 
 # 1. the two campaign invocations (one process per (cell, arm), idle-device guard)
-$PY test/benchmark/evoxc/campaign.py --out $OUT \
-    --cells p256-L32-i8-N1024,p256-L64-i32-N1024,p256-L64-i32-N4096,p1000-L64-i32-N1024,p4096-L64-i32-N1024 \
-    --arms torch-batched,torch-per-tree,evoxc-dense-iree,evoxc-batch-iree,evoxc-auto-iree \
-    --workloads sr_fitness,batch_forward --warmup 2 --reps 5 --seed 0 --timeout 900
-$PY test/benchmark/evoxc/campaign.py --out $OUT \
+$PY test/benchmark/evoxc/campaign.py --out $MAIN \
+    --cells p256-L32-i8-N1024,p256-L64-i32-N1024,p1000-L64-i32-N1024,p256-L64-i32-N4096,p4096-L64-i32-N1024 \
+    --arms torch-per-tree,torch-batched,evoxc-dense-iree,evoxc-batch-iree,evoxc-auto-iree \
+    --workloads sr_fitness,batch_forward --warmup 2 --reps 5 --seed 0 --timeout 1800
+$PY test/benchmark/evoxc/campaign.py --out $MAIN \
     --cells p2048-L128-i32-N1024-d7 \
-    --arms torch-batched,torch-per-tree,evoxc-batch-iree,evoxc-auto-iree \
-    --workloads sr_fitness,batch_forward --warmup 2 --reps 5 --seed 0 --timeout 900
-#    campaign.py always writes <out>/campaign.json, so the d7 invocation's driver file is committed here as
-#    campaign.d7.json (4 configs) next to the 25-config campaign.json.
+    --arms torch-per-tree,torch-batched,evoxc-batch-iree,evoxc-auto-iree \
+    --workloads sr_fitness,batch_forward --warmup 2 --reps 5 --seed 0 --timeout 1800
+#    campaign.py always writes <out>/campaign.json, so the d7 invocation's driver file is kept here as
+#    main/campaign.d7.json (4 configs) next to the 25-config campaign.json.
 
 # 2. the decomposition column (four cells, two routes, both workloads)
 for c in p256-L64-i32-N1024 p256-L64-i32-N4096 p1000-L64-i32-N1024 p4096-L64-i32-N1024; do
@@ -256,8 +259,8 @@ EVOGP_EVAL_MODE=batch EVOGP_EVOXC_BACKEND=iree $PY test/benchmark/evoxc/validate
     --out $OUT/validation/validation-batch-iree-p256-L64-i32-N1024.json
 
 # 4. gate and render
-python3 test/benchmark/evoxc/check.py --results $OUT --allow-snapshot --allow-missing --allow-digest-mismatch
-python3 test/benchmark/evoxc/summarize.py --results $OUT --out $OUT/RENDERED.md
+python3 test/benchmark/evoxc/check.py --results $MAIN --allow-snapshot --allow-missing --allow-digest-mismatch
+python3 test/benchmark/evoxc/summarize.py --results $MAIN --out $OUT/RENDERED.md
 ```
 
 This directory is **reference evidence for the optimization effort and must not be rewritten in place**: a
