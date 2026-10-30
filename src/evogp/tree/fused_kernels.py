@@ -417,6 +417,155 @@ def _fused_kernel(
         tl.store(out_ptr + t * rows + r, val, mask=rmask)
 
 
+#: ``NType.OUT_NODE`` -- the multi-output tag OR-ed into ``node_type``.
+OUT_NODE_BIT = 1 << 7
+#: ``NType.TYPE_MASK`` -- the base kind under that tag.
+TYPE_MASK_BITS = 0x7F
+
+
+def _fused_multi_kernel(
+    node_value_ptr,
+    node_type_ptr,
+    subtree_size_ptr,
+    x_ptr,
+    out_ptr,
+    labels_ptr,
+    partial_ptr,
+    scratch_ptr,
+    input_len,
+    tree_len,
+    rows,
+    stack_cap,
+    BLOCK_R: "tl.constexpr",
+    PER_ROW: "tl.constexpr",
+    REDUCE: "tl.constexpr",
+    USE_MSE: "tl.constexpr",
+    OUT_LEN: "tl.constexpr",
+):
+    """One (tree, row-block) program of the MULTI-OUTPUT protocol (``OUT_LEN >= 2``).
+
+    Same reverse-prefix walk as :func:`_fused_kernel` with the two differences the
+    multi-output protocol adds (``_treeGPEvalByStack<true>``,
+    ``reference_eval.forward_tree(multi_output=True)``):
+
+    * the node type is masked with ``TYPE_MASK`` (``0x7F``) and the ``OUT_NODE``
+      bit (``0x80``) is the tag; a TAG-GED FUNCTION NODE resolves its operator from
+      the packed value bits (``function = bits & 0xFFFF``, ``outIndex = (bits >> 16)
+      & 0xFFFF``) and adds its OWN value into ``acc[outIndex]`` (an index ``>=
+      OUT_LEN`` is dropped, exactly like the oracle's unsigned compare);
+    * every node passes its RIGHT-MOST operand up to its parent instead of its own
+      value, so ``prev``/the stack carry ``pass_up`` -- the second operand of a
+      binary node, the third of a ternary one, the operand of a unary one and its
+      own value for a leaf.
+
+    Tagged LEAVES accumulate nothing (the oracle returns before it reads an out
+    index on a VAR/CONST node), and the root's own value is ignored: the result is
+    the accumulated ``acc`` chart, whose untagged outputs stay ``0.0`` because the
+    accumulator is initialised to zero and every (row, output) lane is written in
+    the epilogue.
+
+    ``acc`` is a ``[OUT_LEN, BLOCK_R]`` register tile; the accumulation is a
+    dynamic ``if`` on the tag (uniform across the block), so an untagged node pays
+    nothing beyond the one tag test.
+    """
+    t = tl.program_id(0)
+    rb = tl.program_id(1)
+    n_rb = tl.num_programs(1)
+    pid = t * n_rb + rb
+    off = tl.arange(0, BLOCK_R)
+    r = rb * BLOCK_R + off
+    rmask = r < rows
+    k_idx = tl.arange(0, OUT_LEN)
+    k_col = k_idx[:, None]
+    k_row = tl.broadcast_to(k_col, [OUT_LEN, BLOCK_R])
+    r_row = tl.broadcast_to(rmask[None, :], [OUT_LEN, BLOCK_R])
+
+    row_base = t * tree_len
+    n = tl.load(subtree_size_ptr + row_base).to(tl.int32)
+    stack = scratch_ptr + pid.to(tl.int64) * (stack_cap * BLOCK_R)
+
+    acc = tl.zeros([OUT_LEN, BLOCK_R], tl.float32)
+    sp = 0
+    prev = tl.zeros([BLOCK_R], tl.float32)
+    val = tl.zeros([BLOCK_R], tl.float32)
+    j = n - 1
+    raw = tl.load(node_type_ptr + row_base + tl.maximum(j, 0))
+    for _k in range(0, n):
+        tt = raw & TYPE_MASK_BITS
+        tagged = (raw & OUT_NODE_BIT) != 0
+        pass_up = val
+        if tt == 0:  # VAR
+            vi = tl.load(node_value_ptr + row_base + j).to(tl.int32)
+            inb = (vi >= 0) & (vi < input_len)
+            if PER_ROW:
+                scalar = tl.load(x_ptr + t * input_len + vi, mask=inb, other=0.0)
+                val = tl.broadcast_to(scalar, [BLOCK_R])
+            else:
+                val = tl.load(x_ptr + vi * rows + r, mask=inb & rmask, other=0.0)
+            pass_up = val
+        elif tt == 1:  # CONST
+            val = tl.broadcast_to(tl.load(node_value_ptr + row_base + j), [BLOCK_R])
+            pass_up = val
+        elif tt == 2:  # UFUNC
+            value = tl.load(node_value_ptr + row_base + j)
+            bits = value.to(tl.int32, bitcast=True)
+            func_id = tl.where(tagged, bits & 0xFFFF, value.to(tl.int32))
+            val = _unary(func_id, prev)
+            if tagged:
+                oi = (bits >> 16) & 0xFFFF
+                acc = acc + tl.where((k_col == oi) & (oi < OUT_LEN), val[None, :], 0.0)
+            pass_up = prev
+        elif tt == 3:  # BFUNC
+            value = tl.load(node_value_ptr + row_base + j)
+            bits = value.to(tl.int32, bitcast=True)
+            func_id = tl.where(tagged, bits & 0xFFFF, value.to(tl.int32))
+            slot = tl.minimum(tl.maximum(sp - 1, 0), stack_cap - 1)
+            second = tl.load(stack + slot * BLOCK_R + off, mask=rmask, other=0.0)
+            sp = sp - 1
+            val = _binary(func_id, prev, second)
+            if tagged:
+                oi = (bits >> 16) & 0xFFFF
+                acc = acc + tl.where((k_col == oi) & (oi < OUT_LEN), val[None, :], 0.0)
+            pass_up = second
+        else:  # TFUNC -- every other base kind, and the function id is ignored
+            bits = tl.load(node_value_ptr + row_base + j).to(tl.int32, bitcast=True)
+            slot_b = tl.minimum(tl.maximum(sp - 1, 0), stack_cap - 1)
+            slot_c = tl.minimum(tl.maximum(sp - 2, 0), stack_cap - 1)
+            then_value = tl.load(stack + slot_b * BLOCK_R + off, mask=rmask, other=0.0)
+            else_value = tl.load(stack + slot_c * BLOCK_R + off, mask=rmask, other=0.0)
+            sp = sp - 2
+            val = tl.where(prev > 0.0, then_value, else_value)
+            if tagged:
+                oi = (bits >> 16) & 0xFFFF
+                acc = acc + tl.where((k_col == oi) & (oi < OUT_LEN), val[None, :], 0.0)
+            pass_up = else_value
+        j = j - 1
+        raw = tl.load(node_type_ptr + row_base + tl.maximum(j, 0))
+        if ((raw & TYPE_MASK_BITS) == 0) | ((raw & TYPE_MASK_BITS) == 1):
+            slot_next = tl.minimum(tl.maximum(sp, 0), stack_cap - 1)
+            tl.store(stack + slot_next * BLOCK_R + off, pass_up, mask=rmask)
+            sp = sp + 1
+        else:
+            prev = pass_up
+
+    if REDUCE:
+        # labels is (rows, OUT_LEN) row-major: one 2-D tile load, both axes summed.
+        lab = tl.load(
+            labels_ptr + r[None, :] * OUT_LEN + k_row, mask=r_row, other=0.0
+        )
+        diff = lab - acc
+        if USE_MSE:
+            err = diff * diff
+        else:
+            err = tl.abs(diff)
+        total = tl.sum(tl.sum(tl.where(r_row, err, 0.0), axis=0), axis=0)
+        tl.store(partial_ptr + t * n_rb + rb, total)
+    else:
+        # Every (row, output) lane of this program's slice is written.
+        addr = (t.to(tl.int64) * rows + r[None, :].to(tl.int64)) * OUT_LEN + k_row
+        tl.store(out_ptr + addr, acc, mask=r_row)
+
+
 # --------------------------------------------------------------------------- #
 # lazy triton installation
 # --------------------------------------------------------------------------- #
@@ -493,11 +642,13 @@ def kernels() -> Dict[str, Any]:
         g["_unary"] = jit(_unary)
         g["_binary"] = jit(_binary)
         g["_fused_kernel"] = jit(_fused_kernel)
+        g["_fused_multi_kernel"] = jit(_fused_multi_kernel)
         _KERNELS = {
             "triton": triton_module,
             "tl": language,
             "libdevice": libd,
             "eval": g["_fused_kernel"],
+            "eval_multi": g["_fused_multi_kernel"],
             "specializations": set(),
         }
         return _KERNELS
