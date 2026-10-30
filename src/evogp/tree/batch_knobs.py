@@ -59,6 +59,19 @@ EVAL_MODE = "batch"
 #: band size below 8 pointless on a GPU HAL.  Fewer/larger bands lose on the
 #: per-row ``forward`` path (up to 1.5x against the flat merge), which is the
 #: workload that decides the default; the wide-row loss path is flat in ``K``.
+#: Pinning the band COUNT at the device binding cap is not a new partition where
+#: that cap already bites: at a pop-256 population the size model is clamped to 15
+#: anyway, so ``EVOGP_BATCH_BANDS=15`` produces bit-identical ``band_sizes``
+#: (``[15]x15`` at 225 functions, ``[16]x7 + [15]x8`` at 232, ``[17]x5 + [16]x10``
+#: on the per-row plan at 245) and identical ``emitted_ops`` (5 037 / 4 153 / 4 540
+#: and 5 475 / 4 568 / 5 861).  At ``p64`` the cap is ``K = 7`` (15 would be
+#: illegal: an explicit ``K`` needs ``pop >= 8K``), where the pin DOES change the
+#: plan (``[16,16,16,15]`` with 1 393 ops -> ``[9]x7`` with 1 463 ops) yet measures
+#: +0.04 % / +1.3 % / -4.6 % on ``sr_fitness`` / ``batch_forward`` / ``forward``,
+#: inside this box's ~5 % cross-config noise floor.  No pin beat the shipped size
+#: anywhere, and the oracle deviation is exactly identical in all four configs of
+#: all nine cell/workload rows -- the partition is a scheduling decision, never a
+#: numeric one.
 BAND_SIZE_ENV = "EVOGP_BATCH_BAND_SIZE"
 DEFAULT_BAND_SIZE = 16
 #: Explicit band count (``EVOGP_BATCH_BANDS``): an int ``K`` with
@@ -120,6 +133,24 @@ DEFAULT_CACHE_SIZE = 8
 #: an iree session leaks device buffers per live executable (see ``BATCH_EVAL.md``
 #: "Memory, threads and iree fragility"), so the knob is a compile-wall lever for
 #: large populations, not something to raise by default.
+#: The measured trade (``p256-L32`` / ``p256-L64`` / ``p256-L128-d7``): the pool
+#: makes the COLD call 2.64x / 2.94x / 4.58x cheaper (10 725.86 / 11 957.38 /
+#: 38 513.95 ms at ``1`` against 4 064.48 / 4 071.43 / 8 410.96 ms at ``4``) and
+#: the WARM ``sr_fitness`` call 1.87x / 1.69x / 1.46x dearer (1.9941 / 2.2267 /
+#: 3.4851 ms against 3.7250 / 3.7720 / 5.0947 ms), because a chunked call does four
+#: upload / run / read-back trios instead of one.  Break-even -- the cold
+#: difference repaid in warm calls of ONE population -- is 3 849 / 5 103 / 18 702
+#: (3 981 / 5 083 / 20 648 from the mins), which a GP loop never reaches: it
+#: presents a new structure multiset every generation (7 of 8 generations
+#: recompile, 8 distinct signatures in 8 steps), while one short run of a big
+#: population is aggregate-cold-sensitive and wants the shipped 4.  Where the pool
+#: costs the winning niche nothing it is inert: below ``MIN_CHUNK_FUNCTIONS``
+#: (32) functions it is one chunk, and the ``p64`` fixed-population cell (63
+#: functions) plans ``chunk_count 1`` / ``chunk_sizes [63]`` with no trade at all
+#: (cold 2 268.96 -> 2 274.46 ms, warm 1.1494 -> 1.1141 ms).
+#: ``EVOGP_BATCH_COMPILE_WORKERS=1`` is the documented escape hatch for a workload
+#: that evaluates one fixed structure multiset more often than those break-evens
+#: (~3.8k / ~5.1k / ~18.7k warm calls).
 COMPILE_WORKERS_ENV = "EVOGP_BATCH_COMPILE_WORKERS"
 DEFAULT_COMPILE_WORKERS = 4
 #: Smallest chunk worth a separate compile (``MIN_CHUNK_FUNCTIONS``): below it the

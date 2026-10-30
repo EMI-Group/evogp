@@ -22,7 +22,8 @@ population is a cold cache miss per individual (~180 ms of compile at pop 64, do
 `warm_path_findings.md` / `CONTEXT.md`). `evoxc.batch_functions` can merge N small graphs into one
 graph that carries them along a leading *function* axis, which removes both multipliers at once:
 
-* one `evoxc.run` per call for the whole population (one invocation, one readback);
+* one `evoxc.run` per compiled body for the whole population (one invocation and one readback per body,
+  one body on the `W = 1` path);
 * structurally identical graph positions across functions collapse into a single batched op, so a
   duplicate-rich or shallow population is cheap;
 * duplicates and elites (a GP population is 59 / 222 / 234 distinct out of 64 / 256 / 256 rows on the
@@ -51,8 +52,9 @@ Per call (`evaluate_batch` / `sr_fitness_batch` → `_plan_entry` → `plan_batc
 5. **Build** with the explicit staging sequence `evoxc.lower` → `evoxc.compile` → `evoxc.load`
    (`build_cached` / `evoxc.build` reject a `Graph`). `target_backends` is the GPU HAL kind read from
    torch on iree and omitted on numpy; the compile options carry `opt_level` only.
-6. **Run** once: `evoxc.run(executable, <staged x[, labels]>)`, one readback, then the host row
-   expansion `_map_rows` back to population order and one fresh float32 tensor.
+6. **Run** once per compiled body -- one `evoxc.run(executable, <staged x[, labels]>)` (one body per
+   population on the `W = 1` path, four at pop 256 under the shipped pool), one readback per body, then
+   the host row expansion `_map_rows` back to population order and one fresh float32 tensor.
 
 Two variants exist: `value` (`(pop, N, out_len)`; `per_row` selects the `(pop, input_len)` or
 `(N, input_len)` input layout) and `loss` (`sr_fitness`, `per_row=False` only, the SR reduction folded
@@ -86,7 +88,7 @@ Two variants exist: `value` (`(pop, N, out_len)`; `per_row` selects the `(pop, i
 | `EVOGP_BATCH_SWITCH_OPS` | off | op-switching transform; forces the flat merge (`K = 1`) and is **not** combined with banding |
 | `EVOGP_BATCH_ALIGNMENT` | `variant` | `variant` / `occurrence` / `auto`; a pure evoxc performance heuristic, can never change the numbers |
 | `EVOGP_BATCH_CACHE_SIZE` | `8` | entries of both front tables; read at **import** time like `EVOGP_EVOXC_CACHE_SIZE` |
-| `EVOGP_BATCH_COMPILE_WORKERS` | `4` | compile chunks per plan; `0`/`1` mean today's single-executable path verbatim (see §8.1); a band request forces one body unless `EVOGP_BATCH_CHUNK_BANDS` is on; negative or non-integer raises `ValueError` |
+| `EVOGP_BATCH_COMPILE_WORKERS` | `4` | compile chunks per plan; `0`/`1` mean today's single-executable path verbatim (see §8.1); a band request forces one body unless `EVOGP_BATCH_CHUNK_BANDS` is on; negative or non-integer raises `ValueError`. Measured trade: the pool makes the cold call 2.64×/2.94×/4.58× cheaper and the warm `sr_fitness` call 1.87×/1.69×/1.46× dearer at `p256-L32` / `p256-L64` / `p256-L128-d7`, so break-even is 3 849 / 5 103 / 18 702 warm calls of ONE population; it is inert (one chunk, no trade) below 32 deduped functions and at the `p64` niche, and `=1` is the documented fixed-multiset escape hatch |
 
 Banding trades dispatches for wasted work: `K` bands means `K` `select` cascades instead of one per
 population. `bands="auto"` hands the partition to evoxc's static cost model; the shipped DEFAULT stays the
@@ -94,6 +96,11 @@ band-SIZE model at size 16, because `auto` is measured slower than the numeric d
 unset/empty hands the decision to the band-size model; the flat spellings are an explicit `K = 1` (§9.1).
 Every resolved band count is vetted against the device's dispatch-binding cap before the merge: the model
 and `auto` are clamped with a recorded note, an explicit `K` that cannot load raises (§9.6).
+Pinning the count AT the cap is a same-merge control rather than a different plan at a pop-256
+population — the size model is already clamped to `K = 15` there, so `EVOGP_BATCH_BANDS=15` reaches the
+identical `band_sizes` and `emitted_ops` — and at `p64`, where the pin is `K = 7` and does change the
+plan, it lands inside this box's ~5 % noise floor; no pin beat the shipped size, so 16 stands
+(`test/benchmark/evoxc/BATCH.md` §15.3 + `results/batch_opt_round3/SUMMARY.md` §4).
 
 Front tables (`batch_keys.py`; `dense_memo.DenseMemo`, identity/count-keyed): `BATCH_PLAN_MEMO` maps the three
 population identity tokens (`data_ptr`/shape/dtype/device/`_version`, so an in-place write is a miss by
@@ -198,6 +205,10 @@ the device's safe band count and an explicit `K` above it raises before the merg
 On the ROCm HAL the clamp is `K <= 15`, so the pop-2048 row above (1443 functions) resolves to 15 bands at
 the shipped band size of 16 (91 modelled) and at the round-1 size of 32 (46 modelled), while numpy and
 Vulkan are uncapped and keep the modelled count.
+Because the model is already clamped at that cap, pinning the count there (`EVOGP_BATCH_BANDS=15`) is the
+same merge at a pop-256 population — identical `band_sizes` and `emitted_ops` — while at `p64` the legal
+pin is `K = 7` and the changed plan measures inside the ~5 % cross-config noise floor
+(`test/benchmark/evoxc/BATCH.md` §15.3 + `results/batch_opt_round3/SUMMARY.md` §4).
 
 ## 6. Numerics
 
@@ -240,6 +251,7 @@ index (`DENSE_EVAL.md` §5), i.e. not a property of the merge.
 ### 8.1 Compile chunking (`EVOGP_BATCH_COMPILE_WORKERS`, `batch_chunks.py`)
 The plan's DEDUPED function list is cut into `W` contiguous chunks and each chunk is traced, merged, lowered, compiled and loaded as its own executable; the `W = 1` case is the single-body path verbatim.
 `W = resolve_compile_workers()` (`explicit argument > environment > DEFAULT_COMPILE_WORKERS = 4`); `0` and `1` both mean the single-executable path.
+The measured break-even of that default is 3 849 / 5 103 / 18 702 warm calls of a single population (`p256-L32` / `p256-L64` / `p256-L128-d7`), bought with 2.64×/2.94×/4.58× cheaper cold for 1.87×/1.69×/1.46× dearer warm, and the pool is inert below the `MIN_CHUNK_FUNCTIONS` chunk threshold — one chunk, no trade, e.g. `p64` with `chunk_count 1` / `chunk_sizes [63]` (`test/benchmark/evoxc/BATCH.md` §15.2 / `results/batch_opt_round3/SUMMARY.md` §3).
 `W` is forced to `1` when `W <= 1`, when the deduped function count is below `batch_knobs.MIN_CHUNK_FUNCTIONS` (`32`), when `resolve_switch_ops(switch_ops)` is true, or when a band request is in play (an explicit count, a flat spelling or `auto`) and `EVOGP_BATCH_CHUNK_BANDS` is off -- the band sweep was measured on the `W = 1` path, so a band request implies one body unless the composition is opted into (§9.6).
 Otherwise `W = min(W, n_functions // MIN_CHUNK_FUNCTIONS)`, and the partition is `base = n // W` with the remainder handed to the first chunks (`chunk_sizes`).
 Chunks carry GLOBAL function indices (`BatchChunk.offset` is the chunk's first index, `BatchChunk.function_rows` are global population rows), so row order and the assembled `(pop_size,)` / `(pop_size, N, out_len)` / `(pop_size, out_len)` results are exactly the single-body plan's.
@@ -409,6 +421,7 @@ numpy and vulkan never clamp and never raise (no binding cap), and `resolve_band
 Flat is candidate 0, so the chosen cost can never exceed the flat cost, and a resolved `K == 1` delegates to the flat emitter (byte-identical to `bands=None`).
 The merged compile time is flat in `K` (upstream measurement), so the binding clamp costs no compile time and the model's choice is a WARM-cost choice.
 The shipped DEFAULT is the band-SIZE model at size 16 (`EVOGP_BATCH_BAND_SIZE=16`, `K = ceil(n / size)`); `auto` stays an OPT-IN spelling and is measured slower than the numeric default (round-2 verdicts in `test/benchmark/evoxc/results/batch_opt_round2/`).
+Pinning the count at the binding cap does not beat that size: at a pop-256 population the model is already clamped to `K = 15`, so `EVOGP_BATCH_BANDS=15` yields the identical `band_sizes` and `emitted_ops`, and at `p64` (where the legal pin is `K = 7` and the plan does change, `[16,16,16,15]` / 1 393 ops -> `[9]×7` / 1 463 ops) the measurement is +0.04 % / +1.3 % / −4.6 % on `sr_fitness` / `batch_forward` / `forward`, i.e. inside the ~5 % noise floor, while the oracle deviation is exactly identical in every config — so the partition is scheduling, never numerics (`test/benchmark/evoxc/BATCH.md` §15.3 + `results/batch_opt_round3/SUMMARY.md` §4).
 On the warm sweep of the three cells × three workloads (9 columns, `test/benchmark/evoxc/results/batch_opt_round2/warm/`) band size 16 is the only setting ranked 1st or 2nd in every cell and has the best worst column (pooled geomean 1.0185 / worst 1.061, against 1.0223 / 1.137 for 32 and 1.529 for the flat merge), which is why 16 and not 32 is the numeric default.
 `auto` never won a column (0/9 warm): the model is CPU-calibrated and knows nothing about a device's dispatch-binding cap, so on the wide-row (loss / population-batched value) plans it overshoots by 14.2–14.7× at pop 256 (213 / 220 bands for 225 / 232 functions) and is then clamped, while on the per-row `forward` plan it undershoots to 4 bands (pop 256) or the flat merge (pop 64) where it is not clamped at all; the clamp's re-merge costs a further 0.18–1.11 s of host merge per cold call (`test/benchmark/evoxc/results/batch_opt_round2/auto/`).
 `EVOGP_BATCH_BANDS=auto` therefore remains a spelling a caller can ask for (and its report shows what the model chose), never the default.
