@@ -157,6 +157,13 @@ there), so the flag is a property of the comparator, not a numeric difference.
 - Against the strongest reference arm on the small-population cells (`dense`, whose cost is
   shape-bound rather than population-bound) the narrowest margin measured is **16.3×** at
   `p64-L64-i32-N1024` and 16.7× at `p16`. Nothing in this column loses.
+- The dense floor is not reachable from below either: the frozen harness record for
+  `p64-L64-i32-N64` (`test/benchmark/evoxc/results/final/after/`) reads dense 1.4213 ms
+  `batch_forward` at 64 data rows against 1.75 ms at 1024 rows, i.e. dense's cost is the
+  unrolled trace, not the row plane — 1.4 ms against a 0.088–0.107 ms kernel floor. So there is
+  no small-N cell in the `L = 64` class where dense overtakes fused; the crossovers that remain
+  unmeasured are tiny rows at tiny `tree_len` (`L` 8–32, `N` ≤ 64), where the dense graph is
+  both shallow and short.
 - The facade costs 20–24 µs per call over the kernel (`value` 0.101–0.176 vs `kernel`
   0.080–0.155 in §1; `fused api` vs `fused direct` in §3), i.e. ~20 % of a small-population call
   and ~7–10 % at pop ≥ 4 096.
