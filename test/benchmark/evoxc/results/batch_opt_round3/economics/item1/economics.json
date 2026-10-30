@@ -1,0 +1,175 @@
+{
+ "schema": "evogp-bench-evoxc-v1-batch-economics",
+ "created_utc": "2026-10-30T00:39:41Z",
+ "measurement": "batch-compile-economics",
+ "driver_env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T00:39:48Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A95/src",
+  "tree_root_sha": "82a60476ebc914be58142947438f24d4e26cac58",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A95",
+  "arm": "driver",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/tmp/evoxc_r4/evoxc/__init__.py",
+  "evoxc_sha": "2b289f034f6f8e16b6c9b55932dfed76cc54690e",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A95/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "note": "round3 item1: shipped default (band 16, pool 4, chunked) vs pool-1 control (batch-b16-banded) vs dense, same window, evoxc_r4",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A95/src:/tmp/evoxc_r4:/root/evogp/.genesis/workers/worker_T1_A95/test/benchmark/evoxc"
+ },
+ "protocol": {
+  "one_process_per_config": true,
+  "one_cell_per_process": true,
+  "sequential": true,
+  "cells": [
+   "p256-L32-i8-N1024",
+   "p256-L64-i32-N1024",
+   "p64-L64-i32-N64"
+  ],
+  "routes": [
+   "batch",
+   "batch-b16-banded",
+   "dense"
+  ],
+  "route_arms": {
+   "batch": "evoxc-batch-iree",
+   "batch-b16-banded": "evoxc-batch-iree",
+   "dense": "evoxc-dense-iree"
+  },
+  "route_specs": {
+   "batch": {},
+   "batch-b16-banded": {
+    "EVOGP_BATCH_BAND_SIZE": "16",
+    "EVOGP_BATCH_COMPILE_WORKERS": "1"
+   },
+   "dense": {}
+  },
+  "generations": 8,
+  "warmup": 2,
+  "reps": 5,
+  "seed": 0,
+  "timeout_s": 3600,
+  "generation_loop": "StandardPipeline.step() x --generations (>= 6 for the round-2 cold/warm/generation comparison)",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A95/src",
+  "src": "/root/evogp/.genesis/workers/worker_T1_A95/src",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A95/src:/tmp/evoxc_r4:/root/evogp/.genesis/workers/worker_T1_A95/test/benchmark/evoxc",
+  "evoxc_disable_locations": {
+   "env": "EVOXC_DISABLE_LOCATIONS",
+   "value": "1",
+   "source": "caller",
+   "note": "honoured by every child: it speeds evoxc tracing up ~4x and is not part of the engine's cache key"
+  },
+  "batch_engine_present": true,
+  "knobs_override": {},
+  "out_dir": "/root/evogp/.genesis/workers/worker_T1_A95/test/benchmark/evoxc/results/batch_opt_round3/economics/item1"
+ },
+ "configs": [
+  {
+   "cell": "p256-L32-i8-N1024",
+   "route": "batch",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 32.5,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L32-i8-N1024/batch.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L32-i8-N1024/batch.log",
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "route": "batch-b16-banded",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 63.77,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L32-i8-N1024/batch-b16-banded.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L32-i8-N1024/batch-b16-banded.log",
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "route": "dense",
+   "arm": "evoxc-dense-iree",
+   "status": "ok",
+   "wall_s": 11.73,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L32-i8-N1024/dense.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L32-i8-N1024/dense.log",
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "route": "batch",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 35.39,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L64-i32-N1024/batch.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L64-i32-N1024/batch.log",
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "route": "batch-b16-banded",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 75.05,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L64-i32-N1024/batch-b16-banded.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L64-i32-N1024/batch-b16-banded.log",
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "route": "dense",
+   "arm": "evoxc-dense-iree",
+   "status": "ok",
+   "wall_s": 14.96,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L64-i32-N1024/dense.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p256-L64-i32-N1024/dense.log",
+   "detail": ""
+  },
+  {
+   "cell": "p64-L64-i32-N64",
+   "route": "batch",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 16.14,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p64-L64-i32-N64/batch.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p64-L64-i32-N64/batch.log",
+   "detail": ""
+  },
+  {
+   "cell": "p64-L64-i32-N64",
+   "route": "batch-b16-banded",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 16.25,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p64-L64-i32-N64/batch-b16-banded.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p64-L64-i32-N64/batch-b16-banded.log",
+   "detail": ""
+  },
+  {
+   "cell": "p64-L64-i32-N64",
+   "route": "dense",
+   "arm": "evoxc-dense-iree",
+   "status": "ok",
+   "wall_s": 15.07,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p64-L64-i32-N64/dense.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/economics/item1/p64-L64-i32-N64/dense.log",
+   "detail": ""
+  }
+ ],
+ "notes": [
+  "one child process per (cell, route): the merged-graph cache, the evoxc compile cache and the executable memo are per process, so a route loop inside one process would measure warm caches only",
+  "round3 item1: shipped default (band 16, pool 4, chunked) vs pool-1 control (batch-b16-banded) vs dense, same window, evoxc_r4"
+ ]
+}
