@@ -195,6 +195,21 @@ INPUT_LENS = (8, 32)
 MAIN_ROWS = 1024
 #: the second data-row value ("one N=64 column"): L=64/input_len=32 at every pop
 N64_ROWS = 64
+#: the large column's population scale (``--cells large``): the three populations
+#: above the ``main_cells()`` ceiling of 1000, i.e. the region no record covers.
+LARGE_POPS = (2048, 4096, 8192)
+#: the large column's data-row scale: the rows axis has never been measured above
+#: ``MAIN_ROWS`` = 1024, and it is the axis a per-dispatch overhead amortizes on.
+LARGE_ROWS = (4096, 16384)
+#: The memory rule of ONE cell: the dense route materializes ``pop * tree_len * rows``
+#: float32 values in its largest intermediate (``pop * tree_len * rows * 4`` bytes, see
+#: :func:`cell_tensor_bytes`) and the torch arms hold several such tensors at once, so a
+#: cell is only schedulable while that product stays inside this per-cell ceiling.
+#: ``large_cells()``'s worst cells are ``p1000-L64-i32-N16384`` at 4.19 GB and
+#: ``p8192-L64-i32-N1024`` / ``p2048-L256-i32-N1024-d8`` at 2.15 GB, against this box's
+#: 191.7 GB HBM -- 8 GiB leaves the whole column 2x clear and keeps a new cell a
+#: one-line check (``cell_tensor_bytes(cell(...)) <= CELL_TENSOR_CEILING_BYTES``).
+CELL_TENSOR_CEILING_BYTES = 8 * 2**30
 
 
 def cell(
@@ -275,6 +290,78 @@ def long_tree_cells() -> List[Dict[str, Any]]:
         cell(256, 256, 32, MAIN_ROWS, 5),
         cell(256, 256, 32, MAIN_ROWS, 8),
     ]
+
+
+def large_cells() -> List[Dict[str, Any]]:
+    """The LARGE-SCALE column (``--cells large``): ten cells, in the order below.
+
+    Every other column stops at pop 1000 and ``N`` = 1024 (``main_cells``) or at
+    ``N`` = 64 (``n64_cells``), and the long-tree column moves only the node-count axis
+    at pop 256/1000 -- so the grid below adds the four axes those columns cannot
+    answer, one group of cells per axis:
+
+    * **population scale** -- ``p2048``/``p4096``/``p8192`` at tree_len 64 /
+      input_len 32 / ``N`` = 1024.  This is where the host glue that was 15.3 % of a
+      warm call at pop 256 either amortizes against the graph run or does not, and it
+      is the region no record covers.
+    * **row scale** -- ``N`` 4096 and 16384 at pop 256 and pop 1000 (tree_len 64 /
+      input_len 32): the rows axis nobody measured.  A per-dispatch overhead is paid
+      once per call and a per-row one is paid ``rows`` times, so raising ``rows`` is
+      what makes the first disappear from a ratio -- the dense route's own work grows
+      with ``pop * tree_len * rows`` while the torch per-tree arm's grows with the
+      node walk over the same rows.
+    * **node-count scale at large pop** -- ``p2048-L128-i32-N1024-d7`` and
+      ``p2048-L256-i32-N1024-d8``: the long-tree column's depth caps (mean 35.5 /
+      69.9 nodes, max 101 / 187) at 2048 trees, i.e. real trees far past the dense
+      route's default trace cap of 64.  ``evoxc-dense-iree`` therefore measures the
+      cap decline into the per-tree ``specialized`` fallback and
+      ``evoxc-dense-iree-raised`` measures dense itself at the cell's tree length.
+    * **input width** -- ``p4096-L64-i64-N1024``: ``input_len`` 64 instead of 32 at a
+      fixed population, tree length and row count, i.e. the only cell in the harness
+      where the input plane per row is twice the ``main_cells`` one, so an evaluation
+      cost that tracks ``input_len`` (the leaf reads) shows up here and nowhere else.
+
+    **Memory rule.**  The dense route's largest intermediate is one
+    ``pop * tree_len * rows * 4`` byte tensor (:func:`cell_tensor_bytes`), so the
+    grid's worst cell is ``p1000-L64-i32-N16384`` at ~4.19 GB, with
+    ``p8192-L64-i32-N1024`` and ``p2048-L256-i32-N1024-d8`` at ~2.15 GB; the torch
+    arms hold several such tensors at once.  Every cell here is checked against
+    ``CELL_TENSOR_CEILING_BYTES`` (8 GiB) -- the formula is the whole rule, so a cell
+    that breaks it needs a smaller ``rows`` or ``pop``, not a bigger box.
+    ``input_len`` does not enter the product but does enter the ``x`` plane, which is
+    what the ``-i64`` cell prices.
+
+    The populations come from the same :func:`build_workload` recipe as every other
+    column (``torch.manual_seed(0)`` + ``Forest.random_generate``), so only the shape
+    is new; the two ``-d<k>`` cells reuse ``LONG_TREE_LENS`` and
+    ``2 ** d - 1 <= tree_len`` holds for both, and the ids keep the historical
+    spelling (``-d<k>`` only above the default cap of 5).
+
+    No report of record covers this column yet -- ``FINAL.md`` and ``BATCH.md`` stop
+    at pop 1000 / ``N`` = 1024 -- so a run of it writes into a fresh result directory
+    (the frozen ones are never rewritten in place).
+    """
+    cells = [cell(pop, 64, 32, MAIN_ROWS) for pop in LARGE_POPS]
+    cells += [cell(pop, 64, 32, rows) for pop in (256, 1000) for rows in LARGE_ROWS]
+    cells += [
+        cell(2048, LONG_TREE_LENS[0], 32, MAIN_ROWS, 7),
+        cell(2048, LONG_TREE_LENS[1], 32, MAIN_ROWS, 8),
+    ]
+    cells += [cell(4096, 64, 64, MAIN_ROWS)]
+    return cells
+
+
+def cell_tensor_bytes(cell_dict: Dict[str, Any]) -> int:
+    """Bytes of one cell's largest intermediate on the dense route: ``pop * tree_len * rows * 4``.
+
+    This is the ONE statement of the memory rule ``CELL_TENSOR_CEILING_BYTES`` enforces,
+    so a future cell is checked rather than guessed at.  ``input_len`` deliberately does
+    not enter it -- it sizes the input plane (``pop * rows * input_len``), not the tree
+    planes the route indexes by the row stride -- and the torch arms hold several of
+    these tensors at once, which is why the ceiling is 8 GiB and not the 4.19 GB worst
+    cell of :func:`large_cells`.
+    """
+    return int(cell_dict["pop"]) * int(cell_dict["tree_len"]) * int(cell_dict["rows"]) * 4
 
 
 def parse_cell(text: str) -> Dict[str, Any]:
