@@ -1,0 +1,674 @@
+{
+ "schema": "evogp-bench-evoxc-v1-band-sweep",
+ "created_utc": "2026-10-30T10:28:45Z",
+ "measurement": "batch-band-sweep",
+ "status": "ok",
+ "error": null,
+ "error_type": null,
+ "cell": {
+  "id": "p2048-L64-i32-N1024",
+  "pop": 2048,
+  "tree_len": 64,
+  "input_len": 32,
+  "rows": 1024,
+  "max_layer_cnt": 5,
+  "population_signature": "de3e5a628cfe75df",
+  "distinct_structures": 1681,
+  "pop_size": 2048,
+  "max_tree_len": 64,
+  "output_len": 1,
+  "n_functions": {
+   "loss": 1680
+  }
+ },
+ "config": "k15-cw4",
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T10:28:45Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A41/src",
+  "tree_root_sha": "720d621526cb39bc9b182d3f6f3642b778d8abdf",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A41",
+  "arm": "band-sweep",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/.genesis/workers/worker_T1_A1/evoxc/__init__.py",
+  "evoxc_sha": "be145eee52053422c77694e072700a8314d0346d",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A41/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOGP_BAND_SWEEP_DIS_SOURCE": "caller",
+   "EVOGP_BATCH_BANDS": "15",
+   "EVOGP_BATCH_CHUNK_BANDS": "1",
+   "EVOGP_BATCH_COMPILE_WORKERS": "4",
+   "EVOGP_EVAL_MODE": "batch",
+   "EVOGP_EVOXC_BACKEND": "iree",
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "applied_knobs": {
+   "EVOGP_BATCH_BAND_SIZE": null,
+   "EVOGP_BATCH_BANDS": "15",
+   "EVOGP_BATCH_SWITCH_OPS": null,
+   "EVOGP_BATCH_ALIGNMENT": null,
+   "EVOGP_BATCH_CACHE_SIZE": null,
+   "EVOGP_BATCH_MIN_POP": null,
+   "EVOGP_BATCH_COMPILE_WORKERS": "4",
+   "EVOGP_BATCH_CHUNK_BANDS": "1",
+   "EVOGP_BATCH_DISPATCH_FORMATION": null,
+   "EVOGP_DENSE_MAX_TREE_LEN": null,
+   "EVOGP_DENSE_AUTO_BUDGET_MB": null,
+   "EVOGP_DENSE_AUTO_MAX_ROWS": null,
+   "EVOGP_EVOXC_ARTIFACT_DIR": null,
+   "EVOGP_EVAL_MODE": "batch",
+   "EVOGP_EVOXC_BACKEND": "iree"
+  },
+  "knob_source": "band_sweep-config",
+  "cell": {
+   "id": "p2048-L64-i32-N1024",
+   "pop": 2048,
+   "tree_len": 64,
+   "input_len": 32,
+   "rows": 1024,
+   "max_layer_cnt": 5,
+   "population_signature": "de3e5a628cfe75df",
+   "distinct_structures": 1681,
+   "pop_size": 2048,
+   "max_tree_len": 64,
+   "output_len": 1,
+   "n_functions": {
+    "loss": 1680
+   }
+  },
+  "config": "k15-cw4"
+ },
+ "guard": {
+  "available": true,
+  "state": {
+   "python": [
+    "2542131: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-c0fd7b0ae78ee9db --slice=evogit --wait -q --setenv=PATH=/ro",
+    "2545792: /usr/bin/systemd-run --user --unit=evogit-run-1793355929478-139588 --slice=evogit --wait --pipe --collect -q --setenv=PA",
+    "2545793: /usr/bin/bash -c 'bash' '-c' 'sleep 200; date -u; ls test/benchmark/evoxc/results/largescale2/band/p2048-chunked/*/*.jso",
+    "2545796: bash -c sleep 200; date -u; ls test/benchmark/evoxc/results/largescale2/band/p2048-chunked/*/*.json | wc -l; ps -o etime"
+   ],
+   "gpu": {
+    "gpu_use_pct": {
+     "GPU[0]": 1.0
+    }
+   },
+   "gpu_pids": {
+    "pids": [],
+    "own_pids": [
+     2543662
+    ],
+    "idle": true,
+    "raw_lines": [
+     "============================ ROCm System Management Interface ============================",
+     "===================================== KFD Processes ======================================",
+     "KFD process information:",
+     "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+     "2543662\tpython      \t0     \t0        \t0        \t0           \t",
+     "==========================================================================================",
+     "================================== End of ROCm SMI Log ==================================="
+    ]
+   },
+   "waited_s": 0.2,
+   "contaminated": false,
+   "ok": true
+  }
+ },
+ "protocol": {
+  "cells": [
+   "p2048-L64-i32-N1024"
+  ],
+  "configs": [
+   "b16-cw4",
+   "b8-cw4",
+   "b32-cw4",
+   "b64-cw4",
+   "flat-cw4",
+   "k15-cw4"
+  ],
+  "cell": "p2048-L64-i32-N1024",
+  "config": "k15-cw4",
+  "workloads": [
+   "sr_fitness"
+  ],
+  "warmup": 1,
+  "reps": 5,
+  "seed": 0,
+  "workers": 1,
+  "max_oracle_trees": 16,
+  "config_env": {
+   "EVOGP_BATCH_BAND_SIZE": null,
+   "EVOGP_BATCH_BANDS": "15",
+   "EVOGP_BATCH_SWITCH_OPS": null,
+   "EVOGP_BATCH_ALIGNMENT": null,
+   "EVOGP_BATCH_CACHE_SIZE": null,
+   "EVOGP_BATCH_MIN_POP": null,
+   "EVOGP_BATCH_COMPILE_WORKERS": "4",
+   "EVOGP_BATCH_CHUNK_BANDS": "1",
+   "EVOGP_BATCH_DISPATCH_FORMATION": null,
+   "EVOGP_DENSE_MAX_TREE_LEN": null,
+   "EVOGP_DENSE_AUTO_BUDGET_MB": null,
+   "EVOGP_DENSE_AUTO_MAX_ROWS": null,
+   "EVOGP_EVOXC_ARTIFACT_DIR": null,
+   "EVOGP_EVAL_MODE": "batch",
+   "EVOGP_EVOXC_BACKEND": "iree"
+  },
+  "one_process_per_config": true,
+  "one_config_per_process": true,
+  "sequential": true,
+  "sync_bracketed": true,
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A41/src",
+  "tree_root_arg": "/root/evogp/.genesis/workers/worker_T1_A41/src",
+  "src": "/root/evogp/.genesis/workers/worker_T1_A41/src",
+  "evoxc_root": "/root/evoxc/.genesis/workers/worker_T1_A1",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A41/src:/root/evoxc/.genesis/workers/worker_T1_A1:/root/evogp/.genesis/workers/worker_T1_A41/test/benchmark/evoxc",
+  "evoxc_version": "0.0.0+unknown",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A41/src/evogp/__init__.py",
+  "evogp_head": "720d621526cb39bc9b182d3f6f3642b778d8abdf",
+  "evoxc_disable_locations": {
+   "env": "EVOXC_DISABLE_LOCATIONS",
+   "value": "1",
+   "source": "caller",
+   "note": "the driver records whether it defaulted the value (sweep.json protocol.evoxc_disable_locations); it is not part of the engine's cache key"
+  },
+  "note": null
+ },
+ "batch_policy": {
+  "module_present": true,
+  "module": "/root/evogp/.genesis/workers/worker_T1_A41/src/evogp/tree/batch_engine.py",
+  "eval_mode": "batch",
+  "backend": "iree with numpy fallback",
+  "declared_modes": [
+   "dense",
+   "specialized",
+   "batch",
+   "auto"
+  ],
+  "mode_supported": true,
+  "min_pop": 64,
+  "band_size": 16,
+  "bands": "15",
+  "switch_ops": "False",
+  "alignment": "variant",
+  "cache_size": "unset",
+  "compile_workers": "4",
+  "dispatch_formation": "auto",
+  "knobs": {
+   "EVOGP_BATCH_BAND_SIZE": null,
+   "EVOGP_BATCH_BANDS": "15",
+   "EVOGP_BATCH_SWITCH_OPS": null,
+   "EVOGP_BATCH_ALIGNMENT": null,
+   "EVOGP_BATCH_CACHE_SIZE": null,
+   "EVOGP_BATCH_MIN_POP": null,
+   "EVOGP_BATCH_COMPILE_WORKERS": "4",
+   "EVOGP_BATCH_CHUNK_BANDS": "1",
+   "EVOGP_BATCH_DISPATCH_FORMATION": null
+  },
+  "knobs_source": {
+   "band_size": "module",
+   "bands": "env",
+   "switch_ops": "module",
+   "alignment": "module",
+   "cache_size": "harness-default",
+   "min_pop": "module",
+   "compile_workers": "env",
+   "chunk_bands": "env",
+   "dispatch_formation": "module"
+  }
+ },
+ "routes": {
+  "sr_fitness": {
+   "eval_mode": "batch",
+   "backend": "iree",
+   "kind": "batch",
+   "would_use_dense": false,
+   "would_use_batch": true,
+   "declines_to_specialized": false,
+   "decline_reason": null,
+   "min_pop": 64,
+   "band_size": 16,
+   "bands": "15",
+   "alignment": "variant",
+   "switch_ops": "False",
+   "dispatch_formation": "auto",
+   "module_present": true,
+   "mode_supported": true,
+   "rows": 1024,
+   "note": "batch/iree: merged graph per population structure multiset"
+  }
+ },
+ "workloads": {
+  "sr_fitness": {
+   "warmup": 1,
+   "reps": 5,
+   "samples_ms": [
+    12.9472,
+    12.9694,
+    13.0087,
+    12.9544,
+    12.9934
+   ],
+   "first_call_ms": 45660.3618,
+   "median_ms": 12.9694,
+   "min_ms": 12.9472,
+   "max_ms": 13.0087,
+   "mean_ms": 12.9746,
+   "digest": {
+    "shape": [
+     2048
+    ],
+    "sha256": "f2a58e61ebeb0d8cfa15a42f6eea6353",
+    "finite": 2031,
+    "nan": 17,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 126371117359814.23
+   },
+   "cache": {
+    "available": true,
+    "stats_fn": "evogp.tree.batch_engine.batch_cache_stats",
+    "before": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 0,
+     "batch_exec_entries": 0,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 0,
+     "batch_plan_entries": 0,
+     "batch_plan_maxsize": 8
+    },
+    "after_first_call": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 4,
+     "batch_exec_entries": 4,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 1,
+     "batch_plan_entries": 1,
+     "batch_plan_maxsize": 8
+    },
+    "after": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 4,
+     "batch_exec_entries": 4,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 6,
+     "batch_plan_misses": 1,
+     "batch_plan_entries": 1,
+     "batch_plan_maxsize": 8
+    },
+    "stats_keys": [
+     "batch_exec_entries",
+     "batch_exec_hits",
+     "batch_exec_maxsize",
+     "batch_exec_misses",
+     "batch_plan_entries",
+     "batch_plan_hits",
+     "batch_plan_maxsize",
+     "batch_plan_misses"
+    ],
+    "batch_exec_misses_first_call": 4,
+    "batch_exec_misses_this_workload": 4,
+    "batch_plan_misses_first_call": 1,
+    "batch_plan_misses_this_workload": 1
+   },
+   "stage_ms": {
+    "available": true,
+    "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+    "note": null,
+    "samples": 5,
+    "batch_decode_calls": 0,
+    "batch_decode_total_ms": 0.0,
+    "batch_decode_max_ms": 0.0,
+    "batch_dedup_calls": 0,
+    "batch_dedup_total_ms": 0.0,
+    "batch_dedup_max_ms": 0.0,
+    "batch_trace_calls": 0,
+    "batch_trace_total_ms": 0.0,
+    "batch_trace_max_ms": 0.0,
+    "batch_merge_calls": 0,
+    "batch_merge_total_ms": 0.0,
+    "batch_merge_max_ms": 0.0,
+    "batch_lower_calls": 0,
+    "batch_lower_total_ms": 0.0,
+    "batch_lower_max_ms": 0.0,
+    "batch_compile_calls": 0,
+    "batch_compile_total_ms": 0.0,
+    "batch_compile_max_ms": 0.0,
+    "batch_load_calls": 0,
+    "batch_load_total_ms": 0.0,
+    "batch_load_max_ms": 0.0,
+    "batch_upload_calls": 4,
+    "batch_upload_total_ms": 0.8761,
+    "batch_upload_max_ms": 0.2467,
+    "batch_run_calls": 4,
+    "batch_run_total_ms": 10.9609,
+    "batch_run_max_ms": 2.8304,
+    "batch_gather_calls": 5,
+    "batch_gather_total_ms": 0.7525,
+    "batch_gather_max_ms": 0.1806,
+    "batch_compile_wall_ms": 0.0,
+    "batch_compile_jobs": 0,
+    "plan": {
+     "available": true,
+     "note": null,
+     "n_plans": 1,
+     "compile_workers": 4,
+     "chunk_count": 4,
+     "chunk_sizes": [
+      420,
+      420,
+      420,
+      420
+     ]
+    }
+   },
+   "stage_first_call": {
+    "available": true,
+    "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+    "note": null,
+    "batch_decode_calls": 1,
+    "batch_decode_total_ms": 27.999,
+    "batch_decode_max_ms": 27.999,
+    "batch_dedup_calls": 1,
+    "batch_dedup_total_ms": 1.2928,
+    "batch_dedup_max_ms": 1.2928,
+    "batch_trace_calls": 1,
+    "batch_trace_total_ms": 1100.9373,
+    "batch_trace_max_ms": 1100.9373,
+    "batch_merge_calls": 1,
+    "batch_merge_total_ms": 2238.9851,
+    "batch_merge_max_ms": 2238.9851,
+    "batch_lower_calls": 4,
+    "batch_lower_total_ms": 3208.9598,
+    "batch_lower_max_ms": 898.5012,
+    "batch_compile_calls": 4,
+    "batch_compile_total_ms": 149450.0065,
+    "batch_compile_max_ms": 41361.1125,
+    "batch_load_calls": 4,
+    "batch_load_total_ms": 385.2091,
+    "batch_load_max_ms": 125.2307,
+    "batch_upload_calls": 4,
+    "batch_upload_total_ms": 47.2282,
+    "batch_upload_max_ms": 46.5536,
+    "batch_run_calls": 4,
+    "batch_run_total_ms": 12.9393,
+    "batch_run_max_ms": 3.3783,
+    "batch_gather_calls": 5,
+    "batch_gather_total_ms": 0.9126,
+    "batch_gather_max_ms": 0.2493,
+    "batch_compile_wall_ms": 42195.8459,
+    "batch_compile_jobs": 4
+   },
+   "band_report": {
+    "available": true,
+    "source": "plan-report+described",
+    "note": "cost_estimate / flat_estimate are null because the static cost model did not run: only EVOGP_BATCH_BANDS=auto runs it, and a pinned band SIZE (or the flat merge) never does -- null (NOT 0) means 'not measured', never 'the estimate was zero'.  When auto DID run, both estimates are populated and band_requested reads 'auto'.",
+    "chunk_count": 4,
+    "report_keys": [
+     "band_clamped",
+     "band_note",
+     "band_policy",
+     "band_requested",
+     "band_requested_bands",
+     "band_sizes",
+     "band_strategy",
+     "bands",
+     "chunk_count",
+     "chunk_sizes",
+     "emitted_ops",
+     "n_functions"
+    ],
+    "bands": null,
+    "band_sizes": null,
+    "band_strategy": null,
+    "cost_estimate": null,
+    "flat_estimate": null,
+    "n_functions": 1680,
+    "emitted_ops": 38753,
+    "band_count": 1,
+    "band_requested": "explicit",
+    "band_requested_bands": null,
+    "band_clamped": false,
+    "band_note": null,
+    "band_policy": {
+     "backend": "iree",
+     "device_kind": "rocm",
+     "max_bands": 15,
+     "min_band_size": 8,
+     "uncapped": false
+    },
+    "chunk_bands": [
+     4,
+     4,
+     4,
+     4
+    ],
+    "dispatch_formation": "aggressive",
+    "dispatch_formation_requested": "auto"
+   }
+  }
+ },
+ "validation": {
+  "sr_fitness": {
+   "shape": [
+    16
+   ],
+   "max_abs": 32.0,
+   "max_rel": 7.763466669530317e-07,
+   "ref_abs_max": 487333600.0,
+   "finite_points": 16,
+   "nan_points": 0,
+   "nan_mismatch": 0,
+   "inf_mismatch": 0,
+   "bitwise_equal": false,
+   "oracle": "evogp/tests/reference_eval.py:sr_fitness_from_rows",
+   "trees_compared": 16,
+   "trees_pop": 2048,
+   "oracle_digest": {
+    "shape": [
+     16
+    ],
+    "sha256": "f51c79475f6ea21bf7be80dfb9a22728",
+    "finite": 16,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 516695571.67202157
+   }
+  }
+ },
+ "notes": [
+  "warm medians only: this child's first call is the COLD merged-graph compile of that workload's plan (first_call_ms) and never enters median_ms",
+  "the pool width and the banded+chunked composition are CONFIG knobs (EVOGP_BATCH_COMPILE_WORKERS / EVOGP_BATCH_CHUNK_BANDS), so each record states the merge shape it ran instead of inheriting one",
+  "record['validation'] is keyed by workload name: one compare(oracle, engine) block per workload, computed AFTER the timed window on the first --max-oracle rows (oracle = src/evogp/tests/reference_eval.py), so a cross-config comparison reads validation[workload].bitwise_equal / max_abs / oracle_digest",
+  "band_report.cost_estimate / flat_estimate read null unless EVOGP_BATCH_BANDS=auto ran the static cost model -- a pinned band size or the flat merge never runs it, so null (NOT 0) is the expected value there, and band_requested / band_requested_bands / band_clamped / band_note / band_policy state what the model chose and whether the binding policy lowered it"
+ ],
+ "batch_cache_final": {
+  "available": true,
+  "stats_fn": "evogp.tree.batch_engine.batch_cache_stats",
+  "stats": {
+   "batch_exec_hits": 0,
+   "batch_exec_misses": 4,
+   "batch_exec_entries": 4,
+   "batch_exec_maxsize": 8,
+   "batch_plan_hits": 6,
+   "batch_plan_misses": 1,
+   "batch_plan_entries": 1,
+   "batch_plan_maxsize": 8
+  },
+  "stats_keys": [
+   "batch_exec_entries",
+   "batch_exec_hits",
+   "batch_exec_maxsize",
+   "batch_exec_misses",
+   "batch_plan_entries",
+   "batch_plan_hits",
+   "batch_plan_maxsize",
+   "batch_plan_misses"
+  ]
+ },
+ "batch_plans": [
+  {
+   "variant": "loss",
+   "per_row": false,
+   "use_mse": true,
+   "pop_size": 2048,
+   "functions": 1680,
+   "const_functions": 30,
+   "row_index_collisions": 368,
+   "input_len": 32,
+   "output_len": 1,
+   "n_rows": 1024,
+   "band_count": 1,
+   "band_sizes": [],
+   "band_strategy": null,
+   "switch_ops": false,
+   "alignment": "variant",
+   "emitted_ops": 38753,
+   "value_classes": null,
+   "shared_classes": null,
+   "stacked_constants": null,
+   "output_muxes": null,
+   "n_functions": 1680,
+   "bands": 1,
+   "cost_estimate": null,
+   "flat_cost_estimate": null,
+   "band_requested": "explicit",
+   "band_requested_bands": null,
+   "band_clamped": false,
+   "band_note": null,
+   "band_policy": {
+    "backend": "iree",
+    "device_kind": "rocm",
+    "max_bands": 15,
+    "min_band_size": 8,
+    "uncapped": false
+   },
+   "chunk_bands": [
+    4,
+    4,
+    4,
+    4
+   ],
+   "chunk_band_strategies": [
+    "explicit",
+    "explicit",
+    "explicit",
+    "explicit"
+   ],
+   "dispatch_formation": "aggressive",
+   "dispatch_formation_requested": "auto",
+   "compile_workers": 4,
+   "chunk_count": 4,
+   "chunk_sizes": [
+    420,
+    420,
+    420,
+    420
+   ],
+   "stage_ms": {
+    "decode": 27.998988050967455,
+    "dedup": 1.292845990974456,
+    "trace": 1100.9373050183058,
+    "merge": 2238.9850809704512
+   },
+   "specs": [],
+   "spec_dtypes": [],
+   "backend": "iree",
+   "device": "Device(kind='rocm', index=0)"
+  }
+ ],
+ "batch_plan_summary": {
+  "loss": {
+   "emitted_ops": 38753,
+   "band_count": 1,
+   "band_sizes": [],
+   "band_strategy": null,
+   "n_functions": 1680,
+   "functions": 1680,
+   "row_index_collisions": 368,
+   "pop_size": 2048,
+   "input_len": 32,
+   "output_len": 1,
+   "per_row": false,
+   "backend": "iree",
+   "device": "Device(kind='rocm', index=0)",
+   "compile_workers": 4,
+   "chunk_count": 4,
+   "chunk_sizes": [
+    420,
+    420,
+    420,
+    420
+   ],
+   "band_report": {
+    "available": true,
+    "source": "plan-report+described",
+    "note": "cost_estimate / flat_estimate are null because the static cost model did not run: only EVOGP_BATCH_BANDS=auto runs it, and a pinned band SIZE (or the flat merge) never does -- null (NOT 0) means 'not measured', never 'the estimate was zero'.  When auto DID run, both estimates are populated and band_requested reads 'auto'.",
+    "chunk_count": 4,
+    "report_keys": [
+     "band_clamped",
+     "band_note",
+     "band_policy",
+     "band_requested",
+     "band_requested_bands",
+     "band_sizes",
+     "band_strategy",
+     "bands",
+     "chunk_count",
+     "chunk_sizes",
+     "emitted_ops",
+     "n_functions"
+    ],
+    "bands": null,
+    "band_sizes": null,
+    "band_strategy": null,
+    "cost_estimate": null,
+    "flat_estimate": null,
+    "n_functions": 1680,
+    "emitted_ops": 38753,
+    "band_count": 1,
+    "band_requested": "explicit",
+    "band_requested_bands": null,
+    "band_clamped": false,
+    "band_note": null,
+    "band_policy": {
+     "backend": "iree",
+     "device_kind": "rocm",
+     "max_bands": 15,
+     "min_band_size": 8,
+     "uncapped": false
+    },
+    "chunk_bands": [
+     4,
+     4,
+     4,
+     4
+    ],
+    "dispatch_formation": "aggressive",
+    "dispatch_formation_requested": "auto"
+   }
+  }
+ },
+ "engine_cache_final": {
+  "hits": 0,
+  "misses": 0,
+  "entries": 0,
+  "maxsize": 4096,
+  "memo_hits": 0,
+  "memo_misses": 0,
+  "memo_entries": 0,
+  "memo_maxsize": 4096
+ }
+}
