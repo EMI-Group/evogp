@@ -344,7 +344,7 @@ half), `engine`, `would_use_fused`, `fused_fallback_backend`, `fused_reason`.
 box) resolves `Route(False, "numpy", "numpy", …, engine="specialized")` — see
 `src/evogp/tree/dense_engine.py:1608-1620`.
 
-The sibling test that pins the 5-key shape (`test/benchmark/evoxc/test_arm_registry.py:329-334`) —
+The sibling test that pins the 5-key shape (`test/benchmark/evoxc/test_arm_registry.py:329-333`; line 334 is blank) —
 quoted because it is the reason the four new keys are gated behind the mode:
 
 ```python
