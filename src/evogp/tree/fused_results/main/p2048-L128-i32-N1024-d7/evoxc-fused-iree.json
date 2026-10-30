@@ -1,0 +1,387 @@
+{
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T20:18:23Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A61/src",
+  "tree_root_sha": "403056174ff8bc026358716aa580d81ddf175684",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A61",
+  "arm": "evoxc-fused-iree",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "9f66feca58e9fcf21617e955212cdeb5ae80593a",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOGP_BENCH_ARTIFACT_DIR": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/artifacts",
+   "EVOGP_EVAL_MODE": "fused",
+   "EVOGP_EVOXC_BACKEND": "iree",
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "applied_knobs": {
+   "eval_mode": "fused",
+   "backend": "iree",
+   "knobs": {}
+  },
+  "cell": {
+   "id": "p2048-L128-i32-N1024-d7",
+   "pop": 2048,
+   "tree_len": 128,
+   "input_len": 32,
+   "rows": 1024,
+   "max_layer_cnt": 7
+  },
+  "arm_spec": {
+   "eval_mode": "fused",
+   "backend": "iree",
+   "family": "evoxc"
+  }
+ },
+ "cell": {
+  "id": "p2048-L128-i32-N1024-d7",
+  "pop": 2048,
+  "tree_len": 128,
+  "input_len": 32,
+  "rows": 1024,
+  "max_layer_cnt": 7
+ },
+ "arm": "evoxc-fused-iree",
+ "family": "evoxc",
+ "protocol": {
+  "warmup": 2,
+  "reps": 5,
+  "gp_warmup": 1,
+  "gp_reps": 5,
+  "workloads": [
+   "sr_fitness",
+   "batch_forward",
+   "forward",
+   "gp_step"
+  ],
+  "seed": 0,
+  "sync_bracketed": true
+ },
+ "structures": {
+  "pop_size": 2048,
+  "max_tree_len": 128,
+  "tree_len_mean": 42.892578125,
+  "tree_len_median": 45.0,
+  "tree_len_max": 123,
+  "distinct_structures": 1665,
+  "structure_signature": "2388ed89fb5924c7"
+ },
+ "routes": {
+  "sr_fitness": {
+   "eval_mode": "fused",
+   "backend": "iree",
+   "should_use_dense_pop_only": false,
+   "should_use_dense_with_rows": false,
+   "would_use_dense": false
+  },
+  "batch_forward": {
+   "eval_mode": "fused",
+   "backend": "iree",
+   "should_use_dense_pop_only": false,
+   "should_use_dense_with_rows": false,
+   "would_use_dense": false
+  },
+  "forward": {
+   "eval_mode": "fused",
+   "backend": "iree",
+   "should_use_dense_pop_only": false,
+   "should_use_dense_with_rows": false,
+   "would_use_dense": false
+  }
+ },
+ "workloads": {
+  "sr_fitness": {
+   "first_call_ms": 469.4269,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    0.2008,
+    0.2005,
+    0.1854,
+    0.182,
+    0.2138
+   ],
+   "median_ms": 0.2005,
+   "min_ms": 0.182,
+   "max_ms": 0.2138,
+   "mean_ms": 0.1965,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 0,
+    "compile_misses_first_call": 0
+   },
+   "digest": {
+    "shape": [
+     2048
+    ],
+    "sha256": "f5c20652dabb738e18268f3724d326c0",
+    "finite": 2004,
+    "nan": 44,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 1.1775220321844136e+20
+   }
+  },
+  "batch_forward": {
+   "first_call_ms": 2.1091,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    0.19,
+    0.1725,
+    0.1645,
+    0.1673,
+    0.1663
+   ],
+   "median_ms": 0.1673,
+   "min_ms": 0.1645,
+   "max_ms": 0.19,
+   "mean_ms": 0.1721,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 0,
+    "compile_misses_first_call": 0
+   },
+   "digest": {
+    "shape": [
+     2048,
+     1024,
+     1
+    ],
+    "sha256": "5a21db2c9c85d97de609c629c3352166",
+    "finite": 2052096,
+    "nan": 45056,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 1053685184093.8474
+   }
+  },
+  "forward": {
+   "first_call_ms": 1.7466,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    0.1612,
+    0.1548,
+    0.1275,
+    0.1239,
+    0.1237
+   ],
+   "median_ms": 0.1275,
+   "min_ms": 0.1237,
+   "max_ms": 0.1612,
+   "mean_ms": 0.1382,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 0,
+    "compile_misses_first_call": 0
+   },
+   "digest": {
+    "shape": [
+     2048,
+     1
+    ],
+    "sha256": "5f336e24b6a23726073a25859f64ef16",
+    "finite": 2004,
+    "nan": 44,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 9503800.365548933
+   }
+  }
+ },
+ "gp_step": {
+  "warmup": 1,
+  "reps": 5,
+  "steps": [
+   {
+    "total_ms": 2.9257,
+    "eval_ms": 0.2511,
+    "ops_ms": 2.6746,
+    "torch_setup_ms": 0.0,
+    "compile_misses": 0,
+    "memo_hits": 0
+   },
+   {
+    "total_ms": 2.7468,
+    "eval_ms": 0.2441,
+    "ops_ms": 2.5027,
+    "torch_setup_ms": 0.0,
+    "compile_misses": 0,
+    "memo_hits": 0
+   },
+   {
+    "total_ms": 2.8705,
+    "eval_ms": 0.2427,
+    "ops_ms": 2.6278,
+    "torch_setup_ms": 0.0,
+    "compile_misses": 0,
+    "memo_hits": 0
+   },
+   {
+    "total_ms": 2.7118,
+    "eval_ms": 0.2479,
+    "ops_ms": 2.4639,
+    "torch_setup_ms": 0.0,
+    "compile_misses": 0,
+    "memo_hits": 0
+   },
+   {
+    "total_ms": 2.6835,
+    "eval_ms": 0.2526,
+    "ops_ms": 2.4309,
+    "torch_setup_ms": 0.0,
+    "compile_misses": 0,
+    "memo_hits": 0
+   }
+  ],
+  "median_total_ms": 2.7468,
+  "min_total_ms": 2.6835,
+  "max_total_ms": 2.9257,
+  "median_eval_ms": 0.2479,
+  "median_ops_ms": 2.4989,
+  "compile_misses_total": 0,
+  "final_pop_size": 2048,
+  "best_fitness": -0.08430396020412445
+ },
+ "notes": [],
+ "auto_trace_cap": {
+  "available": true,
+  "auto_max_tree_len": 256,
+  "tree_len_max": 123,
+  "row_len": 128,
+  "cap_pinned": false,
+  "base_cap": 64,
+  "caps": {
+   "sr_fitness": {
+    "auto": 128,
+    "dense": 64
+   },
+   "batch_forward": {
+    "auto": 128,
+    "dense": 64
+   },
+   "forward": {
+    "auto": 128,
+    "dense": 64
+   }
+  }
+ },
+ "setup_ms": 0.0,
+ "engine_cache_final": {
+  "hits": 0,
+  "misses": 0,
+  "entries": 0,
+  "maxsize": 4096,
+  "memo_hits": 0,
+  "memo_misses": 0,
+  "memo_entries": 0,
+  "memo_maxsize": 4096
+ },
+ "dense_policy": {
+  "auto_min_pop": 64,
+  "auto_max_rows": 0,
+  "auto_budget_mb": 8192,
+  "max_tree_len_cap": 64
+ }
+}

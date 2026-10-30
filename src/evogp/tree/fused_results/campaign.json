@@ -1,0 +1,1548 @@
+{
+ "schema": "evogp-fused-campaign-v1",
+ "created_utc": "2026-10-30T20:33:39Z",
+ "protocol": {
+  "one_process_per_config": true,
+  "warmup": null,
+  "reps": null,
+  "gp_warmup": null,
+  "gp_reps": null,
+  "seed": null,
+  "workloads": null,
+  "driver_schema": null,
+  "results_dir": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main",
+  "probes_dir": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/probes",
+  "one_entry_per_workload": true,
+  "driver_error": null,
+  "notes": [
+   "the harness writes ONE JSON per (cell, arm); configs[] expands each into one entry per workload",
+   "a missing record is status 'missing' (or 'failed' when the driver saw a non-zero exit / timeout), never dropped",
+   "gp_step is indexed from the record's own block (median of step totals); the generation loop has no cold/warm split",
+   "probes[] is the fused route's own evidence: route engine and the served-call proof (kernel launches per invocation, declines)"
+  ]
+ },
+ "cells": [
+  "p1000-L64-i32-N1024",
+  "p2048-L128-i32-N1024-d7",
+  "p256-L32-i8-N1024",
+  "p256-L64-i32-N1024",
+  "p256-L64-i32-N4096",
+  "p4096-L64-i32-N1024"
+ ],
+ "arms": [
+  "evoxc-batch-iree",
+  "evoxc-dense-iree",
+  "evoxc-dense-iree-raised",
+  "evoxc-fused-iree",
+  "torch-batched"
+ ],
+ "configs": [
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-batch-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-batch-iree.json",
+   "status": "ok",
+   "median_ms": 7.2061,
+   "first_call_ms": 15951.3091,
+   "samples_ms": [
+    7.3366,
+    7.4352,
+    7.1966,
+    7.1224,
+    7.2061
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-batch-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-batch-iree.json",
+   "status": "ok",
+   "median_ms": 6.9349,
+   "first_call_ms": 10530.0638,
+   "samples_ms": [
+    7.1052,
+    7.278,
+    6.9349,
+    6.8339,
+    6.904
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-batch-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-batch-iree.json",
+   "status": "ok",
+   "median_ms": 2.4343,
+   "first_call_ms": 5296.928,
+   "samples_ms": [
+    2.4343,
+    2.328,
+    2.4028,
+    2.4462,
+    2.4363
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 5.6936,
+   "first_call_ms": 6609.0028,
+   "samples_ms": [
+    5.6936,
+    5.7191,
+    5.6871,
+    5.6783,
+    5.7021
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 7.3829,
+   "first_call_ms": 6371.5803,
+   "samples_ms": [
+    7.6314,
+    7.3513,
+    7.0228,
+    7.5008,
+    7.3829
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 0.869,
+   "first_call_ms": 4946.2462,
+   "samples_ms": [
+    0.869,
+    0.8706,
+    0.889,
+    0.8568,
+    0.8544
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 12.6769,
+   "first_call_ms": null,
+   "samples_ms": [
+    14.0457,
+    12.6769,
+    12.4471,
+    12.3467,
+    12.8738
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.1435,
+   "first_call_ms": 472.9874,
+   "samples_ms": [
+    0.1435,
+    0.1622,
+    0.1298,
+    0.1581,
+    0.1213
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.1053,
+   "first_call_ms": 2.1153,
+   "samples_ms": [
+    0.1152,
+    0.1102,
+    0.1053,
+    0.1019,
+    0.101
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.0956,
+   "first_call_ms": 1.8008,
+   "samples_ms": [
+    0.1008,
+    0.0956,
+    0.0901,
+    0.093,
+    0.1108
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 2.8982,
+   "first_call_ms": null,
+   "samples_ms": [
+    3.0072,
+    2.9416,
+    2.8931,
+    2.8457,
+    2.8982
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.9105,
+   "first_call_ms": 68.1843,
+   "samples_ms": [
+    4.906,
+    4.9105,
+    4.9029,
+    4.9107,
+    4.9119
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.8867,
+   "first_call_ms": 4.9251,
+   "samples_ms": [
+    4.8867,
+    4.8895,
+    4.8703,
+    4.8906,
+    4.8744
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.7694,
+   "first_call_ms": 4.8923,
+   "samples_ms": [
+    4.723,
+    4.7236,
+    4.776,
+    4.7694,
+    4.7768
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p1000-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 68.0191,
+   "first_call_ms": null,
+   "samples_ms": [
+    81.9257,
+    68.0191,
+    48.2963,
+    54.3191,
+    69.6328
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "evoxc-dense-iree-raised",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/evoxc-dense-iree-raised.json",
+   "status": "ok",
+   "median_ms": 105.7609,
+   "first_call_ms": 14279.1407,
+   "samples_ms": [
+    105.7609,
+    105.6929,
+    105.8283,
+    105.797,
+    105.7491
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "evoxc-dense-iree-raised",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/evoxc-dense-iree-raised.json",
+   "status": "ok",
+   "median_ms": 110.9945,
+   "first_call_ms": 14276.4718,
+   "samples_ms": [
+    110.9141,
+    110.7868,
+    110.9945,
+    111.0262,
+    111.1847
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "evoxc-dense-iree-raised",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/evoxc-dense-iree-raised.json",
+   "status": "ok",
+   "median_ms": 1.2759,
+   "first_call_ms": 11160.331,
+   "samples_ms": [
+    1.311,
+    1.2956,
+    1.2759,
+    1.2676,
+    1.2426
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "evoxc-dense-iree-raised",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/evoxc-dense-iree-raised.json",
+   "status": "ok",
+   "median_ms": 124.5304,
+   "first_call_ms": null,
+   "samples_ms": [
+    124.7651,
+    123.192,
+    124.5304,
+    125.3282,
+    124.2282
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "evoxc-fused-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.2005,
+   "first_call_ms": 469.4269,
+   "samples_ms": [
+    0.2008,
+    0.2005,
+    0.1854,
+    0.182,
+    0.2138
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "evoxc-fused-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.1673,
+   "first_call_ms": 2.1091,
+   "samples_ms": [
+    0.19,
+    0.1725,
+    0.1645,
+    0.1673,
+    0.1663
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "evoxc-fused-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.1275,
+   "first_call_ms": 1.7466,
+   "samples_ms": [
+    0.1612,
+    0.1548,
+    0.1275,
+    0.1239,
+    0.1237
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "evoxc-fused-iree",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 2.7468,
+   "first_call_ms": null,
+   "samples_ms": [
+    2.9257,
+    2.7468,
+    2.8705,
+    2.7118,
+    2.6835
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "torch-batched",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/torch-batched.json",
+   "status": "ok",
+   "median_ms": 26.254,
+   "first_call_ms": 84.3819,
+   "samples_ms": [
+    26.254,
+    26.2576,
+    26.2455,
+    26.2948,
+    26.2534
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "torch-batched",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/torch-batched.json",
+   "status": "ok",
+   "median_ms": 26.251,
+   "first_call_ms": 26.2543,
+   "samples_ms": [
+    26.2356,
+    26.2702,
+    26.2533,
+    26.2227,
+    26.251
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "torch-batched",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/torch-batched.json",
+   "status": "ok",
+   "median_ms": 16.1361,
+   "first_call_ms": 15.8734,
+   "samples_ms": [
+    15.8624,
+    15.9997,
+    16.1361,
+    16.2289,
+    16.1463
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "torch-batched",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p2048-L128-i32-N1024-d7/torch-batched.json",
+   "status": "ok",
+   "median_ms": 232.4833,
+   "first_call_ms": null,
+   "samples_ms": [
+    372.6275,
+    309.2116,
+    204.9398,
+    224.4365,
+    232.4833
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-batch-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-batch-iree.json",
+   "status": "ok",
+   "median_ms": 3.4803,
+   "first_call_ms": 3833.2589,
+   "samples_ms": [
+    3.4843,
+    3.4793,
+    3.4803,
+    3.517,
+    3.4607
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-batch-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-batch-iree.json",
+   "status": "ok",
+   "median_ms": 3.3566,
+   "first_call_ms": 2674.3246,
+   "samples_ms": [
+    3.4598,
+    3.4591,
+    3.3281,
+    3.3049,
+    3.3566
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-batch-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-batch-iree.json",
+   "status": "ok",
+   "median_ms": 2.0029,
+   "first_call_ms": 1540.2693,
+   "samples_ms": [
+    2.2878,
+    1.9706,
+    2.0056,
+    2.0029,
+    1.9987
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 1.1185,
+   "first_call_ms": 3396.8071,
+   "samples_ms": [
+    1.1185,
+    1.1064,
+    1.1547,
+    1.1297,
+    1.0944
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 1.9857,
+   "first_call_ms": 3237.3167,
+   "samples_ms": [
+    1.9378,
+    1.9946,
+    2.0591,
+    1.9857,
+    1.9733
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 0.6651,
+   "first_call_ms": 2549.509,
+   "samples_ms": [
+    0.672,
+    0.6376,
+    0.6396,
+    0.6651,
+    0.6731
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 5.3738,
+   "first_call_ms": null,
+   "samples_ms": [
+    6.3674,
+    5.4044,
+    5.357,
+    5.3713,
+    5.3738
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.1299,
+   "first_call_ms": 469.2028,
+   "samples_ms": [
+    0.1396,
+    0.1299,
+    0.1507,
+    0.1166,
+    0.116
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.0995,
+   "first_call_ms": 2.074,
+   "samples_ms": [
+    0.1085,
+    0.1026,
+    0.0963,
+    0.0933,
+    0.0995
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.0871,
+   "first_call_ms": 1.7089,
+   "samples_ms": [
+    0.0962,
+    0.0924,
+    0.0871,
+    0.0846,
+    0.0825
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 2.6473,
+   "first_call_ms": null,
+   "samples_ms": [
+    2.6677,
+    2.6657,
+    2.6335,
+    2.6105,
+    2.6473
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "torch-batched",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.1639,
+   "first_call_ms": 65.6331,
+   "samples_ms": [
+    4.0723,
+    4.2107,
+    4.1639,
+    4.1968,
+    4.0789
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "torch-batched",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.0547,
+   "first_call_ms": 4.1122,
+   "samples_ms": [
+    4.0606,
+    4.0404,
+    4.0371,
+    4.0547,
+    4.0877
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "torch-batched",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.0248,
+   "first_call_ms": 4.1354,
+   "samples_ms": [
+    3.9488,
+    4.0048,
+    4.0478,
+    4.0248,
+    4.0331
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "torch-batched",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L32-i8-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 23.3581,
+   "first_call_ms": null,
+   "samples_ms": [
+    25.8994,
+    23.3581,
+    22.4897,
+    22.6259,
+    25.1487
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-batch-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-batch-iree.json",
+   "status": "ok",
+   "median_ms": 3.6764,
+   "first_call_ms": 4017.2363,
+   "samples_ms": [
+    3.8016,
+    3.6764,
+    3.6156,
+    3.658,
+    3.6908
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-batch-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-batch-iree.json",
+   "status": "ok",
+   "median_ms": 3.4437,
+   "first_call_ms": 2797.1094,
+   "samples_ms": [
+    3.4782,
+    3.4437,
+    3.5113,
+    3.4431,
+    3.4377
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-batch-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-batch-iree.json",
+   "status": "ok",
+   "median_ms": 1.8506,
+   "first_call_ms": 1601.2962,
+   "samples_ms": [
+    1.9472,
+    1.8506,
+    1.8444,
+    1.8688,
+    1.8449
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 2.08,
+   "first_call_ms": 6595.697,
+   "samples_ms": [
+    2.1303,
+    2.0876,
+    2.0789,
+    2.08,
+    2.0338
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 2.846,
+   "first_call_ms": 6361.9841,
+   "samples_ms": [
+    2.8748,
+    2.7908,
+    2.846,
+    2.8506,
+    2.8069
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 0.8475,
+   "first_call_ms": 5042.3366,
+   "samples_ms": [
+    0.847,
+    0.8909,
+    0.8933,
+    0.8475,
+    0.84
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-dense-iree",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 6.7315,
+   "first_call_ms": null,
+   "samples_ms": [
+    7.251,
+    6.5941,
+    6.7127,
+    6.7315,
+    6.8018
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.1399,
+   "first_call_ms": 1400.8983,
+   "samples_ms": [
+    0.1399,
+    0.1432,
+    0.1398,
+    0.1442,
+    0.1234
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.1016,
+   "first_call_ms": 953.2324,
+   "samples_ms": [
+    0.1113,
+    0.1065,
+    0.1016,
+    0.0974,
+    0.098
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.0911,
+   "first_call_ms": 330.7412,
+   "samples_ms": [
+    0.123,
+    0.0946,
+    0.0911,
+    0.088,
+    0.0866
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 2.6372,
+   "first_call_ms": null,
+   "samples_ms": [
+    2.6559,
+    2.6692,
+    2.6336,
+    2.5974,
+    2.6372
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.5626,
+   "first_call_ms": 65.5413,
+   "samples_ms": [
+    4.4561,
+    4.5985,
+    4.5355,
+    4.6983,
+    4.5626
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.4274,
+   "first_call_ms": 4.4847,
+   "samples_ms": [
+    4.4274,
+    4.4576,
+    4.4178,
+    4.483,
+    4.3907
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.4368,
+   "first_call_ms": 4.5586,
+   "samples_ms": [
+    4.4368,
+    4.3878,
+    4.475,
+    4.4287,
+    4.4467
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 28.3937,
+   "first_call_ms": null,
+   "samples_ms": [
+    28.979,
+    21.0416,
+    22.9014,
+    28.3937,
+    36.2579
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "evoxc-dense-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 5.849,
+   "first_call_ms": 6587.8461,
+   "samples_ms": [
+    5.8273,
+    5.857,
+    5.8631,
+    5.849,
+    5.831
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "evoxc-dense-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 7.8461,
+   "first_call_ms": 6391.079,
+   "samples_ms": [
+    7.888,
+    7.7064,
+    7.8461,
+    7.8412,
+    7.9042
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "evoxc-dense-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 0.8995,
+   "first_call_ms": 4870.2112,
+   "samples_ms": [
+    0.8992,
+    0.8984,
+    0.8995,
+    1.0533,
+    0.9497
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "evoxc-dense-iree",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/evoxc-dense-iree.json",
+   "status": "ok",
+   "median_ms": 10.6846,
+   "first_call_ms": null,
+   "samples_ms": [
+    11.4762,
+    10.5917,
+    10.7021,
+    10.6846,
+    10.4433
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "evoxc-fused-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.1282,
+   "first_call_ms": 461.8229,
+   "samples_ms": [
+    0.1583,
+    0.1427,
+    0.1282,
+    0.122,
+    0.1215
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "evoxc-fused-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.1095,
+   "first_call_ms": 2.2204,
+   "samples_ms": [
+    0.1191,
+    0.1144,
+    0.1095,
+    0.1064,
+    0.1071
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "evoxc-fused-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.0857,
+   "first_call_ms": 1.7359,
+   "samples_ms": [
+    0.1198,
+    0.0924,
+    0.0854,
+    0.0857,
+    0.0846
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "evoxc-fused-iree",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 2.6795,
+   "first_call_ms": null,
+   "samples_ms": [
+    2.7593,
+    2.694,
+    2.6795,
+    2.5966,
+    2.4915
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "torch-batched",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.9519,
+   "first_call_ms": 64.2643,
+   "samples_ms": [
+    4.9971,
+    4.9608,
+    4.9494,
+    4.9394,
+    4.9519
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "torch-batched",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.9177,
+   "first_call_ms": 4.9286,
+   "samples_ms": [
+    4.9863,
+    4.9563,
+    4.9148,
+    4.9011,
+    4.9177
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "torch-batched",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.294,
+   "first_call_ms": 4.4185,
+   "samples_ms": [
+    4.2731,
+    4.3639,
+    4.3265,
+    4.294,
+    4.2742
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "torch-batched",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p256-L64-i32-N4096/torch-batched.json",
+   "status": "ok",
+   "median_ms": 25.1004,
+   "first_call_ms": null,
+   "samples_ms": [
+    27.5161,
+    21.2834,
+    22.1575,
+    25.1004,
+    28.0825
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p4096-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p4096-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.1786,
+   "first_call_ms": 478.1242,
+   "samples_ms": [
+    0.2235,
+    0.1786,
+    0.1725,
+    0.1861,
+    0.1668
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p4096-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p4096-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.146,
+   "first_call_ms": 2.1239,
+   "samples_ms": [
+    0.1672,
+    0.1514,
+    0.1449,
+    0.1413,
+    0.146
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p4096-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p4096-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 0.107,
+   "first_call_ms": 1.779,
+   "samples_ms": [
+    0.107,
+    0.102,
+    0.0995,
+    0.1097,
+    0.1122
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p4096-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p4096-L64-i32-N1024/evoxc-fused-iree.json",
+   "status": "ok",
+   "median_ms": 2.7304,
+   "first_call_ms": null,
+   "samples_ms": [
+    2.933,
+    2.8731,
+    2.6689,
+    2.7289,
+    2.7304
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  },
+  {
+   "cell": "p4096-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "sr_fitness",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p4096-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 10.6602,
+   "first_call_ms": 68.5372,
+   "samples_ms": [
+    10.6643,
+    10.6808,
+    10.6525,
+    10.6017,
+    10.6602
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p4096-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "batch_forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p4096-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 10.64,
+   "first_call_ms": 10.6505,
+   "samples_ms": [
+    10.612,
+    10.6588,
+    10.6442,
+    10.64,
+    10.61
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p4096-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "forward",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p4096-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 4.5302,
+   "first_call_ms": 4.605,
+   "samples_ms": [
+    4.4492,
+    4.5302,
+    4.5823,
+    4.5487,
+    4.525
+   ],
+   "driver_status": null,
+   "detail": ""
+  },
+  {
+   "cell": "p4096-L64-i32-N1024",
+   "arm": "torch-batched",
+   "workload": "gp_step",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main/p4096-L64-i32-N1024/torch-batched.json",
+   "status": "ok",
+   "median_ms": 296.3993,
+   "first_call_ms": null,
+   "samples_ms": [
+    323.358,
+    317.5968,
+    252.3646,
+    281.7319,
+    296.3993
+   ],
+   "driver_status": null,
+   "detail": "gp_step block: median of the step totals (the generation loop has no cold/warm split)"
+  }
+ ],
+ "probes": [
+  {
+   "cell": "p1000-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/probes/p1000-L64-i32-N1024.json",
+   "status": "ok",
+   "route_engine": "fused",
+   "fused_served": true,
+   "median_ms_by_workload": {
+    "batch_forward": 0.1338,
+    "sr_fitness": 0.1251,
+    "forward": 0.0896
+   },
+   "cold_ms_by_workload": {
+    "batch_forward": 433.8772,
+    "sr_fitness": 29.8402,
+    "forward": 1.6606
+   },
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "arm": "evoxc-fused-iree",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/probes/p2048-L128-i32-N1024-d7.json",
+   "status": "ok",
+   "route_engine": "fused",
+   "fused_served": true,
+   "median_ms_by_workload": {
+    "batch_forward": 0.1707,
+    "sr_fitness": 0.1871,
+    "forward": 0.1205
+   },
+   "cold_ms_by_workload": {
+    "batch_forward": 436.6938,
+    "sr_fitness": 29.8802,
+    "forward": 1.6656
+   },
+   "detail": ""
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "arm": "evoxc-fused-iree",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/probes/p256-L32-i8-N1024.json",
+   "status": "ok",
+   "route_engine": "fused",
+   "fused_served": true,
+   "median_ms_by_workload": {
+    "batch_forward": 0.0995,
+    "sr_fitness": 0.134,
+    "forward": 0.0873
+   },
+   "cold_ms_by_workload": {
+    "batch_forward": 430.1395,
+    "sr_fitness": 29.9315,
+    "forward": 1.6444
+   },
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/probes/p256-L64-i32-N1024.json",
+   "status": "ok",
+   "route_engine": "fused",
+   "fused_served": true,
+   "median_ms_by_workload": {
+    "batch_forward": 0.1125,
+    "sr_fitness": 0.1292,
+    "forward": 0.0922
+   },
+   "cold_ms_by_workload": {
+    "batch_forward": 435.778,
+    "sr_fitness": 29.3957,
+    "forward": 1.6362
+   },
+   "detail": ""
+  },
+  {
+   "cell": "p256-L64-i32-N4096",
+   "arm": "evoxc-fused-iree",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/probes/p256-L64-i32-N4096.json",
+   "status": "ok",
+   "route_engine": "fused",
+   "fused_served": true,
+   "median_ms_by_workload": {
+    "batch_forward": 0.1191,
+    "sr_fitness": 0.1415,
+    "forward": 0.0905
+   },
+   "cold_ms_by_workload": {
+    "batch_forward": 432.2878,
+    "sr_fitness": 29.384,
+    "forward": 1.6459
+   },
+   "detail": ""
+  },
+  {
+   "cell": "p4096-L64-i32-N1024",
+   "arm": "evoxc-fused-iree",
+   "record": "/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/probes/p4096-L64-i32-N1024.json",
+   "status": "ok",
+   "route_engine": "fused",
+   "fused_served": true,
+   "median_ms_by_workload": {
+    "batch_forward": 0.1478,
+    "sr_fitness": 0.154,
+    "forward": 0.0984
+   },
+   "cold_ms_by_workload": {
+    "batch_forward": 442.5351,
+    "sr_fitness": 29.7078,
+    "forward": 1.5912
+   },
+   "detail": ""
+  }
+ ],
+ "counts": {
+  "ok": 77,
+  "failed": 0,
+  "missing": 0
+ }
+}
