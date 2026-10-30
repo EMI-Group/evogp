@@ -1492,7 +1492,7 @@ def stage_declines(args: argparse.Namespace) -> int:
     checks.append(
         (
             "knob: resolve_min_pop default",
-            fused_engine.resolve_min_pop() == 64,
+            fused_engine.resolve_min_pop() == 16,
             str(fused_engine.resolve_min_pop()),
         )
     )
@@ -1581,8 +1581,7 @@ def _wired_cells() -> List[Dict[str, Any]]:
 
     All three are small enough that the specialized+numpy REFERENCE they are
     compared against costs a few tens of milliseconds, and the ``p64`` cell is
-    exactly the smallest population the fused route serves at the shipped
-    ``EVOGP_FUSED_MIN_POP`` (64).
+    above the shipped ``EVOGP_FUSED_MIN_POP`` (16) with plenty of headroom.
     """
     common = _harness()
     wanted = {"p256-L32-i8-N1024", "p256-L64-i32-N1024"}
@@ -1655,7 +1654,7 @@ def stage_wired(args: argparse.Namespace) -> int:
         minimum = dense_engine.resolve_fused_min_pop()
         check(
             "policy: resolve_fused_min_pop delegates to the one parser",
-            minimum == fused_engine.resolve_min_pop() == 64,
+            minimum == fused_engine.resolve_min_pop() == 16,
             f"{minimum} vs fused_engine {fused_engine.resolve_min_pop()}",
         )
         route = dense_engine.resolve_route(256, eval_mode="fused")
@@ -1674,10 +1673,14 @@ def stage_wired(args: argparse.Namespace) -> int:
             route.use_fused and not route.use_dense,
             f"use_fused={route.use_fused} use_dense={route.use_dense}",
         )
-        for pop in (1, minimum - 1):
+        # The gate's boundary is spelled out: the shipped default threshold is 16,
+        # so pop 15 is the last population the specialized fallback serves, pop 16
+        # the first one the route serves, and pop 0 (the degenerate empty
+        # population) declines instead of launching a kernel.
+        for pop in (0, 1, 15):
             below = dense_engine.resolve_route(pop, eval_mode="fused")
             check(
-                f"policy: pop_size={pop} < {minimum} -> specialized+numpy",
+                f"policy: pop_size={pop} < 16 -> specialized+numpy",
                 (below.engine, below.backend, below.fallback_backend)
                 == ("specialized", "numpy", "numpy"),
                 below.reason,

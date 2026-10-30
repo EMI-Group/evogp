@@ -13,7 +13,7 @@ branch (``EVOGP_EVAL_MODE=fused`` -> ``Route(engine="fused", ...)``, reported by
 (``per_row=True``), ``Forest.batch_forward`` (``per_row=False``),
 ``Forest.SR_fitness`` (the loss path) and ``Tree.forward`` / ``Tree.SR_fitness``
 (``pop_size == 1``) -- each continuing on the route's fallback after a
-:class:`FusedUnsupported`.  ``EVOGP_FUSED_MIN_POP`` (default 64,
+:class:`FusedUnsupported`.  ``EVOGP_FUSED_MIN_POP`` (default 16,
 :func:`resolve_min_pop`) gates the NO-EXPLICIT-BACKEND case only: an explicitly
 named backend always attempts the route, while the default policy needs a device
 usable from torch and ``pop_size >= EVOGP_FUSED_MIN_POP`` and otherwise resolves
@@ -164,11 +164,27 @@ Environment knobs (read per call unless noted; an unusable value raises
   buffer; the stack is ``tree_len`` slots deep even though only ``depth`` slots
   are ever touched).
 * ``EVOGP_FUSED_HOST_MEMO`` (16, IMPORT TIME) -- entries of the transpose table.
-* ``EVOGP_FUSED_MIN_POP`` (64) -- the pop-size threshold the POLICY consumes
+* ``EVOGP_FUSED_MIN_POP`` (16) -- the pop-size threshold the POLICY consumes
   through :func:`resolve_min_pop`: with ``EVOGP_EVAL_MODE=fused`` and no explicit
   backend, the route needs a device plus ``pop_size >= EVOGP_FUSED_MIN_POP`` and
   resolves to specialized+``numpy`` otherwise (an explicitly named backend always
   attempts the route).  Nothing in this module branches on it.
+
+The threshold is a measured crossover, not a safety floor: the kernel is FLAT in
+``pop_size`` (0.088-0.103 ms from pop 1 to pop 128 at ``L=64`` / ``input_len`` 32
+/ ``N`` 1024, warm medians, MI300X; records
+``fused_results/minpop.json``, table ``fused_results/ENVELOPE.md`` §3) while the
+specialized fallback scales linearly with the tree count -- fused / specialized /
+``torch-batched`` in ms: pop 1 0.093 / 0.490 / 1.396, pop 4 0.092 / 0.925 / 1.951,
+pop 8 0.159 (clock-ramp outlier; the kernel is 0.088-0.103) / 1.644 / 2.662,
+pop 16 0.103 / 2.725 / 3.367, pop 32 0.097 / 5.679 / 3.954, pop 64
+0.097 / 12.154 / 4.233, pop 128 0.092 / 22.536 / 4.110.  The old gate of 64
+therefore threw away 26.5x at pop 16 and 10.1x at pop 4.  16 rather than 1-8
+because every measurement is at ``N`` 1024 only and a 1-8-tree population on a
+tiny row plane is the one class where a single per-tree numpy run could undercut
+the kernel's ~0.09 ms launch floor (unmeasured), and because it keeps a single
+``Tree.forward`` on the specialized route instead of paying a ~1.4 s cold JIT for
+a one-shot call.
 """
 
 from __future__ import annotations
@@ -216,9 +232,15 @@ DEFAULT_MAX_SCRATCH_MB = 8192
 HOST_MEMO_ENV = "EVOGP_FUSED_HOST_MEMO"
 DEFAULT_HOST_MEMO = 16
 #: Pop-size threshold the ROUTE POLICY consumes through ``resolve_min_pop``
-#: (consulted by ``dense_engine.resolve_fused_min_pop``; not used here).
+#: (consulted by ``dense_engine.resolve_fused_min_pop``; not used here).  The
+#: kernel is flat in ``pop_size`` (0.088-0.103 ms from pop 1 to 128) while the
+#: specialized fallback scales linearly with the tree count, so the threshold is
+#: the measured crossover: 16 is where ``fused`` is 26.5x ahead of the fallback
+#: (pop 16: 0.103 vs 2.725 ms) while a single ``Tree.forward`` stays on the
+#: specialized route instead of paying a cold Triton JIT; see the module docstring
+#: for the full column and :func:`resolve_min_pop`.
 MIN_POP_ENV = "EVOGP_FUSED_MIN_POP"
-DEFAULT_MIN_POP = 64
+DEFAULT_MIN_POP = 16
 #: Outputs the multi-output kernel serves.  Its accumulator is an
 #: ``[output_len, BLOCK_R]`` register tile, so the cost is linear in ``output_len``
 #: per out-node; the library's multi-output trees use 2-3 (``Classification`` at
@@ -294,11 +316,24 @@ def resolve_max_scratch_mb(value: Optional[int] = None) -> int:
 
 
 def resolve_min_pop(value: Optional[int] = None) -> int:
-    """The route's pop-size threshold (``EVOGP_FUSED_MIN_POP``, default 64).
+    """The route's pop-size threshold (``EVOGP_FUSED_MIN_POP``, default 16).
 
     Documented here so the wiring round has a single reader, exactly like
     ``dense_engine.resolve_auto_min_pop``.  Nothing in this module consults it: a
     direct :func:`evaluate_fused` call is served at any ``pop >= 1``.
+
+    The default is the MEASURED crossover, not a safety floor: the kernel is flat
+    in ``pop_size`` (0.088-0.103 ms from pop 1 to pop 128 at ``L=64`` /
+    ``input_len`` 32 / ``N`` 1024, warm medians, MI300X; records
+    ``fused_results/minpop.json``, table ``fused_results/ENVELOPE.md`` §3) while
+    the specialized fallback is linear in the tree count (pop 16: 0.103 ms against
+    2.725 ms, i.e. 26.5x; pop 4: 0.092 against 0.925, i.e. 10.1x).  It stays at 16
+    rather than 1-8 because every measurement is at ``N`` 1024 only -- a 1-8-tree
+    population on a tiny row plane is the one class where one per-tree numpy run
+    could undercut the kernel's ~0.09 ms launch floor (unmeasured) -- and because
+    a single ``Tree.forward`` (``pop_size == 1``) then keeps the specialized route
+    instead of paying a ~1.4 s cold Triton JIT for a one-shot call.  A value below
+    1 is refused: this is a ``pop_size`` threshold.
     """
     minimum = _env_int(MIN_POP_ENV, DEFAULT_MIN_POP) if value is None else int(value)
     if minimum < 1:
