@@ -45,6 +45,12 @@ PROTOCOL (the contract a reader can rely on)
   A worker that fails records ``{"status": "error", "error": ...}`` and the driver
   continues -- but exits non-zero, so a failure is never silent.  A record whose fused
   calls were not served (``served: false``) keeps its numbers and also fails.
+* ``fused.served_via`` says which surface produced the fused number: ``public_api`` when
+  the route policy serves fused for this cell, ``direct`` when ``pop_size <
+  EVOGP_FUSED_MIN_POP`` (the policy answers ``specialized`` there, so timing the public
+  API would report the FALLBACK under the fused label; the kernel is asked through
+  ``evaluate_fused`` / ``sr_fitness_fused`` instead and the record carries the policy's
+  own answer under ``fused.policy``).
 * Every record republishes the resolved geometry (``EVOGP_FUSED_*``, ``EVOGP_EVAL_MODE``,
   backend) so a reader can prove which configuration produced the number.
 
@@ -445,28 +451,49 @@ def _fused_block(common, torch, fused_engine, calls: Dict[str, Callable[[], Any]
     }
 
 
-def _fused_direct(common, fused_engine, forest, x, labels, input_len: int):
+def _fused_direct(common, fused_engine, forest, x, labels, input_len: int, *,
+                  per_row_x=None, torch=None):
     """The facade's kernel cost WITHOUT the route policy (served at any ``pop >= 1``).
 
     What ``minpop`` and ``sweep`` need: below ``EVOGP_FUSED_MIN_POP`` the public API would
     answer ``specialized``, so the kernel's own cost is only visible through
-    ``evaluate_fused`` / ``sr_fitness_fused``.  Returns ``(record_fragment, outputs)``.
+    ``evaluate_fused`` / ``sr_fitness_fused``.  ``per_row_x`` adds the per-row value
+    surface (one input row per tree), which is the only per-row entry point the facade
+    has.  Returns ``(record_fragment, outputs)``.
     """
     _set_mode("fused")
     nv, nt, ss = (forest.batch_node_value, forest.batch_node_type,
                   forest.batch_subtree_size)
-    before = _snapshot(fused_engine)
-    timings, outputs = _time_calls(common, {
+    calls: Dict[str, Callable[[], Any]] = {
         "value": lambda: fused_engine.evaluate_fused(nv, nt, ss, input_len, 1, x,
                                                      per_row=False),
         "loss": lambda: fused_engine.sr_fitness_fused(nv, nt, ss, input_len, 1, x, labels,
-                                                      use_MSE=True)})
+                                                      use_MSE=True)}
+    if per_row_x is not None:
+        calls["per_row"] = lambda: fused_engine.evaluate_fused(
+            nv, nt, ss, input_len, 1, per_row_x, per_row=True)
+    before = _snapshot(fused_engine)
+    if torch is not None:
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+        base = (torch.cuda.memory_allocated() / 2**20,
+                torch.cuda.memory_reserved() / 2**20)
+    timings, outputs = _time_calls(common, calls)
+    memory: Dict[str, float] = {}
+    if torch is not None:
+        torch.cuda.synchronize()
+        peak = (torch.cuda.max_memory_allocated() / 2**20,
+                torch.cuda.max_memory_reserved() / 2**20)
+        memory = {"baseline_allocated_mib": base[0], "baseline_reserved_mib": base[1],
+                  "peak_allocated_mib": peak[0], "peak_reserved_mib": peak[1],
+                  "delta_allocated_mib": peak[0] - base[0],
+                  "delta_reserved_mib": peak[1] - base[1]}
     delta = _delta(before, _snapshot(fused_engine))
     launches, counter = _launches(delta)
-    expected = 2 * (1 + WARMUP + REPS)
+    expected = len(calls) * (1 + WARMUP + REPS)
     return {
         "timings": timings, "launches": launches, "launch_counter": counter,
-        "expected_launches": expected, "stats_delta": delta,
+        "expected_launches": expected, "stats_delta": delta, "memory": memory,
         "served": launches == expected and int(delta.get("fused_declines", 0)) == 0,
         "note": "evaluate_fused / sr_fitness_fused: the kernel without the route policy",
     }, outputs
@@ -520,34 +547,67 @@ def _dense_block(common, dense_engine, forest, x, labels, cell, *, reference):
                     "EVOGP_DENSE_HOST_MEMO=0 disables those tables"}
 
 
+def _fused_arm(common, torch, fused_engine, dense_engine, forest, x, labels, cell, calls,
+               per_row_x=None):
+    """The fused measurement of one cell: the public API when the policy serves fused.
+
+    ``EVOGP_EVAL_MODE=fused`` still answers ``specialized`` below
+    ``EVOGP_FUSED_MIN_POP`` (that is the POLICY, not a decline), so timing the public API
+    there would put the per-tree fallback under the ``fused`` label.  The kernel is asked
+    directly instead and ``served_via`` says which surface produced the number.
+    """
+    route = _route(dense_engine, cell, eval_mode="fused")
+    if route["engine"] == "fused":
+        block = _fused_block(common, torch, fused_engine, calls)
+        block["served_via"] = "public_api"
+        return block, block["outputs"]
+    block, outputs = _fused_direct(common, fused_engine, forest, x, labels,
+                                   int(cell["input_len"]), per_row_x=per_row_x, torch=torch)
+    block["served_via"] = "direct"
+    block["policy"] = route
+    return block, outputs
+
+
 def _measure_public(common, torch, fused_engine, dense_engine, forest, x, labels, cell,
-                    *, per_row_x=None, fallback: bool = False, dense_arm: bool = False):
+                    *, per_row_x=None, fallback: bool = False, dense_arm: bool = False,
+                    direct: bool = False):
     """Every public-API arm of one cell: fused, torch-batched, specialized, dense.
 
-    Returns ``(block, outputs)``: the JSON-able record fragment and the result tensors a
-    caller may compare further (device tensors, never serialized).
+    ``direct`` adds the policy-free kernel block (``fused_direct``) next to the public
+    one, so a number can be attributed to the facade/route layer rather than to the
+    kernel.  Returns ``(block, outputs)``: the JSON-able record fragment and the result
+    tensors a caller may compare further (device tensors, never serialized).
     """
     calls: Dict[str, Callable[[], Any]] = {"value": lambda: forest.batch_forward(x),
                                           "loss": lambda: forest.SR_fitness(x, labels)}
     if per_row_x is not None:
         calls["per_row"] = lambda: forest.forward(per_row_x)
-    fused = _fused_block(common, torch, fused_engine, calls)
+    fused, fused_outputs = _fused_arm(common, torch, fused_engine, dense_engine, forest,
+                                      x, labels, cell, calls, per_row_x)
     arm = _arm(forest)
     arm_timings, arm_outputs = _time_calls(common,
                                            _arm_calls(arm, x, labels, per_row_x))
     compare = _comparator()
     block: Dict[str, Any] = {
-        "fused": {key: fused[key] for key in ("timings", "served", "launches",
-                                             "launch_counter", "expected_launches",
-                                             "stats_delta", "memory")},
+        "fused": {key: fused[key] for key in ("timings", "served", "served_via",
+                                             "launches", "launch_counter",
+                                             "expected_launches", "stats_delta",
+                                             "memory")},
         "torch_batched": {"timings": arm_timings},
         "parity": {f"{name}_vs_torch_batched":
-                   compare(arm_outputs[name], fused["outputs"][name])
-                   for name in ("value", "loss")},
+                   compare(arm_outputs[name], fused_outputs[name])
+                   for name in fused_outputs},
     }
-    if per_row_x is not None:
-        block["parity"]["per_row_vs_torch_batched"] = compare(
-            arm_outputs["per_row"], fused["outputs"]["per_row"])
+    if "policy" in fused:
+        block["fused"]["policy"] = fused["policy"]
+    if direct:
+        direct_block, direct_outputs = _fused_direct(
+            common, fused_engine, forest, x, labels, int(cell["input_len"]),
+            per_row_x=per_row_x, torch=torch)
+        block["fused_direct"] = direct_block
+        block["parity"]["fused_direct_vs_fused"] = {
+            name: compare(fused_outputs[name], direct_outputs[name])
+            for name in direct_outputs if name in fused_outputs}
     if fallback:
         spec_timings, spec_outputs = _public_block(
             common, "specialized", {"value": calls["value"], "loss": calls["loss"]})
@@ -558,7 +618,7 @@ def _measure_public(common, torch, fused_engine, dense_engine, forest, x, labels
     if dense_arm:
         block["dense"] = _dense_block(common, dense_engine, forest, x, labels, cell,
                                       reference=lambda out: compare(arm_outputs["value"], out))
-    return block, {"fused": fused["outputs"], "torch_batched": arm_outputs}
+    return block, {"fused": fused_outputs, "torch_batched": arm_outputs}
 
 
 def _ratios(record: Dict[str, Any], base: str = "fused",
@@ -603,14 +663,19 @@ def _degenerate_forest(name: str, cell: Dict[str, Any], forest, torch):
 def _public_worker(args: argparse.Namespace, kind: str, cells: Sequence[Tuple[int, ...]], *,
                    per_row: bool = False, fallback: bool = False, dense_arm: bool = False,
                    forest_of: Optional[Callable[[Dict[str, Any], Dict[str, Any]], Any]] = None,
-                   note: Optional[str] = None):
-    """Shared body of the public-API workers (envelope / headline / degenerate)."""
+                   note: Optional[str] = None, cell_id: Optional[str] = None,
+                   direct: bool = False):
+    """Shared body of the public-API workers (envelope / headline / degenerate).
+
+    ``cell_id`` overrides the ``--cell`` lookup, so a worker whose ``--cell`` argument is
+    a DEGENERATE LABEL (``all_const_pop``) can still name the harness cell it measures.
+    """
     import torch
 
     common = _harness()
     from evogp.tree import dense_engine, fused_engine, fused_kernels
 
-    cell = _cell_of(_cell_args(cells, args.cell))
+    cell = _cell_of(_cell_args(cells, cell_id or args.cell))
     workload = common.build_workload(cell)
     forest = (forest_of(workload, cell) if forest_of else workload["forest"])
     record = _header(kind, cell, fused_engine, dense_engine, eval_mode="fused", note=note)
@@ -619,7 +684,7 @@ def _public_worker(args: argparse.Namespace, kind: str, cells: Sequence[Tuple[in
     block, outputs = _measure_public(
         common, torch, fused_engine, dense_engine, forest, workload["x"],
         workload["labels"], cell, per_row_x=workload["x_per_row"] if per_row else None,
-        fallback=fallback, dense_arm=dense_arm)
+        fallback=fallback, dense_arm=dense_arm, direct=direct)
     record.update(block)
     record["ratios"] = _ratios(record)
     return record, outputs, forest, cell, workload
@@ -628,6 +693,8 @@ def _public_worker(args: argparse.Namespace, kind: str, cells: Sequence[Tuple[in
 def _direct_worker(args: argparse.Namespace, kind: str, cells: Sequence[Tuple[int, ...]], *,
                    note: Optional[str] = None):
     """Shared body of the direct-engine workers (minpop / sweep): kernel + torch arm."""
+    import torch
+
     common = _harness()
     from evogp.tree import dense_engine, fused_engine, fused_kernels
 
@@ -638,7 +705,7 @@ def _direct_worker(args: argparse.Namespace, kind: str, cells: Sequence[Tuple[in
     record["geometry"] = _geometry(common, fused_kernels, fused_engine, cell)
     record["route"] = _routes(dense_engine, cell)
     record["fused_direct"], direct_out = _fused_direct(
-        common, fused_engine, forest, x, labels, int(cell["input_len"]))
+        common, fused_engine, forest, x, labels, int(cell["input_len"]), torch=torch)
     arm = _arm(forest)
     arm_timings, arm_outputs = _time_calls(common, _arm_calls(arm, x, labels))
     record["torch_batched"] = {"timings": arm_timings}
@@ -664,7 +731,8 @@ def stage_envelope_one(args: argparse.Namespace) -> int:
           f"torch={_ms(_surface_ms(record, 'torch_batched'))} "
           f"({record['ratios'].get('value_vs_torch_batched') or float('nan'):.2f}x) "
           f"scratch={geometry['scratch_mib']:.1f}MiB ok={geometry['envelope_ok']} "
-          f"n_rb={geometry['n_rb']} served={record['fused']['served']}", flush=True)
+          f"n_rb={geometry['n_rb']} served={record['fused']['served']} "
+          f"via={record['fused'].get('served_via')}", flush=True)
     _json_line(record)
     return 0 if record["fused"]["served"] and geometry["envelope_ok"] else 1
 
@@ -677,7 +745,7 @@ def stage_envelope(args: argparse.Namespace) -> int:
         [(cell_id, ["--cell", cell_id, *passthrough])
          for cell_id in _select(args, ENVELOPE_CELLS)],
         ["cell", "fused", "loss", "torch", "ratio", "spec", "dense", "scr", "ok", "n_rb",
-         "served"],
+         "via", "served"],
         lambda rec: [rec.get("kind", "?"), f"ERROR: {rec['error'][:70]}"]
         if rec.get("status") == "error" else [
             f"{rec['cell']:<26}", _ms(_surface_ms(rec, "fused")),
@@ -686,14 +754,19 @@ def stage_envelope(args: argparse.Namespace) -> int:
             _ms(_surface_ms(rec, "specialized")), _ms(_surface_ms(rec, "dense")),
             f"{rec['geometry']['scratch_mib']:>5.0f}MiB",
             f"{str(rec['geometry']['envelope_ok'])[:5]:>5}",
-            f"{rec['geometry']['n_rb']:>4}", f"{str(rec['fused']['served'])[:6]:>6}"],
+            f"{rec['geometry']['n_rb']:>4}",
+            f"{str(rec['fused'].get('served_via'))[:9]:>9}",
+            f"{str(rec['fused']['served'])[:6]:>6}"],
         _stage_out(args, "", "envelope.json"),
         title="ENVELOPE: fused vs torch-batched / specialized / dense "
               f"(warm medians, {WARMUP} warmup + {REPS} reps, one process per cell)",
         notes=["'spec'/'dense' n/a = skipped (see the record: dense_expected_decline / "
                "--skip-fallback).",
                "'ok' = the cell's scratch (pop*tree_len*rows*4) fits "
-               "EVOGP_FUSED_MAX_SCRATCH_MB; 'served' = one kernel launch per call."])
+               "EVOGP_FUSED_MAX_SCRATCH_MB; 'served' = one kernel launch per call.",
+               "'via' = public_api when the route policy serves fused, direct when "
+               "pop_size < EVOGP_FUSED_MIN_POP (the policy answers specialized, so the "
+               "kernel is asked through evaluate_fused instead)."])
 
 
 # --------------------------------------------------------------------------- #
@@ -712,6 +785,7 @@ def stage_degenerate_one(args: argparse.Namespace) -> int:
     case = DEGENERATE_CASES[label]
     record, outputs, forest, cell, workload = _public_worker(
         args, "degenerate", [case["cell"]], per_row=True, note=case["note"],
+        cell_id=_cell_id(case["cell"]),
         forest_of=lambda wl, built: _degenerate_forest(case["population"], built,
                                                        wl["forest"], torch))
     record.update({"degenerate_case": label, "population": case["population"],
@@ -720,8 +794,11 @@ def stage_degenerate_one(args: argparse.Namespace) -> int:
                                 "the population rows directly, so it shares neither the "
                                 "engine's decode nor the kernel)"})
     # The oracle: rows straight in, so it is independent of the engine's decode as well as
-    # of the kernel -- the parity a fused number is judged on.
-    x, labels, x_per_row = workload["x"], workload["labels"], workload["x_per_row"]
+    # of the kernel -- the parity a fused number is judged on.  ``reference_eval`` is
+    # CPU-only (its constants are CPU tensors), so it is fed CPU COPIES of the input
+    # planes; ``validate.compare`` moves the device results itself.
+    x, labels, x_per_row = (workload[name].detach().cpu() for name in
+                            ("x", "labels", "x_per_row"))
     nv, nt, ss = (forest.batch_node_value, forest.batch_node_type,
                   forest.batch_subtree_size)
     compare = _comparator()
@@ -913,12 +990,18 @@ def stage_sweep(args: argparse.Namespace) -> int:
 # stage 5: the headline cells of FUSED.md
 # --------------------------------------------------------------------------- #
 def stage_headline_one(args: argparse.Namespace) -> int:
-    """One headline cell through the public API with the SHIPPED geometry."""
-    record, _, _, _, _ = _public_worker(args, "headline", HEADLINE_CELLS, per_row=True)
+    """One headline cell through the public API with the SHIPPED geometry.
+
+    ``direct=True`` adds the policy-free kernel block (``fused_direct``) beside the
+    public call, so the record can separate the facade/route layer from the kernel.
+    """
+    record, _, _, _, _ = _public_worker(args, "headline", HEADLINE_CELLS, per_row=True,
+                                        direct=True)
     geometry = record["geometry"]
     print(f"{record['cell']:<28} value={_ms(_surface_ms(record, 'fused'))} "
           f"loss={_ms(_surface_ms(record, 'fused', 'loss'))} "
           f"per_row={_ms(_surface_ms(record, 'fused', 'per_row'))} "
+          f"kernel={_ms(_surface_ms(record, 'fused_direct'))} "
           f"({record['ratios'].get('value_vs_torch_batched') or float('nan'):.2f}x torch) "
           f"B={geometry['block_rows_resolved']} W={geometry['num_warps_resolved']} "
           f"served={record['fused']['served']}", flush=True)
@@ -932,12 +1015,14 @@ def stage_headline(args: argparse.Namespace) -> int:
     return _drive(
         args, "headline-one",
         [(cell_id, ["--cell", cell_id]) for cell_id in _select(args, HEADLINE_CELLS)],
-        ["cell", "value", "loss", "per_row", "torch", "ratio", "B", "W", "served"],
+        ["cell", "value", "loss", "per_row", "kernel", "torch", "ratio", "B", "W",
+         "served"],
         lambda rec: ["?", f"ERROR: {rec['error'][:70]}"]
         if rec.get("status") == "error" else [
             f"{rec['cell']:<26}", _ms(_surface_ms(rec, "fused")),
             _ms(_surface_ms(rec, "fused", "loss")),
             _ms(_surface_ms(rec, "fused", "per_row")),
+            _ms(_surface_ms(rec, "fused_direct")),
             _ms(_surface_ms(rec, "torch_batched")),
             f"{rec['ratios'].get('value_vs_torch_batched') or float('nan'):>6.2f}",
             f"{rec['geometry']['block_rows_resolved']:>4}",
@@ -945,7 +1030,8 @@ def stage_headline(args: argparse.Namespace) -> int:
             f"{str(rec['fused']['served'])[:6]:>6}"],
         _stage_out(args, "main", f"headline_{stamp}.json"),
         title="HEADLINE: the six cells of FUSED.md through the public API, shipped "
-              f"geometry (warmup {WARMUP}, reps {REPS})",
+              f"geometry (warmup {WARMUP}, reps {REPS}); 'kernel' = fused_direct, the "
+              "facade without the route policy",
         arm="evoxc-fused-iree")
 
 
