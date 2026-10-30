@@ -88,6 +88,7 @@ Two variants exist: `value` (`(pop, N, out_len)`; `per_row` selects the `(pop, i
 | `EVOGP_BATCH_SWITCH_OPS` | off | op-switching transform; forces the flat merge (`K = 1`) and is **not** combined with banding |
 | `EVOGP_BATCH_ALIGNMENT` | `variant` | `variant` / `occurrence` / `auto`; a pure evoxc performance heuristic, can never change the numbers |
 | `EVOGP_BATCH_CACHE_SIZE` | `8` | entries of both front tables; read at **import** time like `EVOGP_EVOXC_CACHE_SIZE` |
+| `EVOGP_BATCH_DISPATCH_FORMATION` | `auto` | the merged compile's `dispatch_formation` (`§9.7`): `auto` enables evoxc's `aggressive` fusion only on a GPU compile target (`rocm` / `cuda`, read off `batch_bands.resolve_band_policy`) whose evoxc declares the option; `default` / `off` derive no flag (byte-identical to the pre-knob build); an evoxc without the option degrades to `default` silently, an unusable spelling raises `ValueError` |
 | `EVOGP_BATCH_COMPILE_WORKERS` | `4` | compile chunks per plan; `0`/`1` mean today's single-executable path verbatim (see §8.1); a band request forces one body unless `EVOGP_BATCH_CHUNK_BANDS` is on; negative or non-integer raises `ValueError`. Measured trade: the pool makes the cold call 2.64×/2.94×/4.58× cheaper and the warm `sr_fitness` call 1.87×/1.69×/1.46× dearer at `p256-L32` / `p256-L64` / `p256-L128-d7`, so break-even is 3 849 / 5 103 / 18 702 warm calls of ONE population; it is inert (one chunk, no trade) below 32 deduped functions and at the `p64` niche, and `=1` is the documented fixed-multiset escape hatch |
 
 Banding trades dispatches for wasted work: `K` bands means `K` `select` cascades instead of one per
@@ -113,8 +114,8 @@ size, row mapping and staged inputs are always the caller's — see `batch_keys.
 that serves a rebuilt-but-equal `Forest` instead of re-planning it (§8).
 All three are dropped by `evoxc_engine.clear_cache()`; `batch_cache_stats()` reports only the 8 identity/
 executable counters (`batch_plan_*`, `batch_exec_*`), `batch_content_stats()` the 5 content counters, and
-both are separate functions because `cache_stats()` / `dense_cache_stats()` / `artifact_cache_stats()` are
-pinned by the suite.
+`batch_artifact_stats()` the 7 counters of the opt-in disk tier (`§9.2`), because `cache_stats()` /
+`dense_cache_stats()` / `artifact_cache_stats()` are pinned by the suite.
 
 ## 5. Measurements
 
@@ -227,10 +228,10 @@ index (`DENSE_EVAL.md` §5), i.e. not a property of the merge.
 
 * **Every generation recompiles** — the compile is population-specific (§5). The dense route is the
   right default for a training loop; this route is for repeated evaluation of a stable population.
-* **No disk artifacts.** The opt-in `artifact_cache` layer is deliberately **not** wired: a merged graph
-  has no static values, so the key would be shape-only and could collide across populations, serving
-  wrong numbers that `signature_matches` cannot catch (the shapes agree). Smuggling the programs into the
-  key would make every generation a distinct key, i.e. no reuse at all.
+* **The disk tier repays a FIXED multiset, not a loop.** `EVOGP_EVOXC_ARTIFACT_DIR` (§9.2) makes a later
+  process load a plan's compiled bodies instead of recompiling them, but the key is the plan's own content
+  digest, so a fresh generation is a fresh key — the same population-scoped verdict as the in-memory table,
+  and the reason the dense route stays the loop default.
 * **numpy is debug-only**: merged numpy is 1.1–2.4× *slower* than the specialized numpy path (the
   interpreter pays per-op overhead on the merged graph). Use it to check wiring and numbers, never to
   time anything.
@@ -331,16 +332,45 @@ emitted op count and warm time are those of the flat merge — so it stays a kno
 is on, the merge is FORCED to the flat form (`K = 1`): `switch_ops` and banding are not combined, and the
 plan records `band_count == 1` whenever `switch_ops` is set.
 
-### 9.2 On-disk artifacts: deliberately NOT wired
-
-`artifact_cache` keys an artifact by `(name, specs, backend, device, options)` where `specs` is the
-`build_cached` spec tuple — tensor specs *plus* the static content that specializes the graph. A merged
-batch graph has NO static values (the programs live in Python closures), so the tensor specs alone would
-collide across every population of a shape and a stale artifact would serve wrong numbers
-(`signature_matches` cannot catch it: the shapes agree). The programs could be smuggled into the key as
-extra static content, but then every generation's multiset is a distinct key, i.e. no reuse at all. So
-this route builds in memory only; a process that repeats a multiset keeps it in `BATCH_EXEC_MEMO` for the
-lifetime of the process.
+### 9.2 On-disk artifacts: the batch route's OWN tier (`batch_artifacts.py`)
+The route reuses `artifact_cache.py` -- the same switch (`EVOGP_EVOXC_ARTIFACT_DIR`, unset/empty = off), the
+same atomic write, the same `signature_matches` validation -- and adds only what is route-specific: **what a
+body is called**, its **own counters**, and the `load_body` / `save_body` pair `batch_build.build_batch`
+makes per compiled body.
+The key has two halves, and neither is shape-only:
+* the file NAME is `batch:<variant>:c<chunk index>:<digest>`, where the digest is
+  `batch_programs.plan_digest` over that body's merged function list (16 hex chars) -- the same content
+  encoding the in-memory executable key uses, ORDER-SENSITIVE, so two populations that merge different
+  programs (or the same programs in another order) can never name the same file;
+* the rest is `artifact_cache.artifact_path`'s own key over `(name, chunk.specs, backend, device, options)`
+  -- the specs are the chunk's real `TensorSpec` tuple, and `options` carries the resolved
+  `dispatch_formation` spelling, so an `aggressive` build and a `default` build are different files.
+  `artifact_cache` folds the evoxc and iree-base-compiler versions and the device tag in, so a compiler bump
+  invalidates the whole directory.
+Entries live under a `batch/` subdirectory (`batch_artifacts.SUBDIR`), so one `EVOGP_EVOXC_ARTIFACT_DIR`
+serves the engine and the batch files can never collide with the dense / specialized ones (which keep the
+root).
+The shape-only objection this section used to record is answered by the digest, not by the specs: the merged
+programs live in Python closures, so the `build_cached` spec tuple alone IS shape-only and would collide
+across populations, and smuggling the programs into the specs would make every generation a distinct key.
+A content digest in the NAME gives the first property (population-specific, order-sensitive) without paying
+a second digest of the specs.
+What it buys, and what it does not:
+* a **full hit** skips `evoxc.lower` / `evoxc.compile` / `evoxc.load` for every body and is re-checked with
+  `batch_keys._check_executable_matches` on the way in; a corrupt, truncated or foreign file is deleted by
+  `artifact_cache.load` and costs one rebuild, never a wrong number;
+* a **partial hit** compiles only the bodies missing on disk (the chunked path loads per chunk, the
+  single-body path loads its one body);
+* a repeat of a *fresh* generation is a miss at every chunk (new multiset = new digest), so the tier is a
+  fixed-population lever exactly like `BATCH_EXEC_MEMO`.
+Counters: `batch_artifact_stats()` (seven keys: `batch_artifact_enabled` / `_files` / `_hits` / `_misses` /
+`_load_failures` / `_stores` / `_save_failures`) is a THIRD surface next to `batch_cache_stats()` (8) and
+`batch_content_stats()` (5), and none of the three overlaps.
+A disk hit counts as an **executable hit** (`batch_exec_hits` grows) and never as a compile miss, so
+`batch_exec_misses` keeps meaning "this body had to be compiled"; `batch_artifact_load_failures` is the only
+counter that says "a file was there and unusable".
+Nothing is suppressed: a disabled tier reports `batch_artifact_enabled = 0` with zeroed hits/misses, and a
+`load` with no path still counts a miss, so "not measured" never looks like "no file".
 
 ### 9.3 Front tables: why a repeated call is cheap
 
@@ -446,9 +476,45 @@ and run the same line with `EVOGP_BATCH_CHUNK_BANDS=0` to compare the single-bod
 `BatchPlan` carries `band_requested` / `band_clamped` / `band_note` / `band_policy`, every `BatchChunk.report` carries the same five `band_*` keys, and a chunked plan's plan-level keys are aggregated from its chunks (`band_requested_bands` summed before clamping, `band_clamped` true when any chunk was clamped, the clamped chunks' notes joined with `" | "`).
 The gate is the dev CLI `batch_band_check.py` (29 assertions: `auto`, the default size model, the clamp, the refusal, the composition and the memo key; numpy only, `__main__`-guarded, NOT pytest-collected): `EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=/tmp/evoxc_r2:src /tmp/rocvenv/bin/python -m src.evogp.tree.batch_band_check` → `OK: 29/29 passed`.
 
+### 9.7 The compile's `dispatch_formation` (`EVOGP_BATCH_DISPATCH_FORMATION`)
+evoxc's iree adapter takes a first-class compile option `dispatch_formation`: `"default"` (or absent)
+derives no flag and is byte-identical to the pre-knob build, `"aggressive"` derives
+`--iree-dispatch-creation-enable-aggressive-fusion` (596 -> 548 IREE dispatches on a merged GP graph,
+-9.0 % / -8.1 % warm per call, -7 % at rows 16384, compile wall unchanged, identical numerics). The
+adapter owner measured it flat-to-marginally-worse on llvm-cpu (117.2 -> 118.0 ms), hence the GPU-only rule.
+Resolution is the route's usual shape: `explicit argument > EVOGP_BATCH_DISPATCH_FORMATION > auto`, trimmed
+and case-folded, `off` folded into `default`, anything else a `ValueError` naming the variable
+(`batch_knobs.resolve_dispatch_formation`). `auto` is a REQUEST, not an effective value:
+`batch_knobs.effective_dispatch_formation` turns it into what the compile receives, and it enables
+`aggressive` only when all three hold -- the backend is `iree`, the compile target is a GPU HAL (`rocm` /
+`cuda`) and the installed evoxc adapter declares the option. The target is read off
+`batch_bands.resolve_band_policy(backend, device).device_kind`, i.e. the same place the band binding cap
+comes from, so the rule can never drift from the device the graph is compiled for; there is no second
+device-kind derivation in the route.
+**Feature detection, not guessing.** evoxc validates an options dict against the backend's
+`KNOWN_OPTIONS` and raises `core.BackendError` on an unknown key, so an unguarded `options=` would turn a
+merely older evoxc into a failed plan. `batch_chunks.supports_dispatch_formation` reads that table (the
+adapter module's `KNOWN_OPTIONS["compile"]`, memoized per process) and answers `False` -- never raises --
+when the backend has no optional adapter, the module is missing or anything else is odd. The question is put
+to the adapter MODULE, not to `evoxc.backends.get()`: `get()` auto-activates the adapter, which imports the
+whole `iree` / `iree.compiler` / `iree._runtime_libs` stack (seconds, plus a nanobind teardown footprint)
+just to read a static option table.
+An unknown option VALUE is still loud: the probe forgives a MISSING option, an illegal spelling reaches
+evoxc and raises there.
+**Where the value travels.** The plan records both spellings (`BatchPlan.dispatch_formation_requested`,
+`BatchPlan.dispatch_formation`), `describe_plan()` reports them (`dispatch_formation`,
+`dispatch_formation_requested`), and the EFFECTIVE spelling joins both plan keys (identity and content), so
+re-spelling the knob in a long-lived process cannot be served a stale plan. `batch_build._build_options`
+adds the key to the compile options of EVERY body -- the single body and each chunk of a chunked compile
+share that one dict, and it is a COPY, so the caller's options (and every memo key derived from them) stay
+per-call immutable. The executable keys already carry the options, so the two spellings are different
+entries, and the disk tier's key carries them too (`§9.2`).
+
 ## 10. Pointers
 
-* `batch_engine.py` (public facade) / `batch_keys.py` (front tables + memo keys) / `batch_run.py` (run
+* `batch_engine.py` (public facade) / `batch_build.py` (the build path: exec memo, disk tier,
+  `lower`/`compile`/`load`) / `batch_report.py` (`describe_plan`) /
+  `batch_artifacts.py` (the route's disk tier) / `batch_keys.py` (front tables + memo keys) / `batch_run.py` (run
   path) / `batch_programs.py` / `batch_chunks.py` / `batch_stages.py` / `batch_knobs.py` /
   `batch_bands.py` (binding policy) — the implementation; the facade's module docstring carries the API,
   the decline list, the chunked-compile contract and the pointer to this document, and §9's table says

@@ -153,6 +153,40 @@ DEFAULT_CACHE_SIZE = 8
 #: (~3.8k / ~5.1k / ~18.7k warm calls).
 COMPILE_WORKERS_ENV = "EVOGP_BATCH_COMPILE_WORKERS"
 DEFAULT_COMPILE_WORKERS = 4
+#: Dispatch formation of a merged graph's compile
+#: (``EVOGP_BATCH_DISPATCH_FORMATION``): ``auto`` (default), ``aggressive`` or
+#: ``default`` (alias ``off``).
+#: It maps onto evoxc's iree compile option of the same name, whose only spelling
+#: that changes anything is ``aggressive`` -- it derives
+#: ``--iree-dispatch-creation-enable-aggressive-fusion`` (596 -> 548 IREE
+#: dispatches on a merged GP graph, -9.0 % warm per call at pop 1000 / rows 1024 and
+#: -7 % at rows 16384, compile wall unchanged, identical numerics), while
+#: ``default`` derives no flag at all and is byte-identical to the pre-knob build.
+#: ``auto`` is the GPU-only enable rule: ``aggressive`` when the plan's compile
+#: target is a GPU HAL (``rocm`` / ``cuda``, i.e. what
+#: :func:`evogp.tree.batch_bands.resolve_band_policy` reports as the device kind)
+#: AND the installed evoxc adapter knows the option, ``default`` otherwise --
+#: llvm-cpu is flat-to-marginally-worse with it (117.2 -> 118.0 ms) and an older
+#: evoxc raises on the unknown option, so ``auto`` never sends it there.
+#: A spelling the installed adapter does not know degrades to ``default`` silently
+#: (an explicit ``aggressive`` included): the feature is an optimisation, and a
+#: missing evoxc must never turn a plan into a ``ValueError``/``BackendError``.
+#: An unusable VALUE is still refused here, loudly.
+DISPATCH_FORMATION_ENV = "EVOGP_BATCH_DISPATCH_FORMATION"
+#: The ``auto`` spelling: let the target decide (see the block above).
+DISPATCH_FORMATION_AUTO = "auto"
+#: The two effective spellings a plan can carry (what the compile receives).
+DISPATCH_FORMATION_AGGRESSIVE = "aggressive"
+DISPATCH_FORMATION_DEFAULT = "default"
+DEFAULT_DISPATCH_FORMATION = DISPATCH_FORMATION_AUTO
+#: Every accepted spelling of :data:`DISPATCH_FORMATION_ENV`.
+DISPATCH_FORMATIONS = (
+    DISPATCH_FORMATION_AUTO,
+    DISPATCH_FORMATION_AGGRESSIVE,
+    DISPATCH_FORMATION_DEFAULT,
+)
+#: Spellings that mean "no derived flag" (``off`` is the env-friendly alias).
+_DISPATCH_FORMATION_OFF = ("default", "off")
 #: Smallest chunk worth a separate compile (``MIN_CHUNK_FUNCTIONS``): below it the
 #: per-body fixed cost (one lower + one iree compile + one load) dominates, so a
 #: chunked plan is only taken when ``n_functions >= MIN_CHUNK_FUNCTIONS`` and every
@@ -313,6 +347,84 @@ def resolve_alignment(value: Optional[str] = None) -> str:
             f"{list(ALIGNMENTS)} (set {ALIGNMENT_ENV!r} or pass alignment=)"
         )
     return text
+
+
+def resolve_dispatch_formation(value: Optional[str] = None) -> str:
+    """Resolve ``EVOGP_BATCH_DISPATCH_FORMATION`` into a REQUEST spelling.
+
+    Precedence ``explicit argument > environment > default``; the answer is one of
+    :data:`DISPATCH_FORMATIONS` (``auto`` / ``aggressive`` / ``default``), with the
+    ``off`` spelling folded into ``default``.  ``auto`` (the default) is a request
+    for the target policy, not an effective value: a caller turns it into what the
+    compile receives with :func:`effective_dispatch_formation`, which is where the
+    GPU-only enable rule and the evoxc feature detection live.
+
+    Case-insensitive and whitespace-trimmed; anything else -- including a bool, a
+    number or the ``none``/``flat`` spellings of other knobs -- raises
+    ``ValueError`` naming the variable.
+    """
+    raw: Any = value if value is not None else os.environ.get(DISPATCH_FORMATION_ENV, "")
+    if isinstance(raw, bool):
+        raise ValueError(
+            f"unsupported dispatch formation {raw!r}: {DISPATCH_FORMATION_ENV} takes "
+            f"one of {list(DISPATCH_FORMATIONS)} or {list(_DISPATCH_FORMATION_OFF)}"
+        )
+    text = str(raw).strip().lower()
+    if not text:
+        return DEFAULT_DISPATCH_FORMATION
+    if text in _DISPATCH_FORMATION_OFF:
+        return DISPATCH_FORMATION_DEFAULT
+    if text in DISPATCH_FORMATIONS:
+        return text
+    raise ValueError(
+        f"unsupported {DISPATCH_FORMATION_ENV}={raw!r}: batch_engine accepts "
+        f"{list(DISPATCH_FORMATIONS)} or {list(_DISPATCH_FORMATION_OFF)}"
+    )
+
+
+def effective_dispatch_formation(
+    spelling: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+    gpu: bool = False,
+    supported: bool = False,
+) -> str:
+    """The spelling the merged compile actually receives: ``aggressive`` or ``default``.
+
+    ``spelling`` is a REQUEST from :func:`resolve_dispatch_formation` (``None`` =
+    resolve it here).  The rules, in order:
+
+    * ``default`` / ``off`` -- ``default``, always (no derived flag);
+    * ``auto`` -- ``aggressive`` only when all three hold: ``backend`` is ``iree``,
+      ``gpu`` says the compile target is a GPU HAL (``rocm`` / ``cuda``; the caller
+      reads it off :func:`evogp.tree.batch_bands.resolve_band_policy`, the one place
+      the target kind is resolved) and ``supported`` says the installed evoxc
+      adapter knows the option; ``default`` otherwise;
+    * ``aggressive`` -- ``aggressive`` on ``iree`` with ``supported``, else
+      ``default``: the flag is a GPU-codegen lever, and an evoxc without the option
+      raises on it, so an explicit request degrades silently instead of failing the
+      plan (only a malformed VALUE is an error, raised by
+      :func:`resolve_dispatch_formation`).
+
+    ``numpy`` is the reference interpreter: it documents options as accepted and
+    ignored, so the route never puts the key there (it would change a memo key
+    without changing a body).
+    """
+    request = resolve_dispatch_formation(spelling) if spelling is None else str(spelling)
+    if request in _DISPATCH_FORMATION_OFF:
+        request = DISPATCH_FORMATION_DEFAULT
+    if request not in DISPATCH_FORMATIONS:
+        request = DEFAULT_DISPATCH_FORMATION
+    usable = str(backend or "").strip().lower() == "iree" and bool(supported)
+    if request == DISPATCH_FORMATION_AGGRESSIVE:
+        return DISPATCH_FORMATION_AGGRESSIVE if usable else DISPATCH_FORMATION_DEFAULT
+    if request == DISPATCH_FORMATION_AUTO:
+        return (
+            DISPATCH_FORMATION_AGGRESSIVE
+            if usable and bool(gpu)
+            else DISPATCH_FORMATION_DEFAULT
+        )
+    return DISPATCH_FORMATION_DEFAULT
 
 
 def resolve_min_pop(value: Optional[int] = None) -> int:

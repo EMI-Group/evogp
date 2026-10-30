@@ -51,16 +51,20 @@ from evoxc.transforms import batching as _batching
 # ``batch_knobs`` is imported as a MODULE too: ``MIN_CHUNK_FUNCTIONS`` is read
 # through the module object at call time (never captured by value), so a test can
 # monkeypatch it to force chunking on a tiny fixture.
-from . import batch_bands, batch_knobs, batch_stages
+from . import batch_bands, batch_chunks, batch_knobs, batch_stages
 from .batch_chunks import chunk_sizes
 from .batch_knobs import (
+    DISPATCH_FORMATION_AUTO,
+    DISPATCH_FORMATION_DEFAULT,
     LOSS_VARIANT,
     BatchUnsupported,
     _normalize_variant,
+    effective_dispatch_formation,
     resolve_alignment,
     resolve_band_size,
     resolve_bands,
     resolve_compile_workers,
+    resolve_dispatch_formation,
     resolve_switch_ops,
 )
 from .evoxc_engine import (
@@ -354,6 +358,14 @@ class BatchPlan:
         band_policy: the resolved :class:`evogp.tree.batch_bands.BandPolicy` as a
             dict (``backend`` / ``device_kind`` / ``max_bands`` / ``min_band_size``
             / ``uncapped``).
+        dispatch_formation: the EFFECTIVE
+            ``EVOGP_BATCH_DISPATCH_FORMATION`` spelling this plan's merged bodies are
+            compiled with -- ``"aggressive"`` or ``"default"``, the value the
+            compile options carry and the memo keys include
+            (:func:`plan_dispatch_formation`).
+        dispatch_formation_requested: the request it came from (``"auto"`` /
+            ``"aggressive"`` / ``"default"``), so a record can state whether the
+            target policy chose the flag or the caller did.
 
     :attr:`chunks` is the authoritative read surface for both plan shapes; the
     whole-graph fields (:attr:`graphs` / :attr:`merged` / :attr:`specs` /
@@ -390,6 +402,8 @@ class BatchPlan:
     band_clamped: bool = False
     band_note: Optional[str] = None
     band_policy: Dict[str, Any] = field(default_factory=dict)
+    dispatch_formation: str = DISPATCH_FORMATION_DEFAULT
+    dispatch_formation_requested: str = DISPATCH_FORMATION_AUTO
 
 
 @dataclass(frozen=True)
@@ -592,6 +606,40 @@ def _int_bytes(tokens: Any) -> bytes:
         return repr(tokens).encode("utf-8")
 
 
+def plan_dispatch_formation(
+    backend_name: Optional[str], device: Any, value: Optional[str] = None
+) -> Tuple[str, str]:
+    """``(requested, effective)`` dispatch formation of ONE plan.
+
+    The REQUEST comes from the knob (:func:`evogp.tree.batch_knobs.resolve_dispatch_formation`,
+    i.e. ``explicit argument > EVOGP_BATCH_DISPATCH_FORMATION > auto``); the EFFECTIVE
+    spelling applies :func:`evogp.tree.batch_knobs.effective_dispatch_formation` with
+    the target read off the SAME band policy that resolves this plan's device
+    (:func:`evogp.tree.batch_bands.resolve_band_policy`, the one place the compile
+    target's device kind is decided), so the GPU-only enable rule can never drift
+    from the device the merged graph is compiled for.  The evoxc feature probe
+    (:func:`evogp.tree.batch_chunks.supports_dispatch_formation`) is consulted only
+    for ``iree`` -- ``numpy`` documents options as ignored, so the key is never put
+    there.
+
+    An unusable VALUE raises ``ValueError`` naming the variable; an option the
+    installed evoxc does not know degrades to ``default`` instead (see the knob).
+    """
+    requested = resolve_dispatch_formation(value)
+    name = "" if backend_name is None else str(backend_name).strip().lower()
+    kind = batch_bands.resolve_band_policy(name or None, device).device_kind
+    supported = (
+        batch_chunks.supports_dispatch_formation(name) if name == "iree" else False
+    )
+    effective = effective_dispatch_formation(
+        requested,
+        backend=name,
+        gpu=kind in batch_bands.GPU_DEVICE_KINDS,
+        supported=supported,
+    )
+    return requested, effective
+
+
 def _resolve_workers(
     requested: Optional[int],
     n_functions: int,
@@ -675,6 +723,7 @@ def _plan_host(
     pop: Any = None,
     compile_workers: Optional[int] = None,
     chunk_bands: Optional[bool] = None,
+    dispatch_formation: Optional[str] = None,
 ) -> BatchPlan:
     """The whole host planning step on already-converted inputs (see plan_batch).
 
@@ -700,6 +749,12 @@ def _plan_host(
     Both shapes store one :class:`BatchChunk` per compiled body in ``chunks`` (the
     single-body plan's one chunk mirrors the whole-graph fields), so
     ``len(plan.chunks)`` is the plan's chunk count.
+
+    ``dispatch_formation`` is the ``EVOGP_BATCH_DISPATCH_FORMATION`` request (the
+    environment when ``None``); it is resolved ONCE here with the plan's own
+    backend/device by :func:`plan_dispatch_formation`, and the resulting spelling is
+    stored on the plan (``dispatch_formation`` / ``dispatch_formation_requested``) so
+    the build, the memo keys and ``describe_plan`` all read one value.
     """
     timer = batch_stages.StageTimer()
     input_len = int(input_len)
@@ -720,6 +775,9 @@ def _plan_host(
     switch_ops = resolve_switch_ops(switch_ops)
     band_size = resolve_band_size(band_size)
     explicit_bands = resolve_bands(bands)
+    formation_requested, formation = plan_dispatch_formation(
+        backend_name, device, dispatch_formation
+    )
     n_rows = 1 if per_row else int(x_host.shape[0])
     if variant == LOSS_VARIANT:
         if n_rows <= 0:
@@ -810,6 +868,8 @@ def _plan_host(
             band_clamped=bool(report["band_clamped"]),
             band_note=report["band_note"],
             band_policy=report["band_policy"],
+            dispatch_formation=formation,
+            dispatch_formation_requested=formation_requested,
         )
         timer.fold()
         return plan
@@ -904,6 +964,8 @@ def _plan_host(
         band_clamped=bool(aggregate["band_clamped"]),
         band_note=aggregate["band_note"],
         band_policy=aggregate["band_policy"],
+        dispatch_formation=formation,
+        dispatch_formation_requested=formation_requested,
     )
     timer.fold()
     return plan

@@ -62,6 +62,11 @@ SAFE_BAND_COUNTS: Dict[str, Optional[int]] = {
 #: Smallest band worth its own dispatch: a GPU dispatch pays a launch plus its
 #: binding setup, so sub-8-function GPU bands lose more than they save.
 MIN_BAND_SIZE: Dict[str, int] = {"cuda": 8, "rocm": 8, "cpu": 1, "vulkan": 1}
+#: The device kinds whose compile target is a GPU HAL, i.e. the kinds whose device
+#: code an IREE GPU-only codegen lever applies to.  It is the same set the binding
+#: tables above know (an evoxc ``Device.kind``), so the route reads it HERE rather
+#: than spelling "rocm"/"cuda" again wherever a target-dependent policy is decided.
+GPU_DEVICE_KINDS: Tuple[str, ...] = ("cuda", "rocm")
 
 #: ``kind -> (how a message names the HAL, where its binding limit is enforced)``.
 _RUNTIME: Dict[str, Tuple[str, str]] = {

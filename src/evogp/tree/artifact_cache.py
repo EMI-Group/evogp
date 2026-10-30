@@ -97,6 +97,7 @@ __all__ = [
     "artifact_dir",
     "artifact_key",
     "artifact_path",
+    "count_files",
     "clear",
     "load",
     "save",
@@ -209,11 +210,19 @@ def artifact_path(
     backend_name: str,
     device: Any,
     options: Any,
+    subdir: Optional[str] = None,
 ) -> Optional[str]:
     """Artifact file path of this build, or ``None`` (disabled / underivable).
 
     ``None`` is the "do nothing" answer: the switch is off, or the key could not be
     derived (an unhashable/uncodable spec), in which case the caller just builds.
+
+    ``subdir`` nests the file one level below the enabled directory, which is how
+    one directory serves several callers without collision: the batch route writes
+    under ``batch/`` while the dense and specialized routes keep the root (their
+    paths are unchanged).  It is part of the PATH only, never of the key, so the
+    same executable stored under two subdirectories has two files with one key.
+    ``""``/``"."`` (and ``None``) mean the root.
     """
     directory = artifact_dir()
     if directory is None:
@@ -222,6 +231,9 @@ def artifact_path(
         key = artifact_key(name, specs, backend_name, device, options)
     except Exception:
         return None
+    nest = str(subdir or "").strip().strip("/")
+    if nest and nest != ".":
+        directory = os.path.join(directory, nest)
     return os.path.join(directory, key + SUFFIX)
 
 
@@ -317,14 +329,32 @@ def reset_stats() -> None:
             _COUNTERS[name] = 0
 
 
-def _count_files(directory: Optional[str]) -> int:
-    """Artifact files currently in ``directory`` (0 when it does not exist)."""
+def count_files(directory: Optional[str]) -> int:
+    """Artifact files currently under ``directory`` (root plus one nesting level).
+
+    The batch route writes into ``<dir>/batch/`` (see :func:`artifact_path`'s
+    ``subdir``), so a file count that only looked at the root would report zero for
+    a directory full of batch artifacts.  ``0`` for a missing/unreadable directory.
+    """
     if directory is None:
         return 0
+    total = 0
     try:
-        return sum(1 for entry in os.listdir(directory) if entry.endswith(SUFFIX))
+        entries = os.listdir(directory)
     except OSError:
         return 0
+    for entry in entries:
+        path = os.path.join(directory, entry)
+        if entry.endswith(SUFFIX):
+            total += 1
+        elif os.path.isdir(path):
+            try:
+                total += sum(
+                    1 for nested in os.listdir(path) if nested.endswith(SUFFIX)
+                )
+            except OSError:  # pragma: no cover - unreadable subdirectory
+                continue
+    return total
 
 
 def stats() -> Dict[str, int]:
@@ -345,7 +375,7 @@ def stats() -> Dict[str, int]:
         counters = dict(_COUNTERS)
     snapshot = {
         "artifact_enabled": int(directory is not None),
-        "artifact_files": _count_files(directory),
+        "artifact_files": count_files(directory),
     }
     snapshot.update({f"artifact_{name}": value for name, value in counters.items()})
     return snapshot
@@ -431,7 +461,8 @@ def clear() -> None:
     The disk layer's own invalidation (``evoxc_engine.clear_artifacts()``): it is
     deliberately NOT part of :func:`evogp.tree.evoxc_engine.clear_cache`, whose
     meaning stays "the in-memory tables".  A no-op when the switch is off; only
-    ``*.evoxcart`` files are deleted, so a directory shared with other data is safe.
+    ``*.evoxcart`` files are deleted (root and one nesting level, which is where the
+    batch route writes), so a directory shared with other data is safe.
     """
     directory = artifact_dir()
     if directory is not None:
@@ -440,7 +471,16 @@ def clear() -> None:
         except OSError:
             entries = []
         for entry in entries:
+            path = os.path.join(directory, entry)
             if entry.endswith(SUFFIX) or f"{SUFFIX}.tmp-" in entry:
-                _discard(os.path.join(directory, entry))
+                _discard(path)
+            elif os.path.isdir(path):
+                try:
+                    nested = os.listdir(path)
+                except OSError:  # pragma: no cover - unreadable subdirectory
+                    continue
+                for name in nested:
+                    if name.endswith(SUFFIX) or f"{SUFFIX}.tmp-" in name:
+                        _discard(os.path.join(path, name))
     reset_stats()
 
