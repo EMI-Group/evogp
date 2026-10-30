@@ -105,6 +105,26 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
     because there a compiled graph genuinely cannot amortize (it is 0.01-0.17x the
     specialized warm throughput) -- and that is the BACKEND term above, which needs
     no row count to be correct.
+
+    The cap axis is the transposed twin of that envelope, and the same defect had
+    the same shape: ``auto`` resolved dense on ``iree`` for a population whose
+    realized trees exceed the trace cap, :func:`prepare_dense` then declined
+    (``L = min(EVOGP_DENSE_MAX_TREE_LEN = 64, row_len = 128) = 64 < longest =
+    123``), and the call site continued on ``route.fallback_backend`` =
+    specialized+``numpy`` -- 857.22 ms where dense at the raised cap is 105.62 ms
+    (``p2048-L128-i32-N1024-d7``; the opt-in batch route: 20.66 ms).  So under
+    ``auto`` ONLY, and only when the cap was not user-pinned, the entry points now
+    RAISE the cap for an over-cap population to
+    ``min(longest, min(EVOGP_DENSE_AUTO_MAX_TREE_LEN ceiling, EVOGP_DENSE_AUTO_BUDGET_MB
+    envelope))`` (:func:`auto_trace_cap`), from ONE memoized host read of
+    ``batch_subtree_size[:, 0]``; nothing else -- :func:`prepare_dense`,
+    :func:`plan_dense`, :func:`resolve_route` -- changes.  When the ceiling or the
+    envelope refuses the raise the decline is DELIBERATE and falls back on the
+    DEVICE backend instead of numpy (:class:`DenseUnsupported`'s
+    ``device_fallback`` + :func:`decline_backend`), because per-tree numpy is the
+    catastrophic answer there.  The residual limit is that specialized+``iree`` is
+    per-structure-compile-bound, with unbounded artifact growth at large
+    populations -- which is why the raise is bounded rather than unrestricted.
 ``dense``
     always attempt the dense path (still falling back on
     :class:`DenseUnsupported`); with no explicit backend it uses the device
@@ -145,7 +165,10 @@ Scheme (see :func:`_dense_body` for the trace-time body)
    :func:`evoxc_engine.decode_population`'s error messages).  An over-cap tree is
    the ONE decline that warns (once per process, on a device backend -- see
    :func:`_warn_trace_cap`), because the specialized fallback there is the
-   expensive one.
+   expensive one.  The ``auto`` ENTRY POINTS (:func:`evaluate_dense` /
+   :func:`sr_fitness_dense`) may RAISE the cap for an over-cap population BEFORE
+   :func:`prepare_dense` sees it (:func:`auto_trace_cap`), so the preparation
+   itself is unchanged and still declines above ``L``.
 2. **One graph** (module-level ``@evoxc.defn _dense_step``) with a Python
    trace-time ``for i in range(L-1, -1, -1)`` unroll over node positions
    (reverse prefix order: children always have a larger index than their
@@ -225,7 +248,16 @@ Environment knobs
                                             decline -> ``DenseUnsupported``
                                             fallback; ``per_row=True`` and an
                                             explicit ``dense`` are never gated
-``EVOGP_DENSE_MAX_TREE_LEN``    32          max trace length ``L``; longer trees
+``EVOGP_DENSE_AUTO_MAX_TREE_LEN``            256         ceiling (in nodes) of the
+                                            ``auto`` automatic trace-cap
+                                            raise: an over-cap population is
+                                            traced at
+                                            ``min(longest, min(ceiling,
+                                            envelope))`` instead of falling back;
+                                            ``auto`` only, and a pinned
+                                            ``EVOGP_DENSE_MAX_TREE_LEN`` /
+                                            ``max_tree_len=`` wins
+``EVOGP_DENSE_MAX_TREE_LEN``    64          max trace length ``L``; longer trees
                                             -> :class:`DenseUnsupported`
 ``EVOGP_DENSE_BUDGET_MB``       2048        chunking memory budget (MiB)
 ``EVOGP_DENSE_UPDATE_MODE``     grow        ``grow`` / ``concat`` / ``scatter``
@@ -432,10 +464,12 @@ __all__ = [
     "ALLOW_UNSAFE_SCATTER_ENV",
     "AUTO_BUDGET_MB_ENV",
     "AUTO_MAX_ROWS_ENV",
+    "AUTO_MAX_TREE_LEN_ENV",
     "AUTO_MIN_POP_ENV",
     "BUDGET_MB_ENV",
     "DEFAULT_AUTO_BUDGET_MB",
     "DEFAULT_AUTO_MAX_ROWS",
+    "DEFAULT_AUTO_MAX_TREE_LEN",
     "DEFAULT_AUTO_MIN_POP",
     "DEFAULT_BUDGET_MB",
     "DEFAULT_EVAL_MODE",
@@ -468,10 +502,14 @@ __all__ = [
     "Route",
     "UPDATE_MODES",
     "UPDATE_MODE_ENV",
+    "auto_cap_decline",
     "auto_row_allowance",
     "auto_rows_decline",
+    "auto_trace_cap",
+    "auto_tree_len_allowance",
     "build_dense",
     "build_dense_runner",
+    "decline_backend",
     "dense_cache_stats",
     "dense_peak_bytes",
     "describe_plan",
@@ -481,6 +519,7 @@ __all__ = [
     "prepare_dense",
     "resolve_auto_budget_mb",
     "resolve_auto_max_rows",
+    "resolve_auto_max_tree_len",
     "resolve_auto_min_pop",
     "resolve_backend_name",
     "resolve_eval_mode",
@@ -488,6 +527,7 @@ __all__ = [
     "resolve_route",
     "should_use_dense",
     "sr_fitness_dense",
+    "trace_cap_pinned",
 ]
 
 # ---------------------------------------------------------------------------
@@ -518,6 +558,17 @@ AUTO_MAX_ROWS_ENV = "EVOGP_DENSE_AUTO_MAX_ROWS"
 #: knob that WIDENS the allowance (the row pin above only tightens it) -- see
 #: :func:`auto_rows_decline` / :func:`auto_row_allowance`.
 AUTO_BUDGET_MB_ENV = "EVOGP_DENSE_AUTO_BUDGET_MB"
+#: Ceiling of the ``auto`` policy's automatic trace-cap raise
+#: (``EVOGP_DENSE_AUTO_MAX_TREE_LEN``, in NODES): the cap-axis twin of
+#: :data:`AUTO_BUDGET_MB_ENV`.  Under ``auto`` (and only there, and only when the
+#: cap was not pinned by ``EVOGP_DENSE_MAX_TREE_LEN``/``max_tree_len=``) a
+#: population whose realized longest tree exceeds the trace cap is evaluated at
+#: ``min(longest, min(ceiling, envelope))`` instead of falling back to the
+#: specialized engine -- dense's trace length, graph size and compile all grow
+#: linearly in ``L`` (~13.9 s at ``L=32``, ~31.6 s at ``L=64``, ~69.0 s at
+#: ``L=128`` per shape signature), so the raise needs a bound.  See
+#: :func:`auto_tree_len_allowance` / :func:`auto_trace_cap` / :func:`auto_cap_decline`.
+AUTO_MAX_TREE_LEN_ENV = "EVOGP_DENSE_AUTO_MAX_TREE_LEN"
 #: Max trace length ``L`` (``EVOGP_DENSE_MAX_TREE_LEN``): populations whose
 #: longest tree exceeds it fall back to the specialized engine.  This is the
 #: knob that bounds trace time and graph size (the candidate chain is emitted
@@ -594,6 +645,16 @@ DEFAULT_AUTO_MAX_ROWS = 0
 #: this knob is the "when does the whole-population shape stop being schedulable"
 #: line, not an OOM tripwire.
 DEFAULT_AUTO_BUDGET_MB = 8192
+#: Default ceiling (in nodes) of the ``auto`` trace-cap raise
+#: (:data:`AUTO_MAX_TREE_LEN_ENV`): 256, a deliberate bound on trace length, graph
+#: size and compile rather than a measured optimum.  The graph's cost and its
+#: compile both grow linearly in the trace length (~13.9 s at ``L=32``, ~31.6 s at
+#: ``L=64``, ~69.0 s at ``L=128`` per shape signature on iree), so the raise that
+#: rescues an over-cap population is capped well below the shipped descriptors'
+#: declared ``max_tree_len`` (128/256/512) while still covering their REALIZED
+#: trees (123-201 nodes on the large-scale column).  A user who knows better pins
+#: ``EVOGP_DENSE_MAX_TREE_LEN`` instead, which this raise never touches.
+DEFAULT_AUTO_MAX_TREE_LEN = 256
 
 #: Trace cap default: 64, i.e. the shipped descriptors' practical maximum
 #: (``example/`` builds ``max_tree_len`` 128/256/512, whose REALIZED trees are far
@@ -711,11 +772,20 @@ class DenseUnsupported(RuntimeError):
     owns the error contract for malformed trees.  ``reason`` carries the
     human-readable cause; this module deliberately does not reproduce the
     specialized decoder's ``ValueError`` messages.
+
+    ``device_fallback`` marks the ONE class of decline where the fallback should
+    stay on the DEVICE backend instead of ``route.fallback_backend`` (numpy): the
+    ``auto`` trace-cap/envelope decline, where per-tree numpy is the catastrophic
+    answer (857.22 ms against 105.62 ms measured at 123-node trees, pop 2 048,
+    ``N=1024``).  It is opt-in and defaults to ``False``, so a positional
+    ``DenseUnsupported(reason)`` caller behaves exactly as before; the call sites
+    go through :func:`decline_backend`.
     """
 
-    def __init__(self, reason: str):
+    def __init__(self, reason: str, *, device_fallback: bool = False):
         super().__init__(f"dense evaluation unsupported: {reason}")
         self.reason = reason
+        self.device_fallback = bool(device_fallback)
 
 
 def _resolve_max_tree_len(value: Optional[int]) -> int:
@@ -975,6 +1045,258 @@ def auto_rows_decline(
         tree_len=tree_len,
         auto_budget_mb=auto_budget_mb,
     )
+
+
+def resolve_auto_max_tree_len(value: Optional[int] = None) -> int:
+    """Resolve the ``auto`` raise's ceiling (``EVOGP_DENSE_AUTO_MAX_TREE_LEN``)."""
+    ceiling = (
+        _env_int(AUTO_MAX_TREE_LEN_ENV, DEFAULT_AUTO_MAX_TREE_LEN)
+        if value is None
+        else int(value)
+    )
+    if ceiling < 1:
+        raise ValueError(
+            f"{AUTO_MAX_TREE_LEN_ENV}={ceiling} must be >= 1 (it is a trace-length "
+            "ceiling in nodes)"
+        )
+    return ceiling
+
+
+def trace_cap_pinned(max_tree_len: Optional[int] = None) -> bool:
+    """Whether the trace cap was PINNED by the caller (so ``auto`` must not raise it).
+
+    ``True`` for an explicit ``max_tree_len=`` argument or a non-empty
+    ``EVOGP_DENSE_MAX_TREE_LEN``: a cap the user asked for is never
+    second-guessed by the automatic raise, exactly like an explicit
+    ``EVOGP_EVAL_MODE=dense`` is never gated by the ``auto`` rules.
+    """
+    if max_tree_len is not None:
+        return True
+    return bool(os.environ.get(MAX_TREE_LEN_ENV, "").strip())
+
+
+def _envelope_tree_len(
+    pop_size: Optional[int], rows: Optional[int], auto_budget_mb: Optional[int]
+) -> int:
+    """The trace length the MEMORY ENVELOPE alone allows at this shape (``0`` = n/a).
+
+    The cap-axis mirror of the envelope term in :func:`auto_row_allowance`::
+
+        floor(budget_bytes / (pop_size * rows * 4))
+
+    i.e. the same ``pop_size * tree_len * rows * 4`` product solved for
+    ``tree_len`` instead of for ``rows``.  ``rows`` defaults to ``1`` (the
+    ``per_row=True`` shape, where the graph's ``N`` is one row) and ``0`` means
+    "the shape is unknown, the envelope cannot be applied".
+    """
+    if pop_size is None:
+        return 0
+    per_node = (
+        max(1, int(pop_size)) * max(1, 1 if rows is None else int(rows)) * 4
+    )
+    budget = resolve_auto_budget_mb(auto_budget_mb) * (1 << 20)
+    return max(1, budget // per_node)
+
+
+def auto_tree_len_allowance(
+    pop_size: Optional[int] = None,
+    rows: Optional[int] = None,
+    *,
+    auto_max_tree_len: Optional[int] = None,
+    auto_budget_mb: Optional[int] = None,
+) -> int:
+    """The trace length the ``auto`` raise may reach for a population of this shape.
+
+    The rule in one line::
+
+        allowance = min( ceiling , floor(budget_bytes / (pop_size * rows * 4)) )
+
+    where ``ceiling`` is :func:`resolve_auto_max_tree_len` and ``budget`` is
+    :func:`resolve_auto_budget_mb` -- the very same memory envelope the rows rule
+    uses, solved for the trace length instead of the data-row count (the graph
+    sizes its buffers by ``pop_size * tree_len * rows``, so either axis can be the
+    one that has to give).  ``rows`` defaults to ``1`` when ``None``: that is the
+    ``per_row=True`` shape, where ``x`` is ``(pop_size, input_len)`` and every
+    tree sees one row, so ``N == 1`` is the graph's real row axis.
+
+    ``pop_size=None`` returns the ceiling alone: without a population shape the
+    envelope cannot be applied, and the term can only TIGHTEN the ceiling.
+    """
+    ceiling = resolve_auto_max_tree_len(auto_max_tree_len)
+    if pop_size is None:
+        return ceiling
+    return min(ceiling, _envelope_tree_len(pop_size, rows, auto_budget_mb))
+
+
+def _cap_decline_reason(
+    longest: int,
+    *,
+    pop_size: Optional[int],
+    rows: Optional[int],
+    auto_max_tree_len: Optional[int],
+    auto_budget_mb: Optional[int],
+) -> str:
+    """Why the ``auto`` raise cannot cover a ``longest``-node population (see the rule).
+
+    Private half of :func:`_cap_decision`, written like :func:`_rows_decline_reason`:
+    it names BOTH terms of the allowance and says which one bound it (the ceiling
+    or the memory envelope), so a user knows which knob to turn.
+    """
+    ceiling = resolve_auto_max_tree_len(auto_max_tree_len)
+    budget = resolve_auto_budget_mb(auto_budget_mb)
+    allowance = auto_tree_len_allowance(
+        pop_size,
+        rows,
+        auto_max_tree_len=auto_max_tree_len,
+        auto_budget_mb=auto_budget_mb,
+    )
+    envelope = _envelope_tree_len(pop_size, rows, auto_budget_mb)
+    if pop_size is None:
+        tighter = (
+            f"{AUTO_MAX_TREE_LEN_ENV}={ceiling} is the tighter term (the population "
+            "shape is unknown, so the envelope cannot be applied)"
+        )
+    elif ceiling <= envelope:
+        tighter = (
+            f"{AUTO_MAX_TREE_LEN_ENV}={ceiling} is the tighter term (the {budget} "
+            f"MiB envelope alone would allow {envelope} nodes)"
+        )
+    else:
+        tighter = (
+            f"{AUTO_BUDGET_MB_ENV}={budget} MiB is the tighter term (the "
+            f"{AUTO_MAX_TREE_LEN_ENV}={ceiling} ceiling alone would allow "
+            f"{ceiling} nodes)"
+        )
+    shape = (
+        f"pop_size={int(pop_size)} x {1 if rows is None else int(rows)} row(s)"
+        if pop_size is not None
+        else "a population of unknown shape"
+    )
+    return (
+        f"auto policy: the longest tree is {int(longest)} nodes at {shape}, above "
+        f"the {allowance} nodes the automatic trace-cap raise allows "
+        f"({AUTO_MAX_TREE_LEN_ENV}={ceiling} ceiling of the raise, "
+        f"{AUTO_BUDGET_MB_ENV}={budget} MiB ({budget / 1024:.2f} GiB) envelope of "
+        f"pop_size * tree_len * rows * 4 bytes); {tighter}. Dense's graph and its "
+        "compile grow linearly in the trace length, so the raise is bounded. Raise "
+        f"{AUTO_MAX_TREE_LEN_ENV} or {AUTO_BUDGET_MB_ENV}, or set an explicit "
+        f"{MAX_TREE_LEN_ENV} (or max_tree_len=) above {int(longest)} together with "
+        "EVOGP_EVAL_MODE=dense to force the dense route."
+    )
+
+
+def _cap_decision(
+    longest: Optional[int],
+    row_len: Optional[int],
+    *,
+    mode: str,
+    pop_size: Optional[int] = None,
+    rows: Optional[int] = None,
+    max_tree_len: Optional[int] = None,
+    auto_max_tree_len: Optional[int] = None,
+    auto_budget_mb: Optional[int] = None,
+) -> Tuple[int, Optional[str]]:
+    """The ``auto`` trace-cap raise itself: ``(effective_cap, decline_reason)``.
+
+    Private single source of the cap-axis half-rule (the twin of
+    :func:`_rows_decline_reason`): :func:`auto_trace_cap` (public, mode resolved)
+    and :func:`auto_cap_decline` (public, the reason alone) both go through it, so
+    the effective cap and its refusal can never disagree.
+
+    ``row_len`` is the population's row STRIDE (``max_tree_len``): when it already
+    fits the cap, ``L = min(cap, row_len) == row_len`` covers every tree and there
+    is nothing to raise.  Otherwise the cap is raised to
+    ``min(longest, :func:`auto_tree_len_allowance`)`` -- and a ``longest`` the
+    allowance cannot cover is a decline that names both terms.
+    """
+    base = _resolve_max_tree_len(max_tree_len)
+    if (
+        mode != "auto"
+        or trace_cap_pinned(max_tree_len)
+        or longest is None
+        or int(longest) <= base
+        or (row_len is not None and int(row_len) <= base)
+    ):
+        return base, None
+    allowance = auto_tree_len_allowance(
+        pop_size,
+        rows,
+        auto_max_tree_len=auto_max_tree_len,
+        auto_budget_mb=auto_budget_mb,
+    )
+    if allowance < int(longest):
+        return base, _cap_decline_reason(
+            longest,
+            pop_size=pop_size,
+            rows=rows,
+            auto_max_tree_len=auto_max_tree_len,
+            auto_budget_mb=auto_budget_mb,
+        )
+    return min(int(longest), allowance), None
+
+
+def auto_trace_cap(
+    longest: Optional[int],
+    row_len: Optional[int],
+    *,
+    eval_mode: Optional[str] = None,
+    pop_size: Optional[int] = None,
+    rows: Optional[int] = None,
+    max_tree_len: Optional[int] = None,
+    auto_max_tree_len: Optional[int] = None,
+    auto_budget_mb: Optional[int] = None,
+) -> int:
+    """The trace cap a call should use: raised for an over-cap population under ``auto``.
+
+    ``min(longest, min(EVOGP_DENSE_AUTO_MAX_TREE_LEN, envelope))`` when ``auto``
+    chose dense, the cap was not pinned and the population's realized longest tree
+    exceeds it, else :func:`_resolve_max_tree_len` unchanged -- so every explicit
+    mode (``dense``/``dynamic``/``specialized``/``batch``), a pinned cap and a
+    population that already fits are all the identity.  ``row_len`` is the row
+    stride; ``rows`` is the call's data-row count (``None`` = one row per tree).
+    """
+    return _cap_decision(
+        longest,
+        row_len,
+        mode=resolve_eval_mode(eval_mode),
+        pop_size=pop_size,
+        rows=rows,
+        max_tree_len=max_tree_len,
+        auto_max_tree_len=auto_max_tree_len,
+        auto_budget_mb=auto_budget_mb,
+    )[0]
+
+
+def auto_cap_decline(
+    longest: Optional[int],
+    *,
+    eval_mode: Optional[str] = None,
+    pop_size: Optional[int] = None,
+    rows: Optional[int] = None,
+    max_tree_len: Optional[int] = None,
+    auto_max_tree_len: Optional[int] = None,
+    auto_budget_mb: Optional[int] = None,
+) -> Optional[str]:
+    """Why the ``auto`` raise cannot cover a ``longest``-node population (else ``None``).
+
+    The decline half of :func:`auto_trace_cap`: a population whose longest tree
+    exceeds what the ceiling/envelope allowance can raise the cap to is the one
+    case where ``auto`` has picked a route it cannot serve, so
+    :func:`evaluate_dense` / :func:`sr_fitness_dense` decline it with
+    ``device_fallback=True`` (the DEVICE backend, not per-tree numpy, is then the
+    sane fallback).  Only ``auto`` can decline -- an explicit
+    ``EVOGP_EVAL_MODE=dense`` is the user's opt-in and is not second-guessed.
+    """
+    return _cap_decision(
+        longest,
+        None,
+        mode=resolve_eval_mode(eval_mode),
+        pop_size=pop_size,
+        rows=rows,
+        max_tree_len=max_tree_len,
+        auto_max_tree_len=auto_max_tree_len,
+        auto_budget_mb=auto_budget_mb,
+    )[1]
 
 
 #: Memo of the route policy's device probe (a ``torch.cuda.is_available()``-style
@@ -1262,6 +1584,24 @@ def should_use_dense(
         tree_len=tree_len,
         auto_budget_mb=auto_budget_mb,
     ).use_dense
+
+
+def decline_backend(route: Route, exc: BaseException) -> str:
+    """The backend a call site continues on after a :class:`DenseUnsupported`.
+
+    ``route.fallback_backend`` (specialized+numpy) for every ordinary decline, and
+    the ENGINE'S OWN backend (:attr:`Route.backend`) when the exception carries
+    ``device_fallback`` -- the ``auto`` trace-cap/envelope decline, which happens
+    only on a population too long for the trace cap, i.e. exactly where a per-tree
+    numpy compile is the catastrophic answer (857.22 ms against 105.62 ms for dense
+    at the raised cap, at 123-node trees / pop 2 048 / ``N=1024``) and the device
+    backend is the only sane fallback.  On a CPU box ``route.backend`` IS numpy, so
+    nothing changes there; an explicit ``EVOGP_EVAL_MODE=dense``/``dynamic`` or
+    ``specialized`` never produces such a decline either.
+    """
+    if getattr(exc, "device_fallback", False) and route.backend != "numpy":
+        return route.backend
+    return route.fallback_backend
 
 
 def resolve_update_mode(value: Optional[str], backend_name: Optional[str]) -> str:
@@ -2250,6 +2590,36 @@ def _population_shape(batch_subtree_size: Any) -> Tuple[Optional[int], Optional[
     return None, None
 
 
+def _population_longest(batch_subtree_size: Any) -> Optional[int]:
+    """The population's realized longest tree, ``int(batch_subtree_size[:, 0].max())``.
+
+    The one host read the ``auto`` trace-cap raise needs (:func:`auto_trace_cap`):
+    ``subtree_size[:, 0]`` is every tree's real length, and its maximum is what
+    decides whether the population fits ``L = min(cap, row_len)``.  Memoized in
+    :data:`DENSE_INPUT_MEMO` under the key
+    ``("longest", :func:`dense_memo.token`)`` so the repeated evaluation of an
+    unchanged population (and the ``forward``-then-``sr_fitness`` pair) does not
+    pay the reduction -- and on a device backend the device sync -- again; the
+    entry is dropped by :func:`evoxc_engine.clear_cache` with the rest of the
+    table.  The ``"longest"`` prefix cannot collide with
+    :func:`_resident_array`'s ``(str(dtype), token)`` keys, whose first element is
+    a numpy dtype string (``"float32"``) and never a word like this one.
+
+    A tensor that cannot be tokenized (a numpy population) is measured but not
+    memoized, so the answer is always the measured int; nothing is caught here --
+    a device read error propagates instead of being reported as "unknown".
+    """
+    key = dense_memo.token(batch_subtree_size)
+    if key is not None:
+        cached = DENSE_INPUT_MEMO.lookup(("longest", key))
+        if cached is not None:
+            return int(cached)
+    longest = int(batch_subtree_size[:, 0].max())
+    if key is not None:
+        DENSE_INPUT_MEMO.store(("longest", key), longest)
+    return longest
+
+
 def _resident_array(tensor: Any, dtype: Any, name: str) -> np.ndarray:
     """Memoized :func:`evoxc_engine._as_numpy`: the host copy of an unchanged tensor.
 
@@ -2864,6 +3234,34 @@ def evaluate_dense(
         )
         if decline:
             raise DenseUnsupported(decline)
+    # -- the ``auto`` trace-cap raise (the cap-axis twin of the rows rule) -----
+    # Hot path: the row stride comes from ``.shape``, so a population that fits
+    # the cap changes nothing here -- no host conversion, no device sync.
+    cap = _resolve_max_tree_len(max_tree_len)
+    if pop_size and tree_len is not None and tree_len > cap:
+        longest = _population_longest(batch_subtree_size)
+        plan_rows = (
+            None
+            if per_row
+            else (rows if rows is not None else int(query.shape[0]))
+        )
+        decline = auto_cap_decline(
+            longest,
+            pop_size=pop_size,
+            rows=plan_rows,
+            max_tree_len=max_tree_len,
+        )
+        if decline:
+            raise DenseUnsupported(decline, device_fallback=True)
+        raised = auto_trace_cap(
+            longest,
+            tree_len,
+            pop_size=pop_size,
+            rows=plan_rows,
+            max_tree_len=max_tree_len,
+        )
+        if raised != cap:
+            max_tree_len = raised
     entry = _plan_entry(
         batch_node_value,
         batch_node_type,
@@ -2970,6 +3368,30 @@ def sr_fitness_dense(
         )
         if decline:
             raise DenseUnsupported(decline)
+    # -- the ``auto`` trace-cap raise (the cap-axis twin of the rows rule) -----
+    # Hot path: the row stride comes from ``.shape``, so a population that fits
+    # the cap changes nothing here -- no host conversion, no device sync.
+    cap = _resolve_max_tree_len(max_tree_len)
+    if pop_size and tree_len is not None and tree_len > cap:
+        longest = _population_longest(batch_subtree_size)
+        plan_rows = rows if rows is not None else int(xt.shape[0])
+        decline = auto_cap_decline(
+            longest,
+            pop_size=pop_size,
+            rows=plan_rows,
+            max_tree_len=max_tree_len,
+        )
+        if decline:
+            raise DenseUnsupported(decline, device_fallback=True)
+        raised = auto_trace_cap(
+            longest,
+            tree_len,
+            pop_size=pop_size,
+            rows=plan_rows,
+            max_tree_len=max_tree_len,
+        )
+        if raised != cap:
+            max_tree_len = raised
     label = _resident_array(labels, np.float32, "labels")
     if label.ndim != 2 or label.shape != (xt.shape[0], int(output_len)):
         raise ValueError(

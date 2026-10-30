@@ -139,8 +139,8 @@ class Forest:
                     per_row=True,
                     backend=backend,
                 )
-            except dense_engine.DenseUnsupported:
-                backend = route.fallback_backend
+            except dense_engine.DenseUnsupported as exc:
+                backend = dense_engine.decline_backend(route, exc)
 
         pop = evoxc_engine.decode_population(
             self.batch_node_value,
@@ -188,8 +188,8 @@ class Forest:
                     per_row=False,
                     backend=backend,
                 )
-            except dense_engine.DenseUnsupported:
-                backend = route.fallback_backend
+            except dense_engine.DenseUnsupported as exc:
+                backend = dense_engine.decline_backend(route, exc)
 
         pop = evoxc_engine.decode_population(
             self.batch_node_value,
@@ -397,8 +397,8 @@ class Forest:
                     use_MSE=use_MSE,
                     backend=backend,
                 )
-            except dense_engine.DenseUnsupported:
-                backend = route.fallback_backend
+            except dense_engine.DenseUnsupported as exc:
+                backend = dense_engine.decline_backend(route, exc)
 
         pop = evoxc_engine.decode_population(
             self.batch_node_value,
