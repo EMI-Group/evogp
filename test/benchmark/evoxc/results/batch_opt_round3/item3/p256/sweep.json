@@ -1,0 +1,665 @@
+{
+ "schema": "evogp-bench-evoxc-v1-band-sweep-driver",
+ "created_utc": "2026-10-30T00:59:02Z",
+ "measurement": "batch-band-sweep",
+ "driver_env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T00:59:02Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A96/src",
+  "tree_root_sha": "4e4ddcd5e209a3a2fac7148bd9c425bedc38fbd2",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A96",
+  "arm": "band-sweep-driver",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/tmp/evoxc_r4/evoxc/__init__.py",
+  "evoxc_sha": "2b289f034f6f8e16b6c9b55932dfed76cc54690e",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A96/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "note": "round3 item3: K=15 pinned at the rocm binding cap vs the shipped band size 16, pool-1 partitions and pool-4 compositions, same window",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A96/src:/tmp/evoxc_r4:/root/evogp/.genesis/workers/worker_T1_A96/test/benchmark/evoxc"
+ },
+ "protocol": {
+  "one_process_per_config": true,
+  "one_config_per_process": true,
+  "sequential": true,
+  "cold_only": false,
+  "cells": [
+   "p256-L32-i8-N1024",
+   "p256-L64-i32-N1024"
+  ],
+  "configs": [
+   "b16",
+   "b16-cw4",
+   "k15",
+   "k15-cw4"
+  ],
+  "config_knobs": {
+   "b16": {
+    "EVOGP_BATCH_BAND_SIZE": "16",
+    "EVOGP_BATCH_COMPILE_WORKERS": "1"
+   },
+   "b16-cw4": {
+    "EVOGP_BATCH_BAND_SIZE": "16",
+    "EVOGP_BATCH_CHUNK_BANDS": "1",
+    "EVOGP_BATCH_COMPILE_WORKERS": "4"
+   },
+   "k15": {
+    "EVOGP_BATCH_BANDS": "15",
+    "EVOGP_BATCH_COMPILE_WORKERS": "1"
+   },
+   "k15-cw4": {
+    "EVOGP_BATCH_BANDS": "15",
+    "EVOGP_BATCH_CHUNK_BANDS": "1",
+    "EVOGP_BATCH_COMPILE_WORKERS": "4"
+   }
+  },
+  "band_partition_configs": [
+   "b8",
+   "b16",
+   "b32",
+   "b64",
+   "flat",
+   "auto",
+   "k15",
+   "k7"
+  ],
+  "composition_configs": [
+   "auto-cw4",
+   "flat-cw4",
+   "b16-cw4",
+   "k15-cw4",
+   "k7-cw4"
+  ],
+  "band_cap_configs": {
+   "k15": {
+    "pinned_bands": 15,
+    "pop_floor": 120
+   },
+   "k15-cw4": {
+    "pinned_bands": 15,
+    "pop_floor": 120
+   }
+  },
+  "band_cap_limits": {
+   "device_kind": "cuda/rocm",
+   "max_bands": 15,
+   "min_band_size": 8,
+   "source": "evogp.tree.batch_bands"
+  },
+  "workloads": [
+   "sr_fitness",
+   "batch_forward",
+   "forward"
+  ],
+  "config_env": {
+   "b16": {
+    "EVOGP_BATCH_BAND_SIZE": "16",
+    "EVOGP_BATCH_BANDS": null,
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null,
+    "EVOGP_DENSE_MAX_TREE_LEN": null,
+    "EVOGP_EVAL_MODE": "batch",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "b16-cw4": {
+    "EVOGP_BATCH_BAND_SIZE": "16",
+    "EVOGP_BATCH_BANDS": null,
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "4",
+    "EVOGP_BATCH_CHUNK_BANDS": "1",
+    "EVOGP_DENSE_MAX_TREE_LEN": null,
+    "EVOGP_EVAL_MODE": "batch",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "k15": {
+    "EVOGP_BATCH_BAND_SIZE": null,
+    "EVOGP_BATCH_BANDS": "15",
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null,
+    "EVOGP_DENSE_MAX_TREE_LEN": null,
+    "EVOGP_EVAL_MODE": "batch",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "k15-cw4": {
+    "EVOGP_BATCH_BAND_SIZE": null,
+    "EVOGP_BATCH_BANDS": "15",
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "4",
+    "EVOGP_BATCH_CHUNK_BANDS": "1",
+    "EVOGP_DENSE_MAX_TREE_LEN": null,
+    "EVOGP_EVAL_MODE": "batch",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   }
+  },
+  "warmup": 1,
+  "reps": 5,
+  "seed": 0,
+  "workers": 1,
+  "max_oracle_trees": 16,
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A96/src",
+  "tree_root_arg": "src",
+  "src": "/root/evogp/.genesis/workers/worker_T1_A96/src",
+  "evoxc_root": "/tmp/evoxc_r4",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A96/src:/tmp/evoxc_r4:/root/evogp/.genesis/workers/worker_T1_A96/test/benchmark/evoxc",
+  "evoxc_disable_locations": {
+   "env": "EVOXC_DISABLE_LOCATIONS",
+   "value": "1",
+   "source": "caller",
+   "note": "honoured by every child: it speeds evoxc tracing up ~4x and is not part of the engine's cache key"
+  },
+  "guard_wait_s": 120.0,
+  "timeout_s": 3600,
+  "batch_engine_present": true,
+  "out_dir": "/root/evogp/.genesis/workers/worker_T1_A96/test/benchmark/evoxc/results/batch_opt_round3/item3/p256",
+  "frozen_result_dirs": [
+   "final",
+   "baseline",
+   "batch",
+   "batch_opt_round1",
+   "batch_opt_round2"
+  ]
+ },
+ "policies": {
+  "b16": {
+   "module_present": true,
+   "module": "/root/evogp/.genesis/workers/worker_T1_A96/src/evogp/tree/batch_engine.py",
+   "eval_mode": "batch",
+   "backend": "iree with numpy fallback",
+   "declared_modes": [
+    "dense",
+    "specialized",
+    "batch",
+    "auto"
+   ],
+   "mode_supported": true,
+   "min_pop": 64,
+   "band_size": 16,
+   "bands": "None",
+   "switch_ops": "False",
+   "alignment": "variant",
+   "cache_size": "unset",
+   "compile_workers": "1",
+   "knobs": {
+    "EVOGP_BATCH_BAND_SIZE": "16",
+    "EVOGP_BATCH_BANDS": null,
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null
+   },
+   "knobs_source": {
+    "band_size": "env",
+    "bands": "module",
+    "switch_ops": "module",
+    "alignment": "module",
+    "cache_size": "harness-default",
+    "min_pop": "module",
+    "compile_workers": "env",
+    "chunk_bands": "module"
+   }
+  },
+  "b16-cw4": {
+   "module_present": true,
+   "module": "/root/evogp/.genesis/workers/worker_T1_A96/src/evogp/tree/batch_engine.py",
+   "eval_mode": "batch",
+   "backend": "iree with numpy fallback",
+   "declared_modes": [
+    "dense",
+    "specialized",
+    "batch",
+    "auto"
+   ],
+   "mode_supported": true,
+   "min_pop": 64,
+   "band_size": 16,
+   "bands": "None",
+   "switch_ops": "False",
+   "alignment": "variant",
+   "cache_size": "unset",
+   "compile_workers": "4",
+   "knobs": {
+    "EVOGP_BATCH_BAND_SIZE": "16",
+    "EVOGP_BATCH_BANDS": null,
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "4",
+    "EVOGP_BATCH_CHUNK_BANDS": "1"
+   },
+   "knobs_source": {
+    "band_size": "env",
+    "bands": "module",
+    "switch_ops": "module",
+    "alignment": "module",
+    "cache_size": "harness-default",
+    "min_pop": "module",
+    "compile_workers": "env",
+    "chunk_bands": "env"
+   }
+  },
+  "k15": {
+   "module_present": true,
+   "module": "/root/evogp/.genesis/workers/worker_T1_A96/src/evogp/tree/batch_engine.py",
+   "eval_mode": "batch",
+   "backend": "iree with numpy fallback",
+   "declared_modes": [
+    "dense",
+    "specialized",
+    "batch",
+    "auto"
+   ],
+   "mode_supported": true,
+   "min_pop": 64,
+   "band_size": 16,
+   "bands": "15",
+   "switch_ops": "False",
+   "alignment": "variant",
+   "cache_size": "unset",
+   "compile_workers": "1",
+   "knobs": {
+    "EVOGP_BATCH_BAND_SIZE": null,
+    "EVOGP_BATCH_BANDS": "15",
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null
+   },
+   "knobs_source": {
+    "band_size": "module",
+    "bands": "env",
+    "switch_ops": "module",
+    "alignment": "module",
+    "cache_size": "harness-default",
+    "min_pop": "module",
+    "compile_workers": "env",
+    "chunk_bands": "module"
+   }
+  },
+  "k15-cw4": {
+   "module_present": true,
+   "module": "/root/evogp/.genesis/workers/worker_T1_A96/src/evogp/tree/batch_engine.py",
+   "eval_mode": "batch",
+   "backend": "iree with numpy fallback",
+   "declared_modes": [
+    "dense",
+    "specialized",
+    "batch",
+    "auto"
+   ],
+   "mode_supported": true,
+   "min_pop": 64,
+   "band_size": 16,
+   "bands": "15",
+   "switch_ops": "False",
+   "alignment": "variant",
+   "cache_size": "unset",
+   "compile_workers": "4",
+   "knobs": {
+    "EVOGP_BATCH_BAND_SIZE": null,
+    "EVOGP_BATCH_BANDS": "15",
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "4",
+    "EVOGP_BATCH_CHUNK_BANDS": "1"
+   },
+   "knobs_source": {
+    "band_size": "module",
+    "bands": "env",
+    "switch_ops": "module",
+    "alignment": "module",
+    "cache_size": "harness-default",
+    "min_pop": "module",
+    "compile_workers": "env",
+    "chunk_bands": "env"
+   }
+  }
+ },
+ "configs": [
+  {
+   "cell": "p256-L32-i8-N1024",
+   "config": "b16",
+   "status": "ok",
+   "wall_s": 29.32,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L32-i8-N1024/b16.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L32-i8-N1024/b16.log",
+   "detail": "",
+   "guard": {
+    "python": [
+     "2133948: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-4629ef2a0aaddda4 --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 0.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      2133951
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "2133951\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "config": "b16-cw4",
+   "status": "ok",
+   "wall_s": 17.2,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L32-i8-N1024/b16-cw4.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L32-i8-N1024/b16-cw4.log",
+   "detail": "",
+   "guard": {
+    "python": [
+     "2133948: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-4629ef2a0aaddda4 --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      2133951
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "2133951\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "config": "k15",
+   "status": "ok",
+   "wall_s": 29.4,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L32-i8-N1024/k15.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L32-i8-N1024/k15.log",
+   "detail": "",
+   "guard": {
+    "python": [
+     "2133948: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-4629ef2a0aaddda4 --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 0.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      2133951
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "2133951\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "cell": "p256-L32-i8-N1024",
+   "config": "k15-cw4",
+   "status": "ok",
+   "wall_s": 16.99,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L32-i8-N1024/k15-cw4.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L32-i8-N1024/k15-cw4.log",
+   "detail": "",
+   "guard": {
+    "python": [
+     "2133948: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-4629ef2a0aaddda4 --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      2133951
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "2133951\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "config": "b16",
+   "status": "ok",
+   "wall_s": 30.97,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L64-i32-N1024/b16.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L64-i32-N1024/b16.log",
+   "detail": "",
+   "guard": {
+    "python": [
+     "2133948: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-4629ef2a0aaddda4 --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 0.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      2133951
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "2133951\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "config": "b16-cw4",
+   "status": "ok",
+   "wall_s": 17.23,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L64-i32-N1024/b16-cw4.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L64-i32-N1024/b16-cw4.log",
+   "detail": "",
+   "guard": {
+    "python": [
+     "2133948: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-4629ef2a0aaddda4 --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      2133951
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "2133951\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "config": "k15",
+   "status": "ok",
+   "wall_s": 30.56,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L64-i32-N1024/k15.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L64-i32-N1024/k15.log",
+   "detail": "",
+   "guard": {
+    "python": [
+     "2133948: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-4629ef2a0aaddda4 --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 0.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      2133951
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "2133951\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  },
+  {
+   "cell": "p256-L64-i32-N1024",
+   "config": "k15-cw4",
+   "status": "ok",
+   "wall_s": 17.06,
+   "record": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L64-i32-N1024/k15-cw4.json",
+   "log": "test/benchmark/evoxc/results/batch_opt_round3/item3/p256/p256-L64-i32-N1024/k15-cw4.log",
+   "detail": "",
+   "guard": {
+    "python": [
+     "2133948: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-4629ef2a0aaddda4 --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "gpu": {
+     "gpu_use_pct": {
+      "GPU[0]": 1.0
+     }
+    },
+    "gpu_pids": {
+     "pids": [],
+     "own_pids": [
+      2133951
+     ],
+     "idle": true,
+     "raw_lines": [
+      "============================ ROCm System Management Interface ============================",
+      "===================================== KFD Processes ======================================",
+      "KFD process information:",
+      "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+      "2133951\tpython      \t0     \t0        \t0        \t0           \t",
+      "==========================================================================================",
+      "================================== End of ROCm SMI Log ==================================="
+     ]
+    },
+    "waited_s": 0.2,
+    "contaminated": false,
+    "ok": true
+   }
+  }
+ ],
+ "notes": [
+  "one child process per (cell, config): the merged-graph cache, the evoxc compile cache and the executable memo are per process, so a config loop inside one process would measure warm caches only",
+  "one knob SPEC per config: the band knob plus the pool width and the banded+chunked composition, so a record states the merge shape it ran",
+  "band-partition configs (b8, b16, b32, b64, flat, auto, k15, k7) are single-body, so a difference between two of them is the band partition alone; the composition configs (auto-cw4, flat-cw4, b16-cw4, k15-cw4, k7-cw4) deliberately run the pool",
+  "round3 item3: K=15 pinned at the rocm binding cap vs the shipped band size 16, pool-1 partitions and pool-4 compositions, same window"
+ ],
+ "elapsed_s": 190.4,
+ "failures": 0,
+ "skipped": 0
+}
