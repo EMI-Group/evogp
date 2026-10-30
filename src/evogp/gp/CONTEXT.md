@@ -32,7 +32,7 @@ Milestone 1 (this state) is the encoding foundation: config, state, one-graph ra
 - EvoX Compiler has no eager mode: every `evoxc` op must run inside a trace (`evoxc.build`/`build_cached`/`run` of a built function), and `evoxc.zeros/ones/full` build CONCRETE tensors — inside a trace they must be wrapped in `evoxc.constant(...)`.
 - evoxc gaps the encoding is built around: no `searchsorted` (the cdf lookup is a sum of `cdf[i] <= r` comparisons), no newaxis indexing (every axis insertion is an explicit `evoxc.reshape`), and `evoxc.scatter` takes the INDICES' shape as the middle axes (no per-row broadcast against a 2-D base), so the generation scatters a flattened 1-D buffer with per-row offsets.
 - Randomness is stateless and key-based (`evoxc.random.key/split/split_n`); the key lives in `GPState` and is advanced there, and every draw takes its own split child. There is no global seed.
-- `evoxc.random` is numpy-backend-only in this evoxc revision, so generation runs on `backend="numpy"`; `iree` rejects every random op.
+- `evoxc.random`'s `uniform`/`normal`/`randint`/`permutation`/`key_mix` all have StableHLO emitters, so they run on the `iree` backend as well as numpy (verified: an identical draw on both backends); only `random_multinomial` is deferred (`evoxc/backends/stablehlo/ops.py`), so nothing in this subtree may depend on `multinomial`.
 - Numerics must match the semantics of record in `../tree/ENGINE_SPEC.md` (protected `DIV`, the `LOOSE_*` variants, `IF` short-circuit, ±1 comparison clamps) — relevant once evaluation lands, not to the encoding.
 - Fitness contract: `(pop_size,)` float32, MAXIMIZED (losses negated); callers may not mutate it in place.
 ## Design Decisions
