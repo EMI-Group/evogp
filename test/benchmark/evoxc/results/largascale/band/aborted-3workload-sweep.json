@@ -1,0 +1,408 @@
+{
+ "schema": "evogp-bench-evoxc-v1-band-sweep-driver",
+ "created_utc": "2026-10-30T04:54:42Z",
+ "measurement": "batch-band-sweep",
+ "driver_env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T04:54:42Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "tree_root_sha": "0195eb6b90271c97c2935e2903372d92285027da",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A20",
+  "arm": "band-sweep-driver",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "be145eee52053422c77694e072700a8314d0346d",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "note": "large-scale band sweep (pop 2048)",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A20/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A20/test/benchmark/evoxc"
+ },
+ "protocol": {
+  "one_process_per_config": true,
+  "one_config_per_process": true,
+  "sequential": true,
+  "cold_only": false,
+  "cells": [
+   "p2048-L64-i32-N1024"
+  ],
+  "configs": [
+   "b8",
+   "b16",
+   "b32",
+   "flat",
+   "k15"
+  ],
+  "config_knobs": {
+   "b8": {
+    "EVOGP_BATCH_BAND_SIZE": "8",
+    "EVOGP_BATCH_COMPILE_WORKERS": "1"
+   },
+   "b16": {
+    "EVOGP_BATCH_BAND_SIZE": "16",
+    "EVOGP_BATCH_COMPILE_WORKERS": "1"
+   },
+   "b32": {
+    "EVOGP_BATCH_BAND_SIZE": "32",
+    "EVOGP_BATCH_COMPILE_WORKERS": "1"
+   },
+   "flat": {
+    "EVOGP_BATCH_BANDS": "none",
+    "EVOGP_BATCH_COMPILE_WORKERS": "1"
+   },
+   "k15": {
+    "EVOGP_BATCH_BANDS": "15",
+    "EVOGP_BATCH_COMPILE_WORKERS": "1"
+   }
+  },
+  "band_partition_configs": [
+   "b8",
+   "b16",
+   "b32",
+   "b64",
+   "flat",
+   "auto",
+   "k15",
+   "k7"
+  ],
+  "composition_configs": [
+   "auto-cw4",
+   "flat-cw4",
+   "b16-cw4",
+   "k15-cw4",
+   "k7-cw4"
+  ],
+  "band_cap_configs": {
+   "k15": {
+    "pinned_bands": 15,
+    "pop_floor": 120
+   }
+  },
+  "band_cap_limits": {
+   "device_kind": "cuda/rocm",
+   "max_bands": 15,
+   "min_band_size": 8,
+   "source": "evogp.tree.batch_bands"
+  },
+  "workloads": [
+   "sr_fitness",
+   "batch_forward",
+   "forward"
+  ],
+  "config_env": {
+   "b8": {
+    "EVOGP_BATCH_BAND_SIZE": "8",
+    "EVOGP_BATCH_BANDS": null,
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null,
+    "EVOGP_DENSE_MAX_TREE_LEN": null,
+    "EVOGP_EVAL_MODE": "batch",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "b16": {
+    "EVOGP_BATCH_BAND_SIZE": "16",
+    "EVOGP_BATCH_BANDS": null,
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null,
+    "EVOGP_DENSE_MAX_TREE_LEN": null,
+    "EVOGP_EVAL_MODE": "batch",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "b32": {
+    "EVOGP_BATCH_BAND_SIZE": "32",
+    "EVOGP_BATCH_BANDS": null,
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null,
+    "EVOGP_DENSE_MAX_TREE_LEN": null,
+    "EVOGP_EVAL_MODE": "batch",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "flat": {
+    "EVOGP_BATCH_BAND_SIZE": null,
+    "EVOGP_BATCH_BANDS": "none",
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null,
+    "EVOGP_DENSE_MAX_TREE_LEN": null,
+    "EVOGP_EVAL_MODE": "batch",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "k15": {
+    "EVOGP_BATCH_BAND_SIZE": null,
+    "EVOGP_BATCH_BANDS": "15",
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null,
+    "EVOGP_DENSE_MAX_TREE_LEN": null,
+    "EVOGP_EVAL_MODE": "batch",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   }
+  },
+  "warmup": 1,
+  "reps": 5,
+  "seed": 0,
+  "workers": 1,
+  "max_oracle_trees": 16,
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "tree_root_arg": "src",
+  "src": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "evoxc_root": "/root/evoxc",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A20/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A20/test/benchmark/evoxc",
+  "evoxc_disable_locations": {
+   "env": "EVOXC_DISABLE_LOCATIONS",
+   "value": "1",
+   "source": "caller",
+   "note": "honoured by every child: it speeds evoxc tracing up ~4x and is not part of the engine's cache key"
+  },
+  "guard_wait_s": 120.0,
+  "timeout_s": 1200,
+  "batch_engine_present": true,
+  "out_dir": "/root/evogp/.genesis/workers/worker_T1_A20/test/benchmark/evoxc/results/largascale/band",
+  "frozen_result_dirs": [
+   "final",
+   "baseline",
+   "batch",
+   "batch_opt_round1",
+   "batch_opt_round2"
+  ]
+ },
+ "policies": {
+  "b8": {
+   "module_present": true,
+   "module": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/tree/batch_engine.py",
+   "eval_mode": "batch",
+   "backend": "iree with numpy fallback",
+   "declared_modes": [
+    "dense",
+    "specialized",
+    "batch",
+    "auto"
+   ],
+   "mode_supported": true,
+   "min_pop": 64,
+   "band_size": 8,
+   "bands": "None",
+   "switch_ops": "False",
+   "alignment": "variant",
+   "cache_size": "unset",
+   "compile_workers": "1",
+   "knobs": {
+    "EVOGP_BATCH_BAND_SIZE": "8",
+    "EVOGP_BATCH_BANDS": null,
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null
+   },
+   "knobs_source": {
+    "band_size": "env",
+    "bands": "module",
+    "switch_ops": "module",
+    "alignment": "module",
+    "cache_size": "harness-default",
+    "min_pop": "module",
+    "compile_workers": "env",
+    "chunk_bands": "module"
+   }
+  },
+  "b16": {
+   "module_present": true,
+   "module": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/tree/batch_engine.py",
+   "eval_mode": "batch",
+   "backend": "iree with numpy fallback",
+   "declared_modes": [
+    "dense",
+    "specialized",
+    "batch",
+    "auto"
+   ],
+   "mode_supported": true,
+   "min_pop": 64,
+   "band_size": 16,
+   "bands": "None",
+   "switch_ops": "False",
+   "alignment": "variant",
+   "cache_size": "unset",
+   "compile_workers": "1",
+   "knobs": {
+    "EVOGP_BATCH_BAND_SIZE": "16",
+    "EVOGP_BATCH_BANDS": null,
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null
+   },
+   "knobs_source": {
+    "band_size": "env",
+    "bands": "module",
+    "switch_ops": "module",
+    "alignment": "module",
+    "cache_size": "harness-default",
+    "min_pop": "module",
+    "compile_workers": "env",
+    "chunk_bands": "module"
+   }
+  },
+  "b32": {
+   "module_present": true,
+   "module": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/tree/batch_engine.py",
+   "eval_mode": "batch",
+   "backend": "iree with numpy fallback",
+   "declared_modes": [
+    "dense",
+    "specialized",
+    "batch",
+    "auto"
+   ],
+   "mode_supported": true,
+   "min_pop": 64,
+   "band_size": 32,
+   "bands": "None",
+   "switch_ops": "False",
+   "alignment": "variant",
+   "cache_size": "unset",
+   "compile_workers": "1",
+   "knobs": {
+    "EVOGP_BATCH_BAND_SIZE": "32",
+    "EVOGP_BATCH_BANDS": null,
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null
+   },
+   "knobs_source": {
+    "band_size": "env",
+    "bands": "module",
+    "switch_ops": "module",
+    "alignment": "module",
+    "cache_size": "harness-default",
+    "min_pop": "module",
+    "compile_workers": "env",
+    "chunk_bands": "module"
+   }
+  },
+  "flat": {
+   "module_present": true,
+   "module": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/tree/batch_engine.py",
+   "eval_mode": "batch",
+   "backend": "iree with numpy fallback",
+   "declared_modes": [
+    "dense",
+    "specialized",
+    "batch",
+    "auto"
+   ],
+   "mode_supported": true,
+   "min_pop": 64,
+   "band_size": 16,
+   "bands": "none",
+   "switch_ops": "False",
+   "alignment": "variant",
+   "cache_size": "unset",
+   "compile_workers": "1",
+   "knobs": {
+    "EVOGP_BATCH_BAND_SIZE": null,
+    "EVOGP_BATCH_BANDS": "none",
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null
+   },
+   "knobs_source": {
+    "band_size": "module",
+    "bands": "env",
+    "switch_ops": "module",
+    "alignment": "module",
+    "cache_size": "harness-default",
+    "min_pop": "module",
+    "compile_workers": "env",
+    "chunk_bands": "module"
+   }
+  },
+  "k15": {
+   "module_present": true,
+   "module": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/tree/batch_engine.py",
+   "eval_mode": "batch",
+   "backend": "iree with numpy fallback",
+   "declared_modes": [
+    "dense",
+    "specialized",
+    "batch",
+    "auto"
+   ],
+   "mode_supported": true,
+   "min_pop": 64,
+   "band_size": 16,
+   "bands": "15",
+   "switch_ops": "False",
+   "alignment": "variant",
+   "cache_size": "unset",
+   "compile_workers": "1",
+   "knobs": {
+    "EVOGP_BATCH_BAND_SIZE": null,
+    "EVOGP_BATCH_BANDS": "15",
+    "EVOGP_BATCH_SWITCH_OPS": null,
+    "EVOGP_BATCH_ALIGNMENT": null,
+    "EVOGP_BATCH_CACHE_SIZE": null,
+    "EVOGP_BATCH_MIN_POP": null,
+    "EVOGP_BATCH_COMPILE_WORKERS": "1",
+    "EVOGP_BATCH_CHUNK_BANDS": null
+   },
+   "knobs_source": {
+    "band_size": "module",
+    "bands": "env",
+    "switch_ops": "module",
+    "alignment": "module",
+    "cache_size": "harness-default",
+    "min_pop": "module",
+    "compile_workers": "env",
+    "chunk_bands": "module"
+   }
+  }
+ },
+ "configs": [],
+ "notes": [
+  "one child process per (cell, config): the merged-graph cache, the evoxc compile cache and the executable memo are per process, so a config loop inside one process would measure warm caches only",
+  "one knob SPEC per config: the band knob plus the pool width and the banded+chunked composition, so a record states the merge shape it ran",
+  "band-partition configs (b8, b16, b32, b64, flat, auto, k15, k7) are single-body, so a difference between two of them is the band partition alone; the composition configs (auto-cw4, flat-cw4, b16-cw4, k15-cw4, k7-cw4) deliberately run the pool",
+  "large-scale band sweep (pop 2048)"
+ ]
+}

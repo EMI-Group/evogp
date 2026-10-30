@@ -1,0 +1,720 @@
+{
+ "schema": "evogp-bench-evoxc-v1-band-sweep",
+ "created_utc": "2026-10-30T05:24:07Z",
+ "measurement": "batch-band-sweep",
+ "status": "ok",
+ "error": null,
+ "error_type": null,
+ "cell": {
+  "id": "p2048-L64-i32-N1024",
+  "pop": 2048,
+  "tree_len": 64,
+  "input_len": 32,
+  "rows": 1024,
+  "max_layer_cnt": 5,
+  "population_signature": "de3e5a628cfe75df",
+  "distinct_structures": 1681,
+  "pop_size": 2048,
+  "max_tree_len": 64,
+  "output_len": 1,
+  "n_functions": {
+   "loss": 1680
+  }
+ },
+ "config": "b16",
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T05:24:07Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "tree_root_sha": "0195eb6b90271c97c2935e2903372d92285027da",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A20",
+  "arm": "band-sweep",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "be145eee52053422c77694e072700a8314d0346d",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOGP_BAND_SWEEP_DIS_SOURCE": "caller",
+   "EVOGP_BATCH_BAND_SIZE": "16",
+   "EVOGP_BATCH_COMPILE_WORKERS": "1",
+   "EVOGP_EVAL_MODE": "batch",
+   "EVOGP_EVOXC_BACKEND": "iree",
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "applied_knobs": {
+   "EVOGP_BATCH_BAND_SIZE": "16",
+   "EVOGP_BATCH_BANDS": null,
+   "EVOGP_BATCH_SWITCH_OPS": null,
+   "EVOGP_BATCH_ALIGNMENT": null,
+   "EVOGP_BATCH_CACHE_SIZE": null,
+   "EVOGP_BATCH_MIN_POP": null,
+   "EVOGP_BATCH_COMPILE_WORKERS": "1",
+   "EVOGP_BATCH_CHUNK_BANDS": null,
+   "EVOGP_DENSE_MAX_TREE_LEN": null,
+   "EVOGP_EVAL_MODE": "batch",
+   "EVOGP_EVOXC_BACKEND": "iree"
+  },
+  "knob_source": "band_sweep-config",
+  "cell": {
+   "id": "p2048-L64-i32-N1024",
+   "pop": 2048,
+   "tree_len": 64,
+   "input_len": 32,
+   "rows": 1024,
+   "max_layer_cnt": 5,
+   "population_signature": "de3e5a628cfe75df",
+   "distinct_structures": 1681,
+   "pop_size": 2048,
+   "max_tree_len": 64,
+   "output_len": 1,
+   "n_functions": {
+    "loss": 1680
+   }
+  },
+  "config": "b16"
+ },
+ "guard": {
+  "available": true,
+  "state": {
+   "python": [
+    "2312532: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-f32be067ada5a39a --slice=evogit --wait -q --setenv=PATH=/ro",
+    "2313895: /usr/bin/systemd-run --user --unit=evogit-run-1793337649840-419202 --slice=evogit --wait --pipe --collect -q --setenv=PA",
+    "2313896: /usr/bin/bash -c 'bash' '-c' 'sleep 1500; date -u +%H:%M:%S; python3 - <<'\\''EOF'\\'' import os,time,json p='\\''test/benc",
+    "2313899: bash -c sleep 1500; date -u +%H:%M:%S; python3 - <<'EOF' import os,time,json p='test/benchmark/evoxc/results/largascale/"
+   ],
+   "gpu": {
+    "gpu_use_pct": {
+     "GPU[0]": 1.0
+    }
+   },
+   "gpu_pids": {
+    "pids": [],
+    "own_pids": [
+     2312537
+    ],
+    "idle": true,
+    "raw_lines": [
+     "============================ ROCm System Management Interface ============================",
+     "===================================== KFD Processes ======================================",
+     "KFD process information:",
+     "PID    \tPROCESS NAME\tGPU(s)\tVRAM USED\tSDMA USED\tCU OCCUPANCY\t",
+     "2312537\tpython      \t0     \t0        \t0        \t0           \t",
+     "==========================================================================================",
+     "================================== End of ROCm SMI Log ==================================="
+    ]
+   },
+   "waited_s": 0.2,
+   "contaminated": false,
+   "ok": true
+  }
+ },
+ "protocol": {
+  "cells": [
+   "p2048-L64-i32-N1024"
+  ],
+  "configs": [
+   "b8",
+   "b16",
+   "b32",
+   "flat",
+   "k15"
+  ],
+  "cell": "p2048-L64-i32-N1024",
+  "config": "b16",
+  "workloads": [
+   "sr_fitness"
+  ],
+  "warmup": 1,
+  "reps": 5,
+  "seed": 0,
+  "workers": 1,
+  "max_oracle_trees": 16,
+  "config_env": {
+   "EVOGP_BATCH_BAND_SIZE": "16",
+   "EVOGP_BATCH_BANDS": null,
+   "EVOGP_BATCH_SWITCH_OPS": null,
+   "EVOGP_BATCH_ALIGNMENT": null,
+   "EVOGP_BATCH_CACHE_SIZE": null,
+   "EVOGP_BATCH_MIN_POP": null,
+   "EVOGP_BATCH_COMPILE_WORKERS": "1",
+   "EVOGP_BATCH_CHUNK_BANDS": null,
+   "EVOGP_DENSE_MAX_TREE_LEN": null,
+   "EVOGP_EVAL_MODE": "batch",
+   "EVOGP_EVOXC_BACKEND": "iree"
+  },
+  "one_process_per_config": true,
+  "one_config_per_process": true,
+  "sequential": true,
+  "sync_bracketed": true,
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "tree_root_arg": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "src": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "evoxc_root": "/root/evoxc",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A20/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A20/test/benchmark/evoxc",
+  "evoxc_version": "0.0.0+unknown",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/__init__.py",
+  "evogp_head": "0195eb6b90271c97c2935e2903372d92285027da",
+  "evoxc_disable_locations": {
+   "env": "EVOXC_DISABLE_LOCATIONS",
+   "value": "1",
+   "source": "caller",
+   "note": "the driver records whether it defaulted the value (sweep.json protocol.evoxc_disable_locations); it is not part of the engine's cache key"
+  },
+  "note": "large-scale band sweep (pop 2048): sr_fitness only -- the band-partition configs pin COMPILE_WORKERS=1 and a single-body compile at pop 2048 is ~13 min per workload, so the 3-workload schedule cannot fit"
+ },
+ "batch_policy": {
+  "module_present": true,
+  "module": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/tree/batch_engine.py",
+  "eval_mode": "batch",
+  "backend": "iree with numpy fallback",
+  "declared_modes": [
+   "dense",
+   "specialized",
+   "batch",
+   "auto"
+  ],
+  "mode_supported": true,
+  "min_pop": 64,
+  "band_size": 16,
+  "bands": "None",
+  "switch_ops": "False",
+  "alignment": "variant",
+  "cache_size": "unset",
+  "compile_workers": "1",
+  "knobs": {
+   "EVOGP_BATCH_BAND_SIZE": "16",
+   "EVOGP_BATCH_BANDS": null,
+   "EVOGP_BATCH_SWITCH_OPS": null,
+   "EVOGP_BATCH_ALIGNMENT": null,
+   "EVOGP_BATCH_CACHE_SIZE": null,
+   "EVOGP_BATCH_MIN_POP": null,
+   "EVOGP_BATCH_COMPILE_WORKERS": "1",
+   "EVOGP_BATCH_CHUNK_BANDS": null
+  },
+  "knobs_source": {
+   "band_size": "env",
+   "bands": "module",
+   "switch_ops": "module",
+   "alignment": "module",
+   "cache_size": "harness-default",
+   "min_pop": "module",
+   "compile_workers": "env",
+   "chunk_bands": "module"
+  }
+ },
+ "routes": {
+  "sr_fitness": {
+   "eval_mode": "batch",
+   "backend": "iree",
+   "kind": "batch",
+   "would_use_dense": false,
+   "would_use_batch": true,
+   "declines_to_specialized": false,
+   "decline_reason": null,
+   "min_pop": 64,
+   "band_size": 16,
+   "bands": "None",
+   "alignment": "variant",
+   "switch_ops": "False",
+   "module_present": true,
+   "mode_supported": true,
+   "rows": 1024,
+   "note": "batch/iree: merged graph per population structure multiset"
+  }
+ },
+ "workloads": {
+  "sr_fitness": {
+   "warmup": 1,
+   "reps": 5,
+   "samples_ms": [
+    11.9687,
+    12.2122,
+    12.1557,
+    11.944,
+    12.0772
+   ],
+   "first_call_ms": 1085929.6269,
+   "median_ms": 12.0772,
+   "min_ms": 11.944,
+   "max_ms": 12.2122,
+   "mean_ms": 12.0716,
+   "digest": {
+    "shape": [
+     2048
+    ],
+    "sha256": "37d71af784e7cb285c459b16ffcbe410",
+    "finite": 2031,
+    "nan": 17,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 126371117359724.72
+   },
+   "cache": {
+    "available": true,
+    "stats_fn": "evogp.tree.batch_engine.batch_cache_stats",
+    "before": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 0,
+     "batch_exec_entries": 0,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 0,
+     "batch_plan_entries": 0,
+     "batch_plan_maxsize": 8
+    },
+    "after_first_call": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 1,
+     "batch_exec_entries": 1,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 0,
+     "batch_plan_misses": 1,
+     "batch_plan_entries": 1,
+     "batch_plan_maxsize": 8
+    },
+    "after": {
+     "batch_exec_hits": 0,
+     "batch_exec_misses": 1,
+     "batch_exec_entries": 1,
+     "batch_exec_maxsize": 8,
+     "batch_plan_hits": 6,
+     "batch_plan_misses": 1,
+     "batch_plan_entries": 1,
+     "batch_plan_maxsize": 8
+    },
+    "stats_keys": [
+     "batch_exec_entries",
+     "batch_exec_hits",
+     "batch_exec_maxsize",
+     "batch_exec_misses",
+     "batch_plan_entries",
+     "batch_plan_hits",
+     "batch_plan_maxsize",
+     "batch_plan_misses"
+    ],
+    "batch_exec_misses_first_call": 1,
+    "batch_exec_misses_this_workload": 1,
+    "batch_plan_misses_first_call": 1,
+    "batch_plan_misses_this_workload": 1
+   },
+   "stage_ms": {
+    "available": true,
+    "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+    "note": null,
+    "samples": 5,
+    "batch_decode_calls": 0,
+    "batch_decode_total_ms": 0.0,
+    "batch_decode_max_ms": 0.0,
+    "batch_dedup_calls": 0,
+    "batch_dedup_total_ms": 0.0,
+    "batch_dedup_max_ms": 0.0,
+    "batch_trace_calls": 0,
+    "batch_trace_total_ms": 0.0,
+    "batch_trace_max_ms": 0.0,
+    "batch_merge_calls": 0,
+    "batch_merge_total_ms": 0.0,
+    "batch_merge_max_ms": 0.0,
+    "batch_lower_calls": 0,
+    "batch_lower_total_ms": 0.0,
+    "batch_lower_max_ms": 0.0,
+    "batch_compile_calls": 0,
+    "batch_compile_total_ms": 0.0,
+    "batch_compile_max_ms": 0.0,
+    "batch_load_calls": 0,
+    "batch_load_total_ms": 0.0,
+    "batch_load_max_ms": 0.0,
+    "batch_upload_calls": 1,
+    "batch_upload_total_ms": 0.3921,
+    "batch_upload_max_ms": 0.405,
+    "batch_run_calls": 1,
+    "batch_run_total_ms": 11.0588,
+    "batch_run_max_ms": 11.1355,
+    "batch_gather_calls": 2,
+    "batch_gather_total_ms": 0.3393,
+    "batch_gather_max_ms": 0.1916,
+    "batch_compile_wall_ms": 0.0,
+    "batch_compile_jobs": 0,
+    "plan": {
+     "available": true,
+     "note": null,
+     "n_plans": 1,
+     "compile_workers": 1,
+     "chunk_count": 1,
+     "chunk_sizes": [
+      1680
+     ]
+    }
+   },
+   "stage_first_call": {
+    "available": true,
+    "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+    "note": null,
+    "batch_decode_calls": 1,
+    "batch_decode_total_ms": 29.8175,
+    "batch_decode_max_ms": 29.8175,
+    "batch_dedup_calls": 1,
+    "batch_dedup_total_ms": 1.1644,
+    "batch_dedup_max_ms": 1.1644,
+    "batch_trace_calls": 1,
+    "batch_trace_total_ms": 1071.3756,
+    "batch_trace_max_ms": 1071.3756,
+    "batch_merge_calls": 1,
+    "batch_merge_total_ms": 2718.6388,
+    "batch_merge_max_ms": 2718.6388,
+    "batch_lower_calls": 1,
+    "batch_lower_total_ms": 934.8149,
+    "batch_lower_max_ms": 934.8149,
+    "batch_compile_calls": 1,
+    "batch_compile_total_ms": 1080861.339,
+    "batch_compile_max_ms": 1080861.339,
+    "batch_load_calls": 1,
+    "batch_load_total_ms": 226.8965,
+    "batch_load_max_ms": 226.8965,
+    "batch_upload_calls": 1,
+    "batch_upload_total_ms": 60.1544,
+    "batch_upload_max_ms": 60.1544,
+    "batch_run_calls": 1,
+    "batch_run_total_ms": 12.0484,
+    "batch_run_max_ms": 12.0484,
+    "batch_gather_calls": 2,
+    "batch_gather_total_ms": 0.4319,
+    "batch_gather_max_ms": 0.2412,
+    "batch_compile_wall_ms": 1082023.1143,
+    "batch_compile_jobs": 1
+   },
+   "band_report": {
+    "available": true,
+    "source": "plan-report+described",
+    "note": "cost_estimate / flat_estimate are null because the static cost model did not run: only EVOGP_BATCH_BANDS=auto runs it, and a pinned band SIZE (or the flat merge) never does -- null (NOT 0) means 'not measured', never 'the estimate was zero'.  When auto DID run, both estimates are populated and band_requested reads 'auto'.",
+    "chunk_count": 1,
+    "report_keys": [
+     "band_clamped",
+     "band_note",
+     "band_policy",
+     "band_requested",
+     "band_requested_bands",
+     "band_sizes",
+     "band_strategy",
+     "bands",
+     "cost_estimate",
+     "emitted_ops",
+     "flat_cost_estimate",
+     "n_functions",
+     "output_muxes",
+     "shared_classes",
+     "stacked_constants",
+     "switched",
+     "value_classes"
+    ],
+    "bands": 15,
+    "band_sizes": [
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112
+    ],
+    "band_strategy": "explicit",
+    "cost_estimate": null,
+    "flat_estimate": null,
+    "n_functions": 1680,
+    "emitted_ops": 38640,
+    "band_count": 15,
+    "band_requested": "size",
+    "band_requested_bands": null,
+    "band_clamped": true,
+    "band_note": "the band-size model (EVOGP_BATCH_BAND_SIZE=16) chose 105 bands but iree/rocm can only load 15: a banded merge emits one exported dispatch per band and one exported dispatch may bind at most 16 tensors on the ROCm/HIP HAL (iree runtime src/iree/hal/drivers/hip/native_executable.c), so at most 15 bands can load here; the merge was clamped to 15 bands. Raise EVOGP_BATCH_BAND_SIZE so fewer bands are chosen, or pass an explicit EVOGP_BATCH_BANDS=K with K <= 15 to pick the partition yourself.",
+    "band_policy": {
+     "backend": "iree",
+     "device_kind": "rocm",
+     "max_bands": 15,
+     "min_band_size": 8,
+     "uncapped": false
+    },
+    "chunk_bands": [
+     15
+    ]
+   }
+  }
+ },
+ "validation": {
+  "sr_fitness": {
+   "shape": [
+    16
+   ],
+   "max_abs": 32.0,
+   "max_rel": 7.763466669530317e-07,
+   "ref_abs_max": 487333600.0,
+   "finite_points": 16,
+   "nan_points": 0,
+   "nan_mismatch": 0,
+   "inf_mismatch": 0,
+   "bitwise_equal": false,
+   "oracle": "evogp/tests/reference_eval.py:sr_fitness_from_rows",
+   "trees_compared": 16,
+   "trees_pop": 2048,
+   "oracle_digest": {
+    "shape": [
+     16
+    ],
+    "sha256": "f51c79475f6ea21bf7be80dfb9a22728",
+    "finite": 16,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 516695571.67202157
+   }
+  }
+ },
+ "notes": [
+  "warm medians only: this child's first call is the COLD merged-graph compile of that workload's plan (first_call_ms) and never enters median_ms",
+  "the pool width and the banded+chunked composition are CONFIG knobs (EVOGP_BATCH_COMPILE_WORKERS / EVOGP_BATCH_CHUNK_BANDS), so each record states the merge shape it ran instead of inheriting one",
+  "record['validation'] is keyed by workload name: one compare(oracle, engine) block per workload, computed AFTER the timed window on the first --max-oracle rows (oracle = src/evogp/tests/reference_eval.py), so a cross-config comparison reads validation[workload].bitwise_equal / max_abs / oracle_digest",
+  "band_report.cost_estimate / flat_estimate read null unless EVOGP_BATCH_BANDS=auto ran the static cost model -- a pinned band size or the flat merge never runs it, so null (NOT 0) is the expected value there, and band_requested / band_requested_bands / band_clamped / band_note / band_policy state what the model chose and whether the binding policy lowered it",
+  "large-scale band sweep (pop 2048): sr_fitness only -- the band-partition configs pin COMPILE_WORKERS=1 and a single-body compile at pop 2048 is ~13 min per workload, so the 3-workload schedule cannot fit"
+ ],
+ "batch_cache_final": {
+  "available": true,
+  "stats_fn": "evogp.tree.batch_engine.batch_cache_stats",
+  "stats": {
+   "batch_exec_hits": 0,
+   "batch_exec_misses": 1,
+   "batch_exec_entries": 1,
+   "batch_exec_maxsize": 8,
+   "batch_plan_hits": 6,
+   "batch_plan_misses": 1,
+   "batch_plan_entries": 1,
+   "batch_plan_maxsize": 8
+  },
+  "stats_keys": [
+   "batch_exec_entries",
+   "batch_exec_hits",
+   "batch_exec_maxsize",
+   "batch_exec_misses",
+   "batch_plan_entries",
+   "batch_plan_hits",
+   "batch_plan_maxsize",
+   "batch_plan_misses"
+  ]
+ },
+ "batch_plans": [
+  {
+   "variant": "loss",
+   "per_row": false,
+   "use_mse": true,
+   "pop_size": 2048,
+   "functions": 1680,
+   "const_functions": 30,
+   "row_index_collisions": 368,
+   "input_len": 32,
+   "output_len": 1,
+   "n_rows": 1024,
+   "band_count": 15,
+   "band_sizes": [
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112
+   ],
+   "band_strategy": "explicit",
+   "switch_ops": false,
+   "alignment": "variant",
+   "emitted_ops": 38640,
+   "value_classes": 24760,
+   "shared_classes": 1237,
+   "stacked_constants": 135,
+   "output_muxes": 15,
+   "n_functions": 1680,
+   "bands": 15,
+   "cost_estimate": null,
+   "flat_cost_estimate": null,
+   "band_requested": "size",
+   "band_requested_bands": null,
+   "band_clamped": true,
+   "band_note": "the band-size model (EVOGP_BATCH_BAND_SIZE=16) chose 105 bands but iree/rocm can only load 15: a banded merge emits one exported dispatch per band and one exported dispatch may bind at most 16 tensors on the ROCm/HIP HAL (iree runtime src/iree/hal/drivers/hip/native_executable.c), so at most 15 bands can load here; the merge was clamped to 15 bands. Raise EVOGP_BATCH_BAND_SIZE so fewer bands are chosen, or pass an explicit EVOGP_BATCH_BANDS=K with K <= 15 to pick the partition yourself.",
+   "band_policy": {
+    "backend": "iree",
+    "device_kind": "rocm",
+    "max_bands": 15,
+    "min_band_size": 8,
+    "uncapped": false
+   },
+   "chunk_bands": [
+    15
+   ],
+   "chunk_band_strategies": [
+    "explicit"
+   ],
+   "compile_workers": 1,
+   "chunk_count": 1,
+   "chunk_sizes": [
+    1680
+   ],
+   "stage_ms": {
+    "decode": 29.817473026923835,
+    "dedup": 1.1644029873423278,
+    "trace": 1071.3756200275384,
+    "merge": 2718.6387960100546
+   },
+   "specs": [
+    [
+     1024,
+     32
+    ],
+    [
+     1024,
+     1
+    ]
+   ],
+   "spec_dtypes": [
+    "float32",
+    "float32"
+   ],
+   "backend": "iree",
+   "device": "Device(kind='rocm', index=0)"
+  }
+ ],
+ "batch_plan_summary": {
+  "loss": {
+   "emitted_ops": 38640,
+   "band_count": 15,
+   "band_sizes": [
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112,
+    112
+   ],
+   "band_strategy": "explicit",
+   "n_functions": 1680,
+   "functions": 1680,
+   "row_index_collisions": 368,
+   "pop_size": 2048,
+   "input_len": 32,
+   "output_len": 1,
+   "per_row": false,
+   "backend": "iree",
+   "device": "Device(kind='rocm', index=0)",
+   "compile_workers": 1,
+   "chunk_count": 1,
+   "chunk_sizes": [
+    1680
+   ],
+   "band_report": {
+    "available": true,
+    "source": "plan-report+described",
+    "note": "cost_estimate / flat_estimate are null because the static cost model did not run: only EVOGP_BATCH_BANDS=auto runs it, and a pinned band SIZE (or the flat merge) never does -- null (NOT 0) means 'not measured', never 'the estimate was zero'.  When auto DID run, both estimates are populated and band_requested reads 'auto'.",
+    "chunk_count": 1,
+    "report_keys": [
+     "band_clamped",
+     "band_note",
+     "band_policy",
+     "band_requested",
+     "band_requested_bands",
+     "band_sizes",
+     "band_strategy",
+     "bands",
+     "cost_estimate",
+     "emitted_ops",
+     "flat_cost_estimate",
+     "n_functions",
+     "output_muxes",
+     "shared_classes",
+     "stacked_constants",
+     "switched",
+     "value_classes"
+    ],
+    "bands": 15,
+    "band_sizes": [
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112,
+     112
+    ],
+    "band_strategy": "explicit",
+    "cost_estimate": null,
+    "flat_estimate": null,
+    "n_functions": 1680,
+    "emitted_ops": 38640,
+    "band_count": 15,
+    "band_requested": "size",
+    "band_requested_bands": null,
+    "band_clamped": true,
+    "band_note": "the band-size model (EVOGP_BATCH_BAND_SIZE=16) chose 105 bands but iree/rocm can only load 15: a banded merge emits one exported dispatch per band and one exported dispatch may bind at most 16 tensors on the ROCm/HIP HAL (iree runtime src/iree/hal/drivers/hip/native_executable.c), so at most 15 bands can load here; the merge was clamped to 15 bands. Raise EVOGP_BATCH_BAND_SIZE so fewer bands are chosen, or pass an explicit EVOGP_BATCH_BANDS=K with K <= 15 to pick the partition yourself.",
+    "band_policy": {
+     "backend": "iree",
+     "device_kind": "rocm",
+     "max_bands": 15,
+     "min_band_size": 8,
+     "uncapped": false
+    },
+    "chunk_bands": [
+     15
+    ]
+   }
+  }
+ },
+ "engine_cache_final": {
+  "hits": 0,
+  "misses": 0,
+  "entries": 0,
+  "maxsize": 4096,
+  "memo_hits": 0,
+  "memo_misses": 0,
+  "memo_entries": 0,
+  "memo_maxsize": 4096
+ }
+}

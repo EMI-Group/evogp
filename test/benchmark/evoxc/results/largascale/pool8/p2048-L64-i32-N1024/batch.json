@@ -1,0 +1,851 @@
+{
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T06:59:10Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "tree_root_sha": "0195eb6b90271c97c2935e2903372d92285027da",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A20",
+  "arm": "evoxc-batch-iree",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "be145eee52053422c77694e072700a8314d0346d",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOGP_BATCH_COMPILE_WORKERS": "8",
+   "EVOGP_EVAL_MODE": "batch",
+   "EVOGP_EVOXC_BACKEND": "iree",
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "applied_knobs": {
+   "EVOGP_BATCH_COMPILE_WORKERS": "8"
+  },
+  "cell": {
+   "id": "p2048-L64-i32-N1024",
+   "pop": 2048,
+   "tree_len": 64,
+   "input_len": 32,
+   "rows": 1024,
+   "max_layer_cnt": 5
+  },
+  "route": "batch"
+ },
+ "cell": {
+  "id": "p2048-L64-i32-N1024",
+  "pop": 2048,
+  "tree_len": 64,
+  "input_len": 32,
+  "rows": 1024,
+  "max_layer_cnt": 5
+ },
+ "route": "batch",
+ "arm": "evoxc-batch-iree",
+ "measurement": "batch-compile-economics",
+ "protocol": {
+  "one_process_per_config": true,
+  "one_cell_per_process": true,
+  "generations": 1,
+  "warmup": 2,
+  "reps": 5,
+  "seed": 0,
+  "sync_bracketed": true,
+  "evoxc_disable_locations": "1",
+  "workload": "sr_fitness",
+  "route_is_batch": true,
+  "pipeline_warmup": false,
+  "route_spec": {
+   "token": "batch",
+   "arm": "evoxc-batch-iree",
+   "knobs": {}
+  },
+  "route_knobs": {
+   "EVOGP_BATCH_BAND_SIZE": {
+    "env": "EVOGP_BATCH_BAND_SIZE",
+    "value": 16,
+    "env_value": null,
+    "source": "module",
+    "spec_key": "band_size"
+   },
+   "EVOGP_BATCH_BANDS": {
+    "env": "EVOGP_BATCH_BANDS",
+    "value": "None",
+    "env_value": null,
+    "source": "module",
+    "spec_key": "bands"
+   },
+   "EVOGP_BATCH_SWITCH_OPS": {
+    "env": "EVOGP_BATCH_SWITCH_OPS",
+    "value": "False",
+    "env_value": null,
+    "source": "module",
+    "spec_key": "switch_ops"
+   },
+   "EVOGP_BATCH_ALIGNMENT": {
+    "env": "EVOGP_BATCH_ALIGNMENT",
+    "value": "variant",
+    "env_value": null,
+    "source": "module",
+    "spec_key": "alignment"
+   },
+   "EVOGP_BATCH_CACHE_SIZE": {
+    "env": "EVOGP_BATCH_CACHE_SIZE",
+    "value": "unset",
+    "env_value": null,
+    "source": "harness-default",
+    "spec_key": "cache_size"
+   },
+   "EVOGP_BATCH_MIN_POP": {
+    "env": "EVOGP_BATCH_MIN_POP",
+    "value": 64,
+    "env_value": null,
+    "source": "module",
+    "spec_key": "min_pop"
+   },
+   "EVOGP_BATCH_COMPILE_WORKERS": {
+    "env": "EVOGP_BATCH_COMPILE_WORKERS",
+    "value": "8",
+    "env_value": "8",
+    "source": "harness-knob",
+    "spec_key": "compile_workers"
+   },
+   "EVOGP_BATCH_CHUNK_BANDS": {
+    "env": "EVOGP_BATCH_CHUNK_BANDS",
+    "value": "off",
+    "env_value": null,
+    "source": "module",
+    "spec_key": "chunk_bands"
+   },
+   "EVOGP_DENSE_MAX_TREE_LEN": {
+    "env": "EVOGP_DENSE_MAX_TREE_LEN",
+    "value": null,
+    "env_value": null,
+    "source": "unset"
+   }
+  },
+  "batch_compile_workers": {
+   "env": "EVOGP_BATCH_COMPILE_WORKERS",
+   "value": "8",
+   "env_value": "8",
+   "source": "harness-knob",
+   "spec_key": "compile_workers"
+  }
+ },
+ "structures": {
+  "pop_size": 2048,
+  "max_tree_len": 64,
+  "tree_len_mean": 16.0048828125,
+  "tree_len_median": 17.0,
+  "tree_len_max": 31,
+  "distinct_structures": 1681,
+  "structure_signature": "de3e5a628cfe75df"
+ },
+ "routes": {
+  "sr_fitness": {
+   "eval_mode": "batch",
+   "backend": "iree",
+   "kind": "batch",
+   "would_use_dense": false,
+   "would_use_batch": true,
+   "declines_to_specialized": false,
+   "decline_reason": null,
+   "min_pop": 64,
+   "band_size": 16,
+   "bands": "None",
+   "alignment": "variant",
+   "switch_ops": "False",
+   "module_present": true,
+   "mode_supported": true,
+   "rows": 1024,
+   "note": "batch/iree: merged graph per population structure multiset"
+  }
+ },
+ "dense_policy": {
+  "auto_min_pop": 64,
+  "auto_max_rows": 2048
+ },
+ "first_call": {
+  "first_call_ms": 28755.117,
+  "evoxc_cache": {
+   "before": {
+    "hits": 0,
+    "misses": 0,
+    "entries": 0,
+    "maxsize": 4096,
+    "memo_hits": 0,
+    "memo_misses": 0,
+    "memo_entries": 0,
+    "memo_maxsize": 4096
+   },
+   "after": {
+    "hits": 0,
+    "misses": 0,
+    "entries": 0,
+    "maxsize": 4096,
+    "memo_hits": 0,
+    "memo_misses": 0,
+    "memo_entries": 0,
+    "memo_maxsize": 4096
+   },
+   "compile_misses": 0
+  },
+  "digest": {
+   "shape": [
+    2048
+   ],
+   "sha256": "69e9c857a3971ea9ca03fb8329eedfa5",
+   "finite": 2031,
+   "nan": 17,
+   "posinf": 0,
+   "neginf": 0,
+   "abs_sum": 126371117481900.81
+  },
+  "merged_graph_cache": {
+   "available": true,
+   "stats_fn": "evogp.tree.batch_engine.batch_cache_stats",
+   "before": {
+    "batch_exec_hits": 0,
+    "batch_exec_misses": 0,
+    "batch_exec_entries": 0,
+    "batch_exec_maxsize": 8,
+    "batch_plan_hits": 0,
+    "batch_plan_misses": 0,
+    "batch_plan_entries": 0,
+    "batch_plan_maxsize": 8
+   },
+   "after": {
+    "batch_exec_hits": 0,
+    "batch_exec_misses": 8,
+    "batch_exec_entries": 8,
+    "batch_exec_maxsize": 8,
+    "batch_plan_hits": 0,
+    "batch_plan_misses": 1,
+    "batch_plan_entries": 1,
+    "batch_plan_maxsize": 8
+   },
+   "compile_misses": 8
+  },
+  "stage_ms": {
+   "available": true,
+   "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+   "note": null,
+   "batch_decode_calls": 1,
+   "batch_decode_total_ms": 30.3751,
+   "batch_decode_max_ms": 30.3751,
+   "batch_dedup_calls": 1,
+   "batch_dedup_total_ms": 1.4281,
+   "batch_dedup_max_ms": 1.4281,
+   "batch_trace_calls": 1,
+   "batch_trace_total_ms": 1309.5173,
+   "batch_trace_max_ms": 1309.5173,
+   "batch_merge_calls": 1,
+   "batch_merge_total_ms": 2576.9334,
+   "batch_merge_max_ms": 2576.9334,
+   "batch_lower_calls": 8,
+   "batch_lower_total_ms": 5409.5595,
+   "batch_lower_max_ms": 749.8543,
+   "batch_compile_calls": 8,
+   "batch_compile_total_ms": 181792.6604,
+   "batch_compile_max_ms": 23952.0396,
+   "batch_load_calls": 8,
+   "batch_load_total_ms": 621.3666,
+   "batch_load_max_ms": 100.8761,
+   "batch_upload_calls": 8,
+   "batch_upload_total_ms": 46.7321,
+   "batch_upload_max_ms": 45.2316,
+   "batch_run_calls": 8,
+   "batch_run_total_ms": 15.0765,
+   "batch_run_max_ms": 2.2195,
+   "batch_gather_calls": 9,
+   "batch_gather_total_ms": 1.6687,
+   "batch_gather_max_ms": 0.2921,
+   "batch_compile_wall_ms": 24759.5408,
+   "batch_compile_jobs": 8,
+   "plan": {
+    "available": true,
+    "note": null,
+    "n_plans": 1,
+    "compile_workers": 8,
+    "chunk_count": 8,
+    "chunk_sizes": [
+     210,
+     210,
+     210,
+     210,
+     210,
+     210,
+     210,
+     210
+    ]
+   }
+  },
+  "content": {
+   "available": true,
+   "stats_fn": "evogp.tree.batch_engine.batch_content_stats",
+   "note": null,
+   "batch_content_hits": 0,
+   "batch_content_misses": 1,
+   "batch_content_rejects": 0,
+   "batch_content_entries": 1,
+   "batch_content_maxsize": 8,
+   "attempts": 1,
+   "hit_rate": 0.0
+  }
+ },
+ "sr_fitness": {
+  "warmup": 2,
+  "reps": 5,
+  "samples_ms": [
+   15.0892,
+   14.9043,
+   14.9936,
+   15.1073,
+   15.1431
+  ],
+  "warmup_call_ms": 16.0475,
+  "median_ms": 15.0892,
+  "min_ms": 14.9043,
+  "max_ms": 15.1431,
+  "mean_ms": 15.0475,
+  "cache": {
+   "before": {
+    "hits": 0,
+    "misses": 0,
+    "entries": 0,
+    "maxsize": 4096,
+    "memo_hits": 0,
+    "memo_misses": 0,
+    "memo_entries": 0,
+    "memo_maxsize": 4096
+   },
+   "after_first_call": {
+    "hits": 0,
+    "misses": 0,
+    "entries": 0,
+    "maxsize": 4096,
+    "memo_hits": 0,
+    "memo_misses": 0,
+    "memo_entries": 0,
+    "memo_maxsize": 4096
+   },
+   "after": {
+    "hits": 0,
+    "misses": 0,
+    "entries": 0,
+    "maxsize": 4096,
+    "memo_hits": 0,
+    "memo_misses": 0,
+    "memo_entries": 0,
+    "memo_maxsize": 4096
+   },
+   "compile_misses_first_call": 0,
+   "compile_misses_this_workload": 0,
+   "batch_before": {
+    "batch_exec_hits": 0,
+    "batch_exec_misses": 8,
+    "batch_exec_entries": 8,
+    "batch_exec_maxsize": 8,
+    "batch_plan_hits": 0,
+    "batch_plan_misses": 1,
+    "batch_plan_entries": 1,
+    "batch_plan_maxsize": 8
+   },
+   "batch_after_first_call": {
+    "batch_exec_hits": 0,
+    "batch_exec_misses": 8,
+    "batch_exec_entries": 8,
+    "batch_exec_maxsize": 8,
+    "batch_plan_hits": 1,
+    "batch_plan_misses": 1,
+    "batch_plan_entries": 1,
+    "batch_plan_maxsize": 8
+   },
+   "batch_after": {
+    "batch_exec_hits": 0,
+    "batch_exec_misses": 8,
+    "batch_exec_entries": 8,
+    "batch_exec_maxsize": 8,
+    "batch_plan_hits": 8,
+    "batch_plan_misses": 1,
+    "batch_plan_entries": 1,
+    "batch_plan_maxsize": 8
+   },
+   "batch_compile_misses_first_call": 0,
+   "batch_compile_misses_this_workload": 0
+  },
+  "digest": {
+   "shape": [
+    2048
+   ],
+   "sha256": "69e9c857a3971ea9ca03fb8329eedfa5",
+   "finite": 2031,
+   "nan": 17,
+   "posinf": 0,
+   "neginf": 0,
+   "abs_sum": 126371117481900.81
+  },
+  "stage_ms": {
+   "available": true,
+   "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+   "note": null,
+   "samples": 5,
+   "batch_decode_calls": 0,
+   "batch_decode_total_ms": 0.0,
+   "batch_decode_max_ms": 0.0,
+   "batch_dedup_calls": 0,
+   "batch_dedup_total_ms": 0.0,
+   "batch_dedup_max_ms": 0.0,
+   "batch_trace_calls": 0,
+   "batch_trace_total_ms": 0.0,
+   "batch_trace_max_ms": 0.0,
+   "batch_merge_calls": 0,
+   "batch_merge_total_ms": 0.0,
+   "batch_merge_max_ms": 0.0,
+   "batch_lower_calls": 0,
+   "batch_lower_total_ms": 0.0,
+   "batch_lower_max_ms": 0.0,
+   "batch_compile_calls": 0,
+   "batch_compile_total_ms": 0.0,
+   "batch_compile_max_ms": 0.0,
+   "batch_load_calls": 0,
+   "batch_load_total_ms": 0.0,
+   "batch_load_max_ms": 0.0,
+   "batch_upload_calls": 8,
+   "batch_upload_total_ms": 1.5802,
+   "batch_upload_max_ms": 0.2346,
+   "batch_run_calls": 8,
+   "batch_run_total_ms": 11.6641,
+   "batch_run_max_ms": 1.5487,
+   "batch_gather_calls": 9,
+   "batch_gather_total_ms": 1.3651,
+   "batch_gather_max_ms": 0.1968,
+   "batch_compile_wall_ms": 0.0,
+   "batch_compile_jobs": 0,
+   "first_call": {
+    "available": true,
+    "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+    "note": null,
+    "batch_decode_calls": 0,
+    "batch_decode_total_ms": 0.0,
+    "batch_decode_max_ms": 0.0,
+    "batch_dedup_calls": 0,
+    "batch_dedup_total_ms": 0.0,
+    "batch_dedup_max_ms": 0.0,
+    "batch_trace_calls": 0,
+    "batch_trace_total_ms": 0.0,
+    "batch_trace_max_ms": 0.0,
+    "batch_merge_calls": 0,
+    "batch_merge_total_ms": 0.0,
+    "batch_merge_max_ms": 0.0,
+    "batch_lower_calls": 0,
+    "batch_lower_total_ms": 0.0,
+    "batch_lower_max_ms": 0.0,
+    "batch_compile_calls": 0,
+    "batch_compile_total_ms": 0.0,
+    "batch_compile_max_ms": 0.0,
+    "batch_load_calls": 0,
+    "batch_load_total_ms": 0.0,
+    "batch_load_max_ms": 0.0,
+    "batch_upload_calls": 8,
+    "batch_upload_total_ms": 1.7272,
+    "batch_upload_max_ms": 0.284,
+    "batch_run_calls": 8,
+    "batch_run_total_ms": 12.3031,
+    "batch_run_max_ms": 1.6234,
+    "batch_gather_calls": 9,
+    "batch_gather_total_ms": 1.4974,
+    "batch_gather_max_ms": 0.1961,
+    "batch_compile_wall_ms": 0.0,
+    "batch_compile_jobs": 0
+   },
+   "plan": {
+    "available": true,
+    "note": null,
+    "n_plans": 1,
+    "compile_workers": 8,
+    "chunk_count": 8,
+    "chunk_sizes": [
+     210,
+     210,
+     210,
+     210,
+     210,
+     210,
+     210,
+     210
+    ]
+   }
+  },
+  "content": {
+   "available": true,
+   "stats_fn": "evogp.tree.batch_engine.batch_content_stats",
+   "note": null,
+   "batch_content_hits": 0,
+   "batch_content_misses": 0,
+   "batch_content_rejects": 0,
+   "batch_content_entries": 1,
+   "batch_content_maxsize": 8,
+   "attempts": 0,
+   "hit_rate": null
+  }
+ },
+ "generations": [
+  {
+   "g": 1,
+   "population_signature": "de3e5a628cfe75df",
+   "distinct_structures": 1681,
+   "signature_seen_before": true,
+   "total_ms": 290.8192,
+   "eval_ms": 15.4162,
+   "ops_ms": 275.4029,
+   "compile_misses": 0,
+   "pop_size": 2048,
+   "best_fitness": -0.0849221795797348,
+   "batch_compile_misses": 0,
+   "batch_plan_misses": 0,
+   "stage_ms": {
+    "available": true,
+    "stats_fn": "evogp.tree.batch_engine.batch_stage_stats",
+    "note": null,
+    "batch_decode_calls": 0,
+    "batch_decode_total_ms": 0.0,
+    "batch_decode_max_ms": 0.0,
+    "batch_dedup_calls": 0,
+    "batch_dedup_total_ms": 0.0,
+    "batch_dedup_max_ms": 0.0,
+    "batch_trace_calls": 0,
+    "batch_trace_total_ms": 0.0,
+    "batch_trace_max_ms": 0.0,
+    "batch_merge_calls": 0,
+    "batch_merge_total_ms": 0.0,
+    "batch_merge_max_ms": 0.0,
+    "batch_lower_calls": 0,
+    "batch_lower_total_ms": 0.0,
+    "batch_lower_max_ms": 0.0,
+    "batch_compile_calls": 0,
+    "batch_compile_total_ms": 0.0,
+    "batch_compile_max_ms": 0.0,
+    "batch_load_calls": 0,
+    "batch_load_total_ms": 0.0,
+    "batch_load_max_ms": 0.0,
+    "batch_upload_calls": 8,
+    "batch_upload_total_ms": 1.6914,
+    "batch_upload_max_ms": 0.2481,
+    "batch_run_calls": 8,
+    "batch_run_total_ms": 11.8714,
+    "batch_run_max_ms": 1.6163,
+    "batch_gather_calls": 9,
+    "batch_gather_total_ms": 1.4376,
+    "batch_gather_max_ms": 0.2011,
+    "batch_compile_wall_ms": 0.0,
+    "batch_compile_jobs": 0
+   },
+   "content": {
+    "available": true,
+    "stats_fn": "evogp.tree.batch_engine.batch_content_stats",
+    "note": null,
+    "batch_content_hits": 0,
+    "batch_content_misses": 0,
+    "batch_content_rejects": 0,
+    "batch_content_entries": 1,
+    "batch_content_maxsize": 8,
+    "attempts": 0,
+    "hit_rate": null
+   },
+   "compile_hit": true
+  }
+ ],
+ "summary": {
+  "generations": 1,
+  "generations_with_compile": 0,
+  "generations_unknown": 0,
+  "generation_hit_rate": 1.0,
+  "distinct_population_signatures": 1,
+  "median_warm_eval_ms": 15.4162,
+  "median_cold_eval_ms": null,
+  "sum_total_ms": 290.8192,
+  "sum_eval_ms": 15.4162,
+  "compile_ms_share": 0.0,
+  "first_call_ms": 28755.117,
+  "warm_median_ms": 15.0892,
+  "merged_graph_cache": {
+   "available": true,
+   "provenance": {
+    "stats_fn": "evogp.tree.batch_engine.batch_cache_stats",
+    "key": "sorted structure-multiset fingerprint (common.population_signature.signature)",
+    "counter": "the exec table's misses (worker.batch_miss_key: 'batch_exec_misses', falling back to a bare 'misses'), i.e. the table whose miss really recompiles; the plan table's 'batch_plan_misses' is a re-decode/re-merge, not a recompile",
+    "stats_keys": [
+     "batch_exec_entries",
+     "batch_exec_hits",
+     "batch_exec_maxsize",
+     "batch_exec_misses",
+     "batch_plan_entries",
+     "batch_plan_hits",
+     "batch_plan_maxsize",
+     "batch_plan_misses"
+    ],
+    "note": "counters are null (NOT zero) when the route exposes no stats callable: a missing counter must never read as 'no compile'; the plan table's misses are now recorded per generation as generations[i].batch_plan_misses (a re-decode/re-trace/re-merge, never a recompile)"
+   },
+   "stats_before_first_call": {
+    "batch_exec_hits": 0,
+    "batch_exec_misses": 0,
+    "batch_exec_entries": 0,
+    "batch_exec_maxsize": 8,
+    "batch_plan_hits": 0,
+    "batch_plan_misses": 0,
+    "batch_plan_entries": 0,
+    "batch_plan_maxsize": 8
+   },
+   "stats_after_first_call": {
+    "batch_exec_hits": 0,
+    "batch_exec_misses": 8,
+    "batch_exec_entries": 8,
+    "batch_exec_maxsize": 8,
+    "batch_plan_hits": 0,
+    "batch_plan_misses": 1,
+    "batch_plan_entries": 1,
+    "batch_plan_maxsize": 8
+   },
+   "stats_after_generations": {
+    "batch_exec_hits": 0,
+    "batch_exec_misses": 8,
+    "batch_exec_entries": 8,
+    "batch_exec_maxsize": 8,
+    "batch_plan_hits": 9,
+    "batch_plan_misses": 1,
+    "batch_plan_entries": 1,
+    "batch_plan_maxsize": 8
+   },
+   "compile_misses_first_call": 8,
+   "compile_misses_generations": 0,
+   "compile_misses_total": 8,
+   "plan_misses_generations": 0
+  },
+  "cold_stage_ms": {
+   "decode": 30.3751,
+   "dedup": 1.4281,
+   "trace": 1309.5173,
+   "merge": 2576.9334,
+   "lower": 5409.5595,
+   "compile": 181792.6604,
+   "load": 621.3666,
+   "upload": 46.7321,
+   "run": 15.0765,
+   "gather": 1.6687
+  },
+  "warm_stage_ms": {
+   "decode": 0.0,
+   "dedup": 0.0,
+   "trace": 0.0,
+   "merge": 0.0,
+   "lower": 0.0,
+   "compile": 0.0,
+   "load": 0.0,
+   "upload": 1.5802,
+   "run": 11.6641,
+   "gather": 1.3651
+  },
+  "compile_share": {
+   "available": true,
+   "note": null,
+   "share": 0.0,
+   "compile_ms": 0.0,
+   "loop_ms": 290.8192,
+   "generations": 1,
+   "generations_with_compile": 0,
+   "generations_unknown": 0,
+   "share_gt_one": false,
+   "numerator_kind": "parallel-stage-counter-sum",
+   "denominator_kind": "loop-wall-ms"
+  },
+  "content": {
+   "available": true,
+   "stats_fn": "evogp.tree.batch_engine.batch_content_stats",
+   "note": null,
+   "batch_content_hits": 0,
+   "batch_content_misses": 1,
+   "batch_content_rejects": 0,
+   "batch_content_entries": 1,
+   "batch_content_maxsize": 8,
+   "attempts": 1,
+   "hit_rate": 0.0,
+   "generations": {
+    "rows": 1,
+    "with_content_hit": 0,
+    "with_content_miss": 0,
+    "no_attempt": 1,
+    "unknown": 0
+   }
+  }
+ },
+ "engine_cache_final": {
+  "hits": 0,
+  "misses": 0,
+  "entries": 0,
+  "maxsize": 4096,
+  "memo_hits": 0,
+  "memo_misses": 0,
+  "memo_entries": 0,
+  "memo_maxsize": 4096
+ },
+ "notes": [
+  "generation 1 evaluates the INITIAL population, whose graph the timed first call already compiled, so generation 1 is expected to hit; it is recorded as measured (not warmed up away) and the interesting number is generations 2..N",
+  "batch route: ONE merged graph per population structure multiset, so a multi-second first_call_ms is the expected cold cost of the route, recorded as measured and never treated as a defect or retried away",
+  "batch route: the content blocks (first_call / sr_fitness / generations[i] / summary) price the plan-key REUSE surface, not the compile itself. The identity table is consulted first, so a repeated call on the same Forest object AND the same plan parameters leaves the content table untouched (attempts 0, which is not a content miss); a first call for a NEW plan shape is an identity miss even on an unchanged object, so it does probe the content table (one attempt, usually a miss that stores the entry), and only a REBUILT-but-equal population can produce a content hit -- which means the merge was served instead of re-decoded, re-traced and re-merged",
+  "knob override EVOGP_BATCH_COMPILE_WORKERS=8: applied AFTER the arm's own knob spec (and after the named route's own spec) and BEFORE the policy was resolved, so batch_policy / env.applied_knobs / protocol.route_knobs / this block all carry the value the engine read",
+  "large-scale compile-pool width 8 (pool-4 default baseline: 48.3 s cold / 12.79 ms warm)"
+ ],
+ "band_report": {
+  "available": true,
+  "source": "plan-report+described",
+  "note": "cost_estimate / flat_estimate are null because the static cost model did not run: only EVOGP_BATCH_BANDS=auto runs it, and a pinned band SIZE (or the flat merge) never does -- null (NOT 0) means 'not measured', never 'the estimate was zero'.  When auto DID run, both estimates are populated and band_requested reads 'auto'.",
+  "chunk_count": 8,
+  "report_keys": [
+   "band_clamped",
+   "band_note",
+   "band_policy",
+   "band_requested",
+   "band_requested_bands",
+   "band_sizes",
+   "band_strategy",
+   "bands",
+   "chunk_count",
+   "chunk_sizes",
+   "emitted_ops",
+   "n_functions"
+  ],
+  "bands": null,
+  "band_sizes": null,
+  "band_strategy": null,
+  "cost_estimate": null,
+  "flat_estimate": null,
+  "n_functions": 1680,
+  "emitted_ops": 43254,
+  "band_count": 1,
+  "band_requested": "size",
+  "band_requested_bands": null,
+  "band_clamped": false,
+  "band_note": null,
+  "band_policy": {
+   "backend": "iree",
+   "device_kind": "rocm",
+   "max_bands": 15,
+   "min_band_size": 8,
+   "uncapped": false
+  },
+  "chunk_bands": [
+   14,
+   14,
+   14,
+   14,
+   14,
+   14,
+   14,
+   14
+  ]
+ },
+ "band_reports": {
+  "loss": {
+   "available": true,
+   "source": "plan-report+described",
+   "note": "cost_estimate / flat_estimate are null because the static cost model did not run: only EVOGP_BATCH_BANDS=auto runs it, and a pinned band SIZE (or the flat merge) never does -- null (NOT 0) means 'not measured', never 'the estimate was zero'.  When auto DID run, both estimates are populated and band_requested reads 'auto'.",
+   "chunk_count": 8,
+   "report_keys": [
+    "band_clamped",
+    "band_note",
+    "band_policy",
+    "band_requested",
+    "band_requested_bands",
+    "band_sizes",
+    "band_strategy",
+    "bands",
+    "chunk_count",
+    "chunk_sizes",
+    "emitted_ops",
+    "n_functions"
+   ],
+   "bands": null,
+   "band_sizes": null,
+   "band_strategy": null,
+   "cost_estimate": null,
+   "flat_estimate": null,
+   "n_functions": 1680,
+   "emitted_ops": 43254,
+   "band_count": 1,
+   "band_requested": "size",
+   "band_requested_bands": null,
+   "band_clamped": false,
+   "band_note": null,
+   "band_policy": {
+    "backend": "iree",
+    "device_kind": "rocm",
+    "max_bands": 15,
+    "min_band_size": 8,
+    "uncapped": false
+   },
+   "chunk_bands": [
+    14,
+    14,
+    14,
+    14,
+    14,
+    14,
+    14,
+    14
+   ]
+  }
+ },
+ "band_report_note": null,
+ "knobs_override": {
+  "EVOGP_BATCH_COMPILE_WORKERS": "8"
+ },
+ "batch_policy": {
+  "module_present": true,
+  "module": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/tree/batch_engine.py",
+  "eval_mode": "batch",
+  "backend": "iree with numpy fallback",
+  "declared_modes": [
+   "dense",
+   "specialized",
+   "batch",
+   "auto"
+  ],
+  "mode_supported": true,
+  "min_pop": 64,
+  "band_size": 16,
+  "bands": "None",
+  "switch_ops": "False",
+  "alignment": "variant",
+  "cache_size": "unset",
+  "compile_workers": "8",
+  "knobs": {
+   "EVOGP_BATCH_BAND_SIZE": null,
+   "EVOGP_BATCH_BANDS": null,
+   "EVOGP_BATCH_SWITCH_OPS": null,
+   "EVOGP_BATCH_ALIGNMENT": null,
+   "EVOGP_BATCH_CACHE_SIZE": null,
+   "EVOGP_BATCH_MIN_POP": null,
+   "EVOGP_BATCH_COMPILE_WORKERS": "8",
+   "EVOGP_BATCH_CHUNK_BANDS": null
+  },
+  "knobs_source": {
+   "band_size": "module",
+   "bands": "module",
+   "switch_ops": "module",
+   "alignment": "module",
+   "cache_size": "harness-default",
+   "min_pop": "module",
+   "compile_workers": "env",
+   "chunk_bands": "module"
+  }
+ }
+}

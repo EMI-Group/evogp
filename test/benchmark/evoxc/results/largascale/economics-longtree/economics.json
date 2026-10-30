@@ -1,0 +1,100 @@
+{
+ "schema": "evogp-bench-evoxc-v1-batch-economics",
+ "created_utc": "2026-10-30T04:43:59Z",
+ "measurement": "batch-compile-economics",
+ "driver_env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T04:44:05Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "tree_root_sha": "0195eb6b90271c97c2935e2903372d92285027da",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A20",
+  "arm": "driver",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "b0544d57b8687645c8a27de536c85fed4fb3212e",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A20/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "note": "large-scale d7: node-count axis, batch vs raised dense",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A20/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A20/test/benchmark/evoxc"
+ },
+ "protocol": {
+  "one_process_per_config": true,
+  "one_cell_per_process": true,
+  "sequential": true,
+  "cells": [
+   "p2048-L128-i32-N1024-d7"
+  ],
+  "routes": [
+   "batch",
+   "dense"
+  ],
+  "route_arms": {
+   "batch": "evoxc-batch-iree",
+   "dense": "evoxc-dense-iree"
+  },
+  "route_specs": {
+   "batch": {},
+   "dense": {}
+  },
+  "generations": 3,
+  "warmup": 2,
+  "reps": 5,
+  "seed": 0,
+  "timeout_s": 1500,
+  "generation_loop": "StandardPipeline.step() x --generations (>= 6 for the round-2 cold/warm/generation comparison)",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "src": "/root/evogp/.genesis/workers/worker_T1_A20/src",
+  "pythonpath": "/root/evogp/.genesis/workers/worker_T1_A20/src:/root/evoxc:/root/evogp/.genesis/workers/worker_T1_A20/test/benchmark/evoxc",
+  "evoxc_disable_locations": {
+   "env": "EVOXC_DISABLE_LOCATIONS",
+   "value": "1",
+   "source": "caller",
+   "note": "honoured by every child: it speeds evoxc tracing up ~4x and is not part of the engine's cache key"
+  },
+  "batch_engine_present": true,
+  "knobs_override": {
+   "EVOGP_DENSE_MAX_TREE_LEN": "128"
+  },
+  "out_dir": "/root/evogp/.genesis/workers/worker_T1_A20/test/benchmark/evoxc/results/largascale/economics-longtree"
+ },
+ "configs": [
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "route": "batch",
+   "arm": "evoxc-batch-iree",
+   "status": "ok",
+   "wall_s": 322.08,
+   "record": "test/benchmark/evoxc/results/largascale/economics-longtree/p2048-L128-i32-N1024-d7/batch.json",
+   "log": "test/benchmark/evoxc/results/largascale/economics-longtree/p2048-L128-i32-N1024-d7/batch.log",
+   "detail": ""
+  },
+  {
+   "cell": "p2048-L128-i32-N1024-d7",
+   "route": "dense",
+   "arm": "evoxc-dense-iree",
+   "status": "ok",
+   "wall_s": 24.46,
+   "record": "test/benchmark/evoxc/results/largascale/economics-longtree/p2048-L128-i32-N1024-d7/dense.json",
+   "log": "test/benchmark/evoxc/results/largascale/economics-longtree/p2048-L128-i32-N1024-d7/dense.log",
+   "detail": ""
+  }
+ ],
+ "notes": [
+  "one child process per (cell, route): the merged-graph cache, the evoxc compile cache and the executable memo are per process, so a route loop inside one process would measure warm caches only",
+  "knob override EVOGP_DENSE_MAX_TREE_LEN=128: forwarded to every child as repeated --knob args and applied AFTER the arm's own knobs and the named route's spec, so the recorded batch_policy shows the value the engine really read",
+  "large-scale d7: node-count axis, batch vs raised dense"
+ ]
+}
