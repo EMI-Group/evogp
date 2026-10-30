@@ -72,7 +72,8 @@ Reproduce on the GPU box
     PY=/tmp/rocvenv/bin/python
     export EVOXC_DISABLE_LOCATIONS=1
     $PY test/benchmark/evoxc/band_sweep.py --dry-run     # planned env of every (cell, config, workload)
-    $PY test/benchmark/evoxc/band_sweep.py               # the round-2 sweep: 3 cells x 9 configs
+    $PY test/benchmark/evoxc/band_sweep.py               # default plan: 3 cells x 9 configs into
+                                                         # results/batch_opt_round3/band, evoxc_r4
     $PY test/benchmark/evoxc/band_sweep.py --cold-only --cells p64-L64-i32-N64 --configs auto
     $PY test/benchmark/evoxc/band_sweep.py --child p64-L64-i32-N64 --config b32 \
         --workloads sr_fitness --warmup 1 --reps 2 --out "$TMPDIR/band.json"
@@ -139,9 +140,11 @@ DEFAULT_WORKLOADS = "sr_fitness,batch_forward,forward"
 WORKLOAD_ORDER: Tuple[str, ...] = ("sr_fitness", "batch_forward", "forward")
 DEFAULT_TREE_ROOT = "src"
 #: The evoxc checkout this round runs against (NOT ``/root/evoxc``: the child's PYTHONPATH is
-#: built from this value, so an implicit foreign checkout can never slip in).
-DEFAULT_EVOXC_ROOT = "/tmp/evoxc_r2"
-DEFAULT_OUT_DIR = os.path.join(_HERE, "results", "batch_opt_round2", "warm")
+#: built from this value, so an implicit foreign checkout can never slip in).  Round 3's snapshot.
+DEFAULT_EVOXC_ROOT = "/tmp/evoxc_r4"
+#: Round 3's own band-sweep tree: ``results/batch_opt_round2`` is frozen evidence, so the
+#: no-``--out-dir`` default must not resolve into it.
+DEFAULT_OUT_DIR = os.path.join(_HERE, "results", "batch_opt_round3", "band")
 DEFAULT_WARMUP = 1
 DEFAULT_REPS = 5
 DEFAULT_SEED = 0
