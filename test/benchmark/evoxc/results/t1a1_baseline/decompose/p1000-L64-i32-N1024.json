@@ -1,0 +1,355 @@
+{
+ "schema": "evogp-bench-evoxc-v1-decompose",
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T18:42:43Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A5",
+  "tree_root_sha": "71f8337b9cf96030fdc77e67faffdc6a9bf374eb",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A5",
+  "arm": "decompose",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "9f66feca58e9fcf21617e955212cdeb5ae80593a",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A5/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOGP_EVOXC_BACKEND": "iree",
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "note": "",
+  "protocol": {
+   "warmup": 2,
+   "reps": 5,
+   "method": "module-level inclusive perf_counter_ns phase timers + seam counters",
+   "cold_call_excluded": true
+  }
+ },
+ "cell": {
+  "id": "p1000-L64-i32-N1024",
+  "pop": 1000,
+  "tree_len": 64,
+  "input_len": 32,
+  "rows": 1024,
+  "max_layer_cnt": 5
+ },
+ "entries": [
+  {
+   "route": "dense-iree",
+   "family": "dense",
+   "workload": "sr_fitness",
+   "cold_ms": 6605.876,
+   "cold_compile_misses": 1,
+   "plain_ms": {
+    "median": 5.697,
+    "min": 5.658,
+    "samples": [
+     5.658,
+     5.695,
+     5.697,
+     5.707,
+     5.718
+    ]
+   },
+   "instrumented_ms": {
+    "median": 5.706,
+    "samples": [
+     5.726,
+     5.706,
+     5.692,
+     5.673
+    ]
+   },
+   "phases": [
+    {
+     "phase": "run_loss_plan",
+     "calls": 1,
+     "us": 5519.003,
+     "percent": 96.7
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": 185.511,
+     "percent": 3.3
+    },
+    {
+     "phase": "  ._to_host (nested)",
+     "calls": 1,
+     "us": 158.432,
+     "percent": 2.8
+    },
+    {
+     "phase": "  .sr_fitness_dense (nested)",
+     "calls": 1,
+     "us": 5637.787,
+     "percent": 98.8
+    }
+   ],
+   "counters_per_call": {
+    "run": 1,
+    "to": 1,
+    "numpy": 1
+   },
+   "cache_after": {
+    "hits": 0,
+    "misses": 1,
+    "memo_hits": 0,
+    "memo_misses": 0
+   },
+   "structures": null,
+   "cell": "p1000-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": "dense",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "route_resolved": {
+    "eval_mode": "dense",
+    "backend": "iree",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   }
+  },
+  {
+   "route": "dense-iree",
+   "family": "dense",
+   "workload": "batch_forward",
+   "cold_ms": 6452.07,
+   "cold_compile_misses": 1,
+   "plain_ms": {
+    "median": 7.671,
+    "min": 7.575,
+    "samples": [
+     7.575,
+     7.627,
+     7.671,
+     7.743,
+     7.766
+    ]
+   },
+   "instrumented_ms": {
+    "median": 7.738,
+    "samples": [
+     7.843,
+     7.738,
+     7.613,
+     7.697
+    ]
+   },
+   "phases": [
+    {
+     "phase": "run_plan",
+     "calls": 1,
+     "us": 7420.039,
+     "percent": 95.9
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": 313.887,
+     "percent": 4.1
+    },
+    {
+     "phase": "  ._to_host (nested)",
+     "calls": 1,
+     "us": 1819.971,
+     "percent": 23.5
+    },
+    {
+     "phase": "  .evaluate_dense (nested)",
+     "calls": 1,
+     "us": 7649.253,
+     "percent": 98.9
+    }
+   ],
+   "counters_per_call": {
+    "run": 1,
+    "to": 1,
+    "numpy": 1
+   },
+   "cache_after": {
+    "hits": 0,
+    "misses": 1,
+    "memo_hits": 0,
+    "memo_misses": 0
+   },
+   "structures": null,
+   "cell": "p1000-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": "dense",
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "route_resolved": {
+    "eval_mode": "dense",
+    "backend": "iree",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   }
+  },
+  {
+   "route": "auto-iree",
+   "family": "dense",
+   "workload": "sr_fitness",
+   "cold_ms": 11.927,
+   "cold_compile_misses": 0,
+   "plain_ms": {
+    "median": 5.7,
+    "min": 5.693,
+    "samples": [
+     5.693,
+     5.697,
+     5.7,
+     5.723,
+     5.753
+    ]
+   },
+   "instrumented_ms": {
+    "median": 5.727,
+    "samples": [
+     5.694,
+     5.727,
+     5.728,
+     5.707
+    ]
+   },
+   "phases": [
+    {
+     "phase": "run_loss_plan",
+     "calls": 1,
+     "us": 5500.19,
+     "percent": 96.6
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": 191.941,
+     "percent": 3.4
+    },
+    {
+     "phase": "  ._to_host (nested)",
+     "calls": 1,
+     "us": 161.158,
+     "percent": 2.8
+    },
+    {
+     "phase": "  .sr_fitness_dense (nested)",
+     "calls": 1,
+     "us": 5622.97,
+     "percent": 98.8
+    }
+   ],
+   "counters_per_call": {
+    "run": 1,
+    "to": 1,
+    "numpy": 1
+   },
+   "cache_after": {
+    "hits": 0,
+    "misses": 0,
+    "memo_hits": 0,
+    "memo_misses": 0
+   },
+   "structures": null,
+   "cell": "p1000-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": null,
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "route_resolved": {
+    "eval_mode": "auto",
+    "backend": "iree",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   }
+  },
+  {
+   "route": "auto-iree",
+   "family": "dense",
+   "workload": "batch_forward",
+   "cold_ms": 13.563,
+   "cold_compile_misses": 0,
+   "plain_ms": {
+    "median": 7.699,
+    "min": 7.534,
+    "samples": [
+     7.534,
+     7.685,
+     7.699,
+     7.719,
+     7.815
+    ]
+   },
+   "instrumented_ms": {
+    "median": 7.733,
+    "samples": [
+     7.698,
+     7.773,
+     7.604,
+     7.733
+    ]
+   },
+   "phases": [
+    {
+     "phase": "run_plan",
+     "calls": 1,
+     "us": 7401.876,
+     "percent": 96.0
+    },
+    {
+     "phase": "residual (glue: loss assembly, conversions, uploads)",
+     "calls": 1,
+     "us": 305.308,
+     "percent": 4.0
+    },
+    {
+     "phase": "  ._to_host (nested)",
+     "calls": 1,
+     "us": 1829.472,
+     "percent": 23.7
+    },
+    {
+     "phase": "  .evaluate_dense (nested)",
+     "calls": 1,
+     "us": 7623.527,
+     "percent": 98.9
+    }
+   ],
+   "counters_per_call": {
+    "run": 1,
+    "to": 1,
+    "numpy": 1
+   },
+   "cache_after": {
+    "hits": 0,
+    "misses": 0,
+    "memo_hits": 0,
+    "memo_misses": 0
+   },
+   "structures": null,
+   "cell": "p1000-L64-i32-N1024",
+   "route_env": {
+    "EVOGP_EVAL_MODE": null,
+    "EVOGP_EVOXC_BACKEND": "iree"
+   },
+   "route_resolved": {
+    "eval_mode": "auto",
+    "backend": "iree",
+    "should_use_dense_pop_only": true,
+    "should_use_dense_with_rows": true,
+    "would_use_dense": true
+   }
+  }
+ ]
+}
