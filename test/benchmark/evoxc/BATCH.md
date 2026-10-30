@@ -1000,3 +1000,160 @@ export EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=/tmp/evoxc_r2:src:test/benchmark/evo
 
 Both were executed, **exit 0**, **3/3 configs `ok` each** with 0 failures and 0 skipped, driver `elapsed_s` **93.3 s** and **40.0 s** (≈2.2 min for the pair); the records carry `cold_only: true`, `samples_ms: []` and every warm field `null`, and the cold numbers **reproduced at 0.933–1.017× of the `--reps 5` calls** (worst low `b32 sr_fitness` at `p256-L32`, 11 251.8 against 12 063.3; worst high `auto batch_forward` at `p64`, 1 653.0 against 1 626.0).
 A re-measure always writes a **fresh `--out-dir` per cell** — that is why `round3-cold/<cell>/` exists, so a per-cell re-run does not overwrite another cell's `sweep.json` — and `results/final/`, `results/baseline/`, `results/batch/` and `results/batch_opt_round1/` are refused as output directories (`band_sweep.py`'s `FROZEN_RESULT_DIRS`; `reuse_probe.py` carries the first three).
+
+## 15. Round 3: the refreshed cold/warm/loop columns, the compile-pool default and the band cap (results/batch_opt_round3/)
+
+Round 3 re-prices the shipped default (band size 16, `EVOGP_BATCH_COMPILE_WORKERS` 4, chunked) on the **same three cells, populations and seeds as §14** against two references — a pool-1 single-body control at the identical band partition, and `dense` — in one window on the `/tmp/evoxc_r4` snapshot, and it settles the two knobs §14 left as "as shipped" with measured break-evens: the compile-pool width and the band size pinned at the rocm binding cap.
+It adds three things round 2 did not have: an **upstream-refreshed cold column** (§15.4 attributes it), a **pop-1000 cold/loop reading on the chunked composition** (round 2 priced only the single-executable path there), and a **long-tree pool trade** at `p256-L128-i32-N1024-d7`.
+The decision of record: **nothing on the shipped path changes** — pool stays 4, band size stays 16, `EVOGP_BATCH_BANDS=auto` and `EVOGP_BATCH_CHUNK_BANDS` keep their §14.1 state, and `auto` still never resolves to `batch`.
+Every number below is read off a committed record or from `results/batch_opt_round3/SUMMARY.md`, which carries the full per-config tables, the stage splits, the loop rows, the evidence layout and the reproduce block.
+
+### 15.1 The per-cell table: warm, cold and the generation loop against dense
+
+`batch` = the shipped default with **no** `EVOGP_BATCH_*` variable set (`route_knobs` reads `source: module` for band size 16, pool 4 and `chunk_bands off`), i.e. the policy itself; `dense` = `evoxc-dense-iree` through the same public call.
+
+| cell | warm `sr_fitness` batch (ms) | warm dense (ms) | batch ÷ dense | §14.2 convention (dense ÷ batch) | cold batch (ms) | cold dense (ms) | batch ÷ dense | loop `Σ` batch (ms) | loop `Σ` dense (ms) | `Σ` ratio |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `p256-L32-i8-N1024` | 3.7250 | 1.1015 | **3.382** | 0.30 | 4 064.48 | 3 355.83 | **1.211** | 19 626.71 | 302.48 | 64.9 |
+| `p256-L64-i32-N1024` | 3.7720 | 2.0560 | **1.835** | 0.54 | 4 071.43 | 6 526.78 | **0.624** | 22 346.79 | 312.48 | 71.5 |
+| `p64-L64-i32-N64` | 1.1141 | 1.4378 | **0.775** | 1.29 | 2 274.46 | 6 554.88 | **0.347** | 5 587.44 | 313.26 | 17.8 |
+
+(`results/batch_opt_round3/economics/item1/<cell>/{batch,dense}.json` — `sr_fitness.median_ms`, `first_call.first_call_ms`, `summary.sum_total_ms`; the `Σ` ratio is computed here, and §14.2's convention is inverted so > 1 still means "batch faster".)
+The loop ratio is the **flattering** number, exactly as in §14.5: dense's `Σ` is six warm generations of 2.9–4.2 ms each plus one pipeline warm-up, while every batch generation after the first pays a fresh merged-graph compile.
+The eval-only reading: dense's whole-loop `sum_eval_ms` is **22.28 / 32.42 / 23.11** ms against batch's per-recompiling-generation `median_cold_eval_ms` of **2 600.93 / 2 894.58 / 588.22** ms (and a warm generation's 3.78 / 3.81 / 1.15 ms) — an eval `Σ` ratio of **868 / 680 / 229×**, i.e. the honest gap is 3–13× wider than the `Σ` column says.
+Cold, the ordering is not uniform and the reason is dense's stride sensitivity: batch is **1.211× dearer** at `p256-L32`, **0.624×** at `p256-L64` and **0.347×** at `p64`, and dense's cold call tracks the trace stride rather than the population (3 355.83 ms at L32 against 6 526.78 / 6 554.88 ms at L64, p256 and p64 alike).
+Warm, §14.2's headline holds in the new window: at pop 256 the shipped default is 1.8–3.4× dense's warm call, and at `p64` it is 1.29× faster — the fixed-population niche, unchanged in kind.
+
+### 15.2 The compile-pool policy: `EVOGP_BATCH_COMPILE_WORKERS` stays 4, and its break-even is measured
+
+The pool splits one merge into concurrent chunks: cheaper cold, four upload / run / read-back trios per warm call. Break-even = Δcold ÷ Δwarm, i.e. how many warm calls **of one population** a run must make before the dearer cold call is repaid.
+
+| cell | cold pool 1 → pool 4 (ms) | Δcold | warm pool 1 → pool 4 (ms) | Δwarm | break-even (median) | break-even (min) | cold speedup |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `p256-L32-i8-N1024` | 10 725.86 → 4 064.48 | 6 661.38 | 1.9941 → 3.7250 | 1.7309 | **3 849** | 3 981 | 2.64× |
+| `p256-L64-i32-N1024` | 11 957.38 → 4 071.43 | 7 885.95 | 2.2267 → 3.7720 | 1.5453 | **5 103** | 5 083 | 2.94× |
+| `p64-L64-i32-N64` | 2 268.96 → 2 274.46 | −5.51 | 1.1494 → 1.1141 | −0.0353 | **n.a. (no trade)** | n.a. | 0.998× |
+| `p256-L128-i32-N1024-d7` | 38 513.95 → 8 410.96 | 30 102.99 | 3.4851 → 5.0947 | 1.6096 | **18 702** | 20 648 | 4.58× |
+
+(`results/batch_opt_round3/economics/item1/<cell>/{batch,batch-b16-banded}.json` and `results/batch_opt_round3/item2/long-tree/p256-L128-i32-N1024-d7/{batch,batch-b16-banded}.json`; break-even computed from those fields, not quoted.)
+The default pays **1.69–1.87×** per warm `sr_fitness` call at the two pop-256 cells (1.46× at the long-tree niche) and buys **2.64× / 2.94× / 4.58×** on the cold call — repaid only after 3.8k / 5.1k / 18.7k warm calls of a **single** structure multiset, which a GP loop never makes (§15.5).
+At `p64` the pool is **inert on the `sr_fitness` and `batch_forward` plans** (`chunk_count 1`, `chunk_sizes [63]`, Δcold −5.51 ms) — and `p64` is exactly the regime where batch beats dense warm, so flipping the default to 1 would buy nothing where the route wins and would make the cold call 10.7 s (pop 256) / 38.5 s (long trees) instead of 4.1 s / 8.4 s.
+**Documented escape hatch, not a new default:** a workload that evaluates one fixed multiset more than ≈3.8k / 5.1k / 18.7k times should set `EVOGP_BATCH_COMPILE_WORKERS=1` explicitly; `src/evogp/tree/batch_knobs.py::DEFAULT_COMPILE_WORKERS` stays 4.
+The cross-check confirms the default's plan shape is the composition §14.2 identified: pinning `EVOGP_BATCH_BAND_SIZE=16` + `EVOGP_BATCH_CHUNK_BANDS=1` + pool 4 reproduces `compile_workers 4` / `chunk_count 4` / `chunk_sizes [57,56,56,56]` and `[58,58,58,58]` / `chunk_bands [4,4,4,4]`, cold within −0.25 % / −0.03 % and warm within −2.7 % / +3.3 % (`results/batch_opt_round3/economics/crosscheck-b16-chunked/<cell>/batch-b16-chunked.json`).
+
+### 15.3 The band-size policy after item 3: `EVOGP_BATCH_BAND_SIZE` stays 16
+
+`k15` (and `k7` at `p64`, where 15 bands are illegal: an explicit `K` needs `pop >= 8K`) was measured against the shipped size 16 in **both** pool widths, three workloads per cell, one window.
+
+| cell | pin vs `b16`, `sr_fitness` | `batch_forward` | `forward` | plan change? |
+|---|---:|---:|---:|---|
+| `p256-L32-i8-N1024` (pool 1) | −5.9 % | +2.3 % | −6.9 % | **no** — `[15]×15` and the same `emitted_ops` 5 037 / 4 153 / 4 540 |
+| `p256-L64-i32-N1024` (pool 1) | +0.1 % | +1.2 % | −2.6 % | **no** — `[16]×7 + [15]×8`, identical ops 5 475 / 4 568 / 5 861 |
+| `p64-L64-i32-N64` (pool 1) | +0.04 % | +1.3 % | −4.6 % | **yes** — K 4 `[16,16,16,15]` → K 7 `[9]×7`, ops 1 393 → 1 463 |
+
+(`results/batch_opt_round3/item3/p256/<cell>/<config>.json` and `item3/p64/p64-L64-i32-N64/<config>.json` — `workloads.<workload>.median_ms` and `.band_report`; the pool-4 pairs sit at −3.6…+3.8 % with one −15.1 % `forward` row on an *identical* plan, the band-sensitive column of §14.1/§14.2, SUMMARY §4.3.)
+At pop 256 the pin is a **same-merge control, not a different plan**: identical band shapes and identical `emitted_ops`, the only difference being that the size model asks 16 bands and is clamped to 15 on the per-row plan while `k15` asks the count (`band_requested explicit`, `band_clamped false`).
+At `p64` the pin does change the plan and still lands inside this box's ~5 % cross-config noise floor.
+**No pin beat the shipped size anywhere in the window**, so the band-size policy is unchanged (no `src/` change) and keeps satisfying band ≥ 8 functions / `K ≤ 15` on rocm.
+The partition is also **numeric no-op** again this round: the oracle deviation is **exactly identical in all four configs of every cell/workload (9/9 rows)** — `p256-L32` 6.0 / 4.74e-07, 5.86e-03 / 1.13e-03, 0 / 0 (bitwise); `p256-L64` 32.0 / 7.76e-07, 7.81e-02 / 1.14e-05, 1.19e-07 / 8.01e-08; `p64` 0.25 / 1.62e-07, 6.10e-05 / 1.68e-07, 1.19e-07 / 8.01e-08 — and value digests split only at ≤ 5.8e-11 relative `abs_sum`, by **pool** at the pop-256 cells and by **band count** on `p64 batch_forward` (`4919287125…` for K = 4 against `85adf166…` for K = 7), with `sr_fitness` one digest group per cell in every config (§4.4).
+
+### 15.4 What the three upstream evoxc speedups did to this route's cold path
+
+Same-shape comparison against §14.3's records on the refreshed snapshot, with the stage split attributing the movement:
+
+| cell / route | cold §14.3 → now (ms) | Δ cold | `lower` §14.3 → now (ms) | `lower` speedup | compile wall §14.3 → now (ms) | Δ wall |
+|---|---:|---:|---:|---:|---:|---:|
+| `p256-L32` pool 1 | 11 049.41 → 10 725.86 | −2.93 % | 296.61 → 98.83 | **3.00×** (−197.8) | 10 583.57 → 10 264.44 | −3.02 % |
+| `p256-L32` default (chunked) | 4 180.63 → 4 064.48 | −2.78 % | 888.52 → 470.05 | **1.89×** (−418.5) | 3 733.14 → 3 630.75 | −2.74 % |
+| `p256-L64` pool 1 | 12 590.61 → 11 957.38 | −5.03 % | 286.68 → 97.82 | 2.93× | 12 077.57 → 11 454.15 | −5.16 % |
+| `p256-L64` default | 4 422.39 → 4 071.43 | −7.94 % | 985.88 → 376.02 | 2.62× | 3 966.10 → 3 627.39 | −8.54 % |
+| `p64` pool 1 | 2 298.69 → 2 268.96 | −1.29 % | 63.50 → 31.66 | 2.01× | 2 106.40 → 2 071.36 | −1.66 % |
+| `p64` default (inert) | 2 284.23 → 2 274.46 | −0.43 % | 63.38 → 31.16 | 2.03× | 2 095.67 → 2 078.05 | −0.84 % |
+
+(`results/batch_opt_round3/economics/item1/<cell>/<route>.json` `first_call.stage_ms` against `results/batch_opt_round2/composition/<cell>/b16-cw4.json` / `auto/<cell>/b16.json` `workloads.sr_fitness.stage_first_call`. Round 2's L32 pool-1 pair is wall 10 583.57 over sum 10 172.56 at 1 job, so wall-to-wall is **−3.02 %** where sum-to-sum is **−1.17 %** — quote the wall column when comparing calls.)
+The honest ceiling on that win is set by where the cold call's time is: `lower` is **0.8–0.9 %** of a pool-1 cold call at pop 256 (**9.2–11.6 %** of a chunked one), while the device-code compile inside iree is **89.1–95.8 %** of it — 95.7 % (`p256-L32`) / 95.8 % (`p256-L64`) pool 1, 89.1–89.3 % chunked, 91.3 % at `p64`, 97.4 % pool 1 at the long-tree cell, 89.7 % at pop 1000.
+A 1.9–3.0× faster `lower()` therefore moves a 4–12 s cold call by **0.4–7.9 %**, which is what was measured: the three upstream speedups help this route's cold path but cannot fix it, because the cost is not in the MLIR construction.
+Pop 1000 is **new information, not a speedup measurement** — §14.3's 91.0–162.0 s there is the single-executable (`W=1`) path, while the shipped default now reads cold **15 517.88 ms** (`compile` sum 48 931.70 over 4 jobs → wall 13 921.97, 3.51× over serial; `lower` 1 054.29, `merge` 967.07, `trace` 557.71, `load` 298.33), warm `sr_fitness` **6.9384 ms**, plan `chunk_sizes [205, 204, 204, 204]` for 817 deduped functions (`results/batch_opt_round3/item4/p1000-L32-i8-N1024/p1000-L32-i8-N1024/batch.json`).
+The round's pre-registered 4-minute bound on a single cold compile **did not trigger** (15.5 s against it), so that cell is measured in full and nothing was dropped — its driver config reads `status: "ok"` / `wall_s` 34.14 against a `protocol.timeout_s` of 1 500 (`results/batch_opt_round3/item4/p1000-L32-i8-N1024/economics.json`; the economics schema has no `skipped` field).
+
+### 15.5 What would have to change for batch to win a full-turnover GP loop
+
+**Population-specific compilation is the blocker, and this round prices it precisely.** Every batch route compiled **7 of 8** generations (`generation_hit_rate` 0.125, `generations_with_compile` 7, **8 distinct population signatures in 8 steps**); the long-tree 2-step check reads 0.5 (1 of 2) and pop 1000 the same.
+The compile attribution on the single-body routes is `summary.compile_ms_share` **0.951–0.995** (wall time of the recompiling generations over the loop's total wall time), and on the chunked routes the stage-counter `compile_share.share` reads **3.04 / 3.14** at the two pop-256 cells and **3.17** at pop 1000 (**0.85** at `p64`, where the plan does not chunk) — a pool-weighted counter ratio (four concurrent per-chunk timers over one loop wall), never wall-clock attribution, exactly as §14.3's counter-sum note explains.
+Per recompiling generation the eval call alone is **2 600.93 / 2 894.58 / 588.22 ms** (`median_cold_eval_ms`) against dense's **whole generation** of 2.9 / 4.2 / 2.9 ms.
+The amortization arithmetic, in the three regimes the route has:
+
+- **At pop 256 there is no N.** Batch's warm call is 3.4× (L32) / 1.8× (L64) *slower* than dense's, so no number of repeated generations repays the compile — the steady state loses before the amortization starts.
+- **At `p64` (fixed population, where batch is 1.29× faster warm) the same multiset would have to repeat for ≈7 026 generations** to repay its 2 274.46 ms cold call at 0.3237 ms saved per generation — a fixed-population workload, never a GP loop.
+- **At the long-tree niche** batch beats the shipped cap's `specialized` fallback by 23.5–25.0× per call (§11, not re-measured this round); priced against a 5.09 ms batch call that is a ≈127 ms fallback, i.e. **≈69 generations** to repay the 8 410.96 ms chunked cold call — *if* the multiset repeated, which it does not (generation 2 of that cell recompiles: 4 exec misses, 3 933.60 ms, against 8 601.53 ms single-body, 2.19× for chunking that one compile).
+
+So the gap between the niche win and a GP loop is a **structure-reuse** problem, not a band, pool or `lower()` problem: the only routes to a batch win in a loop are amortizing the compiled graph across a *repeated* population shape — which is dense's per-shape amortization, and the `p64` fixed-population regime — or a workload that is fixed by construction.
+Nothing in this round changes that, and no knob setting reaches it.
+
+### 15.6 Round-3 re-measure commands
+
+Verbatim as run (the `--note` strings are the records' own), from the repository root, one driver invocation per item:
+
+```bash
+export EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=/tmp/evoxc_r4:src:test/benchmark/evoxc
+PY=/tmp/rocvenv/bin/python
+
+$PY test/benchmark/evoxc/batch_economics.py \
+  --cells p256-L32-i8-N1024,p256-L64-i32-N1024,p64-L64-i32-N64 \
+  --routes batch,batch-b16-banded,dense \
+  --generations 8 --warmup 2 --reps 5 --seed 0 \
+  --tree-root src --evoxc-root /tmp/evoxc_r4 \
+  --out-dir test/benchmark/evoxc/results/batch_opt_round3/economics/item1 \
+  --note "round3 item1: shipped default (band 16, pool 4, chunked) vs pool-1 control (batch-b16-banded) vs dense, same window, evoxc_r4"
+
+$PY test/benchmark/evoxc/batch_economics.py \
+  --cells p256-L32-i8-N1024,p256-L64-i32-N1024 --routes batch-b16-chunked \
+  --generations 8 --warmup 2 --reps 5 --seed 0 \
+  --tree-root src --evoxc-root /tmp/evoxc_r4 \
+  --out-dir test/benchmark/evoxc/results/batch_opt_round3/economics/crosscheck-b16-chunked \
+  --note "round3 item1 cross-check: pinned band16+CHUNK_BANDS=1+pool4 against the unpinned shipped default"
+
+$PY test/benchmark/evoxc/batch_economics.py \
+  --cells p256-L128-i32-N1024-d7 --routes batch,batch-b16-banded \
+  --generations 2 --warmup 2 --reps 5 --seed 0 --timeout 1500 \
+  --tree-root src --evoxc-root /tmp/evoxc_r4 \
+  --out-dir test/benchmark/evoxc/results/batch_opt_round3/item2/long-tree \
+  --note "round3 item2: long-tree niche (d7), pool-1 control vs the chunked default, warm+cold, 2-generation loop (not a loop claim)"
+
+$PY test/benchmark/evoxc/band_sweep.py \
+  --cells p256-L32-i8-N1024,p256-L64-i32-N1024 --configs b16,b16-cw4,k15,k15-cw4 \
+  --workloads sr_fitness,batch_forward,forward --warmup 1 --reps 5 --seed 0 \
+  --tree-root src --evoxc-root /tmp/evoxc_r4 \
+  --out-dir test/benchmark/evoxc/results/batch_opt_round3/item3/p256 \
+  --note "round3 item3: K=15 pinned at the rocm binding cap vs the shipped band size 16, pool-1 partitions and pool-4 compositions, same window"
+
+$PY test/benchmark/evoxc/band_sweep.py \
+  --cells p64-L64-i32-N64 --configs b16,b16-cw4,k7,k7-cw4 \
+  --workloads sr_fitness,batch_forward,forward --warmup 1 --reps 5 --seed 0 \
+  --tree-root src --evoxc-root /tmp/evoxc_r4 \
+  --out-dir test/benchmark/evoxc/results/batch_opt_round3/item3/p64 \
+  --note "round3 item3: K=7 pinned vs band size 16 at the fixed-population niche cell, pool-1 and pool-4, same window"
+
+$PY test/benchmark/evoxc/batch_economics.py \
+  --cells p1000-L32-i8-N1024 --routes batch \
+  --generations 2 --warmup 1 --reps 5 --seed 0 --timeout 1500 \
+  --tree-root src --evoxc-root /tmp/evoxc_r4 \
+  --out-dir test/benchmark/evoxc/results/batch_opt_round3/item4/p1000-L32-i8-N1024 \
+  --note "round3 item4: p1000-L32-i8-N1024 shipped default only, cold + one warm reading + stage split + 2-generation loop, faster evoxc lower()"
+
+EVOGP_EVAL_MODE=batch $PY test/benchmark/evoxc/validate.py \
+  --cells p256-L32-i8-N1024,p256-L64-i32-N1024,p64-L64-i32-N64,p1000-L32-i8-N1024 \
+  --func-sets arith,rich --max-oracle 64 --seed 0 \
+  --out test/benchmark/evoxc/results/batch_opt_round3/validation/validation-batch.json \
+  --note "round3: the batch route (shipped default knobs, evoxc_r4) vs the plain-torch oracle on the item-1/item-4 cells"
+```
+
+A re-measure always writes a **fresh `--out-dir`**, and `results/batch_opt_round2/` is now refused by **both** drivers (`batch_economics.py` and `band_sweep.py` list it in `FROZEN_RESULT_DIRS`, alongside `final`/`baseline`/`batch`, and the sweep adds `batch_opt_round1`), so round-2 evidence can never be overwritten by a round-3 rerun.
+`batch_economics.py` defaults `--evoxc-root` to `/root/evoxc`, which is why the live runs above pass `--evoxc-root /tmp/evoxc_r4` explicitly; `band_sweep.py` already defaults to it.
+
+### 15.7 Coverage statement
+
+Measured this round: the shipped default, the pool-1 control and `dense` at `p256-L32-i8-N1024` / `p256-L64-i32-N1024` / `p64-L64-i32-N64` (cold, warm `sr_fitness`, 8-generation loop, ten-stage cold split); the pinned-vs-unpinned plan-shape cross-check at the two pop-256 cells; the pool trade at `p256-L128-i32-N1024-d7` (cold, warm, 2-generation check); `k15` / `k7` against `b16` in pool-1 and pool-4 form on all three workloads of those three cells; `p1000-L32-i8-N1024` shipped default (cold, warm, 2-generation check); and a `validate.py` oracle sweep over 4 cells × {`arith`, `rich`}.
+Not measured, with reasons: no `EVOGP_BATCH_ALIGNMENT` / `EVOGP_BATCH_SWITCH_OPS` variants (unchanged from §14.6); no `CustomLoss`/multi-output and no robotics workload (the route has never been timed there); no pop-1000 **single-body** control (a 4-minute-plus compile for a column §15.2's break-even already settles at pop 256 and in the long-tree niche); and no re-measure of `auto`, `flat`, `b8`, `b32` or `b64` — those are carried from §14.1/§14.3/§14.4 with their verdicts intact.
+Two protocol gaps are **inherited, not fixed**: `batch_economics.py` has no idle-device guard (its records carry no `guard` block, so idleness was hand-checked with `rocm-smi --showpids` and the runs kept strictly sequential — 14 children), and neither an economics nor a band-sweep directory is a `check.py` gateable unit (`check.py` reads the campaign arm-record schema; on the round-3 directories it reports 25 failures over 196 checks at `item3/p256`, 13/99 at `item3/p64`, 16/62 on `economics/item1`, 7/18 on the cross-check, 5/16 at `item2/long-tree` and 4/10 at `item4`, all of the `cache`/`workloads`-schema kind plus a missing `campaign.json`, exactly as §14.6 records for round 2).
+The sweep records themselves are clean on their own terms: **12/12 `status: ok`**, `guard.state.gpu_pids.idle true` / `contaminated false` / `waited_s 0.2` on every one, both `sweep.json` files `failures: 0` / `skipped: 0`, and all **14** economics configs `status: ok` in their driver records.
