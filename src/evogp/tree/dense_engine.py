@@ -115,16 +115,26 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
     (``p2048-L128-i32-N1024-d7``; the opt-in batch route: 20.66 ms).  So under
     ``auto`` ONLY, and only when the cap was not user-pinned, the entry points now
     RAISE the cap for an over-cap population to
-    ``min(longest, min(EVOGP_DENSE_AUTO_MAX_TREE_LEN ceiling, EVOGP_DENSE_AUTO_BUDGET_MB
-    envelope))`` (:func:`auto_trace_cap`), from ONE memoized host read of
-    ``batch_subtree_size[:, 0]``; nothing else -- :func:`prepare_dense`,
-    :func:`plan_dense`, :func:`resolve_route` -- changes.  When the ceiling or the
+    ``min(EVOGP_DENSE_AUTO_MAX_TREE_LEN ceiling, EVOGP_DENSE_AUTO_BUDGET_MB
+    envelope)`` ROUNDED to the next power of two up from the population's realized
+    longest tree -- i.e. ``_next_power_of_two(max(base, longest))``, kept only
+    while the allowance reaches that rounded value (:func:`auto_trace_cap`), from
+    ONE memoized host read of ``batch_subtree_size[:, 0]``; nothing else --
+    :func:`prepare_dense`, :func:`plan_dense`, :func:`resolve_route` -- changes.
+    The rounding is what makes the raise friendly to a TRAINING LOOP: ``L`` is part
+    of the dense graph key, so a cap that tracked ``longest`` exactly would compile
+    a fresh graph every generation (``gp_step`` 10 014.83 ms at the drifting cap
+    against 124.46 ms at a pinned ``L=128``), while a 65..128-node band shares one
+    graph for the price of a few percent of trace work (103.34 ms at ``L=123``
+    against ~105.6 ms at ``L=128``).  When the ceiling or the
     envelope refuses the raise the decline is DELIBERATE and falls back on the
     DEVICE backend instead of numpy (:class:`DenseUnsupported`'s
     ``device_fallback`` + :func:`decline_backend`), because per-tree numpy is the
     catastrophic answer there.  The residual limit is that specialized+``iree`` is
     per-structure-compile-bound, with unbounded artifact growth at large
-    populations -- which is why the raise is bounded rather than unrestricted.
+    populations -- which is why the raise is bounded rather than unrestricted -- and
+    that a generation whose longest tree crosses a power of two (128 -> 129) still
+    recompiles once.
 ``dense``
     always attempt the dense path (still falling back on
     :class:`DenseUnsupported`); with no explicit backend it uses the device
@@ -167,7 +177,8 @@ Scheme (see :func:`_dense_body` for the trace-time body)
    :func:`_warn_trace_cap`), because the specialized fallback there is the
    expensive one.  The ``auto`` ENTRY POINTS (:func:`evaluate_dense` /
    :func:`sr_fitness_dense`) may RAISE the cap for an over-cap population BEFORE
-   :func:`prepare_dense` sees it (:func:`auto_trace_cap`), so the preparation
+   :func:`prepare_dense` sees it (:func:`auto_trace_cap`, UP to a power of two so a
+   band of realized lengths shares one compiled graph), so the preparation
    itself is unchanged and still declines above ``L``.
 2. **One graph** (module-level ``@evoxc.defn _dense_step``) with a Python
    trace-time ``for i in range(L-1, -1, -1)`` unroll over node positions
@@ -251,9 +262,13 @@ Environment knobs
 ``EVOGP_DENSE_AUTO_MAX_TREE_LEN``            256         ceiling (in nodes) of the
                                             ``auto`` automatic trace-cap
                                             raise: an over-cap population is
-                                            traced at
-                                            ``min(longest, min(ceiling,
-                                            envelope))`` instead of falling back;
+                                            traced at the population's realized
+                                            longest tree ROUNDED UP to a power
+                                            of two, kept only while
+                                            ``min(ceiling, envelope)`` reaches
+                                            that rounded value (a band of
+                                            lengths then shares ONE compiled
+                                            graph) instead of falling back;
                                             ``auto`` only, and a pinned
                                             ``EVOGP_DENSE_MAX_TREE_LEN`` /
                                             ``max_tree_len=`` wins; the raise is
@@ -566,8 +581,10 @@ AUTO_BUDGET_MB_ENV = "EVOGP_DENSE_AUTO_BUDGET_MB"
 #: :data:`AUTO_BUDGET_MB_ENV`.  Under ``auto`` (and only there, and only when the
 #: cap was not pinned by ``EVOGP_DENSE_MAX_TREE_LEN``/``max_tree_len=``) a
 #: population whose realized longest tree exceeds the trace cap is evaluated at
-#: ``min(longest, min(ceiling, envelope))`` instead of falling back to the
-#: specialized engine -- dense's trace length, graph size and compile all grow
+#: ``_next_power_of_two(max(base, longest))`` -- the realized length rounded UP, so
+#: one compiled graph spans a whole band of lengths -- instead of falling back to
+#: the specialized engine, and only while ``min(ceiling, envelope)`` reaches that
+#: rounded value -- dense's trace length, graph size and compile all grow
 #: linearly in ``L`` (~13.9 s at ``L=32``, ~31.6 s at ``L=64``, ~69.0 s at
 #: ``L=128`` per shape signature), so the raise needs a bound.  See
 #: :func:`auto_tree_len_allowance` / :func:`auto_trace_cap` / :func:`auto_cap_decline`.
@@ -1131,9 +1148,24 @@ def auto_tree_len_allowance(
     return min(ceiling, _envelope_tree_len(pop_size, rows, auto_budget_mb))
 
 
+def _next_power_of_two(n: int) -> int:
+    """``n`` rounded UP to the next power of two (``1`` for ``n <= 1``).
+
+    The trace length dense compiles at is ``L = min(cap, row_len)`` and ``L`` is
+    part of the graph key (:func:`_dense_executable_key` and the plan's spec
+    shapes), so a cap that tracks the population's REALIZED longest tree would
+    compile a fresh graph every time that length drifts -- i.e. once per generation
+    of a GP loop.  Rounding the raised cap up to a power of two keeps one compiled
+    graph alive across a whole band of realized lengths (``65..128``,
+    ``129..256``) for a few percent more trace work per call.
+    """
+    return 1 << (max(1, int(n)) - 1).bit_length()
+
+
 def _cap_decline_reason(
     longest: int,
     *,
+    requested: Optional[int] = None,
     pop_size: Optional[int],
     rows: Optional[int],
     auto_max_tree_len: Optional[int],
@@ -1143,8 +1175,14 @@ def _cap_decline_reason(
 
     Private half of :func:`_cap_decision`, written like :func:`_rows_decline_reason`:
     it names BOTH terms of the allowance and says which one bound it (the ceiling
-    or the memory envelope), so a user knows which knob to turn.
+    or the memory envelope), so a user knows which knob to turn.  ``requested`` is
+    the ROUNDED cap the raise would have used (:func:`_next_power_of_two` of
+    ``max(base, longest)``); it defaults to the rounding of ``longest`` itself,
+    which is the same value on every path that can decline (there ``longest`` is
+    already above the base cap).
     """
+    if requested is None:
+        requested = _next_power_of_two(int(longest))
     ceiling = resolve_auto_max_tree_len(auto_max_tree_len)
     budget = resolve_auto_budget_mb(auto_budget_mb)
     allowance = auto_tree_len_allowance(
@@ -1180,7 +1218,11 @@ def _cap_decline_reason(
         f"the {allowance} nodes the automatic trace-cap raise allows "
         f"({AUTO_MAX_TREE_LEN_ENV}={ceiling} ceiling of the raise, "
         f"{AUTO_BUDGET_MB_ENV}={budget} MiB ({budget / 1024:.2f} GiB) envelope of "
-        f"pop_size * tree_len * rows * 4 bytes); {tighter}. Dense's graph and its "
+        f"pop_size * tree_len * rows * 4 bytes); {tighter}. The raise rounds the "
+        "trace length up to the next power of two so a training loop reuses ONE "
+        "compiled dense graph across generations, so the request here is the "
+        f"{int(requested)}-node rounded value, which the {allowance}-node allowance "
+        "does not reach. Dense's graph and its "
         "compile grow linearly in the trace length, so the raise is bounded. Raise "
         f"{AUTO_MAX_TREE_LEN_ENV} or {AUTO_BUDGET_MB_ENV}, or set an explicit "
         f"{MAX_TREE_LEN_ENV} (or max_tree_len=) above {int(longest)} together with "
@@ -1209,8 +1251,12 @@ def _cap_decision(
     ``row_len`` is the population's row STRIDE (``max_tree_len``): when it already
     fits the cap, ``L = min(cap, row_len) == row_len`` covers every tree and there
     is nothing to raise.  Otherwise the cap is raised to
-    ``min(longest, :func:`auto_tree_len_allowance`)`` -- and a ``longest`` the
-    allowance cannot cover is a decline that names both terms.
+    ``_next_power_of_two(max(base, longest))`` -- the population's realized longest
+    tree rounded UP to a power of two, so a training loop whose longest tree drifts
+    keeps hitting ONE compiled graph -- provided
+    :func:`auto_tree_len_allowance` reaches that rounded value; a request the
+    allowance cannot cover is a decline that names both terms and the rounded
+    request (no clamping, no partial raise).
     """
     base = _resolve_max_tree_len(max_tree_len)
     if (
@@ -1227,15 +1273,17 @@ def _cap_decision(
         auto_max_tree_len=auto_max_tree_len,
         auto_budget_mb=auto_budget_mb,
     )
-    if allowance < int(longest):
+    requested = _next_power_of_two(max(base, int(longest)))
+    if allowance < requested:
         return base, _cap_decline_reason(
             longest,
+            requested=requested,
             pop_size=pop_size,
             rows=rows,
             auto_max_tree_len=auto_max_tree_len,
             auto_budget_mb=auto_budget_mb,
         )
-    return min(int(longest), allowance), None
+    return requested, None
 
 
 def auto_trace_cap(
@@ -1251,10 +1299,13 @@ def auto_trace_cap(
 ) -> int:
     """The trace cap a call should use: raised for an over-cap population under ``auto``.
 
-    ``min(longest, min(EVOGP_DENSE_AUTO_MAX_TREE_LEN, envelope))`` when ``auto``
-    chose dense, the cap was not pinned and the population's realized longest tree
-    exceeds it, else :func:`_resolve_max_tree_len` unchanged -- so every explicit
-    mode (``dense``/``dynamic``/``specialized``/``batch``), a pinned cap and a
+    ``_next_power_of_two(max(base, longest))`` -- the population's realized longest
+    tree rounded UP to a power of two, so a training loop whose longest tree drifts
+    keeps one compiled graph -- when ``auto`` chose dense, the cap was not pinned
+    and the population's realized longest tree exceeds it, and only while
+    :func:`auto_tree_len_allowance` reaches that rounded value; else
+    :func:`_resolve_max_tree_len` unchanged -- so every explicit mode
+    (``dense``/``dynamic``/``specialized``/``batch``), a pinned cap and a
     population that already fits are all the identity.  ``row_len`` is the row
     stride; ``rows`` is the call's data-row count (``None`` = one row per tree).
     """
@@ -3244,7 +3295,10 @@ def evaluate_dense(
     # pinned cap (``max_tree_len=`` / a non-empty ``EVOGP_DENSE_MAX_TREE_LEN``)
     # or a non-``auto`` ``EVOGP_EVAL_MODE`` :func:`_cap_decision` can only return
     # the base cap, so skipping the block costs no host read and is bit-identical
-    # to the previous behaviour.
+    # to the previous behaviour.  The raise itself ROUNDS the realized longest tree
+    # UP to a power of two (:func:`_next_power_of_two`): ``L`` is part of the graph
+    # key, so an exact raise recompiled every time ``longest`` drifted -- i.e. once
+    # per generation of a GP loop -- while a power-of-two band shares one graph.
     cap = _resolve_max_tree_len(max_tree_len)
     if (
         pop_size
@@ -3389,7 +3443,10 @@ def sr_fitness_dense(
     # pinned cap (``max_tree_len=`` / a non-empty ``EVOGP_DENSE_MAX_TREE_LEN``)
     # or a non-``auto`` ``EVOGP_EVAL_MODE`` :func:`_cap_decision` can only return
     # the base cap, so skipping the block costs no host read and is bit-identical
-    # to the previous behaviour.
+    # to the previous behaviour.  The raise itself ROUNDS the realized longest tree
+    # UP to a power of two (:func:`_next_power_of_two`): ``L`` is part of the graph
+    # key, so an exact raise recompiled every time ``longest`` drifted -- i.e. once
+    # per generation of a GP loop -- while a power-of-two band shares one graph.
     cap = _resolve_max_tree_len(max_tree_len)
     if (
         pop_size
