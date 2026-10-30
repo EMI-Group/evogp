@@ -36,7 +36,7 @@ It is ORIGINAL upstream code from EMI-Group; see `git log` for its public histor
 - Legacy numeric parity: the engine reproduces the deleted CUDA kernels' semantics (semantics of record: `src/evogp/tree/ENGINE_SPEC.md`) and is cross-validated against frozen goldens; generation RNG is distribution-equivalent to the legacy taus88 stream, not bit-identical.
 ## Known Issues
 Cross-cutting problems only; the owning node documents the details.
-- No CI. The pytest suite lives at `src/evogp/tests/` (1074 passed / 5 skipped on the validation box, ~115 s); the repo-root `test/` directory remains scratch tooling and is not part of the suite.
+- No CI. The pytest suite lives at `src/evogp/tests/` (1074 passed / 5 skipped on the validation box, ~114 s); the repo-root `test/` directory remains scratch tooling and is not part of the suite.
 - Performance against the plain-PyTorch baselines (warm medians, one process per config, MI300X; report of record `test/benchmark/evoxc/FINAL.md`): the default `auto` route is 4.9–75× faster than a per-tree torch eval loop at pop ≥ 64 on `Forest.SR_fitness` and 2.1–3.9× faster than the batched whole-population torch implementation, with one honest loss — at pop 1000 × tree length 64 `torch-batched` wins by 1.16× (the engine reads 0.86–0.88×).
 - At pop 16 the shipped default is 1.22–1.37× slower than plain torch-per-tree because a compiled graph cannot amortize there; forcing `EVOGP_EVAL_MODE=dense` wins both baselines in that cell (1.26–2.08× / 2.17–3.03×) at the price of a compile.
 - A full GP generation (`gp_step`) is at parity at pop 16–64 and 2.9–7.9× faster than torch-per-tree / 1.4–7.8× faster than torch-batched from pop 256; the operator layer alone costs 2.2–2.7 ms per generation and is 21–53% of it.
