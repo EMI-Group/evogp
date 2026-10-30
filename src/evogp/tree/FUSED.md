@@ -2,6 +2,8 @@
 
 Report of record for an independent re-measurement of the `fused` route (`fused_engine.py` + `fused_kernels.py`,
 wired at the five call sites in `forest.py` / `tree.py` through `dense_engine.resolve_route`).
+The route serves `output_len` 1..`fused_engine.MAX_OUT_LEN` (8): `out_len == 1` runs `_fused_kernel`, `out_len >= 2`
+runs `_fused_multi_kernel` (§11).
 Measured **2026-10-30** on **AMD Instinct MI300X VF** (191.7 GB HBM), torch **2.13.0+rocm7.1**, triton 3.7.1,
 iree-base 3.11.0, `/tmp/rocvenv/bin/python` 3.12.3, `evoxc` from `/root/evoxc`.
 Every record lives next to this file under `fused_results/`; the raw evidence is JSON, nothing here is an estimate.
@@ -23,6 +25,11 @@ same two allowances the baseline campaign needs) reads **20 records / 574 checks
 idle device, 0 contaminated**; its digest warnings are exactly the NaN-payload / float32-reduction splits described
 in §6, never a value mismatch.
 
+The route's second campaign (`fused_envelope.py`, §11–§15, table set `fused_results/ENVELOPE.md`) covers what this
+one does not: the multi-output (`OUT_NODE`) protocol, the memory/population envelope over 12 cells, the measured
+basis of `EVOGP_FUSED_MIN_POP`, the block/warp geometry sweep and a public-API re-verification of the six headline
+cells.
+
 ---
 
 ## 0. Verdict in one paragraph
@@ -37,6 +44,13 @@ compile and no re-prep** (5/5 transforms hit, 5/5 scratch reuses, 0 compiles, 0 
 dense compile and 25–500× cheaper than a `batch` merged compile. The one thing to fix is cross-node bookkeeping:
 `src/evogp/tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` still pins the pre-fused
 `EVAL_MODES`/`ENGINES` tuples and is the **single** failing test in the suite (1206 passed / 7 skipped).
+
+Scope and envelope, re-measured (§11–§15): the route serves `output_len` 1 up to `fused_engine.MAX_OUT_LEN` (8) with a
+**bitwise** multi-output value path, and over the 12-cell envelope it is **35.8×–206×** the `torch-batched` arm,
+**32.2×–155 847×** `specialized` and **16.3×–495×** the shipped `dense` default, i.e. it loses no measured cell on any
+axis. Its device cost is the `pop_size * tree_len * rows * 4` scratch block (2 GiB at the largest measured cell, which
+allocates it and does not OOM, 4× inside the 8192 MiB default), and `EVOGP_FUSED_MIN_POP` is 16 because the kernel is
+**flat in `pop_size`** (0.088–0.103 ms from pop 1 to 128) while the specialized fallback scales with the tree count.
 
 ---
 
@@ -270,6 +284,8 @@ trees; `fused_results/validation-fused.json`):
   1e+12), `nan_mismatch = 0`, `inf_mismatch = 0` everywhere.
 - `arith`-set digests therefore differ from the other routes on `sr_fitness` only (float32 block-reduction order);
   a harness gate over a fused column needs `--allow-digest-mismatch`, exactly as the batch route does.
+- The **multi-output** (`OUT_NODE`) value path is bitwise against the oracle and its loss `≤ 1.2e-07` relative on
+  `output_len` 2, 3 and 8 — the protocol, its adversarial cases and the `--stage multi` counts are §11.
 
 ---
 
@@ -295,21 +311,35 @@ trees; `fused_results/validation-fused.json`):
    reps is sensitive to GPU clock state, and this campaign's own `torch-batched` reference also ran 2–3 % slower than
    the baseline of record (4.0547 vs 4.0044 ms `bf` at `p256-L32`). Do not quote the loss path tighter than
    "32–131× in this campaign, up to ~147× measured previously".
-4. **Host glue is now 22–49 % of a warm call** (0.031–0.062 ms) — route resolution, `_prepare`, the scratch lookup
+4. **Host glue is 22–49 % of a warm call** (0.031–0.062 ms) — route resolution, `_prepare`, the scratch lookup
    and the `contiguous` epilogue. The kernel itself is 0.06–0.13 ms. Further gains need host-side work, not kernel
-   work; and the value path still has no device-resident output (a `(pop, N, 1)` tensor stays allocated, 1 MB –
-   8 MB, but is not read back).
-5. **Single output only.** `output_len != 1` declines by construction, so the multi-output `CombinedForest` route
-   (`CustomLoss`) cannot use fused today; the decline is clean (no kernel compiled, no scratch allocated).
-6. **Pop-1 trees never use it under the default policy** (`pop_size < EVOGP_FUSED_MIN_POP` = 64 with no explicit
-   backend resolves to `specialized`+`numpy`), and **`EVOGP_EVOXC_BACKEND=numpy` still reports `engine="fused"`
-   while every call declines** — the engine name is not a served-call proof. This campaign therefore asserts on
-   `fused_kernel_launches`; the harness's own route reporting cannot yet distinguish the two (`fused_sibling_patches.md` §3/§4).
+   work.
+5. **The multi-output loss path materializes the predictions.** `output_len >= 2` writes the `(pop, rows, out_len)`
+   prediction buffer to device memory (zeroed, then read-modify-written at every tagged node — the accumulator is
+   that buffer, see §11) and reduces it in the same kernel, where the single-output path folds in registers and moves
+   only `1/rows` of the traffic; the multi-output call's only device output is still the `(pop, n_rb)` partial chart,
+   and the single-output path keeps its original numbers. `MAX_OUT_LEN` 8 is a register/tile budget per out-node, not
+   a measured cliff: nothing above 8 outputs has been measured, and a wider call declines cleanly.
+6. **The default policy's population floor is 16** (`pop_size < EVOGP_FUSED_MIN_POP` with no explicit backend
+   resolves to `specialized`+`numpy`), so a single `Tree.forward` / `Tree.SR_fitness` never reaches the kernel and
+   `EVOGP_FUSED_MIN_POP=0` is refused; the measured basis of the number is §13. **`EVOGP_EVOXC_BACKEND=numpy` still
+   reports `engine="fused"` while every call declines** — the engine name is not a served-call proof. Both campaigns
+   therefore assert on `fused_kernel_launches`; the harness's own route reporting cannot yet distinguish the two
+   (`fused_sibling_patches.md` §3/§4).
 7. **One process pays the JIT again** (`fused_kernel_compiles` counts a first launch per specialization even when
    Triton serves it from disk in 2.1 ms), and `clear_fused_cache()` resets the facade counters but not
    `fused_kernels._KERNELS["specializations"]`, so a post-reset repeat can under-report compiles.
 8. **This box needs `TRITON_CACHE_DIR`.** `$HOME` is read-only; without the variable the first launch dies with
    `OSError: [Errno 30] Read-only file system: '/root/.triton'`. Nothing in `src/` sets or validates it.
+9. **The unmeasured class is tiny rows at tiny trees**: `rows <= 64` with `tree_len` 8–32 and pops 1–8, where the
+   kernel's ~0.09 ms launch floor is the whole call and a single per-tree numpy run could undercut it. Every measured
+   cell is at `tree_len >= 64` (rows 1–16 384, pops 1–8 192), so nothing here prices that corner.
+10. **Route mechanics that are not gaps but bound what can be measured**: prep is device-side only (no host work to
+    attribute), there is NO per-stage timer surface (the split is reconstructed by `fused_check._stage_split`), the
+    value path has no zero-copy device export (a `(pop, rows, 1)` tensor stays allocated, 1 MB – 8 GB, and is never
+    read back), `--stage goldens` still skips `src/evogp/tests/goldens/06_multi_output.npz` (§11 is its coverage),
+    and every number above was taken under the 12 GB sandbox `MemoryMax`, which is why the envelope's 2 GiB cell is
+    the largest shape measured.
 
 ---
 
@@ -369,7 +399,17 @@ $PY test/benchmark/evoxc/validate.py \
 # 5. index (one campaign.json entry per cell × arm × workload) + the markdown summary
 $PY src/evogp/tree/fused_results/campaign_index.py
 
-# 6. end-to-end and the hermetic suite (run the suite AFTER all timing — parts of it touch the GPU)
+# 6. the route's second campaign: multi-output parity, the envelope, the min-pop column,
+#    the geometry sweep and the public-API headline (one process per config; each stage
+#    writes its own JSON record, `--json PATH` overrides the file)
+$PY -m evogp.tree.fused_check --stage multi      # the OUT_NODE protocol vs the oracle
+$PY -m evogp.tree.fused_check --stage declines   # the decline/contract matrix
+$PY -m evogp.tree.fused_check --stage wired      # the public-API wiring gate
+for s in headline envelope minpop sweep degenerate; do
+  $PY -m evogp.tree.fused_envelope --stage $s
+done
+
+# 7. end-to-end and the hermetic suite (run the suite AFTER all timing — parts of it touch the GPU)
 EVOGP_EVAL_MODE=fused EVOGP_EVOXC_BACKEND=iree $PY -m evogp.sr_test     # best fitness -0.2259 in ~10.4 s
 $PY -m evogp.sr_test                                                    # default auto: -0.2259 in ~16.1 s
 PYTHONPATH=src:/root/evoxc $PY -m pytest src/evogp/tests -q             # 1 failed / 1206 passed / 7 skipped
@@ -401,7 +441,190 @@ scope**; the parent agent should move (or copy) the directory there and add the 
 | `fused_results/cold/<cell>.json` | cold-Triton-cache first calls (one fresh cache dir per cell) |
 | `fused_results/validation-fused.json` | `validate.py` output, 18 cases × 15 checks |
 | `fused_results/fused_campaign.py`, `fused_gate.py`, `fused_probe.py`, `campaign_index.py` | the tooling that produced the above |
+| `fused_results/main/headline_<UTC>.json` | the six-cell public-API headline re-verification of §15 (value/loss/per-row medians, the `fused_direct` kernel column and the policy's route per cell) |
+| `fused_results/envelope.json` | the 12 envelope cells of §12 (arms `fused` / `torch-batched` / `specialized` / `dense`, scratch bytes, the device peak over the fused window, parity) |
+| `fused_results/minpop.json` | the pop 1–128 column of §13 (`fused_direct` + the public API + `specialized` + `torch-batched` + the policy's engine) |
+| `fused_results/sweep/sweep.json` | the 12-config block/warp geometry sweep of §14 (four cells per config) |
+| `fused_results/degenerate.json` | the degenerate shapes (rows 1 / rows 1000 / `input_len` 1 / all-constant population / single-node population) |
+| `fused_results/ENVELOPE.md` | the table set of that campaign: protocol, headline, envelope, min-pop, sweep, degenerate shapes, reader notes |
+| `fused_envelope.py` | the driver behind §12–§15 (`--stage headline\|envelope\|minpop\|sweep\|degenerate`, plus the `*-one` single-process legs the drivers spawn) |
 | `fused_sibling_patches.md` | the exact cross-node edits (test pin, harness arm registry, route reporting, worker counters, doc drift) |
+
+---
+
+## 11. The multi-output (`OUT_NODE`) protocol — served for `output_len` 1..8
+
+`EVOGP_EVAL_MODE=fused` serves every `output_len` from 1 up to `fused_engine.MAX_OUT_LEN` (8).
+`out_len == 1` runs `_fused_kernel` (whose six headline cells of §2 keep their numbers), and `out_len >= 2`
+runs `_fused_multi_kernel` in `fused_kernels.py` — the same reverse-prefix walk plus the multi-output rules of the
+legacy `treeGPEvalKernel<true>`:
+
+- the base kind is `node_type & 0x7F` and `node_type & 0x80` is the `OUT_NODE` tag;
+- a TAGGED FUNCTION NODE resolves its operator from the packed value bits (`function = bits & 0xFFFF`,
+  `outIndex = (bits >> 16) & 0xFFFF`, an index `>= out_len` dropped — the oracle's unsigned compare) and adds its OWN
+  value into `out[outIndex]`;
+- every node passes its RIGHT-MOST operand up to its parent (`pass_up`: the second operand of a binary node, the third
+  of a ternary one, the operand of a unary one, its own value for a leaf), so the root's own value is ignored;
+- tagged LEAVES accumulate nothing and outputs no node ever tags stay exactly `0.0`.
+
+Semantics of record for the oracle side: `src/evogp/tests/reference_eval.py::forward_tree(multi_output=True)`.
+
+**Implementation note that cost a debugging round**: the accumulator is the prediction buffer itself
+(`(pop, rows, out_len)`, zeroed in-kernel and then read-modify-written at every tagged node), never a
+`[out_len, BLOCK_R]` register tile — a tile carried across the loop phis makes triton unify two layouts for the value
+registers and the LLVM translation dies on `builtin.unrealized_conversion_cast`. `pass_up` must likewise be a FRESH
+zero tile, never an alias of `val`. Consequence for the loss path: `output_len >= 2` materializes the
+`(pop, rows, out_len)` predictions in device memory and reduces them in the same kernel (its only device output is
+still the `(pop, n_rb)` partial chart), where the single-output path keeps its `1/rows` traffic and its original
+numbers.
+
+### Parity (`fused_check.py --stage multi`, one process)
+
+**65/65 comparisons**: 13 case×`out_len` populations (`out_len` 2, 3 and one at 8), each on the four surfaces.
+
+| surface | tolerance | recorded |
+|---|---|---|
+| `batch_forward` (`out_len >= 2`) | bitwise vs the oracle | `max_abs = max_rel = 0.0` |
+| `forward` (per-tree, one row per tree) | bitwise vs the oracle | `max_abs = max_rel = 0.0` |
+| `SR_fitness` (MSE) | `<= 1e-5` relative | `max_rel <= 1.2e-07` |
+| `SR_fitness` (MAE) | `<= 1e-5` relative | `max_rel <= 1.2e-07` |
+
+Three STRUCTURAL expectations are pinned next to the numeric ones: outputs no node tags (and an `outIndex` out of
+range) read exactly `0.0`; an untagged population's loss is exactly `sum(labels^2)/rows` for MSE; and two rows whose
+packed operator differs (`MUL` beside `ADD` on identical operands) must produce different numbers.
+
+Adversarial coverage of that set: two outputs deep + shallow; the tag on the ROOT (a tagged ternary `IF`); only one
+output tagged; two nodes tagging the SAME output (accumulation); tagged `VAR` and `CONST` leaves; an out-of-range
+`outIndex` (dropped); one tagged node per arity (unary / binary / ternary); no tagged node at all; a packed `MUL`
+beside a packed `ADD` on identical operands (function extraction); one population read at `out_len` 2 and again at 3
+(the tag on index 2 changes meaning); `out_len = 8` (the widest the route serves); and a garbage-padded multi-output
+row (NaN/nonsense cells behind the tree).
+
+### Declines and the gate counts
+
+- `output_len > MAX_OUT_LEN` declines with a reason naming `MAX_OUT_LEN` (clean: no kernel compiled, no scratch
+  allocated), and `output_len = 0` raises `ValueError` (a shape contract, not a route decline).
+- The battery's matrices read: decline/contract **24/24** (two-sided on `output_len`: 2 served, above `MAX_OUT_LEN`
+  declined), wiring **31/31** (the public-API leg drives a multi-output population and asserts one `fused_calls`, no
+  `fused_declines` and the specialized reference's numbers), parity **56/56** (the single-output set of §6) and
+  goldens **10/10**.
+- `--stage goldens` still SKIPS `src/evogp/tests/goldens/06_multi_output.npz` — it is the single-output golden gate
+  and serving the fixture would move its recorded count. `--stage multi` is the multi-output coverage; the fixture
+  is not read by any fused stage.
+
+---
+
+## 12. The envelope: memory, rows and population (12 cells)
+
+Records `fused_results/envelope.json`, table set `fused_results/ENVELOPE.md`. Shipped geometry
+(`BLOCK_R` 256 / 1 warp), warm medians in ms, one process per config, `TREE_LEN = 64` unless the cell names `d7`
+(`max_layer_cnt` 7, 123-node trees) or `d8`.
+
+| cell | fused value | fused loss | arm | specialized | dense | arm/fused | spec/fused | scratch B | n_rb | peak alloc / reserved MiB |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `p16-L64-i32-N1024` | 0.088 | 0.099 | 3.162 | 2.845 | 1.474 | 35.8 | 32.2 | 4 194 304 | 4 | 4.4 / 22 |
+| `p64-L64-i32-N1024` | 0.107 | 0.138 | 4.046 | 12.088 | 1.753 | 37.7 | 112.6 | 16 777 216 | 4 | 16.8 / 18 |
+| `p256-L64-i32-N1024` | 0.102 | 0.123 | 4.809 | 45.587 | 2.889 | 47.3 | 448.3 | 67 108 864 | 4 | 66.4 / 68 |
+| `p1000-L64-i32-N1024` | 0.136 | 0.122 | 5.367 | 179.966 | 7.730 | 39.5 | 1323 | 262 144 000 | 4 | 258.7 / 274 |
+| `p256-L64-i32-N4096` | 0.126 | 0.121 | 5.203 | 49.752 | 7.855 | 41.4 | 396.2 | 268 435 456 | 16 | 265.2 / 278 |
+| `p256-L64-i32-N16384` | 0.164 | 0.171 | 10.257 | 110.135 | 80.996 | 62.7 | 673.0 | 1 073 741 824 | 64 | 1060.2 / 1062 |
+| `p1000-L64-i32-N4096` | 0.188 | 0.193 | 10.221 | 197.589 | 49.170 | 54.5 | 1052.7 | 1 048 576 000 | 16 | 1033.6 / 1036 |
+| `p2048-L64-i32-N1024` | 0.121 | 0.138 | 7.122 | 369.162 | 14.561 | 59.0 | 3058 | 536 870 912 | 4 | 529.5 / 538 |
+| `p4096-L64-i32-N1024` | 0.156 | 0.157 | 10.531 | 720.569 | 46.933 | 67.6 | 4627 | 1 073 741 824 | 4 | 1058.8 / 1072 |
+| `p8192-L64-i32-N1024` | 0.218 | 0.201 | 17.673 | 33904.4 | 95.973 | 81.2 | 155847 | 2 147 483 648 | 4 | 2117.3 / 2142 |
+| `p2048-L128-i32-N1024-d7` | 0.191 | 0.189 | 27.520 | 888.204 | DE | 143.9 | 4645 | 1 073 741 824 | 4 | 1042.5 / 1056 |
+| `p2048-L256-i32-N1024-d8` | 0.238 | 0.233 | 49.013 | 1398.001 | DE | 206.0 | 5876 | 2 147 483 648 | 4 | 2068.5 / 2096 |
+
+`arm` = `torch-batched`; the ratio convention stays `reference_ms / fused_ms`, so higher means fused wins.
+`DE` = `dense_expected_decline`: the tree is above `EVOGP_DENSE_MAX_TREE_LEN` (64), where an explicit `dense` request
+falls back to per-structure `specialized` and timing it would only report that fallback.
+
+- Value parity against the arm is **bitwise on every cell**; loss agreement is **1.6e-07 … 4.1e-07** relative
+  (in-graph reduction order).
+- `scratch_bytes = pop_size * tree_len * rows * 4` is the envelope formula and the default
+  `EVOGP_FUSED_MAX_SCRATCH_MB` (8192) is 4× clear of the largest measured cell.
+- The node-count cell really allocates its 2 GiB stack scratch — device peak over the fused window Δ 2064 MiB
+  allocated / 2048 MiB reserved — and does **not** OOM.
+- No cell loses: the narrowest margin over `specialized` is 32.2× (`p16`), over `dense` 16.3× (`p64`, whose cost is
+  shape-bound rather than population-bound).
+
+---
+
+## 13. `EVOGP_FUSED_MIN_POP` is 16
+
+The kernel is FLAT in `pop_size` at `L=64` / `i32` / `N=1024` (0.088–0.103 ms from pop 1 to 128) because its cost is
+the row-block sweep, not the trees, while `specialized` scales linearly with the tree count:
+
+| pop | fused (`fused_direct`) ms | specialized ms | torch-batched ms | policy engine |
+|---|---|---|---|---|
+| 1 | 0.093 | 0.490 | 1.396 | specialized |
+| 4 | 0.092 | 0.925 | 1.951 | specialized |
+| 16 | 0.103 | 2.725 | 3.367 | **fused** |
+| 32 | 0.097 | 5.679 | 3.954 | fused |
+| 64 | 0.097 | 12.154 | 4.233 | fused |
+| 128 | 0.092 | 22.536 | 4.110 | fused |
+
+At the shipped 16 the route is 26.5× ahead of the fallback at pop 16 and 10.1× at pop 4 (`fused_engine.resolve_min_pop`,
+`EVOGP_FUSED_MIN_POP`; `dense_engine.resolve_fused_min_pop` delegates to it through a local import). 16 rather than
+1–8 for two measured reasons: every number in the column is at `N=1024` only, and a 1–8-tree population on a tiny row
+plane is the one unmeasured class where a single per-tree numpy run could undercut the kernel's ~0.09 ms launch floor;
+and 16 keeps a single `Tree.forward` / `Tree.SR_fitness` (pop 1) on the specialized route instead of paying a ~1.4 s
+cold Triton JIT for a one-shot call. `EVOGP_FUSED_MIN_POP=0` stays refused (a pop-size threshold must be `>= 1`), an
+explicitly named backend still serves below the threshold, and `auto` still never selects fused.
+
+---
+
+## 14. Block/warp sweep — the default stays 256 / 1
+
+Records `fused_results/sweep/sweep.json`: 12 configs × 4 cells, value medians in ms, one process per (config, cell).
+`worst` = the config's slowest cell relative to that cell's best config.
+
+| cfg | `p256-L64-N1024` | `p4096-L64-N1024` | `p256-L64-N4096` | `p2048-L128-d7` | worst |
+|---|---|---|---|---|---|
+| B128-W1 | 0.088 | 0.161 | 0.109 | 0.204 | 1.27 |
+| B128-W2 | 0.098 | 0.240 | 0.125 | 0.309 | 1.94 |
+| B128-W4 | 0.101 | 0.370 | 0.168 | 0.469 | 2.93 |
+| **B256-W1 (shipped)** | **0.096** | **0.137** | **0.113** | **0.160** | **1.20** |
+| B256-W2 | 0.090 | 0.149 | 0.108 | 0.190 | 1.19 |
+| B256-W4 | 0.092 | 0.231 | 0.121 | 0.284 | 1.78 |
+| B512-W1 | 0.102 | 0.154 | 0.110 | 0.161 | 1.26 |
+| B512-W2 | 0.090 | 0.139 | 0.107 | 0.160 | 1.12 |
+| B512-W4 | 0.099 | 0.159 | 0.112 | 0.181 | 1.24 |
+| B1024-W1 | 0.094 | 0.170 | 0.101 | 0.174 | 1.24 |
+| B1024-W2 | 0.096 | 0.157 | 0.114 | 0.165 | 1.19 |
+| B1024-W4 | 0.081 | 0.140 | 0.108 | 0.164 | 1.07 |
+
+**256 / 1 stays.** It is the outright best config on both large-population cells (1.00), 1.10–1.12 on the others by
+the min statistic; the only config with a lower minimax (`B1024-W4`, 1.07) wins solely on `p256-L64-i32-N1024`, whose
+own within-record spread (52 %) exceeds the 18 % gap, so no change is justified by this protocol. The clearly-bad
+region is narrow blocks with many warps (128 lanes × 4 warps: 1.67–3.04×), consistent with the walk being a scalar
+loop-carried dependency chain.
+
+---
+
+## 15. Headline re-verification — no regression
+
+Six cells of record through the PUBLIC API at the shipped geometry (`fused_results/main/headline_<UTC>.json`), ms,
+warm medians, one process per config:
+
+| cell | value | loss | per_row | arm | ratio | kernel-only | recorded kernel-only |
+|---|---|---|---|---|---|---|---|
+| `p256-L32-i8-N1024` | 0.101 | 0.116 | 0.082 | 3.937 | 38.9 | 0.080 | 0.083 |
+| `p256-L64-i32-N1024` | 0.106 | 0.115 | 0.090 | 4.441 | 42.0 | 0.082 | 0.082 |
+| `p256-L64-i32-N4096` | 0.121 | 0.126 | 0.092 | 5.247 | 43.4 | 0.105 | 0.097 |
+| `p1000-L64-i32-N1024` | 0.117 | 0.122 | 0.086 | 5.375 | 45.9 | 0.101 | 0.096 |
+| `p4096-L64-i32-N1024` | 0.143 | 0.154 | 0.102 | 10.628 | 74.2 | 0.127 | 0.134 |
+| `p2048-L128-i32-N1024-d7` | 0.176 | 0.191 | 0.125 | 27.831 | 157.8 | 0.155 | 0.161 |
+
+`ratio` = `arm / value`; `kernel-only` = the facade without the route policy (`fused_direct`, i.e. `evaluate_fused`
+called straight) and `recorded kernel-only` = the per-cell kernel medians of §3.
+
+- **No cell regressed by more than 10 %** (worst +8.4 % on the kernel-only column, inside the protocol's spread).
+- The two columns are not the same measurement: the PUBLIC-API column sits **+7 … +29 %** above the kernel-only
+  numbers because it pays the facade, the route decision and the `(pop, rows, 1)` staging (20–24 µs). The kernel
+  itself is unchanged.
+
+---
 
 ## Measured detail (moved from tree/CONTEXT.md)
 
@@ -430,8 +653,9 @@ stated above; where they overlap, the campaign's own tables win):
   printing only `resolve_route(pop, eval_mode='fused').engine` therefore cannot distinguish a served call from a
   guaranteed decline.
 - The facade declines (never guesses) on no triton, no device, a host tensor, `backend != "iree"`,
-  `output_len != 1`, `rows < 1`, `pop < 1` and the `EVOGP_FUSED_MAX_SCRATCH_MB` envelope, and maps
+  `output_len > MAX_OUT_LEN`, `rows < 1`, `pop < 1` and the `EVOGP_FUSED_MAX_SCRATCH_MB` envelope, and maps
   `fused_kernels.FusedUnavailable` onto that decline so an optional route never raises `ImportError`.
+  `output_len = 0` and `tree_len < 1` are shape-contract `ValueError`s, not declines.
 - Prep is device-side only: `per_row=False` transposes `x` once into the identity-memoized `XT_MEMO` (a
   `DenseMemo`), `per_row=True` needs nothing.
 - `fused_check.py` is ~1.9k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is
@@ -442,10 +666,11 @@ stated above; where they overlap, the campaign's own tables win):
   in-process and asserts they equal the `specialized` reference (value bitwise or ≤1e-6 relative, loss ≤1e-5), that
   the facade SERVED each call (its counters move), that `resolve_route` names fused on `iree` with a `numpy`
   fallback while `pop_size == 1` / a population below `EVOGP_FUSED_MIN_POP` / a box with no device stay
-  `specialized`+`numpy`, that `auto` never selects it, and that a 64-row `output_len=2` population declines into
-  the fallback with no kernel compiled and no scratch buffer allocated; `--stage timing --wired` re-times the six
-  cells through the same public calls. Recorded: 56/56 oracle comparisons, 10/10 goldens at 1e-4, 21/21
-  decline/contract checks, 30/30 wiring checks.
+  `specialized`+`numpy`, that `auto` never selects it, and that a multi-output population (`output_len=2`) is SERVED
+  by `_fused_multi_kernel` with the specialized reference's numbers, one `fused_calls` and no `fused_declines`;
+  `--stage timing --wired` re-times the six cells through the same public calls. Recorded: 56/56 oracle comparisons,
+  10/10 goldens at 1e-4, 24/24 decline/contract checks, 31/31 wiring checks (the `--stage multi` set of §11 adds
+  65/65 comparisons on top).
 
 The earlier six-cell sweep that preceded this campaign (kept for the record; `BLOCK_R` 256 / 1 warp): **48.6x-167.6x**
 faster than the `torch-batched` arm on the value path, 43.4x-156.4x on the loss path, 56x-150x `per_row`; the kernel
@@ -454,9 +679,9 @@ was 72-82 % of a warm call (0.060-0.128 of 0.083-0.157 ms), the transpose 0.018-
 
 ### Facade surface and route wiring (relocated from tree/CONTEXT.md)
 `fused_engine` is the facade in the dense shape: `FusedUnsupported(reason, device_fallback=False)`, `evaluate_fused`, `sr_fitness_fused`, `fused_available`, `fused_cache_stats()` (13 all-`fused_*` keys), `clear_fused_cache` (registered with `evoxc_engine._register_cache_reset`) and the knob readers `resolve_block_rows` / `resolve_num_warps` / `resolve_max_scratch_mb` / `resolve_min_pop`.
-It declines (never guesses) on no triton, no device, a host tensor, `backend != "iree"`, `output_len != 1`, `rows < 1`, `pop < 1` and the `EVOGP_FUSED_MAX_SCRATCH_MB` envelope, and it maps `fused_kernels.FusedUnavailable` onto that decline so an optional route never raises `ImportError`.
+It declines (never guesses) on no triton, no device, a host tensor, `backend != "iree"`, `output_len > MAX_OUT_LEN`, `rows < 1`, `pop < 1` and the `EVOGP_FUSED_MAX_SCRATCH_MB` envelope, and it maps `fused_kernels.FusedUnavailable` onto that decline so an optional route never raises `ImportError`.
 Prep is device-side only: `per_row=False` transposes `x` once into the identity-memoized `XT_MEMO` (a `DenseMemo`, `EVOGP_FUSED_HOST_MEMO` 16 entries), `per_row=True` needs nothing.
-Route wiring: `EVOGP_EVAL_MODE=fused` is named by `EVAL_MODES` and `ENGINES`, `Route.use_fused` reports it and `resolve_route`'s `fused` branch decides — on an explicitly named backend, or with a device usable from torch AND `pop_size >= EVOGP_FUSED_MIN_POP` (64); otherwise (and on a CPU box) the route IS specialized+`numpy` with `engine="specialized"`.
+Route wiring: `EVOGP_EVAL_MODE=fused` is named by `EVAL_MODES` and `ENGINES`, `Route.use_fused` reports it and `resolve_route`'s `fused` branch decides — on an explicitly named backend, or with a device usable from torch AND `pop_size >= EVOGP_FUSED_MIN_POP` (16); otherwise (and on a CPU box) the route IS specialized+`numpy` with `engine="specialized"`.
 Its backend SPELLING is `iree` and its fallback is always specialized+`numpy`; an explicit `EVOGP_EVOXC_BACKEND` changes the shape (`iree` makes the fallback `iree` too, `numpy` still reports `engine='fused'` while every call declines — the engine name is never a served-call proof).
 `Route.__post_init__` refuses `use_dense=True` with `engine="fused"`; `should_use_dense` is `False` for it; `resolve_fused_min_pop` is the single parser of `EVOGP_FUSED_MIN_POP` and delegates to `fused_engine.resolve_min_pop` through a LOCAL import so the module DAG stays one-way.
 All five call sites carry the fused attempt between the dense one and the specialized tail, catching exactly `fused_engine.FusedUnsupported` and continuing on `route.fallback_backend`.

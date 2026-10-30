@@ -13,7 +13,7 @@ branch (``EVOGP_EVAL_MODE=fused`` -> ``Route(engine="fused", ...)``, reported by
 (``per_row=True``), ``Forest.batch_forward`` (``per_row=False``),
 ``Forest.SR_fitness`` (the loss path) and ``Tree.forward`` / ``Tree.SR_fitness``
 (``pop_size == 1``) -- each continuing on the route's fallback after a
-:class:`FusedUnsupported`.  ``EVOGP_FUSED_MIN_POP`` (default 64,
+:class:`FusedUnsupported`.  ``EVOGP_FUSED_MIN_POP`` (default 16,
 :func:`resolve_min_pop`) gates the NO-EXPLICIT-BACKEND case only: an explicitly
 named backend always attempts the route, while the default policy needs a device
 usable from torch and ``pop_size >= EVOGP_FUSED_MIN_POP`` and otherwise resolves
@@ -47,8 +47,10 @@ Contracts (they mirror :func:`evogp.tree.dense_engine.evaluate_dense` /
   human-readable ``reason`` -- never a wrong number and never a crash.  The
   reasons are: triton not importable; no CUDA/HIP device; the population or
   ``x`` not on a device tensor; an explicit ``backend="numpy"`` (a Triton kernel
-  cannot run on the evoxc reference interpreter); ``output_len != 1``
-  (multi-output lands later); ``pop_size < 1``; ``rows < 1``; or the scratch
+  cannot run on the evoxc reference interpreter); ``output_len > MAX_OUT_LEN``
+  (8 -- the multi-output kernel accumulates in the ``(pop, rows, out_len)``
+  prediction buffer, so ``out_len`` costs one extra read-modify-write per tagged
+  node, and 8 bounds that traffic); ``pop_size < 1``; ``rows < 1``; or the scratch
   envelope (``pop * tree_len * rows * 4`` bytes vs ``EVOGP_FUSED_MAX_SCRATCH_MB``)
   being exceeded.  ``FusedUnsupported.device_fallback`` exists for symmetry with
   ``DenseUnsupported`` but the fused route never sets it: it has no numpy twin,
@@ -123,7 +125,10 @@ against ``src/evogp/tests/reference_eval.py`` -- **bitwise** on the arithmetic
 set's value paths and on every handmade adversarial row that has no NaN/zero-sign
 case, ``<= 1.8e-07`` relative on the loose/rich transcendental sets' value paths
 and ``<= 1e-07`` on the loss paths (float32 reduction order), plus 10/10 golden
-fixtures inside 1e-4 (measured ``<= 1.9e-06``) and 21/21 decline/contract checks.
+fixtures inside 1e-4 (measured ``<= 1.9e-06``), 24/24 decline/contract checks and
+31/31 wiring checks.  The ``OUT_NODE`` multi-output protocol has its own stage
+(``--stage multi``: 13 case x ``out_len`` populations, 4 surfaces, 65/65
+comparisons, value path BITWISE, loss ``<= 1.2e-07`` relative).
 The only rows that are not bitwise are those whose result is a NaN payload or a
 signed zero, where the numeric value is identical (``max_abs = 0.0``).
 Tuning (``--stage tuning``: 12 configs x 6 cells, one process per config, value
@@ -163,11 +168,27 @@ Environment knobs (read per call unless noted; an unusable value raises
   buffer; the stack is ``tree_len`` slots deep even though only ``depth`` slots
   are ever touched).
 * ``EVOGP_FUSED_HOST_MEMO`` (16, IMPORT TIME) -- entries of the transpose table.
-* ``EVOGP_FUSED_MIN_POP`` (64) -- the pop-size threshold the POLICY consumes
+* ``EVOGP_FUSED_MIN_POP`` (16) -- the pop-size threshold the POLICY consumes
   through :func:`resolve_min_pop`: with ``EVOGP_EVAL_MODE=fused`` and no explicit
   backend, the route needs a device plus ``pop_size >= EVOGP_FUSED_MIN_POP`` and
   resolves to specialized+``numpy`` otherwise (an explicitly named backend always
   attempts the route).  Nothing in this module branches on it.
+
+The threshold is a measured crossover, not a safety floor: the kernel is FLAT in
+``pop_size`` (0.088-0.103 ms from pop 1 to pop 128 at ``L=64`` / ``input_len`` 32
+/ ``N`` 1024, warm medians, MI300X; records
+``fused_results/minpop.json``, table ``fused_results/ENVELOPE.md`` §3) while the
+specialized fallback scales linearly with the tree count -- fused / specialized /
+``torch-batched`` in ms: pop 1 0.093 / 0.490 / 1.396, pop 4 0.092 / 0.925 / 1.951,
+pop 8 0.159 (clock-ramp outlier; the kernel is 0.088-0.103) / 1.644 / 2.662,
+pop 16 0.103 / 2.725 / 3.367, pop 32 0.097 / 5.679 / 3.954, pop 64
+0.097 / 12.154 / 4.233, pop 128 0.092 / 22.536 / 4.110.  The old gate of 64
+therefore threw away 26.5x at pop 16 and 10.1x at pop 4.  16 rather than 1-8
+because every measurement is at ``N`` 1024 only and a 1-8-tree population on a
+tiny row plane is the one class where a single per-tree numpy run could undercut
+the kernel's ~0.09 ms launch floor (unmeasured), and because it keeps a single
+``Tree.forward`` on the specialized route instead of paying a ~1.4 s cold JIT for
+a one-shot call.
 """
 
 from __future__ import annotations
@@ -190,6 +211,7 @@ __all__ = [
     "DEFAULT_MIN_POP",
     "DEFAULT_NUM_WARPS",
     "FusedUnsupported",
+    "MAX_OUT_LEN",
     "clear_fused_cache",
     "evaluate_fused",
     "fused_available",
@@ -214,9 +236,24 @@ DEFAULT_MAX_SCRATCH_MB = 8192
 HOST_MEMO_ENV = "EVOGP_FUSED_HOST_MEMO"
 DEFAULT_HOST_MEMO = 16
 #: Pop-size threshold the ROUTE POLICY consumes through ``resolve_min_pop``
-#: (consulted by ``dense_engine.resolve_fused_min_pop``; not used here).
+#: (consulted by ``dense_engine.resolve_fused_min_pop``; not used here).  The
+#: kernel is flat in ``pop_size`` (0.088-0.103 ms from pop 1 to 128) while the
+#: specialized fallback scales linearly with the tree count, so the threshold is
+#: the measured crossover: 16 is where ``fused`` is 26.5x ahead of the fallback
+#: (pop 16: 0.103 vs 2.725 ms) while a single ``Tree.forward`` stays on the
+#: specialized route instead of paying a cold Triton JIT; see the module docstring
+#: for the full column and :func:`resolve_min_pop`.
 MIN_POP_ENV = "EVOGP_FUSED_MIN_POP"
-DEFAULT_MIN_POP = 64
+DEFAULT_MIN_POP = 16
+#: Outputs the multi-output kernel serves.  It accumulates into the
+#: ``(pop, rows, out_len)`` prediction buffer (a ``[output_len, BLOCK_R]`` register
+#: tile would make triton unify two layouts across the loop phis and the LLVM
+#: translation fails), so ``out_len`` costs one read-modify-write per tagged node
+#: and bounds the extra traffic; the library's multi-output trees use 2-3
+#: (``Classification`` at ``output_len`` classes, multi-task policies) and a call
+#: above this declines into the specialized fallback with a reason naming the
+#: constant.
+MAX_OUT_LEN = 8
 
 #: ``(pop*rows*L*4)`` bytes per MiB.
 _MIB = 2**20
@@ -286,11 +323,24 @@ def resolve_max_scratch_mb(value: Optional[int] = None) -> int:
 
 
 def resolve_min_pop(value: Optional[int] = None) -> int:
-    """The route's pop-size threshold (``EVOGP_FUSED_MIN_POP``, default 64).
+    """The route's pop-size threshold (``EVOGP_FUSED_MIN_POP``, default 16).
 
     Documented here so the wiring round has a single reader, exactly like
     ``dense_engine.resolve_auto_min_pop``.  Nothing in this module consults it: a
     direct :func:`evaluate_fused` call is served at any ``pop >= 1``.
+
+    The default is the MEASURED crossover, not a safety floor: the kernel is flat
+    in ``pop_size`` (0.088-0.103 ms from pop 1 to pop 128 at ``L=64`` /
+    ``input_len`` 32 / ``N`` 1024, warm medians, MI300X; records
+    ``fused_results/minpop.json``, table ``fused_results/ENVELOPE.md`` §3) while
+    the specialized fallback is linear in the tree count (pop 16: 0.103 ms against
+    2.725 ms, i.e. 26.5x; pop 4: 0.092 against 0.925, i.e. 10.1x).  It stays at 16
+    rather than 1-8 because every measurement is at ``N`` 1024 only -- a 1-8-tree
+    population on a tiny row plane is the one class where one per-tree numpy run
+    could undercut the kernel's ~0.09 ms launch floor (unmeasured) -- and because
+    a single ``Tree.forward`` (``pop_size == 1``) then keeps the specialized route
+    instead of paying a ~1.4 s cold Triton JIT for a one-shot call.  A value below
+    1 is refused: this is a ``pop_size`` threshold.
     """
     minimum = _env_int(MIN_POP_ENV, DEFAULT_MIN_POP) if value is None else int(value)
     if minimum < 1:
@@ -540,10 +590,14 @@ def _prepare(
     """
     _decline_if_numpy(backend)
     pop, tree_len = _population_shape(batch_subtree_size)
-    if int(output_len) != 1:
+    if int(output_len) < 1:
+        raise ValueError(f"output_len must be >= 1, got {int(output_len)}")
+    if int(output_len) > MAX_OUT_LEN:
         raise FusedUnsupported(
-            f"output_len={int(output_len)}: the fused route implements the "
-            "single-output protocol only (multi-output lands later)"
+            f"output_len={int(output_len)} > {MAX_OUT_LEN}: the multi-output kernel "
+            f"accumulates in the (pop, rows, out_len) prediction buffer, so this "
+            f"route serves up to {MAX_OUT_LEN} outputs (raise "
+            "fused_engine.MAX_OUT_LEN if a model really needs more)"
         )
     if tree_len < 1:
         raise ValueError(f"max_tree_len must be >= 1, got {tree_len}")
@@ -697,8 +751,10 @@ def _evaluate_fused(
             per_row=True,
             block_rows=prepared.block_rows,
             num_warps=prepared.num_warps,
+            out_len=int(output_len),
         )
-        result = out.squeeze(1)  # (pop, 1, 1) -> (pop, 1) view of the fresh buffer
+        # (pop, 1, out_len) -> (pop, out_len) view of the fresh buffer
+        result = out.squeeze(1)
     else:
         result = _launch(
             fused_kernels.launch_value,
@@ -712,6 +768,7 @@ def _evaluate_fused(
             per_row=False,
             block_rows=prepared.block_rows,
             num_warps=prepared.num_warps,
+            out_len=int(output_len),
         )
     if out_device is not None and torch.device(out_device) != result.device:
         result = result.to(out_device)
@@ -737,7 +794,7 @@ def sr_fitness_fused(
     """Symbolic-regression fitness via the fused evaluator (IN-KERNEL loss).
 
     ``inputs`` is ``(N, input_len)``, ``labels`` is ``(N, output_len)``
-    (``output_len == 1`` on this route) and the result is a ``(pop_size,)``
+    (``1 <= output_len <= MAX_OUT_LEN``) and the result is a ``(pop_size,)``
     float32 POSITIVE loss ``sum_N sum_out err / N`` (MSE or MAE) on the
     computation device unless ``out_device``; NaN/inf propagate unsanitized --
     same formula, same float32 placement and the same ``label - prediction``
@@ -834,9 +891,9 @@ def _sr_fitness_fused(
     inputs = _as_device_tensor(inputs, torch.float32, prepared.device, "inputs")
     label_column = _as_device_tensor(labels, torch.float32, prepared.device, "labels")
     _check_envelope(prepared.pop, prepared.tree_len, rows, max_scratch_mb)
-    # (N, 1) -> (N,) pointer view: ``out_len == 1`` is enforced by _prepare, so the
-    # label column is contiguous and the flatten is free.
-    label_ptr = label_column.reshape(-1)
+    # ``out_len == 1`` wants the flat ``(N,)`` view (a free reshape of the label
+    # column); the multi-output kernel indexes the row-major ``(N, out_len)`` block.
+    label_ptr = label_column.reshape(-1) if int(output_len) == 1 else label_column
     partials = _launch(
         fused_kernels.launch_loss,
         prepared.node_value,
@@ -850,6 +907,7 @@ def _sr_fitness_fused(
         use_mse=bool(use_MSE),
         block_rows=prepared.block_rows,
         num_warps=prepared.num_warps,
+        out_len=int(output_len),
     )
     # ``sum_points sum_outputs err / N`` -- outputs are already summed (there is
     # exactly one), the divisor is the data-point count only.

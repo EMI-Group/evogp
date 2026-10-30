@@ -165,12 +165,12 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
     SPELLING the other device routes use (the facade declines for any other name)
     and its fallback is always specialized+``numpy`` -- a per-tree compile can
     never amortize after a decline.  With no explicit backend it needs a device
-    usable from torch and ``pop_size >= EVOGP_FUSED_MIN_POP`` (default 64, the same
-    break-even reasoning as ``EVOGP_DENSE_AUTO_MIN_POP``); below that threshold, or
-    with no device, the route IS specialized+``numpy`` (the engine field stays
-    ``"specialized"``).  ``auto`` NEVER selects this engine, and a single ``Tree``
-    (``pop_size == 1``) is below the threshold, so the fused route is reached only
-    through an explicit ``EVOGP_EVAL_MODE=fused``.
+    usable from torch and ``pop_size >= EVOGP_FUSED_MIN_POP`` (default 16 -- the
+    kernel is flat in ``pop_size``, 0.088-0.103 ms from pop 1 to 128, so the
+    threshold only keeps a one-shot ``Tree`` off a cold Triton JIT); below that
+    threshold, or with no device, the route IS specialized+``numpy`` (the engine
+    field stays ``"specialized"``).  ``auto`` NEVER selects this engine, so the
+    fused route is reached only through an explicit ``EVOGP_EVAL_MODE=fused``.
 
 Any other value raises ``ValueError`` naming the variable.  The dense-specific
 knobs below stay as they are.
@@ -611,7 +611,13 @@ AUTO_BUDGET_MB_ENV = "EVOGP_DENSE_AUTO_BUDGET_MB"
 AUTO_MAX_TREE_LEN_ENV = "EVOGP_DENSE_AUTO_MAX_TREE_LEN"
 #: Pop-size threshold of the ``fused`` policy (``EVOGP_FUSED_MIN_POP``): the Triton
 #: route is attempted from here up on a device box, and below it the route IS
-#: specialized+numpy (a kernel launch cannot amortize over a handful of trees).
+#: specialized+numpy.  The kernel is FLAT in ``pop_size`` (0.088-0.103 ms from pop 1
+#: to 128 at ``L=64``/``i32``/``N=1024``) while ``specialized`` scales with the tree
+#: count (5.3x / 26.5x / 244.7x dearer at pop 1 / 16 / 128), so the number is set by
+#: what a one-shot call may pay rather than by the kernel's own crossover: 16 keeps a
+#: single ``Tree.forward`` on the specialized route instead of a cold Triton JIT, and
+#: a 1-8-tree population on a tiny row plane is the one unmeasured class where a
+#: per-tree numpy run could undercut the kernel's ~0.09 ms launch floor.
 #: The variable has EXACTLY ONE parser,
 #: :func:`evogp.tree.fused_engine.resolve_min_pop`; :func:`resolve_fused_min_pop`
 #: delegates to it -- see that function.
@@ -921,8 +927,8 @@ def resolve_fused_min_pop(value: Optional[int] = None) -> int:
     """Resolve the ``fused`` policy's pop-size threshold (``EVOGP_FUSED_MIN_POP``).
 
     The threshold has EXACTLY ONE parser -- :func:`evogp.tree.fused_engine.resolve_min_pop`,
-    which reads the same variable and owns its validation, its default (64, the
-    same break-even reasoning as :data:`AUTO_MIN_POP_ENV`) and its error message --
+    which reads the same variable and owns its validation, its default (16, the
+    measured flat-kernel threshold) and its error message --
     so this reader only delegates to it.  The import is LOCAL on purpose: the
     route policy is both the first thing every call site touches and the module
     ``fused_engine`` must not depend on, so a module-level import would reverse

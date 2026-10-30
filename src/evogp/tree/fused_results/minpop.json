@@ -1,0 +1,2389 @@
+{
+ "schema": "evogp-fused-envelope-v1",
+ "kind": "minpop",
+ "created_utc": "2026-10-30T21:41:54Z",
+ "protocol": {
+  "warmup": 2,
+  "reps": 5,
+  "one_process_per_cell": true
+ },
+ "failures": 0,
+ "records": [
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "minpop",
+   "created_utc": "2026-10-30T21:40:48Z",
+   "cell": "p1-L64-i32-N1024",
+   "pop": 1,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 262144,
+    "scratch_mib": 0.25,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: pop_size=1 < 64 (EVOGP_DENSE_AUTO_MIN_POP) -> specialized on numpy (a per-tree iree compile cannot amortize there)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: pop_size=1 < 64 (EVOGP_FUSED_MIN_POP) -> specialized on numpy"
+    }
+   },
+   "fused_direct": {
+    "timings": {
+     "value": {
+      "first_call_ms": 435.73122296947986,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.10206399019807577,
+       0.09659997886046767,
+       0.09276100900024176,
+       0.08427095599472523,
+       0.08201401215046644
+      ],
+      "median_ms": 0.09276100900024176,
+      "min_ms": 0.08201401215046644,
+      "max_ms": 0.10206399019807577,
+      "mean_ms": 0.09154198924079537
+     },
+     "loss": {
+      "first_call_ms": 27.165190025698394,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.12006302131339908,
+       0.1113290200009942,
+       0.10585301788523793,
+       0.12154597789049149,
+       0.10564998956397176
+      ],
+      "median_ms": 0.1113290200009942,
+      "min_ms": 0.10564998956397176,
+      "max_ms": 0.12154597789049149,
+      "mean_ms": 0.11288820533081889
+     }
+    },
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.1357421875,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 0.5185546875,
+     "peak_reserved_mib": 2.0,
+     "delta_allocated_mib": 0.3828125,
+     "delta_reserved_mib": 0.0
+    },
+    "served": true,
+    "note": "evaluate_fused / sr_fitness_fused: the kernel without the route policy"
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 142.1753309550695,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.4193259994499385,
+       1.3907959801144898,
+       1.5568410162813962,
+       1.382553018629551,
+       1.3956300099380314
+      ],
+      "median_ms": 1.3956300099380314,
+      "min_ms": 1.382553018629551,
+      "max_ms": 1.5568410162813962,
+      "mean_ms": 1.4290292048826814
+     },
+     "loss": {
+      "first_call_ms": 1.4358150074258447,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.3113209861330688,
+       1.3214980135671794,
+       1.350347010884434,
+       1.4441530220210552,
+       1.416184997651726
+      ],
+      "median_ms": 1.350347010884434,
+      "min_ms": 1.3113209861330688,
+      "max_ms": 1.4441530220210552,
+      "mean_ms": 1.3687008060514927
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      1,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 561.271728515625,
+     "finite_points": 1024,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 2654.0927734375,
+     "finite_points": 1,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 15.045438002236414,
+    "loss_vs_torch_batched": 12.129335288071115
+   },
+   "fused_api": {
+    "timings": {
+     "value": {
+      "first_call_ms": 40.04704998806119,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.4778139991685748,
+       0.49519300227984786,
+       0.5839619552716613,
+       0.48167002387344837,
+       0.46417396515607834
+      ],
+      "median_ms": 0.48167002387344837,
+      "min_ms": 0.46417396515607834,
+      "max_ms": 0.5839619552716613,
+      "mean_ms": 0.5005625891499221
+     },
+     "loss": {
+      "first_call_ms": 0.5128859775140882,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.5123839946463704,
+       0.47084299148991704,
+       0.4750630469061434,
+       0.4567069699987769,
+       0.4696270334534347
+      ],
+      "median_ms": 0.47084299148991704,
+      "min_ms": 0.4567069699987769,
+      "max_ms": 0.5123839946463704,
+      "mean_ms": 0.4769248072989285
+     }
+    },
+    "note": "Forest.batch_forward / SR_fitness with EVOGP_EVAL_MODE=fused: whatever the route policy serves at this pop_size"
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 0.4790660459548235,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.5092239589430392,
+       0.47315104166045785,
+       0.502455048263073,
+       0.4875279846601188,
+       0.4900360363535583
+      ],
+      "median_ms": 0.4900360363535583,
+      "min_ms": 0.47315104166045785,
+      "max_ms": 0.5092239589430392,
+      "mean_ms": 0.4924788139760494
+     },
+     "loss": {
+      "first_call_ms": 0.5391079466789961,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.5382539820857346,
+       0.501818023622036,
+       0.5270179826766253,
+       0.49005699111148715,
+       0.5194420227780938
+      ],
+      "median_ms": 0.5194420227780938,
+      "min_ms": 0.49005699111148715,
+      "max_ms": 0.5382539820857346,
+      "mean_ms": 0.5153178004547954
+     }
+    }
+   },
+   "min_pop_gate": {
+    "min_pop": 64,
+    "below_min_pop": true,
+    "policy_engine": "specialized",
+    "fused_vs_specialized": 5.282780358202886,
+    "api_vs_direct": 5.192591467738271,
+    "speedup_vs_torch": 15.045438002236414,
+    "note": "fused_direct is the kernel at this pop_size; below EVOGP_FUSED_MIN_POP the policy answers specialized (fused_api == specialized), so a fused_vs_specialized > 1 below the gate is performance the shipped threshold does not collect"
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "minpop",
+   "created_utc": "2026-10-30T21:40:57Z",
+   "cell": "p2-L64-i32-N1024",
+   "pop": 2,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 524288,
+    "scratch_mib": 0.5,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: pop_size=2 < 64 (EVOGP_DENSE_AUTO_MIN_POP) -> specialized on numpy (a per-tree iree compile cannot amortize there)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: pop_size=2 < 64 (EVOGP_FUSED_MIN_POP) -> specialized on numpy"
+    }
+   },
+   "fused_direct": {
+    "timings": {
+     "value": {
+      "first_call_ms": 445.91371598653495,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.0898040016181767,
+       0.0880889710970223,
+       0.0882070162333548,
+       0.0872790114954114,
+       0.08506199810653925
+      ],
+      "median_ms": 0.0880889710970223,
+      "min_ms": 0.08506199810653925,
+      "max_ms": 0.0898040016181767,
+      "mean_ms": 0.08768819971010089
+     },
+     "loss": {
+      "first_call_ms": 26.118995039723814,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.11752196587622166,
+       0.10958302300423384,
+       0.10250596096739173,
+       0.11937995441257954,
+       0.10438798926770687
+      ],
+      "median_ms": 0.10958302300423384,
+      "min_ms": 0.10250596096739173,
+      "max_ms": 0.11937995441257954,
+      "mean_ms": 0.11067577870562673
+     }
+    },
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.1357421875,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 0.7763671875,
+     "peak_reserved_mib": 2.0,
+     "delta_allocated_mib": 0.640625,
+     "delta_reserved_mib": 0.0
+    },
+    "served": true,
+    "note": "evaluate_fused / sr_fitness_fused: the kernel without the route policy"
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 138.16947903251275,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.6307749901898205,
+       1.61101104458794,
+       1.5854070079512894,
+       1.5774230123497546,
+       1.6087309923022985
+      ],
+      "median_ms": 1.6087309923022985,
+      "min_ms": 1.5774230123497546,
+      "max_ms": 1.6307749901898205,
+      "mean_ms": 1.6026694094762206
+     },
+     "loss": {
+      "first_call_ms": 1.6369270160794258,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.6312140505760908,
+       1.6433169948868454,
+       1.6203870181925595,
+       1.6407349612563848,
+       1.6458909958600998
+      ],
+      "median_ms": 1.6407349612563848,
+      "min_ms": 1.6203870181925595,
+      "max_ms": 1.6458909958600998,
+      "mean_ms": 1.636308804154396
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      2,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 561.271728515625,
+     "finite_points": 2048,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      2
+     ],
+     "max_abs": 4.76837158203125e-07,
+     "max_rel": 5.964979266082082e-08,
+     "ref_abs_max": 2654.0927734375,
+     "finite_points": 2,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 18.262569902541173,
+    "loss_vs_torch_batched": 14.972528739173345
+   },
+   "fused_api": {
+    "timings": {
+     "value": {
+      "first_call_ms": 42.16055595315993,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.6423929589800537,
+       0.603643013164401,
+       0.7349560037255287,
+       0.6330159958451986,
+       0.6399599951691926
+      ],
+      "median_ms": 0.6399599951691926,
+      "min_ms": 0.603643013164401,
+      "max_ms": 0.7349560037255287,
+      "mean_ms": 0.6507935933768749
+     },
+     "loss": {
+      "first_call_ms": 0.665517000015825,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.7056760368868709,
+       0.6598490290343761,
+       0.62934699235484,
+       0.6345679867081344,
+       0.691266031935811
+      ],
+      "median_ms": 0.6598490290343761,
+      "min_ms": 0.62934699235484,
+      "max_ms": 0.7056760368868709,
+      "mean_ms": 0.6641412153840065
+     }
+    },
+    "note": "Forest.batch_forward / SR_fitness with EVOGP_EVAL_MODE=fused: whatever the route policy serves at this pop_size"
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 0.6056710262782872,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.6072550313547254,
+       0.5992490332573652,
+       0.575571961235255,
+       0.6204100209288299,
+       0.5980719579383731
+      ],
+      "median_ms": 0.5992490332573652,
+      "min_ms": 0.575571961235255,
+      "max_ms": 0.6204100209288299,
+      "mean_ms": 0.6001116009429097
+     },
+     "loss": {
+      "first_call_ms": 0.654154981020838,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.6468010251410306,
+       0.65370905213058,
+       0.6485679768957198,
+       0.6402999861165881,
+       0.6364950095303357
+      ],
+      "median_ms": 0.6468010251410306,
+      "min_ms": 0.6364950095303357,
+      "max_ms": 0.65370905213058,
+      "mean_ms": 0.6451746099628508
+     }
+    }
+   },
+   "min_pop_gate": {
+    "min_pop": 64,
+    "below_min_pop": true,
+    "policy_engine": "specialized",
+    "fused_vs_specialized": 6.802770265046516,
+    "api_vs_direct": 7.2649275749211855,
+    "speedup_vs_torch": 18.262569902541173,
+    "note": "fused_direct is the kernel at this pop_size; below EVOGP_FUSED_MIN_POP the policy answers specialized (fused_api == specialized), so a fused_vs_specialized > 1 below the gate is performance the shipped threshold does not collect"
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "minpop",
+   "created_utc": "2026-10-30T21:41:06Z",
+   "cell": "p4-L64-i32-N1024",
+   "pop": 4,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 1048576,
+    "scratch_mib": 1.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: pop_size=4 < 64 (EVOGP_DENSE_AUTO_MIN_POP) -> specialized on numpy (a per-tree iree compile cannot amortize there)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: pop_size=4 < 64 (EVOGP_FUSED_MIN_POP) -> specialized on numpy"
+    }
+   },
+   "fused_direct": {
+    "timings": {
+     "value": {
+      "first_call_ms": 440.5338850338012,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.09794003563001752,
+       0.1090749865397811,
+       0.09168096585199237,
+       0.08589797653257847,
+       0.08442194666713476
+      ],
+      "median_ms": 0.09168096585199237,
+      "min_ms": 0.08442194666713476,
+      "max_ms": 0.1090749865397811,
+      "mean_ms": 0.09380318224430084
+     },
+     "loss": {
+      "first_call_ms": 27.450010005850345,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.11986895697191358,
+       0.11097901733592153,
+       0.1063430099748075,
+       0.11198798893019557,
+       0.10377797298133373
+      ],
+      "median_ms": 0.11097901733592153,
+      "min_ms": 0.10377797298133373,
+      "max_ms": 0.11986895697191358,
+      "mean_ms": 0.11059138923883438
+     }
+    },
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.13623046875,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 1.29248046875,
+     "peak_reserved_mib": 2.0,
+     "delta_allocated_mib": 1.15625,
+     "delta_reserved_mib": 0.0
+    },
+    "served": true,
+    "note": "evaluate_fused / sr_fitness_fused: the kernel without the route policy"
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 143.58917000936344,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.9509789999574423,
+       1.933693012688309,
+       1.9610649906098843,
+       1.9173389882780612,
+       1.957952044904232
+      ],
+      "median_ms": 1.9509789999574423,
+      "min_ms": 1.9173389882780612,
+      "max_ms": 1.9610649906098843,
+      "mean_ms": 1.9442056072875857
+     },
+     "loss": {
+      "first_call_ms": 1.956712978426367,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       2.0027399878017604,
+       1.9475289736874402,
+       1.9922259962186217,
+       1.9359689904376864,
+       1.9945589592680335
+      ],
+      "median_ms": 1.9922259962186217,
+      "min_ms": 1.9359689904376864,
+      "max_ms": 2.0027399878017604,
+      "mean_ms": 1.9746045814827085
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      4,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1729.40673828125,
+     "finite_points": 4096,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      4
+     ],
+     "max_abs": 0.00048828125,
+     "max_rel": 1.478620248462903e-07,
+     "ref_abs_max": 3302.2763671875,
+     "finite_points": 4,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 21.280087767694962,
+    "loss_vs_torch_batched": 17.951375350426545
+   },
+   "fused_api": {
+    "timings": {
+     "value": {
+      "first_call_ms": 48.26491896528751,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.9388909675180912,
+       0.9870289941318333,
+       0.9443809976801276,
+       0.9383470169268548,
+       0.9312469628639519
+      ],
+      "median_ms": 0.9388909675180912,
+      "min_ms": 0.9312469628639519,
+      "max_ms": 0.9870289941318333,
+      "mean_ms": 0.9479789878241718
+     },
+     "loss": {
+      "first_call_ms": 0.9746279683895409,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.047870027832687,
+       0.9731389582157135,
+       0.9445350151509047,
+       0.9482509922236204,
+       0.9551210096105933
+      ],
+      "median_ms": 0.9551210096105933,
+      "min_ms": 0.9445350151509047,
+      "max_ms": 1.047870027832687,
+      "mean_ms": 0.9737832006067038
+     }
+    },
+    "note": "Forest.batch_forward / SR_fitness with EVOGP_EVAL_MODE=fused: whatever the route policy serves at this pop_size"
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 0.903306994587183,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.9365800069645047,
+       0.9249660070054233,
+       0.904913991689682,
+       0.9313919581472874,
+       0.8960579871200025
+      ],
+      "median_ms": 0.9249660070054233,
+      "min_ms": 0.8960579871200025,
+      "max_ms": 0.9365800069645047,
+      "mean_ms": 0.91878199018538
+     },
+     "loss": {
+      "first_call_ms": 0.970605993643403,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.9768760064616799,
+       0.9524259949102998,
+       0.961748999543488,
+       0.9814249933697283,
+       0.9307159925810993
+      ],
+      "median_ms": 0.961748999543488,
+      "min_ms": 0.9307159925810993,
+      "max_ms": 0.9814249933697283,
+      "mean_ms": 0.9606383973732591
+     }
+    }
+   },
+   "min_pop_gate": {
+    "min_pop": 64,
+    "below_min_pop": true,
+    "policy_engine": "specialized",
+    "fused_vs_specialized": 10.088964469447966,
+    "api_vs_direct": 10.240849436881097,
+    "speedup_vs_torch": 21.280087767694962,
+    "note": "fused_direct is the kernel at this pop_size; below EVOGP_FUSED_MIN_POP the policy answers specialized (fused_api == specialized), so a fused_vs_specialized > 1 below the gate is performance the shipped threshold does not collect"
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "minpop",
+   "created_utc": "2026-10-30T21:41:15Z",
+   "cell": "p8-L64-i32-N1024",
+   "pop": 8,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 2097152,
+    "scratch_mib": 2.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: pop_size=8 < 64 (EVOGP_DENSE_AUTO_MIN_POP) -> specialized on numpy (a per-tree iree compile cannot amortize there)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: pop_size=8 < 64 (EVOGP_FUSED_MIN_POP) -> specialized on numpy"
+    }
+   },
+   "fused_direct": {
+    "timings": {
+     "value": {
+      "first_call_ms": 441.1742869997397,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.17241499153897166,
+       0.15810696640983224,
+       0.17096800729632378,
+       0.15921000158414245,
+       0.0940790050663054
+      ],
+      "median_ms": 0.15921000158414245,
+      "min_ms": 0.0940790050663054,
+      "max_ms": 0.17241499153897166,
+      "mean_ms": 0.1509557943791151
+     },
+     "loss": {
+      "first_call_ms": 30.994029017165303,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.14720199396833777,
+       0.13012002455070615,
+       0.13211497571319342,
+       0.11216202983632684,
+       0.12417195830494165
+      ],
+      "median_ms": 0.13012002455070615,
+      "min_ms": 0.11216202983632684,
+      "max_ms": 0.14720199396833777,
+      "mean_ms": 0.12915419647470117
+     }
+    },
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.138671875,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 2.326171875,
+     "peak_reserved_mib": 22.0,
+     "delta_allocated_mib": 2.1875,
+     "delta_reserved_mib": 20.0
+    },
+    "served": true,
+    "note": "evaluate_fused / sr_fitness_fused: the kernel without the route policy"
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 141.46936498582363,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       2.6952720363624394,
+       2.694344031624496,
+       2.6028869906440377,
+       2.6624720194377005,
+       2.65733600826934
+      ],
+      "median_ms": 2.6624720194377005,
+      "min_ms": 2.6028869906440377,
+      "max_ms": 2.6952720363624394,
+      "mean_ms": 2.6624622172676027
+     },
+     "loss": {
+      "first_call_ms": 2.6704450137913227,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       2.7343190158717334,
+       2.779663016553968,
+       2.7913169469684362,
+       2.83949903678149,
+       2.7041989960707724
+      ],
+      "median_ms": 2.779663016553968,
+      "min_ms": 2.7041989960707724,
+      "max_ms": 2.83949903678149,
+      "mean_ms": 2.76979940244928
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      8,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 156197.828125,
+     "finite_points": 8192,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      8
+     ],
+     "max_abs": 4.0,
+     "max_rel": 1.478620248462903e-07,
+     "ref_abs_max": 28337852.0,
+     "finite_points": 8,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 16.723019866503705,
+    "loss_vs_torch_batched": 21.36230012368902
+   },
+   "fused_api": {
+    "timings": {
+     "value": {
+      "first_call_ms": 47.61141701601446,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.7669060034677386,
+       1.6799960285425186,
+       1.6547709819860756,
+       1.6445170040242374,
+       1.6491329879499972
+      ],
+      "median_ms": 1.6547709819860756,
+      "min_ms": 1.6445170040242374,
+      "max_ms": 1.7669060034677386,
+      "mean_ms": 1.6790646011941135
+     },
+     "loss": {
+      "first_call_ms": 1.7054270138032734,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.7466110293753445,
+       1.7232800018973649,
+       1.7430890002287924,
+       1.7356679891236126,
+       1.6970059950836003
+      ],
+      "median_ms": 1.7356679891236126,
+      "min_ms": 1.6970059950836003,
+      "max_ms": 1.7466110293753445,
+      "mean_ms": 1.729130803141743
+     }
+    },
+    "note": "Forest.batch_forward / SR_fitness with EVOGP_EVAL_MODE=fused: whatever the route policy serves at this pop_size"
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 1.7093690112233162,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.6263120342046022,
+       1.643593015614897,
+       1.6477159806527197,
+       1.6264629666693509,
+       1.6889519756659865
+      ],
+      "median_ms": 1.643593015614897,
+      "min_ms": 1.6263120342046022,
+      "max_ms": 1.6889519756659865,
+      "mean_ms": 1.6466071945615113
+     },
+     "loss": {
+      "first_call_ms": 1.7349309637211263,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.732820994220674,
+       1.68185104848817,
+       1.652567007113248,
+       1.7442660173401237,
+       1.67822401272133
+      ],
+      "median_ms": 1.68185104848817,
+      "min_ms": 1.652567007113248,
+      "max_ms": 1.7442660173401237,
+      "mean_ms": 1.6979458159767091
+     }
+    }
+   },
+   "min_pop_gate": {
+    "min_pop": 64,
+    "below_min_pop": true,
+    "policy_engine": "specialized",
+    "fused_vs_specialized": 10.323428171981133,
+    "api_vs_direct": 10.393637117775729,
+    "speedup_vs_torch": 16.723019866503705,
+    "note": "fused_direct is the kernel at this pop_size; below EVOGP_FUSED_MIN_POP the policy answers specialized (fused_api == specialized), so a fused_vs_specialized > 1 below the gate is performance the shipped threshold does not collect"
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "minpop",
+   "created_utc": "2026-10-30T21:41:24Z",
+   "cell": "p16-L64-i32-N1024",
+   "pop": 16,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 4194304,
+    "scratch_mib": 4.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: pop_size=16 < 64 (EVOGP_DENSE_AUTO_MIN_POP) -> specialized on numpy (a per-tree iree compile cannot amortize there)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: pop_size=16 < 64 (EVOGP_FUSED_MIN_POP) -> specialized on numpy"
+    }
+   },
+   "fused_direct": {
+    "timings": {
+     "value": {
+      "first_call_ms": 437.3936820193194,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.10811997344717383,
+       0.10301300790160894,
+       0.10861596092581749,
+       0.09613996371626854,
+       0.08308998076245189
+      ],
+      "median_ms": 0.10301300790160894,
+      "min_ms": 0.08308998076245189,
+      "max_ms": 0.10861596092581749,
+      "mean_ms": 0.09979577735066414
+     },
+     "loss": {
+      "first_call_ms": 27.114420023281127,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.11938996613025665,
+       0.12220698408782482,
+       0.12685597175732255,
+       0.11383299715816975,
+       0.10120798833668232
+      ],
+      "median_ms": 0.11938996613025665,
+      "min_ms": 0.10120798833668232,
+      "max_ms": 0.12685597175732255,
+      "mean_ms": 0.11669878149405122
+     }
+    },
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.1435546875,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 4.3935546875,
+     "peak_reserved_mib": 22.0,
+     "delta_allocated_mib": 4.25,
+     "delta_reserved_mib": 20.0
+    },
+    "served": true,
+    "note": "evaluate_fused / sr_fitness_fused: the kernel without the route policy"
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 138.0438199848868,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       3.3670130069367588,
+       3.3476909738965333,
+       3.3481029677204788,
+       3.373296989593655,
+       3.372684004716575
+      ],
+      "median_ms": 3.3670130069367588,
+      "min_ms": 3.3476909738965333,
+      "max_ms": 3.373296989593655,
+      "mean_ms": 3.3617575885728
+     },
+     "loss": {
+      "first_call_ms": 3.4244179842062294,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       3.3850980107672513,
+       3.4033749834634364,
+       3.4534080186858773,
+       3.366518998518586,
+       3.334117995109409
+      ],
+      "median_ms": 3.3850980107672513,
+      "min_ms": 3.334117995109409,
+      "max_ms": 3.4534080186858773,
+      "mean_ms": 3.388503601308912
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 697104.4375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      16
+     ],
+     "max_abs": 32.0,
+     "max_rel": 1.5922915963528794e-07,
+     "ref_abs_max": 487333632.0,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 32.68531883034327,
+    "loss_vs_torch_batched": 28.353287302837888
+   },
+   "fused_api": {
+    "timings": {
+     "value": {
+      "first_call_ms": 75.6652620038949,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       2.9411879950203,
+       2.942716993857175,
+       2.9565549921244383,
+       2.930223010480404,
+       2.8999189962632954
+      ],
+      "median_ms": 2.9411879950203,
+      "min_ms": 2.8999189962632954,
+      "max_ms": 2.9565549921244383,
+      "mean_ms": 2.9341203975491226
+     },
+     "loss": {
+      "first_call_ms": 3.0217079911381006,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       3.029112995136529,
+       2.967959037050605,
+       2.9778829775750637,
+       2.983840007800609,
+       2.9786230297759175
+      ],
+      "median_ms": 2.9786230297759175,
+      "min_ms": 2.967959037050605,
+      "max_ms": 3.029112995136529,
+      "mean_ms": 2.987483609467745
+     }
+    },
+    "note": "Forest.batch_forward / SR_fitness with EVOGP_EVAL_MODE=fused: whatever the route policy serves at this pop_size"
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 2.9878579662181437,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       2.679163997527212,
+       2.631351992022246,
+       2.725319005548954,
+       2.8375029796734452,
+       2.99810100113973
+      ],
+      "median_ms": 2.725319005548954,
+      "min_ms": 2.631351992022246,
+      "max_ms": 2.99810100113973,
+      "mean_ms": 2.7742877951823175
+     },
+     "loss": {
+      "first_call_ms": 3.066859964746982,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       2.950902038719505,
+       2.965613966807723,
+       2.974511997308582,
+       2.931663009803742,
+       2.9580449918285012
+      ],
+      "median_ms": 2.9580449918285012,
+      "min_ms": 2.931663009803742,
+      "max_ms": 2.974511997308582,
+      "mean_ms": 2.9561472008936107
+     }
+    }
+   },
+   "min_pop_gate": {
+    "min_pop": 64,
+    "below_min_pop": true,
+    "policy_engine": "specialized",
+    "fused_vs_specialized": 26.45606667608419,
+    "api_vs_direct": 28.551617460093233,
+    "speedup_vs_torch": 32.68531883034327,
+    "note": "fused_direct is the kernel at this pop_size; below EVOGP_FUSED_MIN_POP the policy answers specialized (fused_api == specialized), so a fused_vs_specialized > 1 below the gate is performance the shipped threshold does not collect"
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "minpop",
+   "created_utc": "2026-10-30T21:41:33Z",
+   "cell": "p32-L64-i32-N1024",
+   "pop": 32,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 8388608,
+    "scratch_mib": 8.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: pop_size=32 < 64 (EVOGP_DENSE_AUTO_MIN_POP) -> specialized on numpy (a per-tree iree compile cannot amortize there)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: pop_size=32 < 64 (EVOGP_FUSED_MIN_POP) -> specialized on numpy"
+    }
+   },
+   "fused_direct": {
+    "timings": {
+     "value": {
+      "first_call_ms": 431.2060020165518,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.0971489935182035,
+       0.10723201557993889,
+       0.1335740089416504,
+       0.0928390072658658,
+       0.08430797606706619
+      ],
+      "median_ms": 0.0971489935182035,
+      "min_ms": 0.08430797606706619,
+      "max_ms": 0.1335740089416504,
+      "mean_ms": 0.10302040027454495
+     },
+     "loss": {
+      "first_call_ms": 26.960928982589394,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.13343803584575653,
+       0.12400001287460327,
+       0.14850101433694363,
+       0.11809996794909239,
+       0.11397601338103414
+      ],
+      "median_ms": 0.12400001287460327,
+      "min_ms": 0.11397601338103414,
+      "max_ms": 0.14850101433694363,
+      "mean_ms": 0.127603008877486
+     }
+    },
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.1533203125,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 8.5283203125,
+     "peak_reserved_mib": 22.0,
+     "delta_allocated_mib": 8.375,
+     "delta_reserved_mib": 20.0
+    },
+    "served": true,
+    "note": "evaluate_fused / sr_fitness_fused: the kernel without the route policy"
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 42.460102995391935,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       3.92350199399516,
+       3.941719012800604,
+       3.9578689611516893,
+       3.9731409633532166,
+       3.953678999096155
+      ],
+      "median_ms": 3.953678999096155,
+      "min_ms": 3.92350199399516,
+      "max_ms": 3.9731409633532166,
+      "mean_ms": 3.949981986079365
+     },
+     "loss": {
+      "first_call_ms": 4.049348004627973,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.068397975061089,
+       4.1125090210698545,
+       4.140504985116422,
+       4.126743006054312,
+       4.210448998492211
+      ],
+      "median_ms": 4.126743006054312,
+      "min_ms": 4.068397975061089,
+      "max_ms": 4.210448998492211,
+      "mean_ms": 4.131720797158778
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      32,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 32768,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      32
+     ],
+     "max_abs": 32.0,
+     "max_rel": 2.2884127304223512e-07,
+     "ref_abs_max": 2985255424.0,
+     "finite_points": 32,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 40.697065979950956,
+    "loss_vs_torch_batched": 33.28018207729976
+   },
+   "fused_api": {
+    "timings": {
+     "value": {
+      "first_call_ms": 131.98323600227013,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       6.211523024830967,
+       6.153793015982956,
+       5.928344035055488,
+       5.675313004758209,
+       5.673340987414122
+      ],
+      "median_ms": 5.928344035055488,
+      "min_ms": 5.673340987414122,
+      "max_ms": 6.211523024830967,
+      "mean_ms": 5.928462813608348
+     },
+     "loss": {
+      "first_call_ms": 5.831316986586899,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       5.79138397006318,
+       5.288178974296898,
+       5.192424985580146,
+       5.262370978016406,
+       5.786949011962861
+      ],
+      "median_ms": 5.288178974296898,
+      "min_ms": 5.192424985580146,
+      "max_ms": 5.79138397006318,
+      "mean_ms": 5.464261583983898
+     }
+    },
+    "note": "Forest.batch_forward / SR_fitness with EVOGP_EVAL_MODE=fused: whatever the route policy serves at this pop_size"
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 5.8144209906458855,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       5.653283966239542,
+       5.679244990460575,
+       5.7030709576793015,
+       5.6911539868451655,
+       5.277358985040337
+      ],
+      "median_ms": 5.679244990460575,
+      "min_ms": 5.277358985040337,
+      "max_ms": 5.7030709576793015,
+      "mean_ms": 5.600822577252984
+     },
+     "loss": {
+      "first_call_ms": 5.9333909885026515,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       5.709966993890703,
+       5.876618961337954,
+       5.706212017685175,
+       5.709862045478076,
+       5.614399036858231
+      ],
+      "median_ms": 5.709862045478076,
+      "min_ms": 5.614399036858231,
+      "max_ms": 5.876618961337954,
+      "mean_ms": 5.723411811050028
+     }
+    }
+   },
+   "min_pop_gate": {
+    "min_pop": 64,
+    "below_min_pop": true,
+    "policy_engine": "specialized",
+    "fused_vs_specialized": 58.45912329906346,
+    "api_vs_direct": 61.023216199812225,
+    "speedup_vs_torch": 40.697065979950956,
+    "note": "fused_direct is the kernel at this pop_size; below EVOGP_FUSED_MIN_POP the policy answers specialized (fused_api == specialized), so a fused_vs_specialized > 1 below the gate is performance the shipped threshold does not collect"
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "minpop",
+   "created_utc": "2026-10-30T21:41:43Z",
+   "cell": "p64-L64-i32-N1024",
+   "pop": 64,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 16777216,
+    "scratch_mib": 16.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=64 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=64 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused_direct": {
+    "timings": {
+     "value": {
+      "first_call_ms": 438.32940695574507,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.10041397763416171,
+       0.10148395085707307,
+       0.09669899009168148,
+       0.08312100544571877,
+       0.09653304005041718
+      ],
+      "median_ms": 0.09669899009168148,
+      "min_ms": 0.08312100544571877,
+      "max_ms": 0.10148395085707307,
+      "mean_ms": 0.09565019281581044
+     },
+     "loss": {
+      "first_call_ms": 27.15259202523157,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.12145796790719032,
+       0.1258050324395299,
+       0.11080002877861261,
+       0.13261398999020457,
+       0.10939501225948334
+      ],
+      "median_ms": 0.12145796790719032,
+      "min_ms": 0.10939501225948334,
+      "max_ms": 0.13261398999020457,
+      "mean_ms": 0.12001440627500415
+     }
+    },
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.1728515625,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 16.7978515625,
+     "peak_reserved_mib": 18.0,
+     "delta_allocated_mib": 16.625,
+     "delta_reserved_mib": 16.0
+    },
+    "served": true,
+    "note": "evaluate_fused / sr_fitness_fused: the kernel without the route policy"
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 42.03511698869988,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.345195018686354,
+       4.350306990090758,
+       4.209047998301685,
+       4.221584997139871,
+       4.233260988257825
+      ],
+      "median_ms": 4.233260988257825,
+      "min_ms": 4.209047998301685,
+      "max_ms": 4.350306990090758,
+      "mean_ms": 4.271879198495299
+     },
+     "loss": {
+      "first_call_ms": 4.304308968130499,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.0993180009536445,
+       4.0082939667627215,
+       4.140200966503471,
+       4.393098992295563,
+       4.470567975658923
+      ],
+      "median_ms": 4.140200966503471,
+      "min_ms": 4.0082939667627215,
+      "max_ms": 4.470567975658923,
+      "mean_ms": 4.222295980434865
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 32.0,
+     "max_rel": 2.2884127304223512e-07,
+     "ref_abs_max": 2985255424.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 43.777716646722155,
+    "loss_vs_torch_batched": 34.08752046359876
+   },
+   "fused_api": {
+    "timings": {
+     "value": {
+      "first_call_ms": 0.22937101311981678,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.12819096446037292,
+       0.11755898594856262,
+       0.11111801723018289,
+       0.11786899995058775,
+       0.11871499009430408
+      ],
+      "median_ms": 0.11786899995058775,
+      "min_ms": 0.11111801723018289,
+      "max_ms": 0.12819096446037292,
+      "mean_ms": 0.11869039153680205
+     },
+     "loss": {
+      "first_call_ms": 0.17206103075295687,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.1348170335404575,
+       0.12863101437687874,
+       0.13801100431010127,
+       0.132200017105788,
+       0.1263669691979885
+      ],
+      "median_ms": 0.132200017105788,
+      "min_ms": 0.1263669691979885,
+      "max_ms": 0.13801100431010127,
+      "mean_ms": 0.1320052077062428
+     }
+    },
+    "note": "Forest.batch_forward / SR_fitness with EVOGP_EVAL_MODE=fused: whatever the route policy serves at this pop_size"
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 276.3702910160646,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       12.154333991929889,
+       11.886363034136593,
+       12.339829001575708,
+       12.005717027932405,
+       12.160778976976871
+      ],
+      "median_ms": 12.154333991929889,
+      "min_ms": 11.886363034136593,
+      "max_ms": 12.339829001575708,
+      "mean_ms": 12.109404406510293
+     },
+     "loss": {
+      "first_call_ms": 12.107255985029042,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       12.471292982809246,
+       12.105583969969302,
+       11.755316983908415,
+       11.323853046633303,
+       12.154675961937755
+      ],
+      "median_ms": 12.105583969969302,
+      "min_ms": 11.323853046633303,
+      "max_ms": 12.471292982809246,
+      "mean_ms": 11.962144589051604
+     }
+    }
+   },
+   "min_pop_gate": {
+    "min_pop": 64,
+    "below_min_pop": false,
+    "policy_engine": "fused",
+    "fused_vs_specialized": 125.69246049422252,
+    "api_vs_direct": 1.218926897156162,
+    "speedup_vs_torch": 43.777716646722155,
+    "note": "fused_direct is the kernel at this pop_size; below EVOGP_FUSED_MIN_POP the policy answers specialized (fused_api == specialized), so a fused_vs_specialized > 1 below the gate is performance the shipped threshold does not collect"
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "minpop",
+   "created_utc": "2026-10-30T21:41:52Z",
+   "cell": "p128-L64-i32-N1024",
+   "pop": 128,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 33554432,
+    "scratch_mib": 32.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=128 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=128 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused_direct": {
+    "timings": {
+     "value": {
+      "first_call_ms": 438.07517999084666,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.09330798638984561,
+       0.09210902499035001,
+       0.09208702249452472,
+       0.08209299994632602,
+       0.08151098154485226
+      ],
+      "median_ms": 0.09208702249452472,
+      "min_ms": 0.08151098154485226,
+      "max_ms": 0.09330798638984561,
+      "mean_ms": 0.08822160307317972
+     },
+     "loss": {
+      "first_call_ms": 26.4870899845846,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.11633802205324173,
+       0.10849896352738142,
+       0.11484400602057576,
+       0.11102401185780764,
+       0.10316102998331189
+      ],
+      "median_ms": 0.11102401185780764,
+      "min_ms": 0.10316102998331189,
+      "max_ms": 0.11633802205324173,
+      "mean_ms": 0.11077320668846369
+     }
+    },
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.2119140625,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 33.3369140625,
+     "peak_reserved_mib": 34.0,
+     "delta_allocated_mib": 33.125,
+     "delta_reserved_mib": 32.0
+    },
+    "served": true,
+    "note": "evaluate_fused / sr_fitness_fused: the kernel without the route policy"
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 44.72756100585684,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.144704027567059,
+       4.133270005695522,
+       4.108263994567096,
+       4.110156965907663,
+       4.101402999367565
+      ],
+      "median_ms": 4.110156965907663,
+      "min_ms": 4.101402999367565,
+      "max_ms": 4.144704027567059,
+      "mean_ms": 4.119559598620981
+     },
+     "loss": {
+      "first_call_ms": 4.169345018453896,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.216675006318837,
+       4.210332990624011,
+       4.186173027846962,
+       4.234973981510848,
+       4.170745029114187
+      ],
+      "median_ms": 4.210332990624011,
+      "min_ms": 4.170745029114187,
+      "max_ms": 4.234973981510848,
+      "mean_ms": 4.203780007082969
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      128,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 13190382.0,
+     "finite_points": 131072,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      128
+     ],
+     "max_abs": 32.0,
+     "max_rel": 2.2884127304223512e-07,
+     "ref_abs_max": 303701884928.0,
+     "finite_points": 128,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 44.633400609212266,
+    "loss_vs_torch_batched": 37.922724284331686
+   },
+   "fused_api": {
+    "timings": {
+     "value": {
+      "first_call_ms": 0.22607401479035616,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.10532099986448884,
+       0.10647997260093689,
+       0.09788398165255785,
+       0.10002998169511557,
+       0.09808898903429508
+      ],
+      "median_ms": 0.10002998169511557,
+      "min_ms": 0.09788398165255785,
+      "max_ms": 0.10647997260093689,
+      "mean_ms": 0.10156078496947885
+     },
+     "loss": {
+      "first_call_ms": 0.16858195886015892,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.12935104314237833,
+       0.12721499660983682,
+       0.12073700781911612,
+       0.14143798034638166,
+       0.1315529807470739
+      ],
+      "median_ms": 0.12935104314237833,
+      "min_ms": 0.12073700781911612,
+      "max_ms": 0.14143798034638166,
+      "mean_ms": 0.13005880173295736
+     }
+    },
+    "note": "Forest.batch_forward / SR_fitness with EVOGP_EVAL_MODE=fused: whatever the route policy serves at this pop_size"
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 464.1996709979139,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       22.872658970300108,
+       22.35165302408859,
+       22.539963014423847,
+       22.459827014245093,
+       22.53588498570025
+      ],
+      "median_ms": 22.53588498570025,
+      "min_ms": 22.35165302408859,
+      "max_ms": 22.872658970300108,
+      "mean_ms": 22.551997401751578
+     },
+     "loss": {
+      "first_call_ms": 22.56539900554344,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       22.804344014730304,
+       22.23160699941218,
+       22.839847020804882,
+       22.6178010343574,
+       22.782357002142817
+      ],
+      "median_ms": 22.782357002142817,
+      "min_ms": 22.23160699941218,
+      "max_ms": 22.839847020804882,
+      "mean_ms": 22.655191214289516
+     }
+    }
+   },
+   "min_pop_gate": {
+    "min_pop": 64,
+    "below_min_pop": false,
+    "policy_engine": "fused",
+    "fused_vs_specialized": 244.72378816504988,
+    "api_vs_direct": 1.086254924802929,
+    "speedup_vs_torch": 44.633400609212266,
+    "note": "fused_direct is the kernel at this pop_size; below EVOGP_FUSED_MIN_POP the policy answers specialized (fused_api == specialized), so a fused_vs_specialized > 1 below the gate is performance the shipped threshold does not collect"
+   },
+   "status": "ok"
+  }
+ ]
+}

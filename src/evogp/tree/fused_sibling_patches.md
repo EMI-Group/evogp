@@ -23,7 +23,7 @@ The harness's own torch-free tests (`test/benchmark/evoxc/test_arm_registry.py`,
 | 3 | `test/benchmark/evoxc/common.py` `route_decision` + `summarize.py` `route_text` | REQUIRED | a fused record would render as `fused/iree → specialized` |
 | 4 | `test/benchmark/evoxc/worker.py` | REQUIRED | a served fused call and a silently declined one look identical today |
 | 5 | `cold_start.py`, `decompose.py`, `check.py`, `ROUTE_ENV_VARS` | OPTIONAL | pricing/tooling niceties, not needed for the arm to run |
-| 6 | 4 × `CONTEXT.md` | REQUIRED (docs) | three-route wording, old `EVOGP_EVAL_MODE` spellings, and an over-size `tree/CONTEXT.md` |
+| 6 | 4 × `CONTEXT.md` | REQUIRED (docs) | three-route wording, old `EVOGP_EVAL_MODE` spellings, and the `tree/CONTEXT.md` section ordering |
 
 ---
 
@@ -167,7 +167,7 @@ AFTER (matching the neighbours' shape and one-line-comment style; both arms appe
     # declines for any other name and its fallback is always specialized+numpy
     "evoxc-fused-iree": {"eval_mode": "fused", "backend": "iree", "family": "evoxc"},
     # the same route with BOTH route knobs unset, i.e. the shipped no-explicit-backend
-    # policy: fused only on a device box at ``pop >= EVOGP_FUSED_MIN_POP`` (64), and
+    # policy: fused only on a device box at ``pop >= EVOGP_FUSED_MIN_POP`` (16), and
     # specialized+numpy below it / on a CPU box -- the arm that prices the POLICY
     # (this is what makes a pop-16 or pop-64 cell answer "what does auto's geometry
     # pick for a Triton route", not "what does a forced route cost")
@@ -439,10 +439,14 @@ Also update the docstring sentence at lines 266-268 to
 
 **Why required:** the fused facade is *silent* on a decline (`FusedUnsupported` → the call site
 continues on `route.fallback_backend`), and `worker.py` records no `fused_*` counter at all. So a
-fused arm that never launched a kernel (a declined route, a `output_len=2` population, a box below
-`EVOGP_FUSED_MIN_POP`) produces exactly the record a served one does — with a small
-`first_call_ms` and, by construction, `cache.compile_misses_first_call == 0` because the fused
-route performs no evoxc compile.
+fused arm that never launched a kernel (a declined route, an `output_len` above
+`fused_engine.MAX_OUT_LEN` (8), a box below `EVOGP_FUSED_MIN_POP`) produces exactly the record a
+served one does — with a small `first_call_ms` and, by construction,
+`cache.compile_misses_first_call == 0` because the fused route performs no evoxc compile.
+A **multi-output** population is SERVED, not declined: `output_len` 1..`fused_engine.MAX_OUT_LEN` (8)
+runs `_fused_multi_kernel` in `fused_kernels.py`, so any record/tooling claim that `output_len=2`
+declines is stale — `fused_check.py --stage multi` (65/65 oracle comparisons, bitwise value path) and
+`--stage wired` (31/31) are its gates and `FUSED.md` §11 its design of record.
 
 Live (`test/benchmark/evoxc/worker.py:778-810`) — the `cache` block brackets the *evoxc* cache for
 every arm:
@@ -871,11 +875,11 @@ Line 29 (Engine economics) — the route list and `auto`'s sentence:
 Replacement (only the `batch` clause and the `auto` clause change):
 
 ```
-- Engine economics: evaluation routes are selectable via `EVOGP_EVAL_MODE` — `dense` (alias `dynamic`): one compiled all-ops graph per population shape, no per-tree dispatch/readback; `specialized`: one cached `evoxc.build_cached` graph per tree structure; `batch` (opt-in, never chosen by `auto`): ONE merged graph per population structure multiset, built with evoxc's `batch_functions` transform and cached by that multiset; `fused` (opt-in, never chosen by `auto`): ONE Triton launch per (tree, row-block) pair over the population tensors, no host decode and no evoxc graph, with `EVOGP_FUSED_MIN_POP` (64) as its population floor; `auto` (default) picks by backend and scale: on a device box with `pop ≥ 64` it takes dense+iree (a compiled graph cannot amortize below that), otherwise specialized+numpy (always specialized on a CPU box and on every fallback) — `auto` never selects `batch` or `fused`.
+- Engine economics: evaluation routes are selectable via `EVOGP_EVAL_MODE` — `dense` (alias `dynamic`): one compiled all-ops graph per population shape, no per-tree dispatch/readback; `specialized`: one cached `evoxc.build_cached` graph per tree structure; `batch` (opt-in, never chosen by `auto`): ONE merged graph per population structure multiset, built with evoxc's `batch_functions` transform and cached by that multiset; `fused` (opt-in, never chosen by `auto`): ONE Triton launch per (tree, row-block) pair over the population tensors, no host decode and no evoxc graph, with `EVOGP_FUSED_MIN_POP` (16) as its population floor; `auto` (default) picks by backend and scale: on a device box with `pop ≥ 64` it takes dense+iree (a compiled graph cannot amortize below that), otherwise specialized+numpy (always specialized on a CPU box and on every fallback) — `auto` never selects `batch` or `fused`.
 ```
 
 Also line 45 (`An explicit EVOGP_EVAL_MODE=dense never gets auto's cap raise …`) still names only
-`auto`/`batch` as the answer for large populations; append `or the fused route (single-output only)`
+`auto`/`batch` as the answer for large populations; append `or the fused route (multi-output up to 8 outputs)`
 if the owned list is being touched anyway — OPTIONAL, it is not wrong today.
 
 ### 6b. `src/evogp/CONTEXT.md`
@@ -901,7 +905,7 @@ Line 34 — the mode list and “`auto` never picks it”:
 Replacement:
 
 ```
-  `EVOGP_EVAL_MODE` (`dense` / `specialized` / `batch` / `fused` / `auto`) and the `EVOGP_DENSE_*` family (`AUTO_MIN_POP`, `AUTO_MAX_ROWS`, `AUTO_BUDGET_MB`, `AUTO_MAX_TREE_LEN`, `MAX_TREE_LEN`, `BUDGET_MB`, `UPDATE_MODE`, `ALLOW_UNSAFE_SCATTER`, `PRUNE`, `HOST_MEMO`) select/tune the dense route; the `EVOGP_BATCH_*` family (`BAND_SIZE` 16, `BANDS` explicit/`auto`/flat, `CHUNK_BANDS` off, `SWITCH_OPS`, `CACHE_SIZE` 8, `MIN_POP` 64, `ALIGNMENT`, `COMPILE_WORKERS` 4) tunes the batch route, and the `EVOGP_FUSED_*` family (`MIN_POP` 64, `BLOCK_ROWS` 256, `NUM_WARPS` 1, `MAX_SCRATCH_MB` 8192, `HOST_MEMO` 16) tunes the fused route; both are reached only by their own explicit `EVOGP_EVAL_MODE` spelling — `auto` never picks either.
+  `EVOGP_EVAL_MODE` (`dense` / `specialized` / `batch` / `fused` / `auto`) and the `EVOGP_DENSE_*` family (`AUTO_MIN_POP`, `AUTO_MAX_ROWS`, `AUTO_BUDGET_MB`, `AUTO_MAX_TREE_LEN`, `MAX_TREE_LEN`, `BUDGET_MB`, `UPDATE_MODE`, `ALLOW_UNSAFE_SCATTER`, `PRUNE`, `HOST_MEMO`) select/tune the dense route; the `EVOGP_BATCH_*` family (`BAND_SIZE` 16, `BANDS` explicit/`auto`/flat, `CHUNK_BANDS` off, `SWITCH_OPS`, `CACHE_SIZE` 8, `MIN_POP` 64, `ALIGNMENT`, `COMPILE_WORKERS` 4) tunes the batch route, and the `EVOGP_FUSED_*` family (`MIN_POP` 16, `BLOCK_ROWS` 256, `NUM_WARPS` 1, `MAX_SCRATCH_MB` 8192, `HOST_MEMO` 16) tunes the fused route; both are reached only by their own explicit `EVOGP_EVAL_MODE` spelling — `auto` never picks either.
 ```
 
 Line 84 — “`Route.engine` ∈ `specialized` / `dense` / `batch`”:
@@ -931,13 +935,13 @@ Arm list, line 35:
 Replacement (append one sentence):
 
 ```
-  … plus the pool pins `-artifact-p{1,2,8}` (they set `EVOGP_BATCH_COMPILE_WORKERS`, the only way a campaign can reach the pool width). The fused arms are appended AFTER that block: `evoxc-fused-iree` (`EVOGP_EVAL_MODE=fused` + `EVOGP_EVOXC_BACKEND=iree`; the backend is only the device-route spelling, the facade declines for any other name) and `evoxc-fused` (both route knobs unset, i.e. the shipped no-explicit-backend policy: fused only on a device box at `pop >= EVOGP_FUSED_MIN_POP`, specialized+numpy otherwise). Neither is a batch arm, so `--arms batch` does not pick them up.
+  … plus the pool pins `-artifact-p{1,2,8}` (they set `EVOGP_BATCH_COMPILE_WORKERS`, the only way a campaign can reach the pool width). The fused arms are appended AFTER that block: `evoxc-fused-iree` (`EVOGP_EVAL_MODE=fused` + `EVOGP_EVOXC_BACKEND=iree`; the backend is only the device-route spelling, the facade declines for any other name) and `evoxc-fused` (both route knobs unset, i.e. the shipped no-explicit-backend policy: fused only on a device box at `pop >= EVOGP_FUSED_MIN_POP` (16), specialized+numpy otherwise). Neither is a batch arm, so `--arms batch` does not pick them up.
 ```
 
 Line 99 (“`EVOGP_EVAL_MODE=batch` is the third route … and `auto` never resolves to it”) — append:
 
 ```
-`EVOGP_EVAL_MODE=fused` is the fourth route (`evogp/tree/fused_engine.py` + `fused_kernels.py`): ONE Triton launch per (tree, row-block) pair, single-output only, no evoxc compile at all — so a fused record's `cache.compile_misses_*` is 0 by construction, its cold cost is the Triton JIT inside `first_call_ms`, and the existence proof is `fused_cache.fused_kernel_launches`. Knobs: `EVOGP_FUSED_MIN_POP` 64, `EVOGP_FUSED_BLOCK_ROWS` 256, `EVOGP_FUSED_NUM_WARPS` 1, `EVOGP_FUSED_MAX_SCRATCH_MB` 8192, `EVOGP_FUSED_HOST_MEMO` 16 (import-time), all in `common.FUSED_ENV_VARS` / `ROUTE_ENV_VARS`. `auto` never resolves to it either.
+`EVOGP_EVAL_MODE=fused` is the fourth route (`evogp/tree/fused_engine.py` + `fused_kernels.py`): ONE Triton launch per (tree, row-block) pair, `output_len` 1..`MAX_OUT_LEN` (8) via `_fused_kernel` / `_fused_multi_kernel`, no evoxc compile at all — so a fused record's `cache.compile_misses_*` is 0 by construction, its cold cost is the Triton JIT inside `first_call_ms`, and the existence proof is `fused_cache.fused_kernel_launches`. Knobs: `EVOGP_FUSED_MIN_POP` 16, `EVOGP_FUSED_BLOCK_ROWS` 256, `EVOGP_FUSED_NUM_WARPS` 1, `EVOGP_FUSED_MAX_SCRATCH_MB` 8192, `EVOGP_FUSED_HOST_MEMO` 16 (import-time), all in `common.FUSED_ENV_VARS` / `ROUTE_ENV_VARS`. `auto` never resolves to it either.
 ```
 
 Line 114 (“A new route's counters must be pointed at their own stats callable …”) — the list is
@@ -963,45 +967,30 @@ stale in its framing: the evaluator exists. Replacement tail:
 
 ```
 … and only a device-side evaluator removes it: `tree/fused_engine.py` is that route now (opt-in,
-single-output, wired into all five call sites; measured 38.9–153.5× faster than `torch-batched` on the
+`output_len` 1..8, wired into all five call sites; measured 38.9–153.5× faster than `torch-batched` on the
 value path, 33.5–146.6× on the loss path), with the r6 Triton prototype (`../r6/SUMMARY.md`) as its
 prior evidence.
 ```
 
-### 6d. `src/evogp/tree/CONTEXT.md` — over the per-file delivery limit, needs a prune pass
+### 6d. `src/evogp/tree/CONTEXT.md` — size and prune state
 
-Facts to fix the size problem (all verified in this worktree):
-
-* `wc -c src/evogp/tree/CONTEXT.md` → **86 544 bytes** (274 lines), against the ~64 KiB per-file
-  delivery limit.
-* The injected copy therefore arrives **truncated**: it stops at line 220
-  (`- **No pytest covers the round-2 band policy**: …`), so lines 221-274 — i.e. the whole
-  `## Test Strategy` tail and the `## Routing Table` — are invisible to an agent that is told to
-  "read `tree/CONTEXT.md`".
-* Nothing newer than the fused route is missing from the *content*; it is a pure length problem. The
-  fused sections (lines 82-107, the `EVOGP_FUSED_*` knob bullets at 133-134, and the line-240 note)
-  are already accurate.
-
-Prune plan (parent's call, in this order of payoff):
-
-1. Push the fused route's measured detail into a new `src/evogp/tree/FUSED.md` (mirroring
-   `DENSE_EVAL.md` / `BATCH_EVAL.md`): the six-cell table, the cold-JIT numbers, the 13-counter
-   surface, the decline matrix and the `fused_check.py` stage list. Leave ~6 lines in `CONTEXT.md`
-   (scheme + pointer to `FUSED.md`), which is where the current 22-line fused block shrinks most.
-2. Move the dense economics paragraphs into `DENSE_EVAL.md` (they are already duplicated there) and
-   the batch grid paragraphs into `BATCH_EVAL.md`.
-3. Keep the `## Routing Table` — it is the part that must survive truncation; move it ABOVE
-   `## Environment knobs` (or to the top after `## Intent`) so a truncated read still routes.
-
-Two content fixes that ride along (both stale today):
-
-* Line 119 — `- \`EVOGP_EVAL_MODE\` (\`auto\`) — the master route switch: \`dense\` (alias \`dynamic\`) / \`specialized\` / \`batch\` / \`auto\`; \`auto\` picks dense+iree from \`EVOGP_DENSE_AUTO_MIN_POP\` up and never selects \`batch\`.`
-  → `… / \`specialized\` / \`batch\` / \`fused\` / \`auto\`; \`auto\` picks dense+iree from \`EVOGP_DENSE_AUTO_MIN_POP\` up and never selects \`batch\` or \`fused\`.`
-* Line 220's note (“No pytest covers the round-2 band policy”) is still true for the *band* policy but
-  should say what DOES cover the fused route: the `fused_check.py` batteries (`--stage parity|goldens|
-  declines|wired|timing|tuning`) are CLIs, not pytest — i.e. the fused route has the same coverage
-  shape as the band policy, and none of it is in `src/evogp/tests/`.
-
+Facts about the size problem (all verified in this worktree):
+* `wc -c src/evogp/tree/CONTEXT.md` → **56 588 bytes** (226 lines), inside the ~64 KiB per-file
+  delivery limit, so the file reads through end to end (the `## Test Strategy` tail and the
+  `## Routing Table` included).
+* The prune plan's first two steps are done: the fused route's measured detail lives in
+  `src/evogp/tree/FUSED.md` (plus the table set `fused_results/ENVELOPE.md`), the dense detail in
+  `DENSE_EVAL.md`, the batch detail in `BATCH_EVAL.md`, and `CONTEXT.md` carries scheme + pointers.
+* Step 3 — move the `## Routing Table` ABOVE `## Environment knobs` so a truncated read still routes —
+  is still open, and is no longer load-bearing for size (a pure reorder).
+Content items that ride along (all current today):
+* the `EVOGP_EVAL_MODE` knob bullet lists `dense` / `specialized` / `batch` / `fused` / `auto` and says
+  `auto` never selects `batch` or `fused`.
+* the fused route's coverage is CLI-only: `fused_check.py` (`--stage parity|multi|goldens|declines|
+  wired|timing|tuning`) and `fused_envelope.py` (`--stage headline|envelope|minpop|sweep|degenerate`)
+  are dev batteries, not pytest — i.e. the fused route has the same coverage shape as the band policy,
+  and none of it is in `src/evogp/tests/`.
+* `EVOGP_FUSED_MIN_POP` reads **16** in the knob bullet, matching `fused_engine.DEFAULT_MIN_POP`.
 Cross-check for the parents: measured on this worktree, the suite currently reads
 `1 failed, 1206 passed, 7 skipped, 8 warnings in 118.90s (1214 collected)` — the single failure is
 §1's. After §1 it must read **1207 passed / 7 skipped** (same 1214 collected: the edit changes no

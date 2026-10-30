@@ -26,8 +26,10 @@ WHAT IT CHECKS
 2. **Goldens.**  The two frozen fixture families of ``test/equivalence/test_goldens``
    (``src/evogp/tests/goldens/*.npz`` = this package's engine schema, and
    ``test/goldens/*.npz`` = outputs of the deleted CUDA kernels) at the documented
-   ``1e-4`` rtol/atol.  Multi-output fixtures are expected to DECLINE (the fused
-   route implements the single-output protocol only) and are reported as such.
+   ``1e-4`` rtol/atol.  Multi-output fixtures are still SKIPPED here -- this stage
+   is the single-output golden gate, and serving them would move its recorded
+   count -- so the multi-output protocol is verified by ``--stage multi`` against
+   the oracle instead.
 3. **Timings.**  Six cells, warm medians (2 warmup + 10 sync-bracketed reps) of
    ``evaluate_fused`` / ``sr_fitness_fused`` against the ``torch-batched``
    reference arm (``test/benchmark/evoxc/arms_torch.BatchedEvaluator``), the cold
@@ -47,9 +49,23 @@ WHAT IT CHECKS
    move), that ``resolve_route(pop, eval_mode="fused")`` names the fused engine on
    ``iree`` with a ``numpy`` fallback while ``pop_size == 1``, a population below
    ``EVOGP_FUSED_MIN_POP`` and a box without a device stay ``specialized``+``numpy``,
-   that ``auto`` never selects it and that a multi-output population declines into
-   the fallback without launching a kernel.  ``--stage timing --wired`` re-times
+   that ``auto`` never selects it and that a multi-output population is SERVED by
+   the multi-output kernel (same numbers as the specialized reference, one
+   ``fused_calls`` and no ``fused_declines``).  ``--stage timing --wired`` re-times
    the six cells through the same public calls.
+6. **The multi-output protocol** (``out_len >= 2``, ``--stage multi``).  Handmade
+   ``OUT_NODE``-tagged populations (``multi_adversarial_cases``) at
+   ``2 <= out_len <= fused_engine.MAX_OUT_LEN``: both outputs of a deep/shallow
+   pair, a tagged root ternary, a single tagged output (the others must stay
+   exactly ``0.0``), two nodes accumulating into ONE output, tagged leaves (which
+   accumulate nothing), an out-of-range ``outIndex`` (dropped), one tagged node per
+   arity, a tree with no tag at all (every output ``0.0``, so the loss is the label
+   norm), a packed ``MUL`` beside a packed ``ADD`` on the same operands (the
+   extraction has to change the number), and one population evaluated at
+   ``out_len`` 2 AND 3 (the tag on index 2 changes meaning).  Every case runs the
+   batched value path, the per-tree value path and BOTH loss paths (MSE and MAE)
+   against the oracle, and the value path must stay **bitwise** -- the multi-output
+   kernel reuses the single-output per-op emitters and ``enable_fp_fusion=False``.
 
 HOW TO RUN
 ----------
@@ -60,6 +76,7 @@ in the sandbox)::
     TRITON_CACHE_DIR=$TMPDIR/fused/tc \
     PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1 \
     /tmp/rocvenv/bin/python -m evogp.tree.fused_check --stage parity
+    ... --stage multi           # the multi-output (OUT_NODE) protocol
     ... --stage goldens
     ... --stage declines
     ... --stage wired           # EVOGP_EVAL_MODE=fused through the public API
@@ -238,8 +255,20 @@ def _cell_by_id(cell_id: str) -> Dict[str, Any]:
     raise SystemExit(f"unknown cell id {cell_id!r}; known: {[c['id'] for c in _cells()]}")
 
 
-def _report(tag: str, stats: Dict[str, Any], limit: float, *, key: str) -> bool:
-    """Print one comparison row and return whether it stayed inside ``limit``."""
+def _report(
+    tag: str,
+    stats: Dict[str, Any],
+    limit: float,
+    *,
+    key: str,
+    sink: Optional[List[Dict[str, Any]]] = None,
+) -> bool:
+    """Print one comparison row and return whether it stayed inside ``limit``.
+
+    ``sink`` collects the same row for a stage that wants to aggregate it (the
+    ``--stage multi`` table); the parity stage passes ``None`` and prints exactly
+    what it always printed.
+    """
     ok = (stats.get("nan_mismatch", 1) == 0) and (stats.get("inf_mismatch", 1) == 0)
     if "shape_mismatch" in stats:
         ok = False
@@ -254,6 +283,8 @@ def _report(tag: str, stats: Dict[str, Any], limit: float, *, key: str) -> bool:
         f"({key} <= {limit:g})",
         flush=True,
     )
+    if sink is not None:
+        sink.append(dict(stats, tag=tag, key=key, limit=float(limit), ok=bool(ok)))
     return ok
 
 
@@ -493,6 +524,239 @@ def adversarial_cases() -> List[Dict[str, Any]]:
     ]
 
 
+def multi_adversarial_cases() -> List[Dict[str, Any]]:
+    """Handmade MULTI-OUTPUT populations (``out_len >= 2``) for ``--stage multi``.
+
+    Spec grammar is :func:`build_row`'s, plus one idiom: a node is tagged by giving
+    it the raw form ``("raw", _out_node_value(function_id, out_index), 0x80 | base,
+    children)``.  ``base`` (not the function id) fixes the ARITY, exactly as the
+    protocol's decode does -- ``node_type & 0x7F`` selects the kind, so ``0x80|0`` is
+    a tagged VAR, ``0x80|1`` a tagged CONST, ``0x80|2`` a tagged UFUNC (one child),
+    ``0x80|3`` a tagged BFUNC (two), ``0x80|4`` a tagged TFUNC (three, and always the
+    ternary ``IF``), while the operator itself comes out of the packed value bits
+    (low half ``function``, high half ``outIndex``).
+
+    The specs assume ``x`` is drawn in ``[0, 1)`` (so a VAR is positive and ``IF``'s
+    ``cond > 0`` branch is exercised on both sides) and stay inside the arithmetic
+    and ternary function table, which is the bitwise claim the kernel makes.
+
+    Per-case keys beyond ``build_row``'s: ``out_len`` (or ``out_lens`` for a case
+    evaluated at several), ``ops`` (the reported operator set), ``expect_zero``
+    (output indices that must come out EXACTLY ``0.0``, a tuple or a
+    ``{out_len: tuple}`` map), ``expect_loss_is_label_norm`` (every prediction is
+    ``0.0``, so the MSE is ``sum(labels**2) / rows``) and ``expect_rows_differ``
+    (two population rows that must produce different numbers, i.e. the case really
+    exercises the operator it packs).
+    """
+    from evogp.tree.utils import Func
+
+    add, sub, mul, neg, div = (
+        int(Func.ADD),
+        int(Func.SUB),
+        int(Func.MUL),
+        int(Func.NEG),
+        int(Func.DIV),
+    )
+    if_op = int(Func.IF)
+
+    def tagged(function_id: int, out_index: int, base: int, children: Sequence[Any]):
+        """One ``OUT_NODE``-tagged node: ``out_index`` in the high, op id in the low half."""
+        return ("raw", _out_node_value(function_id, out_index), 0x80 | base, tuple(children))
+
+    # Two tagged outputs, one of them 7 nodes deep and one on the root's right arm.
+    two_outputs = (
+        add,
+        (
+            tagged(neg, 0, 2, (_chain(6, right=False, input_len=4),)),
+            tagged(add, 1, 3, (("var", 1), ("var", 2))),
+        ),
+    )
+    # The tag on the ROOT: a tagged TFUNC (always the ternary IF, arity 3).
+    root_if = tagged(
+        if_op,
+        1,
+        4,
+        (
+            ("var", 0),
+            (add, (("var", 1), ("const", 0.5))),
+            (mul, (("var", 2), ("var", 3))),
+        ),
+    )
+    # Only output 1 is tagged; 0 and 2 must stay exactly 0.0.
+    one_output = (
+        add,
+        (
+            tagged(mul, 1, 3, (("var", 0), ("const", 2.5))),
+            (sub, (("var", 1), ("var", 2))),
+        ),
+    )
+    # Two nodes accumulate into the SAME output (out0 = var0 - 2*var1).
+    same_output = tagged(add, 0, 3, (("var", 0), tagged(neg, 0, 2, (("var", 1),))))
+    # Tagged LEAVES: a VAR and a CONST.  They decode as their untagged selves and
+    # accumulate nothing (the oracle returns before it reads an out index).
+    tagged_leaves = (
+        add,
+        (
+            ("raw", 2.0, 0x80 | 0, ()),
+            tagged(add, 1, 3, (("raw", 0.75, 0x80 | 1, ()), ("var", 0))),
+        ),
+    )
+    # An outIndex of 5 at out_len 3 is dropped; output 0 is genuinely tagged.
+    out_of_range = (
+        add,
+        (
+            tagged(add, 5, 3, (("var", 0), ("var", 1))),
+            tagged(neg, 0, 2, (("var", 2),)),
+        ),
+    )
+    # One tagged node per arity, each with a real operator id in the packed half.
+    three_arities = (
+        add,
+        (
+            tagged(neg, 0, 2, (("var", 0),)),
+            (
+                add,
+                (
+                    tagged(sub, 1, 3, (("var", 1), ("const", 0.25))),
+                    tagged(if_op, 2, 4, (("var", 2), ("var", 3), ("const", 1.5))),
+                ),
+            ),
+        ),
+    )
+    # No tag at all: every output is 0.0, so the loss is exactly the label norm.
+    no_tags = (add, (("var", 0), (div, (("var", 1), ("const", 2.0)))))
+    # Same operands, different packed operator: the extraction has to matter.
+    mul_row = tagged(mul, 0, 3, (("var", 0), ("var", 1)))
+    add_row = tagged(add, 0, 3, (("var", 0), ("var", 1)))
+    # The same population at out_len 2 and 3: the tag on index 2 is dropped at 2.
+    index_two = (
+        add,
+        (
+            tagged(neg, 0, 2, (("var", 0),)),
+            tagged(add, 2, 3, (("var", 1), ("const", 0.5))),
+        ),
+    )
+    # The widest served output count: one tagged output per index.
+    from evogp.tree import fused_engine
+
+    max_out_len = int(fused_engine.MAX_OUT_LEN)
+    all_outputs: Any = ("var", 0)
+    for index in range(max_out_len - 1, -1, -1):
+        all_outputs = tagged(add, index, 3, (("var", index % 4), all_outputs))
+
+    return [
+        dict(
+            name="two_outputs_deep_shallow",
+            rows=[two_outputs],
+            input_len=4,
+            out_len=2,
+            ops="ADD,NEG",
+            note="two tagged outputs, one 7 nodes deep, one on the root's right arm",
+        ),
+        dict(
+            name="root_tagged_ternary",
+            rows=[root_if],
+            input_len=4,
+            out_len=3,
+            ops="IF,ADD,MUL",
+            expect_zero=(0, 2),
+            note="the OUT_NODE as the ROOT (a tagged ternary IF); outputs 0 and 2 stay 0.0",
+        ),
+        dict(
+            name="one_output_tagged",
+            rows=[one_output],
+            input_len=4,
+            out_len=3,
+            ops="ADD,MUL,SUB",
+            expect_zero=(0, 2),
+            note="only output 1 tagged; outputs 0 and 2 must be exactly 0.0",
+        ),
+        dict(
+            name="same_output_twice",
+            rows=[same_output],
+            input_len=4,
+            out_len=2,
+            ops="ADD,NEG",
+            note="two nodes tag the SAME output (out0 = var0 - 2*var1): accumulation",
+        ),
+        dict(
+            name="tagged_leaves",
+            rows=[tagged_leaves],
+            input_len=4,
+            out_len=2,
+            ops="ADD",
+            expect_zero=(0,),
+            note="OUT_NODE-tagged VAR and CONST leaves: behave untagged, accumulate nothing",
+        ),
+        dict(
+            name="out_index_out_of_range",
+            rows=[out_of_range],
+            input_len=4,
+            out_len=3,
+            ops="ADD,NEG",
+            expect_zero=(1, 2),
+            note="outIndex 5 at out_len 3 is dropped; outputs 1 and 2 stay 0.0",
+        ),
+        dict(
+            name="three_arities",
+            rows=[three_arities],
+            input_len=4,
+            out_len=3,
+            ops="ADD,SUB,NEG,IF",
+            note="one tagged node per arity: unary NEG, binary SUB, ternary IF",
+        ),
+        dict(
+            name="no_tagged_node",
+            rows=[no_tags],
+            input_len=4,
+            out_len=3,
+            ops="ADD,DIV",
+            expect_zero=(0, 1, 2),
+            expect_loss_is_label_norm=True,
+            note="no tag anywhere: all outputs 0.0, so MSE = sum(labels**2)/rows",
+        ),
+        dict(
+            name="mul_vs_add_packed",
+            rows=[mul_row, add_row],
+            input_len=4,
+            out_len=2,
+            ops="ADD,MUL",
+            expect_rows_differ=(0, 1),
+            note="same operands, packed MUL vs ADD: the function extraction must matter",
+        ),
+        dict(
+            name="tag_at_index_two",
+            rows=[index_two],
+            input_len=4,
+            out_len=3,
+            out_lens=(2, 3),
+            ops="ADD,NEG",
+            expect_zero={2: (1,), 3: ()},
+            note="same population at out_len 2 and 3: the index-2 tag is dropped vs accumulated",
+        ),
+        dict(
+            name="all_outputs",
+            rows=[all_outputs],
+            input_len=4,
+            out_len=max_out_len,
+            ops="ADD",
+            note=f"one tagged output per index, the accumulator at its full width ({max_out_len})",
+        ),
+        dict(
+            name="padded_garbage_multi",
+            rows=[
+                (add, (tagged(mul, 0, 3, (("var", 0), ("var", 1))), (neg, (("var", 2),))))
+            ],
+            input_len=4,
+            out_len=2,
+            ops="ADD,MUL,NEG",
+            pad_to=64,
+            garbage_tail=True,
+            note="16-node multi-output tree, NaN/nonsense padding behind it",
+        ),
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # stage 1: parity vs the oracle
 # --------------------------------------------------------------------------- #
@@ -514,7 +778,7 @@ def _oracle_per_row(rows: Tuple[Any, Any, Any], x, out_len: int = 1):
     )
 
 
-def _oracle_loss(rows: Tuple[Any, Any, Any], x, labels, use_mse: bool):
+def _oracle_loss(rows: Tuple[Any, Any, Any], x, labels, use_mse: bool, out_len: int = 1):
     import reference_eval as R
 
     node_value, node_type, subtree_size = rows
@@ -525,7 +789,7 @@ def _oracle_loss(rows: Tuple[Any, Any, Any], x, labels, use_mse: bool):
         x.cpu(),
         labels.cpu(),
         use_mse=use_mse,
-        out_len=1,
+        out_len=out_len,
     )
 
 
@@ -539,8 +803,17 @@ def _check_population(
     labels=None,
     value_limit: float,
     note: str = "",
+    out_len: int = 1,
+    sink: Optional[List[Dict[str, Any]]] = None,
+    capture: Optional[Dict[str, Any]] = None,
 ) -> Tuple[int, int]:
-    """All three surfaces of one population.  Returns ``(passed, total)``."""
+    """All three surfaces of one population.  Returns ``(passed, total)``.
+
+    ``out_len`` selects the protocol: ``1`` (the default, and every call site of
+    the parity stage) is the single-output one, ``>= 2`` the ``OUT_NODE`` protocol
+    the multi-output kernel implements.  ``sink`` collects the comparison rows and
+    ``capture`` the raw ``(got, want)`` tensors, both for ``--stage multi``.
+    """
     import torch
 
     from evogp.tree import fused_engine
@@ -552,41 +825,54 @@ def _check_population(
         print(f"  {tag}: {note}", flush=True)
     if batch_x is not None:
         got = fused_engine.evaluate_fused(
-            node_value, node_type, subtree_size, input_len, 1, batch_x, per_row=False
+            node_value, node_type, subtree_size, input_len, out_len, batch_x, per_row=False
         )
-        want = _oracle(rows, batch_x)
+        want = _oracle(rows, batch_x, out_len)
+        if capture is not None:
+            capture["batch_forward"] = (got, want)
         total += 1
         passed += _report(
             f"{tag}/batch_forward",
             compare(want, got),
             value_limit,
             key="value",
+            sink=sink,
         )
         if labels is not None:
             for use_mse in (True, False):
                 got_l = fused_engine.sr_fitness_fused(
-                    node_value, node_type, subtree_size, input_len, 1, batch_x, labels,
+                    node_value, node_type, subtree_size, input_len, out_len, batch_x, labels,
                     use_MSE=use_mse,
                 )
-                want_l = _oracle_loss(rows, batch_x, labels, use_mse)
+                want_l = _oracle_loss(rows, batch_x, labels, use_mse, out_len=out_len)
+                if capture is not None:
+                    capture["sr_fitnessMSE" if use_mse else "sr_fitnessMAE"] = (
+                        got_l,
+                        want_l,
+                        labels,
+                    )
                 total += 1
                 passed += _report(
                     f"{tag}/sr_fitness{'MSE' if use_mse else 'MAE'}",
                     compare(want_l, got_l),
                     LOSS_RTOL,
                     key="loss",
+                    sink=sink,
                 )
     if per_row_x is not None:
         got = fused_engine.evaluate_fused(
-            node_value, node_type, subtree_size, input_len, 1, per_row_x, per_row=True
+            node_value, node_type, subtree_size, input_len, out_len, per_row_x, per_row=True
         )
-        want = _oracle_per_row(rows, per_row_x)
+        want = _oracle_per_row(rows, per_row_x, out_len)
+        if capture is not None:
+            capture["forward(per_row)"] = (got, want)
         total += 1
         passed += _report(
             f"{tag}/forward(per_row)",
             compare(want, got),
             value_limit,
             key="value",
+            sink=sink,
         )
     return passed, total
 
@@ -665,6 +951,186 @@ def stage_parity(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# stage 1b: the multi-output (OUT_NODE) protocol
+# --------------------------------------------------------------------------- #
+def _check_line(tag: str, ok: bool, detail: str = "") -> int:
+    """Print one structural expectation of ``--stage multi``; ``1`` when it holds."""
+    print(f"  [{'ok ' if ok else 'FAIL'}] {tag:<40} {detail}", flush=True)
+    return 1 if ok else 0
+
+
+def _multi_case_stats(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Aggregate a case's comparison rows: the value bounds and the loss bound."""
+    value = [row for row in rows if row["key"] == "value"]
+    loss = [row for row in rows if row["key"] == "loss"]
+    return dict(
+        value_max_abs=max((float(row.get("max_abs", 0.0)) for row in value), default=0.0),
+        value_max_rel=max((float(row.get("max_rel", 0.0)) for row in value), default=0.0),
+        value_bitwise=bool(value) and all(bool(row.get("bitwise_equal")) for row in value),
+        loss_max_rel=max((float(row.get("max_rel", 0.0)) for row in loss), default=0.0),
+        loss_max_abs=max((float(row.get("max_abs", 0.0)) for row in loss), default=0.0),
+        nan_mismatch=sum(int(row.get("nan_mismatch", 0)) for row in rows),
+        inf_mismatch=sum(int(row.get("inf_mismatch", 0)) for row in rows),
+    )
+
+
+def stage_multi(args: argparse.Namespace) -> int:
+    """The multi-output protocol (``out_len`` 2..``MAX_OUT_LEN``) vs the oracle.
+
+    The route serves ``output_len`` 1..:data:`fused_engine.MAX_OUT_LEN`: ``out_len
+    == 1`` runs the original single-output kernel (what ``--stage parity`` pins),
+    ``out_len >= 2`` the second kernel that resolves a tagged node's operator from
+    the packed value bits, accumulates into ``out[outIndex]``, drops an index
+    ``>= out_len``, ignores tagged leaves and leaves untagged outputs at ``0.0``.
+
+    This stage runs :func:`multi_adversarial_cases` -- the shapes a random
+    generator does not produce for that protocol -- on all four surfaces: the
+    batched value path, the per-tree value path and BOTH loss paths (MSE and MAE),
+    each against ``src/evogp/tests/reference_eval.py``.  The value path must be
+    BITWISE (``value_limit = 0.0``: the multi-output kernel reuses the single-output
+    per-op emitters) and the loss ``<= LOSS_RTOL`` relative.
+
+    Cases also carry structural expectations that a numeric comparison alone would
+    not pin: outputs no node tags must be EXACTLY ``0.0`` (an untagged or dropped
+    index leaves the accumulator at its zeroed value), a population with no tag
+    must lose exactly ``sum(labels**2) / rows``, and two rows that differ only in
+    their packed operator must actually produce different numbers.
+    """
+    import torch
+
+    print("=" * 78)
+    print("MULTI: the multi-output (OUT_NODE) protocol vs "
+          "src/evogp/tests/reference_eval.py")
+    print("=" * 78)
+    passed = total = 0
+    records: List[Dict[str, Any]] = []
+    for case in multi_adversarial_cases():
+        rows = pack_rows(
+            case["rows"],
+            pad_to=int(case.get("pad_to", 0)),
+            garbage_tail=bool(case.get("garbage_tail", False)),
+        )
+        input_len = int(case["input_len"])
+        pop = int(rows[0].shape[0])
+        out_lens = tuple(int(item) for item in case.get("out_lens") or (case["out_len"],))
+        for out_len in out_lens:
+            tag = f"{case['name']}/out{out_len}"
+            torch.manual_seed(1234)
+            batch_x = torch.rand(int(args.parity_rows), input_len, device="cuda")
+            labels = torch.rand(int(args.parity_rows), out_len, device="cuda")
+            per_row_x = torch.rand(pop, input_len, device="cuda")
+            sink: List[Dict[str, Any]] = []
+            capture: Dict[str, Any] = {}
+            print(f"\n[{tag}] ops={case['ops']}")
+            p, t = _check_population(
+                tag,
+                rows,
+                input_len,
+                batch_x=batch_x,
+                per_row_x=per_row_x,
+                labels=labels,
+                value_limit=float(case.get("value_limit", 0.0)),
+                note=case["note"],
+                out_len=out_len,
+                sink=sink,
+                capture=capture,
+            )
+            passed += p
+            total += t
+            batch_got = capture["batch_forward"][0]
+            per_row_got = capture["forward(per_row)"][0]
+            # 1. every output no node tags must be EXACTLY 0.0 in BOTH value paths.
+            expect_zero = case.get("expect_zero", ())
+            if isinstance(expect_zero, dict):
+                expect_zero = expect_zero.get(out_len, ())
+            for index in expect_zero:
+                batch_max = float(batch_got[:, :, index].abs().max())
+                per_row_max = float(per_row_got[:, index].abs().max())
+                total += 1
+                passed += _check_line(
+                    f"{tag}/out{index}==0.0",
+                    max(batch_max, per_row_max) == 0.0,
+                    f"max|batch|={batch_max:.3e} max|per_row|={per_row_max:.3e}",
+                )
+            # 2. a population with no tag at all predicts 0.0 everywhere, so its
+            #    MSE is exactly the label norm (an independent, oracle-free cross-check).
+            if case.get("expect_loss_is_label_norm"):
+                got_loss = capture["sr_fitnessMSE"][0]
+                expected = float((labels.to(torch.float32) ** 2).sum()) / float(
+                    labels.shape[0]
+                )
+                ok = bool(
+                    torch.allclose(
+                        got_loss.to(torch.float32),
+                        torch.full_like(got_loss, expected),
+                        rtol=LOSS_RTOL,
+                        atol=0.0,
+                    )
+                )
+                total += 1
+                passed += _check_line(
+                    f"{tag}/loss==label_norm",
+                    ok,
+                    f"expected {expected:.6e}, got {float(got_loss.min()):.6e}.."
+                    f"{float(got_loss.max()):.6e}",
+                )
+            # 3. two rows that differ only in their packed operator must differ.
+            if case.get("expect_rows_differ"):
+                left, right = case["expect_rows_differ"]
+                delta = float((batch_got[left] - batch_got[right]).abs().max())
+                total += 1
+                passed += _check_line(
+                    f"{tag}/rows {left} vs {right} differ",
+                    delta > 0.0,
+                    f"max|delta|={delta:.3e}",
+                )
+            aggregate = _multi_case_stats(sink)
+            line_ok = all(bool(row["ok"]) for row in sink)
+            print(
+                f"  [{'ok ' if line_ok else 'FAIL'}] CASE {tag:<38} out_len={out_len} "
+                f"ops={case['ops']:<16} max_abs={aggregate['value_max_abs']:.3e} "
+                f"max_rel={aggregate['value_max_rel']:.3e} "
+                f"bitwise={str(aggregate['value_bitwise']):<5} "
+                f"loss_max_rel={aggregate['loss_max_rel']:.3e} "
+                f"nan_mismatch={aggregate['nan_mismatch']}",
+                flush=True,
+            )
+            records.append(
+                dict(
+                    case=case["name"],
+                    out_len=out_len,
+                    ops=case["ops"],
+                    note=case["note"],
+                    comparisons=len(sink),
+                    comparisons_ok=line_ok,
+                    rows=[
+                        dict(
+                            tag=row["tag"],
+                            key=row["key"],
+                            limit=row["limit"],
+                            ok=row["ok"],
+                            max_abs=row.get("max_abs", 0.0),
+                            max_rel=row.get("max_rel", 0.0),
+                            bitwise_equal=row.get("bitwise_equal"),
+                            nan_mismatch=row.get("nan_mismatch", 0),
+                            inf_mismatch=row.get("inf_mismatch", 0),
+                        )
+                        for row in sink
+                    ],
+                    **aggregate,
+                )
+            )
+    print("\n" + "-" * 78)
+    print(f"MULTI: {passed}/{total} comparisons inside tolerance")
+    print("-" * 78)
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as handle:
+            json.dump(records, handle, indent=2)
+        print(f"wrote {args.json}")
+    return 0 if passed == total else 1
+
+
+# --------------------------------------------------------------------------- #
 # stage 2: goldens
 # --------------------------------------------------------------------------- #
 _ENGINE_KEYS = ("node_value", "node_type", "subtree_size")
@@ -730,7 +1196,10 @@ def _golden_engine(path, data, compare, fused_engine, torch, passed, total):
     input_len = int(x.shape[1])
     multi_output = "expected" in data and int(np_shape_last(data["expected"])) > 1
     if multi_output:
-        print(f"  [skip] {name}: multi-output fixture (the fused route declines it)")
+        print(
+            f"  [skip] {name}: multi-output fixture (this stage is the single-output "
+            "golden gate; --stage multi covers the protocol)"
+        )
         return passed, total
     if "expected" in data:
         want = _as_cuda(data["expected"], torch.float32)
@@ -854,10 +1323,17 @@ def stage_declines(args: argparse.Namespace) -> int:
 
     The route's whole safety story is "decline, never a wrong number", so every
     decline reason is exercised here (one case per reason), together with the
-    POSITIVE controls (a legal call served at ``pop == 1`` and with the ``iree``
-    backend name) and the invariants the rest of the package relies on:
-    ``fused_cache_stats()`` is all ``fused_*`` keys, ``cache_stats()`` stays at its
-    pinned 8 keys, and ``evoxc_engine.clear_cache()`` resets the fused tables too.
+    POSITIVE controls (a legal call served at ``pop == 1``, with the ``iree``
+    backend name and -- since the multi-output kernel landed -- at ``output_len 2``,
+    whose counters are checked too) and the invariants the rest of the package
+    relies on: ``fused_cache_stats()`` is all ``fused_*`` keys, ``cache_stats()``
+    stays at its pinned 8 keys, and ``evoxc_engine.clear_cache()`` resets the fused
+    tables too.
+
+    The multi-output matrix is explicitly TWO-SIDED: ``output_len 2`` is SERVED
+    (it used to be the decline case) while ``MAX_OUT_LEN + 1`` declines with a
+    reason naming ``MAX_OUT_LEN`` and ``output_len 0`` is a ``ValueError`` (an
+    unusable argument, not a decline).
     """
     import torch
 
@@ -866,11 +1342,15 @@ def stage_declines(args: argparse.Namespace) -> int:
 
     checks: List[Tuple[str, bool, str]] = []
 
-    def expect(name: str, fn, kind) -> None:
+    def expect(name: str, fn, kind, needle: Optional[str] = None) -> None:
         try:
             fn()
         except kind as exc:
-            checks.append((name, True, f"{type(exc).__name__}: {exc}"))
+            detail = f"{type(exc).__name__}: {exc}"
+            ok = needle is None or needle in str(exc)
+            if not ok:
+                detail = f"{detail} (does not name {needle!r})"
+            checks.append((name, ok, detail))
         except Exception as exc:  # noqa: BLE001 - the wrong type is a failure
             checks.append((name, False, f"raised {type(exc).__name__}: {exc}"))
         else:
@@ -891,12 +1371,46 @@ def stage_declines(args: argparse.Namespace) -> int:
         lambda: fused_engine.evaluate_fused(**call, x=x, per_row=False, backend="numpy"),
         fused_engine.FusedUnsupported,
     )
+    # The multi-output protocol is SERVED (out_len 2..MAX_OUT_LEN): the shape and
+    # the counters, not a decline, are what this matrix pins now.
+    before = fused_engine.fused_cache_stats()
+    try:
+        multi = fused_engine.evaluate_fused(**{**call, "output_len": 2}, x=x, per_row=False)
+        shape_ok = tuple(multi.shape) == (1, 8, 2) and multi.dtype == torch.float32
+        checks.append(
+            (
+                "served: output_len=2 (multi-output)",
+                shape_ok,
+                f"shape {tuple(multi.shape)} dtype {multi.dtype}",
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        checks.append(
+            ("served: output_len=2 (multi-output)", False, f"raised {type(exc).__name__}: {exc}")
+        )
+    after = fused_engine.fused_cache_stats()
+    checks.append(
+        (
+            "served: output_len=2 counted as a CALL, not a decline",
+            after["fused_calls"] == before["fused_calls"] + 1
+            and after["fused_declines"] == before["fused_declines"],
+            f"calls +{after['fused_calls'] - before['fused_calls']} "
+            f"declines +{after['fused_declines'] - before['fused_declines']}",
+        )
+    )
     expect(
-        "decline: output_len=2 (multi-output)",
+        f"decline: output_len=MAX_OUT_LEN+1 ({fused_engine.MAX_OUT_LEN + 1})",
         lambda: fused_engine.evaluate_fused(
-            **{**call, "output_len": 2}, x=x, per_row=False
+            **{**call, "output_len": fused_engine.MAX_OUT_LEN + 1}, x=x, per_row=False
         ),
         fused_engine.FusedUnsupported,
+        needle="MAX_OUT_LEN",
+    )
+    expect(
+        "raise: output_len=0",
+        lambda: fused_engine.evaluate_fused(**{**call, "output_len": 0}, x=x, per_row=False),
+        ValueError,
+        needle="output_len",
     )
     expect(
         "decline: pop_size=0",
@@ -978,7 +1492,7 @@ def stage_declines(args: argparse.Namespace) -> int:
     checks.append(
         (
             "knob: resolve_min_pop default",
-            fused_engine.resolve_min_pop() == 64,
+            fused_engine.resolve_min_pop() == 16,
             str(fused_engine.resolve_min_pop()),
         )
     )
@@ -1067,8 +1581,7 @@ def _wired_cells() -> List[Dict[str, Any]]:
 
     All three are small enough that the specialized+numpy REFERENCE they are
     compared against costs a few tens of milliseconds, and the ``p64`` cell is
-    exactly the smallest population the fused route serves at the shipped
-    ``EVOGP_FUSED_MIN_POP`` (64).
+    above the shipped ``EVOGP_FUSED_MIN_POP`` (16) with plenty of headroom.
     """
     common = _harness()
     wanted = {"p256-L32-i8-N1024", "p256-L64-i32-N1024"}
@@ -1110,10 +1623,11 @@ def stage_wired(args: argparse.Namespace) -> int:
        ``should_use_dense`` is False for it and the ``Route`` invariant refuses
        ``use_dense=True`` with ``engine="fused"``.
 
-    A multi-output population (``output_len=2``) must DECLINE into the
-    specialized fallback: same numbers, one ``fused_declines``, and no kernel
-    compiled or scratch buffer allocated (that is what "no fused launch" means --
-    the facade counts the attempt in ``fused_calls`` before it declines).
+    A multi-output population (``output_len=2``) must now be SERVED by the
+    multi-output kernel rather than declined: the same numbers as the specialized
+    fallback, one ``fused_calls``, no ``fused_declines``, and a real launch (the
+    kernel and the scratch buffer both move).  ``--stage multi`` is the numeric
+    gate of that protocol; this stage only proves the POLICY reaches it.
     """
     import torch
 
@@ -1140,7 +1654,7 @@ def stage_wired(args: argparse.Namespace) -> int:
         minimum = dense_engine.resolve_fused_min_pop()
         check(
             "policy: resolve_fused_min_pop delegates to the one parser",
-            minimum == fused_engine.resolve_min_pop() == 64,
+            minimum == fused_engine.resolve_min_pop() == 16,
             f"{minimum} vs fused_engine {fused_engine.resolve_min_pop()}",
         )
         route = dense_engine.resolve_route(256, eval_mode="fused")
@@ -1159,10 +1673,14 @@ def stage_wired(args: argparse.Namespace) -> int:
             route.use_fused and not route.use_dense,
             f"use_fused={route.use_fused} use_dense={route.use_dense}",
         )
-        for pop in (1, minimum - 1):
+        # The gate's boundary is spelled out: the shipped default threshold is 16,
+        # so pop 15 is the last population the specialized fallback serves, pop 16
+        # the first one the route serves, and pop 0 (the degenerate empty
+        # population) declines instead of launching a kernel.
+        for pop in (0, 1, 15):
             below = dense_engine.resolve_route(pop, eval_mode="fused")
             check(
-                f"policy: pop_size={pop} < {minimum} -> specialized+numpy",
+                f"policy: pop_size={pop} < 16 -> specialized+numpy",
                 (below.engine, below.backend, below.fallback_backend)
                 == ("specialized", "numpy", "numpy"),
                 below.reason,
@@ -1282,7 +1800,7 @@ def stage_wired(args: argparse.Namespace) -> int:
                 f"fused_calls +{served} declines +{declined}",
             )
 
-        # ---- 3. a multi-output population: decline, never launch -------- #
+        # ---- 3. a multi-output population: served by the second kernel --- #
         from evogp.tree.utils import Func
 
         # 64 rows so the population clears EVOGP_FUSED_MIN_POP: below it the route
@@ -1311,22 +1829,24 @@ def stage_wired(args: argparse.Namespace) -> int:
         after = fused_engine.fused_cache_stats()
         stats = compare(ref_multi, got_multi)
         check(
-            "wired output_len=2: declines into specialized+numpy (same values)",
+            "wired output_len=2: SERVED by the multi-output kernel (same values)",
             _close(stats, VALUE_RTOL),
             f"bitwise={stats.get('bitwise_equal')} "
             f"max_rel={stats.get('max_rel', 0.0):.3e} (<= {VALUE_RTOL:g})",
         )
         check(
-            "wired output_len=2: NO fused launch (no kernel, no scratch)",
-            after["fused_kernel_compiles"] == before["fused_kernel_compiles"]
-            and after["fused_scratch_allocs"] == before["fused_scratch_allocs"],
-            "compiles +"
-            f"{after['fused_kernel_compiles'] - before['fused_kernel_compiles']} "
+            "wired output_len=2: a real fused launch (kernel + scratch)",
+            after["fused_kernel_launches"] > before["fused_kernel_launches"]
+            and after["fused_scratch_allocs"] >= before["fused_scratch_allocs"],
+            "launches +"
+            f"{after['fused_kernel_launches'] - before['fused_kernel_launches']} "
             f"scratch_allocs +{after['fused_scratch_allocs'] - before['fused_scratch_allocs']}",
         )
         check(
-            "wired output_len=2: the facade was consulted and declined",
-            after["fused_declines"] == before["fused_declines"] + 1,
+            "wired output_len=2: served, not declined",
+            after["fused_calls"] == before["fused_calls"] + 1
+            and after["fused_declines"] == before["fused_declines"],
+            f"calls +{after['fused_calls'] - before['fused_calls']} "
             f"declines +{after['fused_declines'] - before['fused_declines']}",
         )
     finally:
@@ -1853,6 +2373,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         choices=(
             "parity",
+            "multi",
             "goldens",
             "declines",
             "wired",
@@ -1897,6 +2418,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     status = 0
     if args.stage in ("parity", "all"):
         status |= stage_parity(args)
+    if args.stage in ("multi", "all"):
+        status |= stage_multi(args)
     if args.stage in ("goldens", "all"):
         status |= stage_goldens(args)
     if args.stage in ("declines", "all"):
