@@ -106,8 +106,12 @@ class GPResult:
             of magnitude, so it says nothing about the population.
         best_channels: ``(opcode, payload, size)`` numpy arrays of the row that
             achieved :attr:`best_fitness` (``None`` when nothing was ever
-            finite).  Each array is a copy of shape ``[max_nodes]``; pass them
-            back as a one-row triple to re-evaluate that tree.
+            finite).  Each array is a copy of shape ``[max_nodes]``, i.e. the
+            three 1-D channel rows of ONE individual; pass the tuple back
+            unchanged to re-evaluate that tree (``problem.evaluate`` /
+            ``predict`` and :func:`evogp.gp.encoding.validate_channels` /
+            :func:`evogp.gp.encoding.to_legacy_triple` read it as a population
+            of one).
         best_generation: 0-based index of the generation that produced
             :attr:`best_channels`.
         generations: Number of generation steps actually performed.

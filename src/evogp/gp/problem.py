@@ -45,7 +45,7 @@ from typing import Callable, Optional, Tuple
 import numpy as np
 
 from ._constants import FUNC_ARITY, FUNC_TYPE, Func, NType
-from .encoding import _evoxc as _require_evoxc
+from .encoding import _channel_arrays, _evoxc as _require_evoxc
 from .evaluator import _prepare_channels, predict as _host_predict
 from .state import GPState, population_size
 
@@ -75,16 +75,21 @@ def _as_data(x, name: str, ndim: int) -> np.ndarray:
 
 
 def _channel_pop_size(channels) -> int:
-    """``pop_size`` from a state or an ``(opcode, payload, size)`` triple."""
+    """``pop_size`` from a state or an ``(opcode, payload, size)`` triple.
+
+    A single individual (the three 1-D channel rows of a
+    ``GPResult.best_channels``) counts as a population of one, exactly like the
+    shared parser (:func:`evogp.gp.encoding._channel_arrays`) normalizes it.
+    """
     if isinstance(channels, GPState):
         return population_size(channels)
     try:
-        opcode = channels[0]
+        channels[0]
     except (TypeError, IndexError) as exc:
         raise TypeError(
             "channels must be a GPState or an (opcode, payload, size) triple"
         ) from exc
-    return int(opcode.shape[0])
+    return int(_channel_arrays(channels)[0].shape[0])
 
 
 def _fitness_from_loss(loss: np.ndarray, pop_size: int) -> np.ndarray:
@@ -157,7 +162,10 @@ class SymbolicRegression(BaseProblem):
 
     # ------------------------------------------------------------- interface
     def predict(self, channels) -> np.ndarray:
-        """``[pop_size, n_rows]`` float32 predictions of a population."""
+        """``[pop_size, n_rows]`` float32 predictions of a population.
+
+        One individual (``GPResult.best_channels``) is a population of one.
+        """
         return _host_predict(
             channels, self.x, input_len=self.x.shape[1], validate=self._validate
         )
@@ -262,7 +270,10 @@ class CustomLoss(BaseProblem):
 
     # ------------------------------------------------------------- interface
     def predict(self, channels) -> np.ndarray:
-        """``[pop_size, n_rows]`` float32 predictions of a population."""
+        """``[pop_size, n_rows]`` float32 predictions of a population.
+
+        One individual (``GPResult.best_channels``) is a population of one.
+        """
         return _host_predict(
             channels, self.x, input_len=self.x.shape[1], validate=self._validate
         )
@@ -808,7 +819,8 @@ def predict_graph(
 
     Args:
         channels: a :class:`~evogp.gp.state.GPState` or the ``(opcode, payload,
-            size)`` triple.
+            size)`` triple (a single individual's three 1-D channel rows are a
+            population of one).
         x: the data matrix ``[n_rows, input_len]``.
         input_len: when given it must match ``x.shape[1]`` (the ``VAR`` bound the
             validation uses).

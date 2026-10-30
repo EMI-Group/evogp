@@ -36,9 +36,12 @@ from evogp.gp import (
     cache_stats,
     clear_cache,
     init_gp,
+    row_length,
     run,
     smoke,
     step,
+    to_legacy_triple,
+    validate_channels,
 )
 
 from gp_operator_support import SAFE_CONFIG, channel_arrays
@@ -48,9 +51,13 @@ from gp_operator_support import SAFE_CONFIG, channel_arrays
 # helpers
 # --------------------------------------------------------------------------- #
 def _length_fitness(state) -> np.ndarray:
-    """A deterministic objective: shorter trees win (MAXIMIZED)."""
-    _opcode, _payload, size = channel_arrays(state)
-    return (-size[:, 0]).astype(np.float32)
+    """A deterministic objective: shorter trees win (MAXIMIZED).
+
+    ``row_length`` is the shared channel parser's accessor, so this objective
+    also takes a single individual (``GPResult.best_channels``) as a population
+    of one -- the same contract the shipped problems have.
+    """
+    return (-row_length(state)).astype(np.float32)
 
 
 def _config(pop_size: int, elite_count: int = 1):
@@ -198,10 +205,11 @@ def test_the_reported_best_channels_reproduce_the_reported_fitness():
     opcode, payload, size = result.best_channels
     assert opcode.shape == payload.shape == size.shape == (config.max_nodes,)
     assert 1 <= int(size[0]) <= config.max_nodes
-    again = _length_fitness(
-        (opcode[None, :], payload[None, :], size[None, :])
-    )
+    # `best_channels` is a single individual and is fed back AS IS: the one
+    # shared parser turns it into a population of one.
+    again = _length_fitness(result.best_channels)
     assert float(again[0]) == float(result.best_fitness)
+    assert again.shape == (1,)
 
 
 def test_a_real_problem_reproduces_the_reported_best_fitness():
@@ -211,10 +219,41 @@ def test_a_real_problem_reproduces_the_reported_best_fitness():
     # the smoke's function set/levels is a valid configuration.
     result = run(config, problem.evaluate, generations=4)
 
-    opcode, payload, size = result.best_channels
-    again = problem.evaluate((opcode[None, :], payload[None, :], size[None, :]))
+    again = problem.evaluate(result.best_channels)
     assert float(again[0]) == float(result.best_fitness)
     assert np.isfinite(result.best_fitness)
+
+
+def test_the_reported_best_individual_is_a_usable_single_individual():
+    """``result.best_channels`` is the natural user input, everywhere."""
+    problem = _tiny_problem()
+    config = smoke.make_configs(pop_size=24, max_nodes=32)
+    result = run(config, problem.evaluate, generations=4)
+    opcode, payload, size = result.best_channels
+    width = config[0].max_nodes
+
+    # the reported shape is the three 1-D channel rows of ONE tree
+    assert opcode.shape == payload.shape == size.shape == (width,)
+    assert opcode.dtype == np.int32 and payload.dtype == np.float32
+    assert size.dtype == np.int32
+
+    validate_channels(result.best_channels, input_len=config[0].input_len)
+
+    fitness = problem.evaluate(result.best_channels)
+    assert fitness.shape == (1,)
+    assert abs(float(fitness[0]) - float(result.best_fitness)) <= 1e-6
+
+    predictions = problem.predict(result.best_channels)
+    assert predictions.shape == (1, problem.x.shape[0])
+
+    # the legacy bridge sees the same one-row triple as for the 2-D form
+    single = to_legacy_triple(result.best_channels)
+    paired = to_legacy_triple((opcode[None, :], payload[None, :], size[None, :]))
+    for lhs, rhs in zip(single, paired):
+        assert lhs.shape == rhs.shape == (1, width)
+        np.testing.assert_array_equal(lhs, rhs)
+    assert single[0].dtype == np.float32
+    assert single[1].dtype == np.int16 and single[2].dtype == np.int16
 
 
 # --------------------------------------------------------------------------- #

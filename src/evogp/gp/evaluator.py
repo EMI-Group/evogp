@@ -283,14 +283,20 @@ _BINARY = {
 # channel / data normalisation
 # --------------------------------------------------------------------------- #
 def _prepare_channels(channels) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """``(opcode int32, payload float32, size int64)`` 2-D views of the encoding."""
+    """``(opcode int32, payload float32, size int64)`` 2-D views of the encoding.
+
+    Accepts the same forms as :func:`evogp.gp.encoding._channel_arrays`, the one
+    shared parser: a state, a population triple, or the three 1-D channel rows
+    of one individual, which is normalized to a one-row population.
+    """
     opcode, payload, size = _channel_arrays(channels)
     opcode = np.ascontiguousarray(np.asarray(opcode).astype(np.int32, copy=False))
     payload = np.ascontiguousarray(np.asarray(payload).astype(np.float32, copy=False))
     size = np.ascontiguousarray(np.asarray(size).astype(np.int64, copy=False))
     if opcode.ndim != 2:
         raise ValueError(
-            f"channels must be 2-D [pop_size, max_nodes], got shape {opcode.shape}"
+            "channels must be 2-D [pop_size, max_nodes] (or the three 1-D "
+            f"channel rows of one individual), got shape {opcode.shape}"
         )
     if opcode.shape != payload.shape or opcode.shape != size.shape:
         raise ValueError(
@@ -456,8 +462,10 @@ def predict(
 
     Args:
         channels: a :class:`~evogp.gp.state.GPState` or the ``(opcode, payload,
-            size)`` triple (numpy arrays or ``evoxc`` tensors; a tensor is read
-            back with ``.numpy()``).
+            size)`` triple of a population (numpy arrays or ``evoxc`` tensors; a
+            tensor is read back with ``.numpy()``).  The three 1-D channel rows
+            of ONE individual (``GPResult.best_channels``) are accepted too and
+            evaluate as a one-row population.
         x: the data matrix ``[n_rows, input_len]`` float32 (a 1-D array is one
             row).
         input_len: when given, ``VAR`` payloads must index into ``[0,

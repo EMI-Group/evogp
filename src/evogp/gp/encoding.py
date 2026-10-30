@@ -156,7 +156,18 @@ def _as_numpy(value, name: str) -> np.ndarray:
 
 
 def _channel_arrays(channels) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """``(opcode, payload, size)`` as numpy arrays from a state or a triple."""
+    """``(opcode, payload, size)`` as numpy arrays; a state or a triple.
+
+    This is the ONE channel parser of the stack, so every consumer
+    (:func:`validate_channels`, :func:`to_legacy_triple`, :func:`row_length`,
+    :func:`live_mask`, the evaluator's ``_prepare_channels`` and the problem
+    layer's ``pop_size`` read) accepts the same forms: a
+    :class:`~evogp.gp.state.GPState`, the three ``[pop_size, max_nodes]``
+    channels of a population, or the three 1-D channel rows of a single
+    individual (what ``GPResult.best_channels`` holds).  A 1-D triple of equal
+    length is promoted to a one-row population ``[1, max_nodes]``; anything else
+    is returned as given, for the caller's own rank/shape check.
+    """
     if isinstance(channels, GPState):
         opcode, payload, size = channels.channels()
     else:
@@ -167,11 +178,18 @@ def _channel_arrays(channels) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
                 "evogp.gp: channels must be a GPState or an "
                 "(opcode, payload, size) triple"
             ) from exc
-    return (
-        _as_numpy(opcode, "opcode"),
-        _as_numpy(payload, "payload"),
-        _as_numpy(size, "size"),
-    )
+    opcode = _as_numpy(opcode, "opcode")
+    payload = _as_numpy(payload, "payload")
+    size = _as_numpy(size, "size")
+    if opcode.ndim == 1 and payload.ndim == 1 and size.ndim == 1:
+        if opcode.shape != payload.shape or opcode.shape != size.shape:
+            raise ValueError(
+                "the three channels of one individual must share one length, "
+                f"got opcode {opcode.shape}, payload {payload.shape}, "
+                f"size {size.shape}"
+            )
+        return opcode[None, :], payload[None, :], size[None, :]
+    return opcode, payload, size
 
 
 def is_leaf(size) -> np.ndarray:
@@ -233,8 +251,11 @@ def validate_channels(
     and every live cell is claimed by exactly one subtree.
 
     Args:
-        channels: a :class:`~evogp.gp.state.GPState` or an
-            ``(opcode, payload, size)`` triple of numpy arrays / evoxc tensors.
+        channels: a :class:`~evogp.gp.state.GPState`, an
+            ``(opcode, payload, size)`` triple of ``[pop_size, max_nodes]``
+            numpy arrays / evoxc tensors, or the three 1-D channel rows of a
+            single individual (``GPResult.best_channels``), which is validated
+            as a one-row population.
         input_len: when given, ``VAR`` payloads must be integral and in
             ``[0, input_len)``.
 
@@ -243,7 +264,10 @@ def validate_channels(
     """
     opcode, payload, size = _channel_arrays(channels)
     if size.ndim != 2:
-        raise ValueError(f"channels must be 2-D [pop_size, max_nodes], got {size.shape}")
+        raise ValueError(
+            "channels must be 2-D [pop_size, max_nodes] (or the three 1-D "
+            f"channel rows of one individual), got {size.shape}"
+        )
     if opcode.shape != size.shape or payload.shape != size.shape:
         raise ValueError(
             "the three channels must share one shape, got opcode "
@@ -387,6 +411,10 @@ def to_legacy_triple(channels) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     id as a float and the *type* is the ``NType`` marker; on a leaf the value is
     the payload and the type is ``NType.VAR``/``NType.CONST``; the padding is
     zero in all three.
+
+    A single individual (the three 1-D channel rows of a
+    ``GPResult.best_channels``) is converted as a one-row population, i.e. the
+    result is the same ``[1, max_nodes]`` triple the 2-D form gives.
 
     Raises:
         NotImplementedError: for an ``OUT_NODE``-tagged opcode (multi-output

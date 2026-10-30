@@ -442,7 +442,21 @@ def test_validate_rejects_shape_mismatches():
     with pytest.raises(ValueError, match="share one shape"):
         validate_channels((opcode, payload[:, :-1], size))
     with pytest.raises(ValueError, match="2-D"):
-        validate_channels((opcode[0], payload[0], size[0]))
+        validate_channels((opcode[None], payload[None], size[None]))
+    with pytest.raises(ValueError, match="one individual must share one length"):
+        validate_channels((opcode[0], payload[0, :-1], size[0]))
+
+
+def test_validate_accepts_the_single_individual_form():
+    # The three 1-D channel rows of one tree are a population of one (this is
+    # what `GPResult.best_channels` hands back).
+    opcode, payload, size = _channels([Func.SIN, NType.VAR], [0.0, 0.0], [2, 1])
+    single = (opcode[0], payload[0], size[0])
+    validate_channels(single, input_len=2)  # must not raise
+    assert row_length(single).tolist() == [2]  # the host helpers take it too
+    np.testing.assert_array_equal(
+        live_mask(single), live_mask((opcode, payload, size))
+    )
 
 
 # --------------------------------------------------------------------------- #
