@@ -157,8 +157,8 @@ DEFAULT_MAX_ORACLE = 16
 DEFAULT_TIMEOUT = 3600
 DEFAULT_GUARD_WAIT = 120.0
 DISABLE_LOCATIONS_ENV = "EVOXC_DISABLE_LOCATIONS"
-#: Frozen evidence: never written in place (this round's own ``results/batch_opt_round2``).
-FROZEN_RESULT_DIRS = ("final", "baseline", "batch", "batch_opt_round1")
+#: Frozen evidence: never written in place (round 2's own ``results/batch_opt_round2`` included).
+FROZEN_RESULT_DIRS = ("final", "baseline", "batch", "batch_opt_round1", "batch_opt_round2")
 MEASUREMENT = band_measure.MEASUREMENT
 SCHEMA = band_measure.SCHEMA
 SCHEMA_DRIVER = SCHEMA + "-driver"

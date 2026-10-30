@@ -191,7 +191,8 @@ DEFAULT_SEED = 0
 DEFAULT_TIMEOUT = 3600
 DEFAULT_OUT_DIR = os.path.join(_HERE, "results", "batch")
 DISABLE_LOCATIONS_ENV = "EVOXC_DISABLE_LOCATIONS"
-FROZEN_RESULT_DIRS = ("final", "baseline")  # frozen evidence: never written in place
+# frozen evidence: never written in place (``batch_opt_round2`` is an older round's evidence too)
+FROZEN_RESULT_DIRS = ("final", "baseline", "batch_opt_round2")
 #: The round-2 generation-loop protocol: a cold/warm/generation comparison needs at least this many
 #: real ``StandardPipeline.step()`` iterations (``--generations`` expresses any count >= 1; the
 #: default of 8 covers it).
@@ -555,8 +556,8 @@ def assert_fresh_out(out_dir: str) -> None:
         if resolved == frozen or resolved.startswith(frozen + os.sep):
             raise SystemExit(
                 f"--out-dir {resolved} is inside the frozen evidence directory {frozen}: "
-                "results/final and results/baseline are never rewritten in place -- point "
-                "--out-dir at a fresh directory (default: results/batch)"
+                f"results/{', results/'.join(FROZEN_RESULT_DIRS)} are never rewritten in place "
+                "-- point --out-dir at a fresh directory (default: results/batch)"
             )
 
 
@@ -666,10 +667,12 @@ def run_driver(args: argparse.Namespace) -> int:
     routes = resolve_routes(args.routes)
     override = parse_knobs(getattr(args, "knob", None))
     src = resolve_src(args.tree_root)
+    # The frozen-directory refusal covers the dry run too (it names the exact record paths, and a
+    # path this script would refuse to write must not look planned) -- same rule as band_sweep.py.
+    assert_fresh_out(args.out_dir)
     if args.dry_run:
         return dry_run(args, cells, routes, src, override)
 
-    assert_fresh_out(args.out_dir)
     env = child_env(args, src)
     os.makedirs(args.out_dir, exist_ok=True)
     driver_path = os.path.join(args.out_dir, "economics.json")
