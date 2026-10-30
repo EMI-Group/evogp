@@ -709,6 +709,56 @@ def main() -> int:
             tree_len=cell["tree_len"],
         )
 
+    # -- what ``auto``'s trace-cap raise resolves for this cell --------------
+    # Under ``auto`` the dense trace cap is NOT the pinned one: an over-cap population
+    # is served at ``min(longest, min(EVOGP_DENSE_AUTO_MAX_TREE_LEN, envelope))``
+    # instead of falling back to the per-tree ``specialized`` route, so an ``auto``
+    # warm median can be dense-at-a-RASIED cap.  A record must state which cap it
+    # actually ran at, per workload (the envelope's row axis differs: ``forward`` sees
+    # one row per tree), or the number cannot be read against a pinned-cap dense arm.
+    # A tree without the accessor records nulls plus a note, never a fabricated cap.
+    auto_cap_fn = getattr(dense_engine, "auto_trace_cap", None)
+    pinned_fn = getattr(dense_engine, "trace_cap_pinned", None)
+    auto_cap_block: Dict[str, Any] = {
+        "available": callable(auto_cap_fn),
+        "auto_max_tree_len": _optional_policy_value(
+            dense_engine, "resolve_auto_max_tree_len"
+        ),
+        "tree_len_max": int(structure["tree_len_max"]),
+        "row_len": int(cell["tree_len"]),
+        "cap_pinned": bool(pinned_fn()) if callable(pinned_fn) else None,
+        "base_cap": int(dense_cap),
+        "caps": {},
+    }
+    if callable(auto_cap_fn):
+        for name, rows in (
+            ("sr_fitness", cell["rows"]),
+            ("batch_forward", cell["rows"]),
+            ("forward", 1),
+        ):
+            entry = {}
+            for mode in ("auto", "dense"):
+                try:
+                    entry[mode] = int(
+                        auto_cap_fn(
+                            structure["tree_len_max"],
+                            cell["tree_len"],
+                            eval_mode=mode,
+                            pop_size=cell["pop"],
+                            rows=rows,
+                        )
+                    )
+                except Exception:  # noqa: BLE001 - a broken policy accessor must not cost the record
+                    entry[mode] = None
+            auto_cap_block["caps"][name] = entry
+    else:
+        auto_cap_block["note"] = (
+            "evogp.tree.dense_engine.auto_trace_cap() is unavailable on this tree, so "
+            "the effective trace cap under auto is null: the pinned base cap above is "
+            "what BOTH modes ran at"
+        )
+        record["notes"].append("auto trace cap: " + auto_cap_block["note"])
+    record["auto_trace_cap"] = auto_cap_block
     # -- evaluation workloads ------------------------------------------------
     arm_obj = arms_mod.make_arm(args.arm, workload)
     record["setup_ms"] = round(arm_obj.setup_ms, 4)

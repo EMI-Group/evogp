@@ -1,0 +1,244 @@
+{
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T12:46:45Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A51/src",
+  "tree_root_sha": "82ff822599f51c15cf11e2f4cabb3d10cf0254c7",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A51",
+  "arm": "torch-batched",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/.genesis/workers/worker_T1_A1/evoxc/__init__.py",
+  "evoxc_sha": "be145eee52053422c77694e072700a8314d0346d",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A51/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOGP_BENCH_ARTIFACT_DIR": "/root/evogp/.genesis/workers/worker_T1_A51/test/benchmark/evoxc/results/largescale2/loop/artifacts",
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "applied_knobs": {
+   "eval_mode": null,
+   "backend": null,
+   "knobs": {}
+  },
+  "cell": {
+   "id": "p1000-L64-i32-N16384",
+   "pop": 1000,
+   "tree_len": 64,
+   "input_len": 32,
+   "rows": 16384,
+   "max_layer_cnt": 5
+  },
+  "arm_spec": {
+   "impl": "batched",
+   "family": "torch"
+  }
+ },
+ "cell": {
+  "id": "p1000-L64-i32-N16384",
+  "pop": 1000,
+  "tree_len": 64,
+  "input_len": 32,
+  "rows": 16384,
+  "max_layer_cnt": 5
+ },
+ "arm": "torch-batched",
+ "family": "torch",
+ "protocol": {
+  "warmup": 2,
+  "reps": 5,
+  "gp_warmup": 1,
+  "gp_reps": 3,
+  "workloads": [
+   "gp_step",
+   "forward"
+  ],
+  "seed": 0,
+  "sync_bracketed": true
+ },
+ "structures": {
+  "pop_size": 1000,
+  "max_tree_len": 64,
+  "tree_len_mean": 16.21,
+  "tree_len_median": 17.0,
+  "tree_len_max": 31,
+  "distinct_structures": 841,
+  "structure_signature": "ef289d572f4d61a1"
+ },
+ "routes": {
+  "sr_fitness": {
+   "eval_mode": "auto",
+   "backend": "numpy",
+   "should_use_dense_pop_only": true,
+   "should_use_dense_with_rows": true,
+   "would_use_dense": true
+  },
+  "batch_forward": {
+   "eval_mode": "auto",
+   "backend": "numpy",
+   "should_use_dense_pop_only": true,
+   "should_use_dense_with_rows": true,
+   "would_use_dense": true
+  },
+  "forward": {
+   "eval_mode": "auto",
+   "backend": "numpy",
+   "should_use_dense_pop_only": true,
+   "should_use_dense_with_rows": true,
+   "would_use_dense": true
+  }
+ },
+ "workloads": {
+  "forward": {
+   "first_call_ms": 63.4507,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    4.4411,
+    4.4523,
+    4.4165,
+    4.4468,
+    4.4012
+   ],
+   "median_ms": 4.4411,
+   "min_ms": 4.4012,
+   "max_ms": 4.4523,
+   "mean_ms": 4.4316,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 0,
+    "compile_misses_first_call": 0
+   },
+   "digest": {
+    "shape": [
+     1000,
+     1
+    ],
+    "sha256": "c9a313ff37e5805754351d81dcfc628d",
+    "finite": 997,
+    "nan": 3,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 52039.48965714488
+   }
+  }
+ },
+ "gp_step": {
+  "warmup": 1,
+  "reps": 3,
+  "steps": [
+   {
+    "total_ms": 113.5936,
+    "eval_ms": 110.9009,
+    "ops_ms": 2.6927,
+    "torch_setup_ms": 70.9503,
+    "compile_misses": 0,
+    "memo_hits": 0
+   },
+   {
+    "total_ms": 68.3263,
+    "eval_ms": 65.6849,
+    "ops_ms": 2.6414,
+    "torch_setup_ms": 41.8169,
+    "compile_misses": 0,
+    "memo_hits": 0
+   },
+   {
+    "total_ms": 77.458,
+    "eval_ms": 74.7709,
+    "ops_ms": 2.6871,
+    "torch_setup_ms": 50.2603,
+    "compile_misses": 0,
+    "memo_hits": 0
+   }
+  ],
+  "median_total_ms": 77.458,
+  "min_total_ms": 68.3263,
+  "max_total_ms": 113.5936,
+  "median_eval_ms": 74.7709,
+  "median_ops_ms": 2.6871,
+  "compile_misses_total": 0,
+  "final_pop_size": 1000,
+  "best_fitness": -0.0838315486907959
+ },
+ "notes": [
+  "torch arm: the tree decode / batched plan is built once, outside the timed region (setup_ms); per-call cost is torch ops only"
+ ],
+ "auto_trace_cap": {
+  "available": true,
+  "auto_max_tree_len": 256,
+  "tree_len_max": 31,
+  "row_len": 64,
+  "cap_pinned": false,
+  "base_cap": 64,
+  "caps": {
+   "sr_fitness": {
+    "auto": 64,
+    "dense": 64
+   },
+   "batch_forward": {
+    "auto": 64,
+    "dense": 64
+   },
+   "forward": {
+    "auto": 64,
+    "dense": 64
+   }
+  }
+ },
+ "setup_ms": 55.1628,
+ "engine_cache_final": {
+  "hits": 0,
+  "misses": 0,
+  "entries": 0,
+  "maxsize": 4096,
+  "memo_hits": 0,
+  "memo_misses": 0,
+  "memo_entries": 0,
+  "memo_maxsize": 4096
+ },
+ "dense_policy": {
+  "auto_min_pop": 64,
+  "auto_max_rows": 0,
+  "auto_budget_mb": 8192,
+  "max_tree_len_cap": 64
+ }
+}
