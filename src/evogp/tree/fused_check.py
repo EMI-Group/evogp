@@ -1825,12 +1825,12 @@ def stage_tuning(args: argparse.Namespace) -> int:
         f"EVOGP_FUSED_BLOCK_ROWS={best_block} EVOGP_FUSED_NUM_WARPS={best_warp} "
         f"(worst {best_worst:.3f} on {max(((r['fused_value_ms'] / r['arm_value_ms'], r['cell']) for r in best_rows))[1]})"
     )
-    shipped = (256, 4)
+    shipped = (256, 1)
     shipped_rows = by_config.get(shipped, [])
     if shipped_rows:
         shipped_worst = max(r["fused_value_ms"] / r["arm_value_ms"] for r in shipped_rows)
         print(
-            f"shipped default (256, 4): worst {shipped_worst:.3f} "
+            f"shipped default (BLOCK_R 256, 1 warp): worst {shipped_worst:.3f} "
             f"({shipped_worst / best_worst:.2f}x the minimax ratio)"
         )
     if args.json:
