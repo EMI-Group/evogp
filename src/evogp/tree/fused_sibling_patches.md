@@ -353,7 +353,6 @@ quoted because it is the reason the four new keys are gated behind the mode:
 331	        "eval_mode", "backend", "should_use_dense_pop_only",
 332	        "should_use_dense_with_rows", "would_use_dense",
 333	    }
-334
 ```
 
 That test drives `common.route_decision(256, 4096, None, "iree", tree_len=64)` against
