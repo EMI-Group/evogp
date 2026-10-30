@@ -1,4 +1,5 @@
 # Large-scale round: the batch route against dense at pop ≥ 2048 and N ≥ 4096
+> **Superseded where the routes changed:** `LARGE_SCALE_ROUND2.md` re-measures this column after the `EVOGP_BATCH_DISPATCH_FORMATION`, `auto`-policy and artifact-tier work and replaces this report's `batch` and `evoxc-auto` numbers (its `dense`, raised-dense and torch-baseline columns are re-measured there and agree within noise); everything else here stands.
 
 This round asks what happens to the two compiled evoxc evaluation routes when the population, the data rows and the tree size leave the region `FINAL.md` and `BATCH.md` cover.
 `FINAL.md` stops at pop 1000 / `N` = 1024 and `BATCH.md` at pop 1000 / 111-node trees; the grid below adds the population axis (2 048 → 8 192), the row axis (`N` 4 096 / 16 384), a node-count axis above the dense trace cap (123- and 201-node trees at pop 2 048) and one input-width cell (`input_len` 64).
