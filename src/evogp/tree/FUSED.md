@@ -15,8 +15,13 @@ Ratio convention: **`torch-batched median / arm median`**, so > 1.00 means the a
 Cells: `p256-L32-i8-N1024`, `p256-L64-i32-N1024`, `p256-L64-i32-N4096`, `p1000-L64-i32-N1024`,
 `p4096-L64-i32-N1024`, `p2048-L128-i32-N1024-d7` (123-node trees, `max_layer_cnt 7`).
 
-Campaign size: **20 timing configs, 0 failures** (77 cell×arm×workload entries in `fused_results/campaign.json`),
-plus 6 per-cell probes, 6 cold-cache probes and one route-validation run (18 cases).
+Campaign size: **20 timing configs, 0 failures** (77 cell×arm×workload entries in `fused_results/campaign.json`;
+the merged `fused_results/main/campaign.json` indexes the four driver invocations), plus 6 per-cell probes,
+6 cold-cache probes and one route-validation run (18 cases).
+The harness's own gate over the records (`fused_gate.py` → `check.py --allow-missing --allow-digest-mismatch`, the
+same two allowances the baseline campaign needs) reads **20 records / 574 checks / 0 failures, 20/20 configs on an
+idle device, 0 contaminated**; its digest warnings are exactly the NaN-payload / float32-reduction splits described
+in §6, never a value mismatch.
 
 ---
 

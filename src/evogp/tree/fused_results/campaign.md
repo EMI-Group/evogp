@@ -1,7 +1,7 @@
 # Fused campaign index
 
 - schema: `evogp-fused-campaign-v1`
-- created: 2026-10-30T20:33:39Z
+- created: 2026-10-30T20:47:23Z
 - results: `/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/main`
 - probes: `/root/evogp/.genesis/workers/worker_T1_A61/src/evogp/tree/fused_results/probes`
 - counts: ok=77 failed=0 missing=0
