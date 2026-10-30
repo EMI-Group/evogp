@@ -26,6 +26,10 @@ Usage (from the repository root, project venv)::
     # (torch-free: resolves the policy from the files, no device, no evogp import)
     python3 test/benchmark/evoxc/campaign.py --out "$TMPDIR/dry" \\
         --cells main --arms batch --dry-run
+
+``--cells`` takes the named columns ``main`` / ``n64`` / ``long`` / ``large`` (the
+token -> cell-list mapping is ``CELL_COLUMNS`` behind ``select_cells``) or a
+comma-separated list of single cell ids such as ``p256-L64-i32-N1024-d7``.
 """
 
 from __future__ import annotations
@@ -206,6 +210,35 @@ def schedule(cells: List[Dict[str, Any]], arms: List[str]) -> List[Dict[str, Any
     return [{"cell": cell, "arm": arm} for cell in cells for arm in order]
 
 
+#: The named columns ``--cells`` accepts, token -> its cell list from ``common``.  The
+#: ONE mapping, so a column can be selected without a device (the torch-free check in
+#: ``test_large_cells.py`` reads it): a token that is not a column is one
+#: ``common.parse_cell`` id.
+CELL_COLUMNS: Dict[str, Any] = {
+    "main": common.main_cells,
+    "n64": common.n64_cells,
+    "long": common.long_tree_cells,
+    "large": common.large_cells,
+}
+
+
+def select_cells(spec: str) -> List[Dict[str, Any]]:
+    """``"main,n64"`` / ``"large"`` / ``"p256-L64-i32-N1024-d7"`` -> the cells to time.
+
+    Comma-separated, order preserved and a column repeated only if it is named twice;
+    an empty token is skipped, an unknown column name is a ``SystemExit`` from
+    ``common.parse_cell`` (a mistyped id is a usage error, not a silent no-op).
+    """
+    cells: List[Dict[str, Any]] = []
+    for token in spec.split(","):
+        token = token.strip()
+        if token in CELL_COLUMNS:
+            cells.extend(CELL_COLUMNS[token]())
+        elif token:
+            cells.append(common.parse_cell(token))
+    return cells
+
+
 def record_path(out_dir: str, cell: str, arm: str) -> str:
     return os.path.join(out_dir, cell, f"{arm}.json")
 
@@ -219,7 +252,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--tree-root", default="src", help="src root holding evogp (or a snapshot's src/)")
     ap.add_argument("--evoxc-root", default="/root/evoxc", help="foreign repo holding the evoxc package")
     ap.add_argument("--out", required=True, help="result directory (per-cell subdirs of JSON)")
-    ap.add_argument("--cells", default="main,n64", help="'main', 'n64', 'long', or a comma-separated cell list")
+    ap.add_argument("--cells", default="main,n64",
+                    help="'main', 'n64', 'long', 'large', or a comma-separated cell list")
     ap.add_argument("--arms", default="all",
                     help="'all', 'torch', 'evoxc', 'batch' (the batch-route arms only, in "
                          "registry order), or a comma-separated arm list")
@@ -238,17 +272,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--note", default="")
     args = ap.parse_args(argv)
 
-    cells: List[Dict[str, Any]] = []
-    for token in args.cells.split(","):
-        token = token.strip()
-        if token == "main":
-            cells.extend(common.main_cells())
-        elif token == "n64":
-            cells.extend(common.n64_cells())
-        elif token == "long":
-            cells.extend(common.long_tree_cells())
-        elif token:
-            cells.append(common.parse_cell(token))
+    cells = select_cells(args.cells)
     arms: List[str] = []
     for token in args.arms.split(","):
         token = token.strip()
