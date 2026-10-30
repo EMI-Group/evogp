@@ -40,6 +40,14 @@ Contracts (they mirror :func:`evogp.tree.dense_engine.evaluate_dense` /
 * Both return a FRESH, contiguous, ``requires_grad=False`` float32 tensor on the
   computation device (``out_device`` overrides); the caller's tensors are never
   modified.
+* Every tensor the kernel reads is made CONTIGUOUS first (:func:`_as_device_tensor`:
+  the three population tables, ``x``, ``inputs`` and ``labels``), because the kernel
+  addresses them with raw pointer arithmetic (``x_ptr + t * input_len + vi``,
+  ``node_value_ptr + row_base + j``, ``labels_ptr + r * out_len + k``) and would
+  read a non-contiguous view (a column slice, a ``.t()`` block, a step-2 table) with
+  the wrong strides -- silently.  A non-contiguous operand is COERCED (one copy),
+  never declined, and the check is a cached flag test: 0.37 us against 0.20 us for
+  the cast-only body, i.e. ~0.8 % of a 0.095 ms warm value call.
 * ``sr_fitness_fused`` returns ``(pop_size,)`` float32 POSITIVE loss
   ``sum_points sum_outputs err / N`` (MSE or MAE on ``label - prediction``,
   outputs summed but never divided by ``output_len``, NaN/inf unsanitized).
@@ -50,9 +58,10 @@ Contracts (they mirror :func:`evogp.tree.dense_engine.evaluate_dense` /
   cannot run on the evoxc reference interpreter); ``output_len > MAX_OUT_LEN``
   (8 -- the multi-output kernel accumulates in the ``(pop, rows, out_len)``
   prediction buffer, so ``out_len`` costs one extra read-modify-write per tagged
-  node, and 8 bounds that traffic); ``pop_size < 1``; ``rows < 1``; or the scratch
-  envelope (``pop * tree_len * rows * 4`` bytes vs ``EVOGP_FUSED_MAX_SCRATCH_MB``)
-  being exceeded.  ``FusedUnsupported.device_fallback`` exists for symmetry with
+  node, and 8 bounds that traffic); ``pop_size < 1``; ``rows < 1``; or the memory
+  envelope (:func:`_check_envelope` -- the bytes one launch really allocates vs
+  ``EVOGP_FUSED_MAX_SCRATCH_MB``) being exceeded.
+  ``FusedUnsupported.device_fallback`` exists for symmetry with
   ``DenseUnsupported`` but the fused route never sets it: it has no numpy twin,
   so the fallback is always the specialized engine.
 
@@ -160,19 +169,27 @@ nothing to overlap and only add scheduling.
 Environment knobs (read per call unless noted; an unusable value raises
 ``ValueError`` naming the variable)
 -------------------------------------------------------------------
-* ``EVOGP_FUSED_BLOCK_ROWS`` (256) -- cap of the row-block width; the launch uses
-  ``min(next_pow2(rows), cap)`` lanes, so a small dataset does not idle lanes.
+* ``EVOGP_FUSED_BLOCK_ROWS`` (256) -- CAP of the row-block width, ROUNDED DOWN to a
+  power of two (``100`` -> ``64``, :func:`resolve_block_rows`), because
+  ``tl.arange(0, BLOCK_R)`` accepts nothing else; the launch then uses the largest
+  power of two ``<= min(rows, cap)`` lanes, so a small dataset does not idle lanes.
 * ``EVOGP_FUSED_NUM_WARPS`` (1) -- warps per program.
-* ``EVOGP_FUSED_MAX_SCRATCH_MB`` (8192) -- memory envelope of the call,
-  ``pop_size * max_tree_len * rows * 4`` bytes (the stack scratch plus the value
-  buffer; the stack is ``tree_len`` slots deep even though only ``depth`` slots
-  are ever touched).
+* ``EVOGP_FUSED_MAX_SCRATCH_MB`` (8192) -- memory envelope over the bytes one
+  launch ACTUALLY allocates (scratch + value buffer + loss chart, with the row axis
+  rounded UP to the block; the formula is :func:`_check_envelope`'s).  It is also
+  the budget handed to the scratch table for that call, so a call can never admit
+  an allocation its own table refuses.  Being exact costs ~3.8 us of host glue per
+  call (+4 % warm at ``p256-L64-i32-N1024``: 0.1000 -> 0.1013 ms).
 * ``EVOGP_FUSED_HOST_MEMO`` (16, IMPORT TIME) -- entries of the transpose table.
 * ``EVOGP_FUSED_MIN_POP`` (16) -- the pop-size threshold the POLICY consumes
   through :func:`resolve_min_pop`: with ``EVOGP_EVAL_MODE=fused`` and no explicit
   backend, the route needs a device plus ``pop_size >= EVOGP_FUSED_MIN_POP`` and
   resolves to specialized+``numpy`` otherwise (an explicitly named backend always
   attempts the route).  Nothing in this module branches on it.
+
+A knob reader gates a CALL, so an unusable value raises ``ValueError`` naming the
+variable; a RECORDING must never raise, so ``fused_cache_stats()`` reports ``-1``
+for an unusable ``EVOGP_FUSED_BLOCK_ROWS`` / ``EVOGP_FUSED_NUM_WARPS``.
 
 The threshold is a measured crossover, not a safety floor: the kernel is FLAT in
 ``pop_size`` (0.088-0.103 ms from pop 1 to pop 128 at ``L=64`` / ``input_len`` 32
@@ -223,13 +240,15 @@ __all__ = [
     "sr_fitness_fused",
 ]
 
-#: Row-block cap of the launch (``min(next_pow2(rows), cap)`` lanes per program).
+#: Row-block CAP (``EVOGP_FUSED_BLOCK_ROWS`` 256, rounded DOWN to a power of two):
+#: the launch uses the largest power of two ``<= min(rows, cap)`` lanes per program.
 BLOCK_ROWS_ENV = fused_kernels.BLOCK_ROWS_ENV
 DEFAULT_BLOCK_ROWS = fused_kernels.DEFAULT_BLOCK_ROWS
 #: Warps per program (AMD wavefront = 64 lanes).
 NUM_WARPS_ENV = "EVOGP_FUSED_NUM_WARPS"
 DEFAULT_NUM_WARPS = fused_kernels.DEFAULT_NUM_WARPS
-#: Memory envelope in MiB over ``pop_size * max_tree_len * rows * 4`` bytes.
+#: Memory envelope in MiB over the bytes the launch actually allocates (scratch +
+#: value buffer + loss chart); see :func:`_check_envelope`.
 MAX_SCRATCH_MB_ENV = "EVOGP_FUSED_MAX_SCRATCH_MB"
 DEFAULT_MAX_SCRATCH_MB = 8192
 #: Entries of the transposed-input table (import time; 0 disables it).
@@ -255,7 +274,7 @@ DEFAULT_MIN_POP = 16
 #: constant.
 MAX_OUT_LEN = 8
 
-#: ``(pop*rows*L*4)`` bytes per MiB.
+#: Bytes per MiB (the envelope's unit).
 _MIB = 2**20
 
 
@@ -269,6 +288,10 @@ class FusedUnsupported(RuntimeError):
     :class:`evogp.tree.dense_engine.DenseUnsupported` so the wiring round can
     treat the two declines uniformly -- the fused route never sets it (it has no
     numpy twin, so its fallback is always the specialized engine).
+
+    The fallback's BACKEND is therefore always ``"numpy"``:
+    ``dense_engine.resolve_route`` pins it on every arm (the explicit spelling
+    drives ``backend`` only), because a per-tree iree compile cannot amortize.
     """
 
     def __init__(self, reason: str, *, device_fallback: bool = False):
@@ -292,11 +315,18 @@ def _env_int(name: str, default: int) -> int:
 
 
 def resolve_block_rows(value: Optional[int] = None) -> int:
-    """Row-block cap (``EVOGP_FUSED_BLOCK_ROWS``, default 256)."""
+    """Row-block CAP in lanes (``EVOGP_FUSED_BLOCK_ROWS``, default 256).
+
+    A CAP, not a width: the launch uses the largest power of two ``<= min(rows, cap)``
+    lanes (:func:`evogp.tree.fused_kernels.plan`).  An off-power-of-two value is
+    rounded DOWN here (``100`` -> ``64``) with ``fused_kernels._pow2_floor`` -- the
+    SAME rule ``plan`` applies, so the two cannot disagree -- because
+    ``tl.arange(0, BLOCK_R)`` accepts nothing else.  A value below 1 is refused.
+    """
     cap = _env_int(BLOCK_ROWS_ENV, DEFAULT_BLOCK_ROWS) if value is None else int(value)
     if cap < 1:
         raise ValueError(f"{BLOCK_ROWS_ENV}={cap} must be >= 1 (it is a lane count)")
-    return cap
+    return fused_kernels._pow2_floor(cap)
 
 
 def resolve_num_warps(value: Optional[int] = None) -> int:
@@ -308,7 +338,12 @@ def resolve_num_warps(value: Optional[int] = None) -> int:
 
 
 def resolve_max_scratch_mb(value: Optional[int] = None) -> int:
-    """Memory envelope in MiB (``EVOGP_FUSED_MAX_SCRATCH_MB``, default 8192)."""
+    """Memory envelope in MiB (``EVOGP_FUSED_MAX_SCRATCH_MB``, default 8192).
+
+    A budget over the bytes one launch allocates (scratch + value buffer + loss
+    chart); :func:`_check_envelope` computes them and passes the resolved number
+    down so the scratch TABLE is budgeted by the same one.
+    """
     mb = (
         _env_int(MAX_SCRATCH_MB_ENV, DEFAULT_MAX_SCRATCH_MB)
         if value is None
@@ -317,7 +352,7 @@ def resolve_max_scratch_mb(value: Optional[int] = None) -> int:
     if mb < 1:
         raise ValueError(
             f"{MAX_SCRATCH_MB_ENV}={mb} must be >= 1 (it is a memory envelope in "
-            "MiB over pop_size * max_tree_len * rows * 4 bytes)"
+            "MiB over the bytes one fused launch allocates)"
         )
     return mb
 
@@ -371,6 +406,18 @@ def _bump(name: str, amount: int = 1) -> None:
         _STATS[name] = _STATS.get(name, 0) + int(amount)
 
 
+def _reported_knob(resolver) -> int:
+    """A geometry knob as a RECORDING sees it: the value, or ``-1`` when unusable.
+
+    The readers raise ``ValueError`` on an unusable ambient value (they gate a CALL),
+    while a stats call must never raise; ``-1`` is no knob's legal value.
+    """
+    try:
+        return int(resolver())
+    except ValueError:
+        return -1
+
+
 def fused_cache_stats() -> Dict[str, int]:
     """Snapshot of the fused route's own counters (every key is ``fused_*``).
 
@@ -378,10 +425,11 @@ def fused_cache_stats() -> Dict[str, int]:
     facade, ``fused_kernel_compiles`` the Triton specializations this process had
     to build (one per ``PER_ROW`` x ``REDUCE`` x ``USE_MSE`` x block x warps
     combination -- the JIT cost), ``fused_xt_hits`` / ``fused_xt_misses`` the
-    transposed-input table, ``fused_scratch_allocs`` / ``fused_scratch_reuses``
-    the cached stack buffers, and ``fused_block_rows`` / ``fused_num_warps`` the
-    knobs a call would resolve RIGHT NOW (informational, so a recording can prove
-    which geometry produced a number).
+    transposed-input table, ``fused_scratch_*`` the byte-budgeted table of cached
+    stack buffers (allocs / reuses / evictions / entries / bytes), and
+    ``fused_block_rows`` / ``fused_num_warps`` the geometry a call would resolve
+    RIGHT NOW (INFORMATIONAL: ``-1`` when the ambient knob is unusable, because a
+    stats call never raises -- :func:`_reported_knob`; the readers do).
 
     Deliberately separate from ``evoxc_engine.cache_stats()`` (pinned at exactly
     8 keys) and from ``dense_cache_stats()`` / ``batch_cache_stats()``.
@@ -390,8 +438,8 @@ def fused_cache_stats() -> Dict[str, int]:
         merged: Dict[str, int] = dict(_STATS)
     merged.update(XT_MEMO.stats())
     merged.update(fused_kernels.scratch_stats())
-    merged["fused_block_rows"] = resolve_block_rows()
-    merged["fused_num_warps"] = resolve_num_warps()
+    merged["fused_block_rows"] = _reported_knob(resolve_block_rows)
+    merged["fused_num_warps"] = _reported_knob(resolve_num_warps)
     return merged
 
 
@@ -467,14 +515,18 @@ def _launch(launcher, *args, **kwargs):
         raise FusedUnsupported(str(exc)) from exc
 
 def _require_available() -> None:
-    """Decline when the box cannot run Triton at all."""
+    """Decline when the box cannot run Triton at all, naming which half failed.
+
+    The gate itself is the exported predicate :func:`fused_available`.
+    """
+    if fused_available():
+        return
     if not torch.cuda.is_available():
         raise FusedUnsupported(
             "no CUDA/HIP device is visible to torch (torch.cuda.is_available() "
             "is False), so a Triton kernel cannot be launched"
         )
-    if not fused_kernels.triton_available():
-        raise FusedUnsupported("triton is not importable in this interpreter")
+    raise FusedUnsupported("triton is not importable in this interpreter")
 
 
 def _population_shape(batch_subtree_size: Any) -> Tuple[int, int]:
@@ -489,7 +541,16 @@ def _population_shape(batch_subtree_size: Any) -> Tuple[int, int]:
 
 
 def _as_device_tensor(value: Any, dtype: torch.dtype, device: torch.device, name: str) -> torch.Tensor:
-    """``value`` as a tensor of ``device``/``dtype`` without mutating the caller's."""
+    """``value`` as a CONTIGUOUS ``device``/``dtype`` tensor, never mutating the caller's.
+
+    The kernel derives every offset from the SHAPE and dereferences it with raw
+    pointer arithmetic, so a non-contiguous view (a column slice of a padded ``x``, a
+    ``.t()`` block, a step-2 population table) would be read with the wrong strides
+    and yield plausible garbage -- no exception, no decline, a wrong answer.  The
+    layout is normalized here, at the ONE place all five operands pass through, AFTER
+    the device/dtype casts (both can keep the source's strides).  It is a cached
+    flag test on a contiguous tensor and copies only when the tensor is not.
+    """
     if not isinstance(value, torch.Tensor):
         raise ValueError(f"{name} must be a torch tensor, got {type(value).__name__}")
     if not value.is_cuda:
@@ -503,6 +564,8 @@ def _as_device_tensor(value: Any, dtype: torch.dtype, device: torch.device, name
         value = value.to(device)
     if value.dtype != dtype:
         value = value.to(dtype)
+    if not value.is_contiguous():
+        value = value.contiguous()
     return value
 
 
@@ -527,25 +590,62 @@ def _transposed(x: torch.Tensor) -> torch.Tensor:
     return xt
 
 
-def _check_envelope(pop: int, tree_len: int, rows: int, max_scratch_mb: Optional[int]) -> None:
-    """Decline a call whose stack scratch would exceed the memory envelope.
+def _check_envelope(
+    pop: int,
+    tree_len: int,
+    rows: int,
+    max_scratch_mb: Optional[int],
+    *,
+    block_rows: Optional[int] = None,
+    num_warps: Optional[int] = None,
+    out_len: int = 1,
+    holds_values: bool = True,
+) -> int:
+    """Decline a call whose DEVICE allocations would exceed the memory envelope.
 
-    The kernel's scratch is ``n_prog * stack_cap * block_rows * 4`` bytes with
-    ``n_prog * block_rows ~ pop * rows`` and ``stack_cap = tree_len``, i.e.
-    ``pop_size * max_tree_len * rows * 4`` bytes (plus the ``(pop, rows, 1)``
-    value buffer).  The slots above the tree's depth are never touched, so the
-    resident cost is a fraction of that -- but the virtual allocation is what the
-    envelope has to allow.
+    The bytes one launch allocates, EXACTLY (not the round
+    ``pop * tree_len * rows * 4`` this used to check)::
+
+        scratch   pop * n_rb * tree_len * block_rows * 4   always
+        values    pop * rows * out_len * 4                 value path; also the
+                                                           multi-output loss path
+        partials  pop * n_rb * 4                           the loss path's chart
+
+    ``(n_rb, block_rows) = fused_kernels.plan(rows, ...)``, so ``n_rb * block_rows``
+    is the row axis ROUNDED UP to the block (1 000 rows at 256 lanes is 4 blocks,
+    i.e. 1 024 lanes) and ``rows`` never enters the scratch term directly.
+    ``holds_values`` says which path the caller is on (the single-output loss path
+    allocates no value buffer, and only the loss path allocates a chart); rows is
+    the DATA-row count (``1`` for ``per_row``, hence no ``per_row`` here), and
+    unresolved knobs go through the resolvers, so a caller that knows nothing still
+    gets a CONSERVATIVE check.  Returns the resolved budget in MiB so the entry
+    points pass it down as ``max_scratch_mb=``: the scratch TABLE is budgeted by the
+    same number the envelope was checked against.  The measured peak-allocated
+    tracks the scratch term within 3.5 %, value buffer on top
+    (``fused_results/ENVELOPE.md``).
     """
+    block_rows = resolve_block_rows(block_rows)
+    num_warps = resolve_num_warps(num_warps)
     budget = resolve_max_scratch_mb(max_scratch_mb)
-    needed = int(pop) * int(tree_len) * int(rows) * 4
-    if needed > budget * _MIB:
+    pop, tree_len, rows, out_len = int(pop), int(tree_len), int(rows), int(out_len)
+    # ``rows`` already encodes ``per_row`` (1 row); ``plan``'s flag does not move it.
+    geom = fused_kernels.plan(rows, per_row=False, block_rows=block_rows,
+                              num_warps=num_warps)
+    n_rb, block = int(geom["n_rb"]), int(geom["block_rows"])
+    scratch = pop * n_rb * tree_len * block * 4
+    values = pop * rows * out_len * 4 if (holds_values or out_len > 1) else 0
+    partials = 0 if holds_values else pop * n_rb * 4
+    total = scratch + values + partials
+    if total > budget * _MIB:
         raise FusedUnsupported(
-            f"scratch envelope exceeded: pop_size {pop} * max_tree_len {tree_len} * "
-            f"rows {rows} * 4 bytes = {needed / _MIB:.1f} MiB > "
-            f"{MAX_SCRATCH_MB_ENV} {budget} MiB (raise it, or use the dense/batch "
-            "route for this shape)"
+            f"memory envelope exceeded: scratch {scratch / _MIB:.1f} MiB + value "
+            f"buffer {values / _MIB:.1f} MiB + loss chart {partials / _MIB:.3f} MiB "
+            f"= {total / _MIB:.1f} MiB > {MAX_SCRATCH_MB_ENV} {budget} MiB for "
+            f"pop_size {pop} * max_tree_len {tree_len} * rows {rows} * out_len "
+            f"{out_len} at {n_rb} row blocks of {block} lanes (raise it, or use the "
+            "dense/batch route for this shape)"
         )
+    return budget
 
 
 # --------------------------------------------------------------------------- #
@@ -582,13 +682,14 @@ def _prepare(
 ) -> _Prepared:
     """Every check and normalisation the two entry points share.
 
-    Deliberately pure: no ``x``/``inputs`` inspection (the value path and the
-    loss path have different row semantics), no transpose, no allocation.  The
-    cheap shape probes run BEFORE :func:`fused_available` so a caller that passes
-    a malformed population gets the ``ValueError`` it deserves instead of an
-    environment decline.
+    Deliberately pure: no ``x``/``inputs`` inspection (the value path and the loss
+    path have different row semantics), no transpose, no allocation.  The ORDER is:
+    the CHEAP SHAPE PROBES (:func:`_population_shape`, ``output_len``, ``tree_len``,
+    ``pop_size``), then the BACKEND decline (:func:`_decline_if_numpy`: a Triton
+    kernel has no numpy twin, so ``backend="numpy"`` is a decline, not an error),
+    then the ENVIRONMENT (:func:`_require_available`).  A malformed population
+    therefore gets the ``ValueError`` it deserves instead of a decline.
     """
-    _decline_if_numpy(backend)
     pop, tree_len = _population_shape(batch_subtree_size)
     if int(output_len) < 1:
         raise ValueError(f"output_len must be >= 1, got {int(output_len)}")
@@ -603,6 +704,7 @@ def _prepare(
         raise ValueError(f"max_tree_len must be >= 1, got {tree_len}")
     if pop < 1:
         raise FusedUnsupported("pop_size must be >= 1, got 0")
+    _decline_if_numpy(backend)
     _require_available()
     device = (
         batch_node_value.device
@@ -735,7 +837,13 @@ def _evaluate_fused(
     if rows < 1:
         raise FusedUnsupported("rows must be >= 1, got 0")
     x = _as_device_tensor(x, torch.float32, prepared.device, "x")
-    _check_envelope(prepared.pop, prepared.tree_len, rows, max_scratch_mb)
+    # Both kernels materialize the ``(pop, rows, out_len)`` buffer here, hence
+    # ``holds_values=True``.
+    budget_mb = _check_envelope(
+        prepared.pop, prepared.tree_len, rows, max_scratch_mb,
+        block_rows=prepared.block_rows, num_warps=prepared.num_warps,
+        out_len=int(output_len), holds_values=True,
+    )
 
     if per_row:
         # Tree t reads x[t]; no transpose is needed (a scalar load per VAR node).
@@ -752,6 +860,7 @@ def _evaluate_fused(
             block_rows=prepared.block_rows,
             num_warps=prepared.num_warps,
             out_len=int(output_len),
+            max_scratch_mb=budget_mb,
         )
         # (pop, 1, out_len) -> (pop, out_len) view of the fresh buffer
         result = out.squeeze(1)
@@ -769,6 +878,7 @@ def _evaluate_fused(
             block_rows=prepared.block_rows,
             num_warps=prepared.num_warps,
             out_len=int(output_len),
+            max_scratch_mb=budget_mb,
         )
     if out_device is not None and torch.device(out_device) != result.device:
         result = result.to(out_device)
@@ -890,9 +1000,15 @@ def _sr_fitness_fused(
         raise FusedUnsupported("sr_fitness needs at least one data point, got 0 rows")
     inputs = _as_device_tensor(inputs, torch.float32, prepared.device, "inputs")
     label_column = _as_device_tensor(labels, torch.float32, prepared.device, "labels")
-    _check_envelope(prepared.pop, prepared.tree_len, rows, max_scratch_mb)
-    # ``out_len == 1`` wants the flat ``(N,)`` view (a free reshape of the label
-    # column); the multi-output kernel indexes the row-major ``(N, out_len)`` block.
+    # The single-output kernel's only output is the ``(pop, n_rb)`` chart (no value
+    # buffer); ``out_len >= 2`` still materializes the accumulator.
+    budget_mb = _check_envelope(
+        prepared.pop, prepared.tree_len, rows, max_scratch_mb,
+        block_rows=prepared.block_rows, num_warps=prepared.num_warps,
+        out_len=int(output_len), holds_values=False,
+    )
+    # ``out_len == 1`` wants the flat ``(N,)`` view (a free reshape of the now
+    # contiguous label column); the multi-output kernel indexes ``(N, out_len)``.
     label_ptr = label_column.reshape(-1) if int(output_len) == 1 else label_column
     partials = _launch(
         fused_kernels.launch_loss,
@@ -908,6 +1024,7 @@ def _sr_fitness_fused(
         block_rows=prepared.block_rows,
         num_warps=prepared.num_warps,
         out_len=int(output_len),
+        max_scratch_mb=budget_mb,
     )
     # ``sum_points sum_outputs err / N`` -- outputs are already summed (there is
     # exactly one), the divisor is the data-point count only.
