@@ -29,6 +29,13 @@ engine.  This module pins that policy:
   ``pop_size * tree_len * rows * 4`` bytes) with ``EVOGP_DENSE_AUTO_MAX_ROWS`` as
   an optional tightening pin -- so the large-row / large-population cells stay on
   dense instead of falling back to the rows-flat specialized engine;
+* the ``auto`` trace-cap rule (``auto_trace_cap``: raise the cap to the
+  population's realized longest tree) is an ENTRY-POINT rule, not a policy one:
+  it never moves the route, and when it refuses a population both
+  ``evaluate_dense`` and ``sr_fitness_dense`` raise a ``device_fallback``
+  ``DenseUnsupported`` that makes ``decline_backend`` continue on the route's
+  DEVICE backend (``iree``) instead of the ordinary specialized+``numpy``
+  fallback -- see section 9;
 * ``resolve_route`` and ``should_use_dense`` agree everywhere (one rule).
 
 Like ``test_dense_policy.py`` this module never builds or runs a graph:
@@ -38,9 +45,11 @@ process-global (``dense._DEVICE_AVAILABLE``), so nothing initializes CUDA.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
-from evogp.tree import dense_engine as dense
+from evogp.tree import NType, dense_engine as dense
+from evogp.tree.utils import Func
 
 #: The engine's own name for the backend variable (never a stale copy).
 EVOXC_BACKEND_ENV = dense.BACKEND_ENV
@@ -68,6 +77,7 @@ def hermetic_knobs(monkeypatch):
     for name in (
         dense.EVAL_MODE_ENV,
         dense.MAX_TREE_LEN_ENV,
+        dense.AUTO_MAX_TREE_LEN_ENV,
         dense.AUTO_MIN_POP_ENV,
         dense.AUTO_MAX_ROWS_ENV,
         dense.AUTO_BUDGET_MB_ENV,
@@ -558,3 +568,257 @@ def dense_engine_backends():
     from evogp.tree.evoxc_engine import SUPPORTED_BACKENDS
 
     return tuple(SUPPORTED_BACKENDS)
+
+
+# --------------------------------------------------------------------------- #
+# 9. the `auto` trace-cap decline: which backend a wired call site continues on
+# --------------------------------------------------------------------------- #
+#: Node kinds the cap fixture is built from (single-sourced in ``tree/utils.py``).
+VAR = int(NType.VAR)
+UFUNC = int(NType.UFUNC)
+SIN = int(Func.SIN)
+
+#: The reference cell of the large-scale column the rule was measured on
+#: (``test/benchmark/evoxc/LARGE_SCALE.md``, 123-node trees at pop 2 048): a
+#: population of 2 048 trees whose ROW STRIDE is 128 slots, whose realized
+#: LONGEST tree is 123 nodes, evaluated over N = 1 024 data rows with 2 inputs.
+#: The two length axes differ on purpose, because that is exactly the
+#: distinction the ``auto`` raise exists for: the default cap
+#: (``EVOGP_DENSE_MAX_TREE_LEN`` = 64) is below BOTH, the row stride is what the
+#: cap is compared against, and the REALIZED length (123) is what the population
+#: actually costs -- so the raise is ``min(123, min(256, envelope)) = 123`` and
+#: the cell is the one the rule was priced on (857.22 ms per-tree numpy against
+#: 105.62 ms dense at the raised cap).
+CAP_POP = 2048
+CAP_ROW_LEN = 128
+CAP_LONGEST = 123
+CAP_ROWS = 1024
+CAP_INPUT_LEN = 2
+assert dense.DEFAULT_MAX_TREE_LEN < CAP_LONGEST <= CAP_ROW_LEN, CAP_LONGEST
+#: The reference cell's allowance is the ceiling (256), the envelope being looser:
+#: stated with the ceiling as an ARGUMENT, so this module-level fact never depends
+#: on an ambient ``EVOGP_DENSE_AUTO_MAX_TREE_LEN`` / budget.
+assert dense.DEFAULT_AUTO_MAX_TREE_LEN == 256
+assert (
+    dense.auto_tree_len_allowance(
+        CAP_POP, CAP_ROWS, auto_max_tree_len=dense.DEFAULT_AUTO_MAX_TREE_LEN
+    )
+    == dense.DEFAULT_AUTO_MAX_TREE_LEN
+)
+
+
+def cap_chain(pop_size):
+    """``(node_value, node_type, subtree_size)`` of a ``CAP_LONGEST``-node chain.
+
+    Row 0 is a right-leaning chain of ``CAP_LONGEST - 1`` ``SIN`` nodes over one
+    ``VAR``, so the REALIZED tree length is deterministic (a random population's
+    longest tree is not) while the rows stay ``CAP_ROW_LEN`` wide; every other row
+    is a single ``VAR`` tree, so the population is ``(pop_size, CAP_ROW_LEN)``.
+    Decode-wise this is the fixture ``test_dense_policy.py`` builds with its
+    ``chain_rows`` -- deliberately re-implemented here rather than imported, so
+    the two modules stay independent.
+    """
+    values = np.zeros((pop_size, CAP_ROW_LEN), dtype=np.float32)
+    types = np.zeros((pop_size, CAP_ROW_LEN), dtype=np.int16)
+    sizes = np.ones((pop_size, CAP_ROW_LEN), dtype=np.int16)
+    for index in range(CAP_LONGEST - 1):
+        types[0, index] = UFUNC
+        values[0, index] = float(SIN)
+        sizes[0, index] = CAP_LONGEST - index
+    types[0, CAP_LONGEST - 1] = VAR
+    values[0, CAP_LONGEST - 1] = 0.0
+    sizes[0, CAP_LONGEST - 1] = 1
+    assert int(sizes[:, 0].max()) == CAP_LONGEST, "the realized longest tree"
+    assert sizes.shape == (pop_size, CAP_ROW_LEN) and CAP_LONGEST < CAP_ROW_LEN
+    return values, types, sizes
+
+
+def test_decline_backend_keeps_the_device_backend_only_for_the_cap_decline():
+    """``device_fallback`` -- and nothing else -- decides where a call continues.
+
+    A wired call site catches ``DenseUnsupported`` and continues on
+    ``decline_backend(route, exc)``: ``route.fallback_backend`` (the specialized
+    engine on numpy) for every ordinary decline, and the route's OWN device
+    backend for the ``auto`` trace-cap decline, which happens only on a population
+    too long for the cap -- precisely where a per-tree numpy compile is the
+    catastrophic answer.  The flag is the ONLY discriminator: the same route with
+    the same reason text picks a different backend depending on it, and a numpy
+    route (a CPU box, where ``route.backend`` IS numpy) is unchanged either way.
+    """
+    reason = (
+        f"auto policy: the longest tree is {CAP_LONGEST} nodes at "
+        f"pop_size={CAP_POP} x {CAP_ROWS} row(s), above the 64 nodes the "
+        "automatic trace-cap raise allows"
+    )
+    dense_route = dense.Route(True, "iree", "numpy", engine="dense")
+    capped = dense.DenseUnsupported(reason, device_fallback=True)
+    ordinary = dense.DenseUnsupported(reason)
+    # same route, same reason, only the flag differs -> a different backend
+    assert capped.device_fallback is True and ordinary.device_fallback is False
+    assert dense.decline_backend(dense_route, capped) == "iree"
+    assert dense.decline_backend(dense_route, capped) == dense_route.backend
+    assert dense.decline_backend(dense_route, ordinary) == "numpy"
+    assert dense.decline_backend(dense_route, ordinary) == dense_route.fallback_backend
+    # the real ordinary decline, verbatim: the multi-output refusal (section 5's
+    # "a backend is only a name" rule applies here too -- nothing is compiled)
+    multi_output = dense.DenseUnsupported(
+        "output_len=2: the dense evaluator implements the single-output protocol only"
+    )
+    assert dense.decline_backend(dense_route, multi_output) == "numpy"
+    # a numpy route cannot be talked into a device backend by the flag
+    cpu_route = dense.Route(False, "numpy", "numpy", engine="specialized")
+    assert dense.decline_backend(cpu_route, capped) == "numpy"
+    assert dense.decline_backend(cpu_route, capped) == cpu_route.fallback_backend
+
+
+@pytest.mark.parametrize("pop", [dense.DEFAULT_AUTO_MIN_POP, CAP_POP, 4096])
+def test_the_cap_rule_never_moves_the_route(pop, monkeypatch):
+    """The trace-cap rule is an ENTRY-POINT rule: the route is unchanged by it.
+
+    ``auto_trace_cap`` raises the trace cap of a call whose population outgrew it
+    (123 nodes here, against a stride of 128 and the default cap of 64) to
+    ``min(longest, min(EVOGP_DENSE_AUTO_MAX_TREE_LEN, envelope))`` -- 123, i.e.
+    the realized length, not the stride -- and it must not feed back into the
+    policy: the decision itself stays dense+iree with a numpy fallback at the
+    threshold, at the reference cell and at the largest population the envelope
+    still keeps on dense, and re-resolving answers the very same route.
+    """
+    on_device_box(monkeypatch)
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    for _ in range(2):  # re-resolving cannot change the answer
+        route = dense.resolve_route(
+            pop, rows=CAP_ROWS, tree_len=CAP_ROW_LEN, eval_mode="auto"
+        )
+        assert route.engine == "dense", route.reason
+        assert route.use_dense is True
+        assert route.use_batch is False
+        assert route.backend == "iree" and route.fallback_backend == "numpy"
+        assert (
+            dense.auto_trace_cap(
+                CAP_LONGEST,
+                CAP_ROW_LEN,
+                eval_mode="auto",
+                pop_size=pop,
+                rows=CAP_ROWS,
+            )
+            == CAP_LONGEST
+        )
+        assert route == dense.resolve_route(
+            pop, rows=CAP_ROWS, tree_len=CAP_ROW_LEN, eval_mode="auto"
+        )
+
+
+def test_a_cpu_box_never_reaches_the_cap_rule(monkeypatch):
+    """With no device the route is specialized+numpy, and a flagged decline stays there.
+
+    ``decline_backend`` only ever leaves a numpy route for a DEVICE backend when
+    the route HAS one, so the ``auto`` cap decline's device fallback is inert on a
+    CPU box: there is no per-tree iree route to fall forward to.
+    """
+    on_device_box(monkeypatch, available=False)
+    route = dense.resolve_route(CAP_POP, rows=CAP_ROWS, tree_len=CAP_ROW_LEN)
+    assert route.engine == "specialized" and route.use_dense is False
+    assert route.backend == "numpy" and route.fallback_backend == "numpy"
+    flagged = dense.DenseUnsupported(
+        f"auto policy: the longest tree is {CAP_LONGEST} nodes", device_fallback=True
+    )
+    assert dense.decline_backend(route, flagged) == "numpy"
+
+
+def test_a_wired_call_site_continues_on_the_device_backend_after_a_refused_raise(
+    monkeypatch,
+):
+    """The call sites' exact composition, reproduced without CUDA.
+
+    Both entry points refuse a population the ``auto`` raise cannot cover with a
+    ``device_fallback`` ``DenseUnsupported``, so a wired call site (which only
+    does ``try: dense...; except DenseUnsupported as exc: backend =
+    decline_backend(route, exc)``) continues on ``route.backend`` -- ``iree`` --
+    instead of compiling a numpy graph per tree.
+
+    This module stays GPU-free on purpose: the wired ``Forest`` / ``Tree``
+    methods relocate their inputs to the hard-coded ``"cuda"`` string through
+    ``check_tensor``, so their *composition* is what is reproduced here -- the
+    dense entry point, the exception and ``decline_backend`` -- and
+    ``backend="iree"`` stays a NAME, because the decline is decided (from
+    ``.shape`` and ``subtree_size[:, 0]`` alone) before any backend or graph is
+    resolved.
+    """
+    on_device_box(monkeypatch)
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    ceiling = 64
+    monkeypatch.setenv(dense.AUTO_MAX_TREE_LEN_ENV, str(ceiling))
+    route = dense.resolve_route(CAP_POP, rows=CAP_ROWS, tree_len=CAP_ROW_LEN)
+    assert route.use_dense is True and route.backend == "iree"
+    # the allowance is the pinned ceiling (64 < the 123-node realized length), so
+    # the raise must refuse instead of tracing a 64-node-cap graph
+    assert (
+        dense.auto_tree_len_allowance(CAP_POP, CAP_ROWS) == ceiling < CAP_LONGEST
+    )
+    values, types, sizes = cap_chain(CAP_POP)
+    tighter = f"{dense.AUTO_MAX_TREE_LEN_ENV}={ceiling} is the tighter term"
+    inputs = np.zeros((CAP_ROWS, CAP_INPUT_LEN), np.float32)
+    labels = np.zeros((CAP_ROWS, 1), np.float32)
+    # -- the loss half: `Forest.SR_fitness` / `Tree.SR_fitness` ---------------
+    with pytest.raises(dense.DenseUnsupported) as fitness:
+        dense.sr_fitness_dense(
+            values,
+            types,
+            sizes,
+            CAP_INPUT_LEN,
+            1,
+            inputs,
+            labels,
+            backend=route.backend,
+        )
+    assert fitness.value.device_fallback is True
+    assert tighter in str(fitness.value), str(fitness.value)
+    assert dense.decline_backend(route, fitness.value) == "iree"
+    # -- the value half: `Forest.forward` / `Forest.batch_forward` / `Tree.forward`
+    per_row_x = np.zeros((CAP_POP, CAP_INPUT_LEN), np.float32)
+    with pytest.raises(dense.DenseUnsupported) as value:
+        dense.evaluate_dense(
+            values,
+            types,
+            sizes,
+            CAP_INPUT_LEN,
+            1,
+            per_row_x,
+            per_row=True,
+            backend=route.backend,
+        )
+    assert value.value.device_fallback is True
+    assert tighter in str(value.value), str(value.value)
+    assert dense.decline_backend(route, value.value) == "iree"
+
+
+def test_an_ordinary_dense_decline_still_falls_back_to_numpy(monkeypatch):
+    """The device fallback is RESERVED for the cap rule: everything else is numpy.
+
+    With the ceiling at its default the reference population fits the raise
+    (``min(123, 256) == 123``), so the call reaches the plan -- and the
+    multi-output refusal raised there is an ordinary, UNFLAGGED decline: a wired
+    call site therefore continues on the specialized engine over numpy, exactly
+    as before the rule existed.
+    """
+    on_device_box(monkeypatch)
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    route = dense.resolve_route(CAP_POP, rows=CAP_ROWS, tree_len=CAP_ROW_LEN)
+    assert route.use_dense is True and route.backend == "iree"
+    values, types, sizes = cap_chain(CAP_POP)
+    per_row_x = np.zeros((CAP_POP, CAP_INPUT_LEN), np.float32)
+    with pytest.raises(dense.DenseUnsupported) as refused:
+        dense.evaluate_dense(
+            values,
+            types,
+            sizes,
+            CAP_INPUT_LEN,
+            2,
+            per_row_x,
+            per_row=True,
+            backend=route.backend,
+        )
+    assert refused.value.device_fallback is False
+    assert "output_len=2" in str(refused.value), str(refused.value)
+    assert dense.decline_backend(route, refused.value) == "numpy"
+    assert dense.decline_backend(route, refused.value) == route.fallback_backend
