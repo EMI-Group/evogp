@@ -611,7 +611,13 @@ AUTO_BUDGET_MB_ENV = "EVOGP_DENSE_AUTO_BUDGET_MB"
 AUTO_MAX_TREE_LEN_ENV = "EVOGP_DENSE_AUTO_MAX_TREE_LEN"
 #: Pop-size threshold of the ``fused`` policy (``EVOGP_FUSED_MIN_POP``): the Triton
 #: route is attempted from here up on a device box, and below it the route IS
-#: specialized+numpy (a kernel launch cannot amortize over a handful of trees).
+#: specialized+numpy.  The kernel is FLAT in ``pop_size`` (0.088-0.103 ms from pop 1
+#: to 128 at ``L=64``/``i32``/``N=1024``) while ``specialized`` scales with the tree
+#: count (5.3x / 26.5x / 244.7x dearer at pop 1 / 16 / 128), so the number is set by
+#: what a one-shot call may pay rather than by the kernel's own crossover: 16 keeps a
+#: single ``Tree.forward`` on the specialized route instead of a cold Triton JIT, and
+#: a 1-8-tree population on a tiny row plane is the one unmeasured class where a
+#: per-tree numpy run could undercut the kernel's ~0.09 ms launch floor.
 #: The variable has EXACTLY ONE parser,
 #: :func:`evogp.tree.fused_engine.resolve_min_pop`; :func:`resolve_fused_min_pop`
 #: delegates to it -- see that function.
