@@ -1,0 +1,280 @@
+{
+ "env": {
+  "schema": "evogp-bench-evoxc-v1",
+  "created_utc": "2026-10-30T02:26:37Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A13/src",
+  "tree_root_sha": "40ed21967e3bf2bc7e4da4f992f53b64940c424f",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A13",
+  "arm": "torch-per-tree",
+  "python": "3.12.3",
+  "python_executable": "/tmp/rocvenv/bin/python",
+  "platform": "Linux-6.8.0-146-generic-x86_64-with-glibc2.39",
+  "torch": "2.13.0+rocm7.1",
+  "numpy": "2.5.4",
+  "hip": "7.1.52802",
+  "cuda": null,
+  "iree_base_compiler": "3.11.0",
+  "iree_base_runtime": "3.11.0",
+  "evoxc_path": "/root/evoxc/evoxc/__init__.py",
+  "evoxc_sha": "b0544d57b8687645c8a27de536c85fed4fb3212e",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A13/src/evogp/__init__.py",
+  "gpu": "AMD Instinct MI300X VF",
+  "gpu_total_memory_gb": 191.7,
+  "knobs": {
+   "EVOXC_DISABLE_LOCATIONS": "1"
+  },
+  "evoxc_version": "0.0.0+unknown",
+  "applied_knobs": {
+   "eval_mode": null,
+   "backend": null,
+   "knobs": {}
+  },
+  "cell": {
+   "id": "p8192-L64-i32-N1024",
+   "pop": 8192,
+   "tree_len": 64,
+   "input_len": 32,
+   "rows": 1024,
+   "max_layer_cnt": 5
+  },
+  "arm_spec": {
+   "impl": "per_tree",
+   "family": "torch"
+  }
+ },
+ "cell": {
+  "id": "p8192-L64-i32-N1024",
+  "pop": 8192,
+  "tree_len": 64,
+  "input_len": 32,
+  "rows": 1024,
+  "max_layer_cnt": 5
+ },
+ "arm": "torch-per-tree",
+ "family": "torch",
+ "protocol": {
+  "warmup": 1,
+  "reps": 3,
+  "gp_warmup": 1,
+  "gp_reps": 3,
+  "workloads": [
+   "sr_fitness",
+   "batch_forward",
+   "gp_step"
+  ],
+  "seed": 0,
+  "sync_bracketed": true
+ },
+ "structures": {
+  "pop_size": 8192,
+  "max_tree_len": 64,
+  "tree_len_mean": 15.796875,
+  "tree_len_median": 17.0,
+  "tree_len_max": 31,
+  "distinct_structures": 6544,
+  "structure_signature": "bd074e3e136529f0"
+ },
+ "routes": {
+  "sr_fitness": {
+   "eval_mode": "auto",
+   "backend": "numpy",
+   "should_use_dense_pop_only": true,
+   "should_use_dense_with_rows": true,
+   "would_use_dense": true
+  },
+  "batch_forward": {
+   "eval_mode": "auto",
+   "backend": "numpy",
+   "should_use_dense_pop_only": true,
+   "should_use_dense_with_rows": true,
+   "would_use_dense": true
+  },
+  "forward": {
+   "eval_mode": "auto",
+   "backend": "numpy",
+   "should_use_dense_pop_only": true,
+   "should_use_dense_with_rows": true,
+   "would_use_dense": true
+  }
+ },
+ "workloads": {
+  "sr_fitness": {
+   "first_call_ms": 1135.0129,
+   "warmup": 1,
+   "reps": 3,
+   "samples_ms": [
+    994.4037,
+    997.6803,
+    994.2478
+   ],
+   "median_ms": 994.4037,
+   "min_ms": 994.2478,
+   "max_ms": 997.6803,
+   "mean_ms": 995.4439,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 0,
+    "compile_misses_first_call": 0
+   },
+   "digest": {
+    "shape": [
+     8192
+    ],
+    "sha256": "9874d7ed00ad82d8655d05b0db8973f4",
+    "finite": 8136,
+    "nan": 56,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 3.180102740002677e+17
+   }
+  },
+  "batch_forward": {
+   "first_call_ms": 760.5202,
+   "warmup": 1,
+   "reps": 3,
+   "samples_ms": [
+    765.6915,
+    814.4789,
+    763.4008
+   ],
+   "median_ms": 765.6915,
+   "min_ms": 763.4008,
+   "max_ms": 814.4789,
+   "mean_ms": 781.1904,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 0,
+    "compile_misses_first_call": 0
+   },
+   "digest": {
+    "shape": [
+     8192,
+     1024,
+     1
+    ],
+    "sha256": "f050b46e6514dfb419763d531969a932",
+    "finite": 8331264,
+    "nan": 57344,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 41267557741.43126
+   }
+  }
+ },
+ "gp_step": {
+  "warmup": 1,
+  "reps": 3,
+  "steps": [
+   {
+    "total_ms": 722.6805,
+    "eval_ms": 719.6154,
+    "ops_ms": 3.0651,
+    "torch_setup_ms": 28.486,
+    "compile_misses": 0,
+    "memo_hits": 0
+   },
+   {
+    "total_ms": 421.7768,
+    "eval_ms": 418.9607,
+    "ops_ms": 2.8162,
+    "torch_setup_ms": 13.3355,
+    "compile_misses": 0,
+    "memo_hits": 0
+   },
+   {
+    "total_ms": 469.806,
+    "eval_ms": 466.7015,
+    "ops_ms": 3.1044,
+    "torch_setup_ms": 12.3684,
+    "compile_misses": 0,
+    "memo_hits": 0
+   }
+  ],
+  "median_total_ms": 469.806,
+  "min_total_ms": 421.7768,
+  "max_total_ms": 722.6805,
+  "median_eval_ms": 466.7015,
+  "median_ops_ms": 3.1045,
+  "compile_misses_total": 0,
+  "final_pop_size": 8192,
+  "best_fitness": -0.08425234258174896
+ },
+ "notes": [
+  "large-scale compile-feasibility probe",
+  "torch arm: the tree decode / batched plan is built once, outside the timed region (setup_ms); per-call cost is torch ops only"
+ ],
+ "setup_ms": 50.3289,
+ "engine_cache_final": {
+  "hits": 0,
+  "misses": 0,
+  "entries": 0,
+  "maxsize": 4096,
+  "memo_hits": 0,
+  "memo_misses": 0,
+  "memo_entries": 0,
+  "memo_maxsize": 4096
+ },
+ "dense_policy": {
+  "auto_min_pop": 64,
+  "auto_max_rows": 2048,
+  "max_tree_len_cap": 64
+ }
+}
