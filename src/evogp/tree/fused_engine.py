@@ -7,13 +7,17 @@ engine beside ``specialized`` (:mod:`evogp.tree.evoxc_engine`), ``dense``
 population in one launch; unlike every existing route it needs no evoxc graph, no
 host decode, no host-side assembly and no readback on the value path.
 
-It is NOT wired into :func:`evogp.tree.dense_engine.resolve_route` yet: this
-round ships the engine, and the call sites
-(``Tree.forward`` / ``Forest.forward`` / ``Forest.batch_forward`` /
-``Forest.SR_fitness``) keep routing to the three existing engines until the
-wiring round lands.  ``resolve_min_pop`` already reads the threshold that round
-will consume (``EVOGP_FUSED_MIN_POP``, default 64, the same break-even reasoning
-as ``EVOGP_DENSE_AUTO_MIN_POP``).
+The route is WIRED: :func:`evogp.tree.dense_engine.resolve_route` owns the policy
+branch (``EVOGP_EVAL_MODE=fused`` -> ``Route(engine="fused", ...)``, reported by
+``Route.use_fused``) and all five call sites dispatch on it -- ``Forest.forward``
+(``per_row=True``), ``Forest.batch_forward`` (``per_row=False``),
+``Forest.SR_fitness`` (the loss path) and ``Tree.forward`` / ``Tree.SR_fitness``
+(``pop_size == 1``) -- each continuing on the route's fallback after a
+:class:`FusedUnsupported`.  ``EVOGP_FUSED_MIN_POP`` (default 64,
+:func:`resolve_min_pop`) gates the NO-EXPLICIT-BACKEND case only: an explicitly
+named backend always attempts the route, while the default policy needs a device
+usable from torch and ``pop_size >= EVOGP_FUSED_MIN_POP`` and otherwise resolves
+to specialized+``numpy``.  ``auto`` never selects this engine.
 
 Public surface
 --------------
@@ -159,9 +163,11 @@ Environment knobs (read per call unless noted; an unusable value raises
   buffer; the stack is ``tree_len`` slots deep even though only ``depth`` slots
   are ever touched).
 * ``EVOGP_FUSED_HOST_MEMO`` (16, IMPORT TIME) -- entries of the transpose table.
-* ``EVOGP_FUSED_MIN_POP`` (64) -- the pop-size threshold the wiring round will
-  consume (:func:`resolve_min_pop`).  A documented reader only; nothing here
-  consults it.
+* ``EVOGP_FUSED_MIN_POP`` (64) -- the pop-size threshold the POLICY consumes
+  through :func:`resolve_min_pop`: with ``EVOGP_EVAL_MODE=fused`` and no explicit
+  backend, the route needs a device plus ``pop_size >= EVOGP_FUSED_MIN_POP`` and
+  resolves to specialized+``numpy`` otherwise (an explicitly named backend always
+  attempts the route).  Nothing in this module branches on it.
 """
 
 from __future__ import annotations
@@ -207,7 +213,8 @@ DEFAULT_MAX_SCRATCH_MB = 8192
 #: Entries of the transposed-input table (import time; 0 disables it).
 HOST_MEMO_ENV = "EVOGP_FUSED_HOST_MEMO"
 DEFAULT_HOST_MEMO = 16
-#: Pop-size threshold the ROUTE WIRING round will consume (unused here).
+#: Pop-size threshold the ROUTE POLICY consumes through ``resolve_min_pop``
+#: (consulted by ``dense_engine.resolve_fused_min_pop``; not used here).
 MIN_POP_ENV = "EVOGP_FUSED_MIN_POP"
 DEFAULT_MIN_POP = 64
 
