@@ -36,10 +36,12 @@ route:
   ``L = 64``, ``BLOCK_R = 256``, and only the live ``depth`` slots are touched),
   instead of ``O(L)`` full-population passes.
 
-Measured on the six benchmark cells the fused route is 5.6x-58x faster than the
-``torch-batched`` arm on the value path and 5.6x-58x on the loss path (numbers
-of record: the module docstring of :mod:`evogp.tree.fused_engine` and the
-``fused_check.py`` timing table).
+Measured on the six benchmark cells the fused route is 48.6x-167.6x faster than
+the ``torch-batched`` arm on the value path (0.083-0.157 ms against 4.13-26.34 ms)
+and 43.4x-156.4x on the loss path, and the part that is left is the launch
+itself: the kernel is 72-82 % of a warm call and the host glue 0.023-0.033 ms
+(numbers of record, with the ``BLOCK_R``/warp sweep: the module docstring of
+:mod:`evogp.tree.fused_engine`, reproduced by ``fused_check.py``).
 
 Geometry
 --------
@@ -168,12 +170,23 @@ __all__ = [
 
 #: Cap of the row-block width, ``min(next_pow2(rows), cap)`` lanes per program.
 BLOCK_ROWS_ENV = "EVOGP_FUSED_BLOCK_ROWS"
-#: Lanes per program when the caller does not say otherwise (measured optimum,
-#: see :mod:`evogp.tree.fused_engine`: the sweep 64/128/256/512 x warps 1/2/4 is
-#: won on the worst cell by 256 / 4).
+#: Lanes per program when the caller does not say otherwise.  Measured optimum:
+#: in the 64/128/256/512 x warps-1/2/4 sweep (six cells, one process per config,
+#: :mod:`evogp.tree.fused_check --stage tuning`) 256 is the only width that lands
+#: within 4.3 % of the per-cell best on EVERY cell, and it is the per-cell best on
+#: the two heaviest ones.
 DEFAULT_BLOCK_ROWS = 256
-#: Warps per program (AMD wavefront = 64 lanes, so 4 warps == a 256-lane block).
-DEFAULT_NUM_WARPS = 4
+#: Warps per program (AMD wavefront = 64 lanes, so 1 warp == a 256-lane block
+#: being processed four lanes per thread; on NVIDIA 32 lanes/scheduler it is eight).
+#: Measured optimum at ``BLOCK_R`` 256, and the sweep's surprising result: the
+#: extra warps of the old default (4) only add scheduling overhead here, because
+#: the tree walk is a scalar, loop-carried dependency chain -- every lane of the
+#: block executes the SAME instruction sequence, so more warps cannot overlap
+#: anything.  1 warp is 1.7x faster than 4 on ``p4096-L64-i32-N1024``
+#: (0.134 vs 0.225 ms) and 1.8x on ``p2048-L128-i32-N1024-d7`` (0.161 vs 0.287 ms)
+#: while being within 4 % of the 4-warp number on the small cells, where the call
+#: is launch-bound rather than execution-bound.
+DEFAULT_NUM_WARPS = 1
 
 
 class FusedUnavailable(RuntimeError):

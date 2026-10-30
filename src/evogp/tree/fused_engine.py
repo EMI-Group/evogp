@@ -64,25 +64,96 @@ misses are :func:`fused_cache_stats`'s ``fused_xt_hits`` / ``fused_xt_misses``;
 ``0`` disables it.  ``per_row=True`` needs no transpose: each tree reads its own
 scalar row element ``x[t * input_len + vi]``.
 
-Measured economics (six benchmark cells, warm medians, one process per cell,
-MI300X; the battery reproduces every number)
+Measured economics (six benchmark cells, warm medians of 2 warmup + 10
+sync-bracketed reps, one process per cell, MI300X, the shipped ``BLOCK_R`` 256 /
+1 warp; reproduce with ``python -m evogp.tree.fused_check --stage timing``)
 ------------------------------------------------------------------------------------------------------
-The value path is **5.6x-57.8x faster** than the ``torch-batched`` pure-torch
-arm (``test/benchmark/evoxc/arms_torch.py:BatchedEvaluator``) and the loss path
-5.6x-57.8x, because that arm streams a ``(pop, L+1, N)`` buffer once per node
-position while the fused kernel keeps the population's whole tree in registers
-and touches each node table exactly once.  Cold first-call cost is a Triton JIT
-compile per specialization (``PER_ROW`` x ``REDUCE`` x ``USE_MSE`` x block x
-warps): ~0.4-1.0 s.  Numbers of record and the ``BLOCK_R``/``num_warps`` sweep
-are in :mod:`evogp.tree.fused_check`'s printed table; the knobs are documented in
-:mod:`evogp.tree.fused_kernels`.
-
+The value path is **48.6x-167.6x faster** than the ``torch-batched`` pure-torch
+arm (``test/benchmark/evoxc/arms_torch.py:BatchedEvaluator``), the loss path
+**43.4x-156.4x**, and the per-tree (``per_row=True``) path 56x-150x::
+    cell                     torch-batched    fused     speedup   n_rb
+    p256-L32-i8-N1024            4.127 ms   0.084 ms    49.15x     4
+    p256-L64-i32-N1024           4.578 ms   0.083 ms    55.17x     4
+    p256-L64-i32-N4096           4.959 ms   0.102 ms    48.57x    16
+    p1000-L64-i32-N1024          4.856 ms   0.094 ms    51.93x     4
+    p4096-L64-i32-N1024         10.480 ms   0.131 ms    79.80x     4
+    p2048-L128-i32-N1024-d7     26.341 ms   0.157 ms   167.62x     4
+    loss (MSE): 4.173/0.096 (43.4x), 4.634/0.101 (45.7x), 4.974/0.110 (45.4x),
+    4.868/0.103 (47.4x), 10.502/0.135 (77.8x), 26.368/0.169 (156.4x)
+    per_row:    4.058/0.072 (56.3x), 4.535/0.073 (61.9x), 4.285/0.072 (59.3x),
+    4.560/0.072 (63.2x), 4.426/0.075 (59.0x), 15.807/0.106 (149.7x)
+The reason is a traffic and a launch-count argument, not a vectorization trick:
+the arm materializes a ``(pop, L+1, N)`` value buffer and runs one eager-torch
+kernel per (node position, op) -- ~30 launches of a ``262 144``-element tensor at
+p256/``N`` 1024 plus the ``L`` buffer round trips -- while the fused route emits
+ONE launch per (tree, row-block) pair (1 024 programs at p256/``N`` 1024 with
+``BLOCK_R`` 256, i.e. four row blocks per tree) and keeps every operand in a
+register or in the shared-memory stack, so the population's node tables are read
+``rows / BLOCK_R`` times at most, i.e. 4 times instead of ``L`` times.
+The ratio therefore grows with the TREE axis (167.6x on the 123-node ``-d7``
+cell at pop 2 048, where the arm has ~120 positions to stream, and 79.8x at pop
+4 096, where the arm's 262 144-element launches finally saturate the device while
+the fused call is 4096 short programs) and is lowest on ``p256-L64-i32-N4096``
+(48.6x): 16 row blocks per tree re-walk each tree 16 times, which is the one
+direction where this scheme pays a real cost.
+Where a warm call goes (the battery's stage split, ms): the launch itself is
+**72-82 %** of it (0.060-0.128) and the host glue the rest (0.023-0.033:
+validation, the transpose-memo lookup, the one ``contiguous()`` and the
+``(pop, rows, 1)`` output write); the transpose a COLD dataset pays is
+0.018-0.020 ms and is memoized afterwards, and the loss path adds 0.033-0.039 ms
+of host glue for the ``(pop, n_rb)`` chart reduction.  Cross-checked on exactly
+these populations, the value path is bitwise against the arm on 2 of the 6 cells
+and differs only in the sign of a zero on the other 4 (``max_abs = 0.0``), while
+the loss agrees to ``<= 3.8e-07`` relative -- the numbers above are not fast
+wrong answers, they are the same numbers.
+Cold (first call of a fresh process): **375-378 ms** with a warm Triton on-disk
+cache (Triton import ~57 ms + the first JIT compile of the module), ~1.36-1.38 s
+from a cold cache (a new ``(BLOCK_R, warps, flags)`` key has to be compiled), and
+**1.85-1.89 ms** for the specialization that follows it in the same process.  That
+is ~4 500x the warm call, so this route needs a loop that evaluates many
+generations per process (a GP run does, and the compile is paid once per
+``(PER_ROW, REDUCE, USE_MSE, block, warps)`` combination, not per generation) and
+is a bad fit for a one-shot script.
+Parity (``python -m evogp.tree.fused_check --stage parity``): 56/56 comparisons
+against ``src/evogp/tests/reference_eval.py`` -- **bitwise** on the arithmetic
+set's value paths and on every handmade adversarial row that has no NaN/zero-sign
+case, ``<= 1.8e-07`` relative on the loose/rich transcendental sets' value paths
+and ``<= 1e-07`` on the loss paths (float32 reduction order), plus 10/10 golden
+fixtures inside 1e-4 (measured ``<= 1.9e-06``) and 21/21 decline/contract checks.
+The only rows that are not bitwise are those whose result is a NaN payload or a
+signed zero, where the numeric value is identical (``max_abs = 0.0``).
+Tuning (``--stage tuning``: 12 configs x 6 cells, one process per config, value
+path in ms; ``worst`` = the config's slowest cell relative to that cell's best)
+------------------------------------------------------------------------------------------------------
+    cfg        L32    L64    N4k    p1000  p4096   d7      worst
+    b64  w1  0.093  0.090  0.124  0.122  0.240  0.304    1.97
+    b64  w2  0.100  0.094  0.154  0.152  0.368  0.480    3.12
+    b64  w4  0.099  0.093  0.154  0.149  0.371  0.471    3.06
+    b128 w1  0.082  0.084  0.099  0.099  0.157  0.190    1.23
+    b128 w2  0.087  0.084  0.119  0.125  0.235  0.304    1.97
+    b128 w4  0.094  0.095  0.152  0.153  0.361  0.460    2.99
+    b256 w1  0.084  0.082  0.097  0.096  0.134  0.161    1.04   <- shipped
+    b256 w2  0.089  0.085  0.099  0.097  0.148  0.186    1.21
+    b256 w4  0.083  0.093  0.119  0.117  0.225  0.287    1.86
+    b512 w1  0.094  0.093  0.096  0.095  0.150  0.158    1.14
+    b512 w2  0.085  0.091  0.097  0.096  0.131  0.154    1.11
+    b512 w4  0.086  0.084  0.104  0.096  0.146  0.182    1.18
+``BLOCK_R`` 256 / 1 warp is the minimax choice: it is the only config within
+4.3 % of the per-cell best on EVERY cell (and the best on the two heaviest ones),
+while 64 costs 1.5-3x on the large-row cells -- the tree walk is per PROGRAM, so a
+narrow block multiplies the number of tree walks (at ``N`` = 1024, ``BLOCK_R`` 64
+is 16 blocks per tree) -- and 512 is inside noise of 256 (1.11 worst) but wastes
+lanes on the small-row cells.  The warps axis is the interesting one: 4 -> 1 buys
+1.68x at p4096 (0.225 -> 0.134) and 1.78x at ``d7`` (0.287 -> 0.161) and costs
+nothing on the small cells, because the walk is a scalar loop-carried dependency
+chain -- every lane executes the same instruction sequence, so extra warps have
+nothing to overlap and only add scheduling.
 Environment knobs (read per call unless noted; an unusable value raises
 ``ValueError`` naming the variable)
 -------------------------------------------------------------------
 * ``EVOGP_FUSED_BLOCK_ROWS`` (256) -- cap of the row-block width; the launch uses
   ``min(next_pow2(rows), cap)`` lanes, so a small dataset does not idle lanes.
-* ``EVOGP_FUSED_NUM_WARPS`` (4) -- warps per program.
+* ``EVOGP_FUSED_NUM_WARPS`` (1) -- warps per program.
 * ``EVOGP_FUSED_MAX_SCRATCH_MB`` (8192) -- memory envelope of the call,
   ``pop_size * max_tree_len * rows * 4`` bytes (the stack scratch plus the value
   buffer; the stack is ``tree_len`` slots deep even though only ``depth`` slots
@@ -185,7 +256,7 @@ def resolve_block_rows(value: Optional[int] = None) -> int:
 
 
 def resolve_num_warps(value: Optional[int] = None) -> int:
-    """Warps per program (``EVOGP_FUSED_NUM_WARPS``, default 4)."""
+    """Warps per program (``EVOGP_FUSED_NUM_WARPS``, default 1)."""
     warps = _env_int(NUM_WARPS_ENV, DEFAULT_NUM_WARPS) if value is None else int(value)
     if warps < 1:
         raise ValueError(f"{NUM_WARPS_ENV}={warps} must be >= 1 (it is a warp count)")

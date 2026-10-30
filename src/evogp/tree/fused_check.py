@@ -833,6 +833,198 @@ def np_scalar(array) -> float:
 
 
 # --------------------------------------------------------------------------- #
+# stage 2b: the decline matrix and the knob/stat contracts (cheap, no tuning)
+# --------------------------------------------------------------------------- #
+def stage_declines(args: argparse.Namespace) -> int:
+    """``FusedUnsupported`` on every unsupported call, and the stats/knob contracts.
+
+    The route's whole safety story is "decline, never a wrong number", so every
+    decline reason is exercised here (one case per reason), together with the
+    POSITIVE controls (a legal call served at ``pop == 1`` and with the ``iree``
+    backend name) and the invariants the rest of the package relies on:
+    ``fused_cache_stats()`` is all ``fused_*`` keys, ``cache_stats()`` stays at its
+    pinned 8 keys, and ``evoxc_engine.clear_cache()`` resets the fused tables too.
+    """
+    import torch
+
+    from evogp.tree import evoxc_engine
+    from evogp.tree import fused_engine
+
+    checks: List[Tuple[str, bool, str]] = []
+
+    def expect(name: str, fn, kind) -> None:
+        try:
+            fn()
+        except kind as exc:
+            checks.append((name, True, f"{type(exc).__name__}: {exc}"))
+        except Exception as exc:  # noqa: BLE001 - the wrong type is a failure
+            checks.append((name, False, f"raised {type(exc).__name__}: {exc}"))
+        else:
+            checks.append((name, False, "did NOT raise"))
+
+    node_value, node_type, subtree_size = pack_rows([("var", 0)], pad_to=4)
+    x = torch.rand(8, 4, device="cuda")
+    labels = torch.rand(8, 1, device="cuda")
+    call = dict(
+        batch_node_value=node_value,
+        batch_node_type=node_type,
+        batch_subtree_size=subtree_size,
+        input_len=4,
+        output_len=1,
+    )
+    expect(
+        "decline: backend=numpy",
+        lambda: fused_engine.evaluate_fused(**call, x=x, per_row=False, backend="numpy"),
+        fused_engine.FusedUnsupported,
+    )
+    expect(
+        "decline: output_len=2 (multi-output)",
+        lambda: fused_engine.evaluate_fused(
+            **{**call, "output_len": 2}, x=x, per_row=False
+        ),
+        fused_engine.FusedUnsupported,
+    )
+    expect(
+        "decline: pop_size=0",
+        lambda: fused_engine.evaluate_fused(
+            **{**call, "batch_node_value": node_value[:0],
+               "batch_node_type": node_type[:0], "batch_subtree_size": subtree_size[:0]},
+            x=x,
+            per_row=False,
+        ),
+        fused_engine.FusedUnsupported,
+    )
+    expect(
+        "decline: rows=0",
+        lambda: fused_engine.evaluate_fused(**call, x=x[:0], per_row=False),
+        fused_engine.FusedUnsupported,
+    )
+    expect(
+        "decline: x is a numpy array (never staged host memory)",
+        lambda: fused_engine.evaluate_fused(**call, x=x.cpu().numpy(), per_row=False),
+        fused_engine.FusedUnsupported,
+    )
+    # The envelope is a budget on ``pop * tree_len * rows * 4`` BYTES, so the
+    # check is landed with a legal but tiny budget (a non-positive one is a knob
+    # error, raised as ``ValueError`` above) on the ``p256-L64-i32-N1024`` shape.
+    expect(
+        "decline: scratch envelope (1 MiB on p256-L64-N1024)",
+        lambda: fused_engine._check_envelope(256, 64, 1024, 1),
+        fused_engine.FusedUnsupported,
+    )
+    checks.append(
+        (
+            "served: same shape inside an 8192 MiB envelope",
+            fused_engine._check_envelope(256, 64, 1024, 8192) is None,
+            "ok",
+        )
+    )
+    expect(
+        "raise: labels rows != inputs rows",
+        lambda: fused_engine.sr_fitness_fused(**call, inputs=x, labels=labels[:4]),
+        ValueError,
+    )
+
+    # POSITIVE controls: the same population IS served at pop 1 and with the
+    # iree backend name (the fused route has no evoxc backend dependency).
+    for tag, kwargs in (
+        ("served: pop_size=1", {}),
+        ("served: backend=iree", {"backend": "iree"}),
+    ):
+        try:
+            out = fused_engine.evaluate_fused(**call, x=x, per_row=False, **kwargs)
+            ok = tuple(out.shape) == (1, 8, 1) and out.dtype == torch.float32
+            checks.append((tag, ok, f"shape {tuple(out.shape)} dtype {out.dtype}"))
+        except Exception as exc:  # noqa: BLE001
+            checks.append((tag, False, f"raised {type(exc).__name__}: {exc}"))
+
+    # per_row=True with one mis-sized row block is a ValueError, not a decline.
+    expect(
+        "raise: per_row x rows != pop",
+        lambda: fused_engine.evaluate_fused(**call, x=x, per_row=True),
+        ValueError,
+    )
+
+    # knob readers
+    for name, reader, env, bad in (
+        ("knob: BLOCK_ROWS", fused_engine.resolve_block_rows, "EVOGP_FUSED_BLOCK_ROWS", "abc"),
+        ("knob: NUM_WARPS", fused_engine.resolve_num_warps, "EVOGP_FUSED_NUM_WARPS", "0"),
+        ("knob: MAX_SCRATCH_MB", fused_engine.resolve_max_scratch_mb, "EVOGP_FUSED_MAX_SCRATCH_MB", "-1"),
+        ("knob: MIN_POP", fused_engine.resolve_min_pop, "EVOGP_FUSED_MIN_POP", "0"),
+    ):
+        old = os.environ.get(env)
+        os.environ[env] = bad
+        try:
+            expect(f"{name} rejects {bad!r}", lambda r=reader: r(), ValueError)
+        finally:
+            if old is None:
+                os.environ.pop(env, None)
+            else:
+                os.environ[env] = old
+    checks.append(
+        (
+            "knob: resolve_min_pop default",
+            fused_engine.resolve_min_pop() == 64,
+            str(fused_engine.resolve_min_pop()),
+        )
+    )
+    checks.append(
+        (
+            "knob: resolve_block_rows default",
+            fused_engine.resolve_block_rows() == 256,
+            str(fused_engine.resolve_block_rows()),
+        )
+    )
+
+    # counters: own namespace, pinned key count of cache_stats(), shared reset
+    stats = fused_engine.fused_cache_stats()
+    checks.append(
+        (
+            "stats: every key is fused_*",
+            all(key.startswith("fused_") for key in stats),
+            ", ".join(sorted(stats)),
+        )
+    )
+    checks.append(
+        (
+            "stats: cache_stats() still has 8 keys",
+            len(evoxc_engine.cache_stats()) == 8,
+            str(len(evoxc_engine.cache_stats())),
+        )
+    )
+    before = fused_engine.fused_cache_stats()
+    evoxc_engine.clear_cache()
+    after = fused_engine.fused_cache_stats()
+    checks.append(
+        (
+            "clear_cache() resets the fused front tables",
+            after["fused_xt_entries"] == 0,
+            f"xt_entries {before['fused_xt_entries']} -> {after['fused_xt_entries']}",
+        )
+    )
+    fused_engine.clear_fused_cache()
+    checks.append(
+        (
+            "clear_fused_cache() zeroes its own counters",
+            fused_engine.fused_cache_stats()["fused_calls"] == 0,
+            str(fused_engine.fused_cache_stats()["fused_calls"]),
+        )
+    )
+
+    print("=" * 78)
+    print("DECLINES & CONTRACTS: fused route")
+    print("=" * 78)
+    passed = 0
+    for name, ok, detail in checks:
+        print(f"  [{'ok ' if ok else 'FAIL'}] {name:<42} {detail}")
+        passed += 1 if ok else 0
+    print("-" * 78)
+    print(f"DECLINES: {passed}/{len(checks)} checks passed")
+    print("-" * 78)
+    return 0 if passed == len(checks) else 1
+
+
+# --------------------------------------------------------------------------- #
 # stage 3: timings (driver + one-cell child)
 # --------------------------------------------------------------------------- #
 def _arm(forest):
@@ -999,6 +1191,31 @@ def stage_time_one(args: argparse.Namespace) -> int:
         f"({arm_value['median_ms'] / fused_value['median_ms']:.2f}x) cold={fused_value['first_call_ms']:.1f} ms",
         flush=True,
     )
+    # Cross-check the TIMED population against the torch arm: the parity stage
+    # uses the harness's small populations, and a timing number over a wrong answer
+    # would be worthless, so the exact workload that was just timed is compared too.
+    compare = _comparator()
+    arm_out = arm.batch_forward(x)
+    fused_out = fused_engine.evaluate_fused(
+        node_value, node_type, subtree_size, input_len, 1, x, per_row=False
+    )
+    value_check = compare(arm_out, fused_out)
+    arm_loss_out = arm.sr_fitness(x, labels)
+    fused_loss_out = fused_engine.sr_fitness_fused(
+        node_value, node_type, subtree_size, input_len, 1, x, labels, use_MSE=True
+    )
+    loss_check = compare(arm_loss_out, fused_loss_out)
+    payload["arm_vs_fused_value"] = value_check
+    payload["arm_vs_fused_loss"] = loss_check
+    print(
+        f"  cross-check vs the torch arm on this population: "
+        f"value max_abs={value_check.get('max_abs', 0.0):.3e} "
+        f"max_rel={value_check.get('max_rel', 0.0):.3e} "
+        f"nan_mismatch={value_check.get('nan_mismatch', 0)} | "
+        f"loss max_rel={loss_check.get('max_rel', 0.0):.3e} "
+        f"nan_mismatch={loss_check.get('nan_mismatch', 0)}",
+        flush=True,
+    )
     _json_line(payload)
     return 0
 
@@ -1050,6 +1267,9 @@ def stage_timing(args: argparse.Namespace) -> int:
             f"{rec['num_warps']:>2} | {rec['n_rb']:>4} |"
         )
     print()
+    print("LOSS workload (MSE) -- the cold column is the first loss call of a fresh")
+    print("process: Triton import + JIT on a cold on-disk cache, a cache LOAD once the")
+    print("same (BLOCK_R, warps, flags) specialization was compiled in an earlier run.")
     print("LOSS workload (MSE)")
     print(header.replace("cell", "cell").replace("torch-batched", "torch-batched"))
     print("|" + "-" * 28 + "|" + "-" * 15 + "|" + "-" * 12 + "|" + "-" * 9 + "|" + "-" * 10 + "|" + "-" * 6 + "|" + "-" * 4 + "|" + "-" * 6 + "|")
@@ -1083,6 +1303,18 @@ def stage_timing(args: argparse.Namespace) -> int:
             f"  {rec['cell']:<26} {rec['fused_value_ms']:>8.3f} {rec['kernel_ms']:>8.3f} {host:>7.3f} "
             f"{rec['transpose_ms']:>16.3f} {rec['fused_loss_ms']:>11.3f} {rec['loss_kernel_ms']:>12.3f} "
             f"{loss_host:>10.3f}"
+        )
+    print()
+    print("CROSS-CHECK of the timed populations vs the torch arm (deviation of the number")
+    print("that was just timed, not of a different population):")
+    for rec in records:
+        value = rec.get("arm_vs_fused_value", {})
+        loss = rec.get("arm_vs_fused_loss", {})
+        print(
+            f"  {rec['cell']:<26} value max_abs={value.get('max_abs', 0.0):.3e} "
+            f"max_rel={value.get('max_rel', 0.0):.3e} bitwise={value.get('bitwise_equal')} "
+            f"nan_mismatch={value.get('nan_mismatch', 0)} | loss max_rel="
+            f"{loss.get('max_rel', 0.0):.3e} nan_mismatch={loss.get('nan_mismatch', 0)}"
         )
     print()
     for rec in records:
@@ -1160,8 +1392,8 @@ def stage_tuning(args: argparse.Namespace) -> int:
     print("=" * 96)
     print("TUNING: EVOGP_FUSED_BLOCK_ROWS x EVOGP_FUSED_NUM_WARPS (one process per config+cell)")
     print("=" * 96)
-    blocks = [int(b) for b in args.blocks]
-    warps = [int(w) for w in args.warps_list]
+    blocks = [int(b) for b in str(args.blocks).split(",") if b.strip()]
+    warps = [int(w) for w in str(args.warps_list).split(",") if w.strip()]
     cells = [c for c in _cells() if not args.only or c["id"] in args.only]
     records: List[Dict[str, Any]] = []
     for block in blocks:
@@ -1245,7 +1477,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stage",
         default="all",
-        choices=("parity", "goldens", "timing", "tuning", "all", "time-one", "tune-one"),
+        choices=(
+            "parity",
+            "goldens",
+            "declines",
+            "timing",
+            "tuning",
+            "all",
+            "time-one",
+            "tune-one",
+        ),
         help="which leg to run (default: all)",
     )
     parser.add_argument("--cell", default=None, help="cell id for the single-process legs")
@@ -1278,6 +1519,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         status |= stage_parity(args)
     if args.stage in ("goldens", "all"):
         status |= stage_goldens(args)
+    if args.stage in ("declines", "all"):
+        status |= stage_declines(args)
     if args.stage in ("timing", "all"):
         status |= stage_timing(args)
     if args.stage in ("tuning", "all"):
