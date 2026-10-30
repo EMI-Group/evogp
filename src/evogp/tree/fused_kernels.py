@@ -139,9 +139,12 @@ operator from the packed value bits (``function = bits & 0xFFFF``,
 ``acc[outIndex]`` (an index ``>= out_len`` is dropped -- the oracle's unsigned
 compare), while every node passes its RIGHT-MOST operand up to its parent
 instead of its own value.  Tagged leaves accumulate nothing and untagged outputs
-stay ``0.0``; the value epilogue writes the whole ``[out_len, BLOCK_R]``
-accumulator tile, the loss epilogue loads the ``(rows, out_len)`` label tile,
-sums over both axes and still divides by ``rows`` only.
+stay ``0.0``.  The accumulator IS the prediction buffer (``(pop, rows, out_len)``,
+zeroed in-kernel and read-modify-written at each tagged node) rather than a
+``[out_len, BLOCK_R]`` register tile, which would make triton unify two layouts
+across the loop phis; the value epilogue therefore already holds the result, the
+loss epilogue loads the ``(rows, out_len)`` label tile, sums over both axes and
+still divides by ``rows`` only.
 
 Laziness
 --------
@@ -792,14 +795,15 @@ def _launch(
     """Shared launch: geometry, scratch, dispatch on the (device, flags) key.
 
     Returns ``(out, geometry)`` where ``out`` is the value buffer
-    (``PER_ROW``/``REDUCE`` decide what it means); the caller owns its meaning.  The whole call is dispatched on the tensors'
+    (``PER_ROW``/``REDUCE`` decide what it means; the caller owns its meaning).
+    The whole call is dispatched on the tensors'
     device index (a Triton launch compiles/streams against the CURRENT device, so
     the launch is wrapped in ``torch.cuda.device(...)``).
 
     ``out_len == 1`` runs :func:`_fused_kernel` (the single-output protocol, its
     original code path, unchanged); ``out_len >= 2`` runs
-    :func:`_fused_multi_kernel`, which carries the ``[out_len, BLOCK_R]``
-    accumulator tile.
+    :func:`_fused_multi_kernel`, whose accumulator is the ``(pop, rows, out_len)``
+    prediction buffer.
     """
     pop = int(node_value.shape[0])
     out_len = int(out_len)

@@ -48,8 +48,9 @@ Contracts (they mirror :func:`evogp.tree.dense_engine.evaluate_dense` /
   reasons are: triton not importable; no CUDA/HIP device; the population or
   ``x`` not on a device tensor; an explicit ``backend="numpy"`` (a Triton kernel
   cannot run on the evoxc reference interpreter); ``output_len > MAX_OUT_LEN``
-  (8 -- the multi-output kernel's accumulator is a ``[output_len, BLOCK_R]``
-  register tile); ``pop_size < 1``; ``rows < 1``; or the scratch
+  (8 -- the multi-output kernel accumulates in the ``(pop, rows, out_len)``
+  prediction buffer, so ``out_len`` costs one extra read-modify-write per tagged
+  node, and 8 bounds that traffic); ``pop_size < 1``; ``rows < 1``; or the scratch
   envelope (``pop * tree_len * rows * 4`` bytes vs ``EVOGP_FUSED_MAX_SCRATCH_MB``)
   being exceeded.  ``FusedUnsupported.device_fallback`` exists for symmetry with
   ``DenseUnsupported`` but the fused route never sets it: it has no numpy twin,
@@ -124,7 +125,10 @@ against ``src/evogp/tests/reference_eval.py`` -- **bitwise** on the arithmetic
 set's value paths and on every handmade adversarial row that has no NaN/zero-sign
 case, ``<= 1.8e-07`` relative on the loose/rich transcendental sets' value paths
 and ``<= 1e-07`` on the loss paths (float32 reduction order), plus 10/10 golden
-fixtures inside 1e-4 (measured ``<= 1.9e-06``) and 21/21 decline/contract checks.
+fixtures inside 1e-4 (measured ``<= 1.9e-06``), 24/24 decline/contract checks and
+31/31 wiring checks.  The ``OUT_NODE`` multi-output protocol has its own stage
+(``--stage multi``: 13 case x ``out_len`` populations, 4 surfaces, 65/65
+comparisons, value path BITWISE, loss ``<= 1.2e-07`` relative).
 The only rows that are not bitwise are those whose result is a NaN payload or a
 signed zero, where the numeric value is identical (``max_abs = 0.0``).
 Tuning (``--stage tuning``: 12 configs x 6 cells, one process per config, value
@@ -241,11 +245,14 @@ DEFAULT_HOST_MEMO = 16
 #: for the full column and :func:`resolve_min_pop`.
 MIN_POP_ENV = "EVOGP_FUSED_MIN_POP"
 DEFAULT_MIN_POP = 16
-#: Outputs the multi-output kernel serves.  Its accumulator is an
-#: ``[output_len, BLOCK_R]`` register tile, so the cost is linear in ``output_len``
-#: per out-node; the library's multi-output trees use 2-3 (``Classification`` at
-#: ``output_len`` classes, multi-task policies) and a call above this declines
-#: into the specialized fallback with a reason naming the constant.
+#: Outputs the multi-output kernel serves.  It accumulates into the
+#: ``(pop, rows, out_len)`` prediction buffer (a ``[output_len, BLOCK_R]`` register
+#: tile would make triton unify two layouts across the loop phis and the LLVM
+#: translation fails), so ``out_len`` costs one read-modify-write per tagged node
+#: and bounds the extra traffic; the library's multi-output trees use 2-3
+#: (``Classification`` at ``output_len`` classes, multi-task policies) and a call
+#: above this declines into the specialized fallback with a reason naming the
+#: constant.
 MAX_OUT_LEN = 8
 
 #: ``(pop*rows*L*4)`` bytes per MiB.
@@ -588,9 +595,9 @@ def _prepare(
     if int(output_len) > MAX_OUT_LEN:
         raise FusedUnsupported(
             f"output_len={int(output_len)} > {MAX_OUT_LEN}: the multi-output kernel "
-            f"keeps a [output_len, BLOCK_R] accumulator tile, so this route serves "
-            f"up to {MAX_OUT_LEN} outputs (raise fused_engine.MAX_OUT_LEN if a model "
-            "really needs more)"
+            f"accumulates in the (pop, rows, out_len) prediction buffer, so this "
+            f"route serves up to {MAX_OUT_LEN} outputs (raise "
+            "fused_engine.MAX_OUT_LEN if a model really needs more)"
         )
     if tree_len < 1:
         raise ValueError(f"max_tree_len must be >= 1, got {tree_len}")

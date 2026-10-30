@@ -636,7 +636,7 @@ def multi_adversarial_cases() -> List[Dict[str, Any]]:
             tagged(add, 2, 3, (("var", 1), ("const", 0.5))),
         ),
     )
-    # The accumulator tile at its maximum width: one tagged output per index.
+    # The widest served output count: one tagged output per index.
     from evogp.tree import fused_engine
 
     max_out_len = int(fused_engine.MAX_OUT_LEN)
