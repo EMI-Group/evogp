@@ -103,8 +103,8 @@ compile), so a fused record's `cache.compile_misses_first_call = 0` must **not**
 |---|---|---|---|---|---|---|
 | `torch-batched` | 10.6400 | 1.00× | 10.6602 | 1.00× | 4.5302 | 1.00× |
 | **`fused`** | **0.1460** | **72.9×** | **0.1786** | **59.7×** | **0.1070** | **42.3×** |
-| `dense` (iree) | not scheduled (cold compile 6.4–6.6 s × 2; add `EVOGP_DENSE_MAX_TREE_LEN` risk on the d7 column only) | | | | | |
-| `batch` (iree) | not scheduled (baseline of record: 65.6 s / 154.9 s cold compile, 21.98 / 21.41 ms warm) | | | | | |
+| `dense` (iree) | not scheduled in this campaign — the four-way arm set is the three cells above plus the d7 cell; baseline of record 45.97 / 37.25 ms | | | | | |
+| `batch` (iree) | not scheduled — baseline of record 21.98 / 21.41 ms warm at a 65.6 s / 154.9 s cold compile | | | | | |
 
 ### `p2048-L128-i32-N1024-d7` (123-node trees)
 | arm | bf ms | vs torch | sf ms | vs torch | fw ms | vs torch |
