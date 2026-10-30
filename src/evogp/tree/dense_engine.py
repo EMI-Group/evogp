@@ -63,9 +63,8 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
     (271-284 ms/tree) can never amortize.  On a box with no device, and with an
     explicit backend, the historical rule is unchanged: dense iff the resolved
     backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
-    *and*, on ``per_row=False`` calls,
-    ``rows <= EVOGP_DENSE_AUTO_MAX_ROWS`` (default
-    :data:`DEFAULT_AUTO_MAX_ROWS` = 2048).  The wired call sites pass ``pop_size``
+    *and*, on ``per_row=False`` calls, the data-row count fits the route's
+    MEMORY ENVELOPE (next paragraph).  The wired call sites pass ``pop_size``
     only, so the rows half of the rule is enforced inside
     :func:`evaluate_dense`, where the data-row count is known
     (:func:`sr_fitness_dense` goes through it too); ``per_row=True`` (one row per
@@ -77,12 +76,35 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
     ~7 ms at ``P=64``, ~34 ms at ``P=256``, ~141 ms at ``P=1000``) pays that
     compile back after ~6300/460/95/23 calls -- hence the ``pop_size`` gate at the
     population where a GP run is a few hundred generations in (lower
-    ``EVOGP_DENSE_AUTO_MIN_POP`` to 16 for a very long run), while warm dense is
-    1.3-3.2x faster at small ``N`` where both sides are measured directly and
-    1.18x *slower* at ``P=16/N=10000`` -- its cost grows with the data-row count
-    while the specialized engine's is rows-flat (1.24-1.94 ms/tree from N=64 to
-    N=10000) -- hence the rows ceiling, ~2x below the tightest measured crossover
-    (~3.4-6.8k rows at ``P=16``).
+    ``EVOGP_DENSE_AUTO_MIN_POP`` to 16 for a very long run).
+
+    The rows half is a **memory envelope, not a row ceiling**
+    (:func:`auto_rows_decline`, :func:`auto_row_allowance`): what actually grows
+    on this route -- and what can turn an ``auto`` decision into an OOM kill
+    instead of a fallback -- is the ``pop_size * tree_len * rows`` product the
+    graph indexes (``4`` bytes per element, the largest intermediate of
+    :func:`dense_peak_bytes`), not the row count by itself.  ``auto`` therefore
+    declines only when that product exceeds ``EVOGP_DENSE_AUTO_BUDGET_MB``
+    (default :data:`DEFAULT_AUTO_BUDGET_MB` = 8192 MiB -- the same
+    ``pop * tree_len * rows * 4`` rule the benchmark harness applies as
+    ``CELL_TENSOR_CEILING_BYTES``, ``test/benchmark/evoxc/common.py``), and
+    ``EVOGP_DENSE_AUTO_MAX_ROWS`` became a user PIN on the row allowance
+    (unset/``0`` = unpinned: the envelope decides; a value can only TIGHTEN it,
+    ``EVOGP_DENSE_AUTO_BUDGET_MB`` is the knob that widens it).
+    Why the old fixed ceiling is gone: ``DEFAULT_AUTO_MAX_ROWS`` = 2048 was
+    calibrated at ``P=16`` against the per-tree *device* backend (dense 1.18x
+    slower at 10000 rows), a comparison the shipped policy never makes -- ``auto``
+    admits no population below 64, and its fallback from a dense decline is
+    specialized+``numpy``.  On the large-scale column that ceiling routed every
+    cell with ``N >= 4096`` to a fallback dense beats by 1.4-8.7x per call (5.82
+    against 51.90 ms at ``p256-L64-i32-N4096``, 78.12 against 107.59 at
+    ``p256-L64-i32-N16384``, 39.31 against 195.51 at ``p1000-L64-i32-N4096``,
+    117.19 against 452.28 at ``p1000-L64-i32-N16384``; ``test/benchmark/evoxc/
+    LARGE_SCALE.md`` §7.1).  The part the fixed ceiling got right is kept where it
+    was right: dense is never chosen on a non-device (``numpy``) backend at all,
+    because there a compiled graph genuinely cannot amortize (it is 0.01-0.17x the
+    specialized warm throughput) -- and that is the BACKEND term above, which needs
+    no row count to be correct.
 ``dense``
     always attempt the dense path (still falling back on
     :class:`DenseUnsupported`); with no explicit backend it uses the device
@@ -188,11 +210,20 @@ Environment knobs
                                             threshold (dense+iree from here up
                                             on a device box, specialized+numpy
                                             below it)
-``EVOGP_DENSE_AUTO_MAX_ROWS``  2048        rows ceiling of the ``auto``
-                                            policy on ``per_row=False`` calls;
-                                            a decline -> ``DenseUnsupported``
-                                            fallback; ``per_row=True`` and an
-                                            explicit ``dense`` are never gated
+``EVOGP_DENSE_AUTO_MAX_ROWS``    unset/0     user PIN on the ``auto`` policy's row
+                                            allowance on ``per_row=False``
+                                            calls: it can only TIGHTEN the
+                                            memory envelope below (an explicit
+                                            row ceiling, kept for compatibility);
+                                            ``per_row=True`` and an explicit
+                                            ``dense`` are never gated
+``EVOGP_DENSE_AUTO_BUDGET_MB``  8192        the memory envelope of that rule:
+                                            ``auto`` declines when
+                                            ``pop_size * tree_len * rows * 4``
+                                            bytes exceed it (the harness's
+                                            ``CELL_TENSOR_CEILING_BYTES`` rule); a
+                                            decline -> ``DenseUnsupported``
+                                            fallback
 ``EVOGP_DENSE_MAX_TREE_LEN``    32          max trace length ``L``; longer trees
                                             -> :class:`DenseUnsupported`
 ``EVOGP_DENSE_BUDGET_MB``       2048        chunking memory budget (MiB)
@@ -325,13 +356,23 @@ Run: repo root, ``PYTHONPATH=src EVOXC_DISABLE_LOCATIONS=1``, venv
    iree only when the population is dense-supported,
    ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP`` (64 since the pruned chain made the
    per-call win large; the pre-prune crossover was ~25-35 trees for the compile
-   term) and, on ``per_row=False`` calls,
-   ``rows <= EVOGP_DENSE_AUTO_MAX_ROWS`` (2048, enforced inside
-   :func:`evaluate_dense`; ``per_row=True`` and an explicit ``dense`` are never
-   gated; a decline is the usual :class:`DenseUnsupported` fallback), and it never
-   selects the numpy backend for the dense route on its own.
-   Firm-up crossovers: ~3.4-6.8k rows warm at ``P=16`` (dense 1.18x slower at
-   ``P=16/N=10000``).  The cheapest large win identified: pass the population's
+   term) and, on ``per_row=False`` calls, while the data-row count fits the route's
+   memory envelope ``pop_size * tree_len * rows * 4`` bytes <=
+   ``EVOGP_DENSE_AUTO_BUDGET_MB`` (8192 MiB; an explicit
+   ``EVOGP_DENSE_AUTO_MAX_ROWS`` can tighten it further; enforced inside
+   :func:`evaluate_dense`, where the row count is known -- ``per_row=True`` and an
+   explicit ``dense`` are never gated; a decline is the usual
+   :class:`DenseUnsupported` fallback), and it never selects the numpy backend for
+   the dense route on its own.
+   The row ceiling itself is gone: the measured crossovers that motivated a fixed
+   one (~3.4-6.8k rows at ``P=16``, dense 1.18x slower at ``P=16/N=10000``) were
+   taken against the per-tree *iree* engine at a population ``auto`` no longer
+   admits, and against every fallback ``auto`` can actually reach -- specialized on
+   numpy -- dense is 1.4-8.7x FASTER at ``N`` = 4096-16384 and pop 256-1000
+   (``test/benchmark/evoxc/LARGE_SCALE.md`` §7.1), so a row ceiling there routes
+   the call the wrong way.  What is left to bound is the product the graph sizes
+   its largest intermediate by, i.e. a memory envelope, not a row count.
+   The cheapest large win identified: pass the population's
    *used function id set* (or its descriptor's ``using_funcs``) as a static cfg
    entry and emit only those candidates — roughly a 3× op-count cut, paid for by
    recompiles only when the used-id set changes (it saturates quickly in a GP
@@ -388,9 +429,11 @@ from .evoxc_engine import (  # private but deliberately reused: parity by constr
 
 __all__ = [
     "ALLOW_UNSAFE_SCATTER_ENV",
+    "AUTO_BUDGET_MB_ENV",
     "AUTO_MAX_ROWS_ENV",
     "AUTO_MIN_POP_ENV",
     "BUDGET_MB_ENV",
+    "DEFAULT_AUTO_BUDGET_MB",
     "DEFAULT_AUTO_MAX_ROWS",
     "DEFAULT_AUTO_MIN_POP",
     "DEFAULT_BUDGET_MB",
@@ -424,6 +467,7 @@ __all__ = [
     "Route",
     "UPDATE_MODES",
     "UPDATE_MODE_ENV",
+    "auto_row_allowance",
     "auto_rows_decline",
     "build_dense",
     "build_dense_runner",
@@ -434,6 +478,7 @@ __all__ = [
     "evaluate_dense",
     "plan_dense",
     "prepare_dense",
+    "resolve_auto_budget_mb",
     "resolve_auto_max_rows",
     "resolve_auto_min_pop",
     "resolve_backend_name",
@@ -457,11 +502,21 @@ EVAL_MODE_ENV = "EVOGP_EVAL_MODE"
 #: (``EVOGP_DENSE_AUTO_MIN_POP``): dense+iree from here up on a device box,
 #: specialized+numpy below it -- see :func:`resolve_route`.
 AUTO_MIN_POP_ENV = "EVOGP_DENSE_AUTO_MIN_POP"
-#: Data-row ceiling of the ``auto`` policy (``EVOGP_DENSE_AUTO_MAX_ROWS``) for
-#: ``per_row=False`` calls: dense cost grows
-#: with ``rows`` while the specialized cost is rows-flat, so above the crossover
-#: dense loses at any population -- see :func:`auto_rows_decline`.
+#: User PIN on the ``auto`` policy's data-row allowance
+#: (``EVOGP_DENSE_AUTO_MAX_ROWS``) for ``per_row=False`` calls.  It is an explicit
+#: row ceiling the user can still set, and it can only TIGHTEN the memory envelope
+#: of :data:`AUTO_BUDGET_MB_ENV` (:func:`auto_row_allowance`): unset/empty/``0``
+#: means "unpinned, the envelope decides", ``N`` means "at most ``N`` rows, or the
+#: envelope's allowance if that is smaller".  See :func:`auto_rows_decline`.
 AUTO_MAX_ROWS_ENV = "EVOGP_DENSE_AUTO_MAX_ROWS"
+#: Memory envelope of the ``auto`` policy's rows rule
+#: (``EVOGP_DENSE_AUTO_BUDGET_MB``, MiB): dense's largest intermediate is
+#: ``pop_size * tree_len * rows * 4`` bytes, so ``auto`` declines a call whose
+#: product exceeds it -- the same rule the benchmark harness enforces as
+#: ``CELL_TENSOR_CEILING_BYTES`` (``test/benchmark/evoxc/common.py``).  This is the
+#: knob that WIDENS the allowance (the row pin above only tightens it) -- see
+#: :func:`auto_rows_decline` / :func:`auto_row_allowance`.
+AUTO_BUDGET_MB_ENV = "EVOGP_DENSE_AUTO_BUDGET_MB"
 #: Max trace length ``L`` (``EVOGP_DENSE_MAX_TREE_LEN``): populations whose
 #: longest tree exceeds it fall back to the specialized engine.  This is the
 #: knob that bounds trace time and graph size (the candidate chain is emitted
@@ -518,13 +573,26 @@ DENSE_ARTIFACT_NAMES = {VALUE_VARIANT: "dense:value", LOSS_VARIANT: "dense:loss"
 #: calls.  64 is the population where a GP run is a few hundred generations in;
 #: lower it to 16 (``EVOGP_DENSE_AUTO_MIN_POP=16``) for a very long run.
 DEFAULT_AUTO_MIN_POP = 64
-#: Rows crossover measured on iree (RTX A6000, ``L=32``) for the smallest
-#: population the ``auto`` policy admits: dense is 1.49x / 1.30x faster than the
-#: specialized engine at P=16 with 64 / 1024 rows and 1.18x *slower* at 10000
-#: rows (same-process A/B), i.e. the crossover is ~3.4-4.9k rows there (7.5k at
-#: P=32, ~11k at P=64).  The default is the measured SAFE boundary, ~2x below the
-#: tightest crossover; env-overridable.
-DEFAULT_AUTO_MAX_ROWS = 2048
+#: Default of the ``auto`` rows PIN (:data:`AUTO_MAX_ROWS_ENV`): ``0`` = unpinned,
+#: i.e. the memory envelope (:data:`DEFAULT_AUTO_BUDGET_MB`) decides the allowance.
+#: The historical default was a fixed 2048-row ceiling, calibrated on iree (RTX
+#: A6000, ``L=32``) at ``P=16`` against the per-tree *device* engine (dense 1.49x /
+#: 1.30x faster at 64 / 1024 rows, 1.18x *slower* at 10000) -- a comparison the
+#: shipped policy never makes, since ``auto`` admits no population below
+#: ``DEFAULT_AUTO_MIN_POP`` and its fallback from a dense decline is
+#: specialized+``numpy``, which dense beats by 1.4-8.7x at ``N`` = 4096-16384
+#: (``test/benchmark/evoxc/LARGE_SCALE.md`` §7.1) and by 1.6-8.7x per generation
+#: there.  Hence the pin is off by default and the envelope does the work.
+DEFAULT_AUTO_MAX_ROWS = 0
+#: Default of the ``auto`` rows rule's memory envelope (:data:`AUTO_BUDGET_MB_ENV`),
+#: in MiB: 8192, the same ``pop * tree_len * rows * 4`` ceiling the benchmark
+#: harness applies as ``CELL_TENSOR_CEILING_BYTES`` (``test/benchmark/evoxc/
+#: common.py``).  At that envelope the worst large-scale cell
+#: (``p1000-L64-i32-N16384``, 4.19 GB) keeps 2x of headroom, and dense's own
+#: execution peak is bounded separately by :data:`DEFAULT_BUDGET_MB` chunking, so
+#: this knob is the "when does the whole-population shape stop being schedulable"
+#: line, not an OOM tripwire.
+DEFAULT_AUTO_BUDGET_MB = 8192
 
 #: Trace cap default: 64, i.e. the shipped descriptors' practical maximum
 #: (``example/`` builds ``max_tree_len`` 128/256/512, whose REALIZED trees are far
@@ -730,39 +798,134 @@ def resolve_auto_min_pop(value: Optional[int] = None) -> int:
 
 
 def resolve_auto_max_rows(value: Optional[int] = None) -> int:
-    """Resolve the ``auto`` policy's row-count ceiling (``EVOGP_DENSE_AUTO_MAX_ROWS``)."""
+    """Resolve the ``auto`` rows PIN (``EVOGP_DENSE_AUTO_MAX_ROWS``), ``0`` = unpinned.
+
+    A positive value is a hard row ceiling the user can still set; ``0`` (the
+    default, :data:`DEFAULT_AUTO_MAX_ROWS`) means "let the memory envelope
+    (:func:`resolve_auto_budget_mb`) decide".  The pin can only TIGHTEN the
+    envelope's allowance -- see :func:`auto_row_allowance` -- because widening it
+    is what ``EVOGP_DENSE_AUTO_BUDGET_MB`` is for.
+    """
     maximum = (
         _env_int(AUTO_MAX_ROWS_ENV, DEFAULT_AUTO_MAX_ROWS)
         if value is None
         else int(value)
     )
-    if maximum < 1:
+    if maximum < 0:
         raise ValueError(
-            f"{AUTO_MAX_ROWS_ENV}={maximum} must be >= 1 (it is a data-row ceiling)"
+            f"{AUTO_MAX_ROWS_ENV}={maximum} must be >= 0 (0 = unpinned, else it is "
+            "a data-row ceiling)"
         )
     return maximum
 
 
+def resolve_auto_budget_mb(value: Optional[int] = None) -> int:
+    """Resolve the ``auto`` rows rule's memory envelope (``EVOGP_DENSE_AUTO_BUDGET_MB``)."""
+    budget = (
+        _env_int(AUTO_BUDGET_MB_ENV, DEFAULT_AUTO_BUDGET_MB)
+        if value is None
+        else int(value)
+    )
+    if budget < 1:
+        raise ValueError(
+            f"{AUTO_BUDGET_MB_ENV}={budget} must be >= 1 (it is a memory envelope "
+            "in MiB: pop_size * tree_len * rows * 4 bytes)"
+        )
+    return budget
+
+
+def auto_row_allowance(
+    pop_size: Optional[int] = None,
+    tree_len: Optional[int] = None,
+    *,
+    auto_max_rows: Optional[int] = None,
+    auto_budget_mb: Optional[int] = None,
+) -> int:
+    """The ``auto`` policy's data-row allowance for a population of this shape.
+
+    The rule in one line::
+
+        allowance = min( pin , floor(budget_bytes / (pop_size * tree_len * 4)) )
+
+    where ``pin`` is :func:`resolve_auto_max_rows` (``0`` = no pin) and ``budget``
+    is :func:`resolve_auto_budget_mb`.  The bytes term is the memory envelope of
+    the route: ``pop_size * tree_len * rows`` float32 values is the shape of
+    dense's largest intermediate (:func:`dense_peak_bytes`), which is what grows
+    with the data-row count, so it -- not the row count alone -- is what has to be
+    bounded.  ``tree_len`` is the population's row stride (``max_tree_len``), the
+    quantity the benchmark harness calls a cell's ``tree_len``.
+
+    ``0`` means "no allowance limit" and is returned when the shape is unknown
+    (``pop_size``/``tree_len`` is ``None``) *and* no pin is set; an unknown shape
+    can therefore never produce the old, false decline.  Each term is read from
+    its environment variable, so :func:`auto_rows_decline` and
+    :func:`resolve_route` share exactly one implementation.
+    """
+    pin = resolve_auto_max_rows(auto_max_rows)
+    if pop_size is None or tree_len is None:
+        return pin
+    per_row = max(1, int(pop_size)) * max(1, int(tree_len)) * 4
+    budget_rows = max(1, (resolve_auto_budget_mb(auto_budget_mb) * (1 << 20)) // per_row)
+    return budget_rows if pin <= 0 else min(pin, budget_rows)
+
+
 def _rows_decline_reason(
-    rows: Optional[int], *, mode: str, auto_max_rows: Optional[int]
+    rows: Optional[int],
+    *,
+    mode: str,
+    auto_max_rows: Optional[int],
+    pop_size: Optional[int] = None,
+    tree_len: Optional[int] = None,
+    auto_budget_mb: Optional[int] = None,
 ) -> Optional[str]:
     """The rows rule itself: why ``auto`` declines dense at ``rows`` (else ``None``).
 
     Private single source of the half-rule; :func:`auto_rows_decline` (public, mode
     resolved from ``eval_mode``) and :func:`resolve_route` (which already has the
-    resolved mode) both go through it, so the threshold exists once.
+    resolved mode) both go through it, so the allowance exists once.  A decline is
+    reported only when the row count exceeds :func:`auto_row_allowance`; the reason
+    names whichever term bound it (the user's pin or the memory envelope).
     """
     if rows is None or mode != "auto":
         return None
-    maximum = resolve_auto_max_rows(auto_max_rows)
-    if int(rows) <= maximum:
+    allowance = auto_row_allowance(
+        pop_size,
+        tree_len,
+        auto_max_rows=auto_max_rows,
+        auto_budget_mb=auto_budget_mb,
+    )
+    if allowance <= 0 or int(rows) <= allowance:
         return None
+    shape = (
+        f"pop_size={int(pop_size)} x tree_len={int(tree_len)}"
+        if pop_size is not None and tree_len is not None
+        else "an unknown population shape"
+    )
+    pin = resolve_auto_max_rows(auto_max_rows)
+    if pin > 0 and pin <= allowance:
+        return (
+            f"auto policy: {int(rows)} data rows exceed {AUTO_MAX_ROWS_ENV}={pin}, "
+            f"the explicit row ceiling of the dense route at {shape}"
+            + (
+                f" (the {resolve_auto_budget_mb(auto_budget_mb)} MiB envelope alone "
+                f"would allow {allowance} rows and the pin is tighter)"
+                if pop_size is not None and tree_len is not None
+                else ""
+            )
+            + f"; unset it (or set 0) to let {AUTO_BUDGET_MB_ENV} decide, or set "
+            "EVOGP_EVAL_MODE=dense to force the dense route."
+        )
+    budget = resolve_auto_budget_mb(auto_budget_mb)
     return (
-        f"auto policy: {int(rows)} data rows exceed {AUTO_MAX_ROWS_ENV}={maximum}; "
-        "the dense graph is rows-linear while the specialized engine is rows-flat "
-        "(dense measured 1.18x slower at P=16/N=10000 on iree, see "
-        "dense_bench_results.json / dense_bench_findings.md). "
-        "Set EVOGP_EVAL_MODE=dense to force it."
+        f"auto policy: {int(rows)} data rows at {shape} need "
+        f"{int(rows) * max(1, int(pop_size)) * max(1, int(tree_len)) * 4 / 2**30:.2f} "
+        f"GiB in dense's largest intermediate (pop_size * tree_len * rows * 4 "
+        f"bytes), above the {AUTO_BUDGET_MB_ENV}={budget} MiB memory envelope of the "
+        f"route (at most {allowance} rows at that shape). The dense graph sizes its "
+        "buffers by that product while the specialized engine's warm cost is "
+        "rows-flat, so past the envelope the whole-population shape is no longer "
+        f"schedulable. Raise {AUTO_BUDGET_MB_ENV}, pin a smaller ceiling with "
+        f"{AUTO_MAX_ROWS_ENV}, or set EVOGP_EVAL_MODE=dense to force the dense route."
     )
 
 
@@ -771,18 +934,35 @@ def auto_rows_decline(
     *,
     eval_mode: Optional[str] = None,
     auto_max_rows: Optional[int] = None,
+    pop_size: Optional[int] = None,
+    tree_len: Optional[int] = None,
+    auto_budget_mb: Optional[int] = None,
 ) -> Optional[str]:
     """Why the ``auto`` policy declines dense at ``rows`` data rows (else ``None``).
 
-    The single source of the rows rule: dense cost grows with the data-row count
-    while the specialized engine's warm cost is rows-flat, so ``auto`` keeps dense
-    only up to :data:`DEFAULT_AUTO_MAX_ROWS`.  ``rows=None`` (unknown, e.g. a
-    ``per_row=True`` call) never declines.  An explicit ``EVOGP_EVAL_MODE=dense``
-    always wins -- the user's opt-in is not second-guessed, the same way an
-    explicit ``specialized`` is never overridden.
+    The single source of the rows rule, and it is a MEMORY rule, not a row ceiling
+    (:func:`auto_row_allowance`): dense's buffers are sized by
+    ``pop_size * tree_len * rows`` while the specialized engine's warm cost is
+    rows-flat, so what ``auto`` bounds is that product against
+    ``EVOGP_DENSE_AUTO_BUDGET_MB`` (default :data:`DEFAULT_AUTO_BUDGET_MB` = 8192
+    MiB), with ``EVOGP_DENSE_AUTO_MAX_ROWS`` as an optional, tightening row pin.
+
+    ``pop_size`` / ``tree_len`` are the population's shape (``tree_len`` = the row
+    stride, ``max_tree_len``); when either is unknown the envelope cannot be
+    applied and only the pin can decline -- an unknown shape never produces a
+    decline of its own, which is what keeps a rows-only caller from re-creating the
+    old false ceiling.  ``rows=None`` (unknown, e.g. a ``per_row=True`` call) never
+    declines.  An explicit ``EVOGP_EVAL_MODE=dense`` always wins -- the user's
+    opt-in is not second-guessed, the same way an explicit ``specialized`` is never
+    overridden.
     """
     return _rows_decline_reason(
-        rows, mode=resolve_eval_mode(eval_mode), auto_max_rows=auto_max_rows
+        rows,
+        mode=resolve_eval_mode(eval_mode),
+        auto_max_rows=auto_max_rows,
+        pop_size=pop_size,
+        tree_len=tree_len,
+        auto_budget_mb=auto_budget_mb,
     )
 
 
@@ -873,6 +1053,8 @@ def resolve_route(
     eval_mode: Optional[str] = None,
     auto_min_pop: Optional[int] = None,
     auto_max_rows: Optional[int] = None,
+    tree_len: Optional[int] = None,
+    auto_budget_mb: Optional[int] = None,
 ) -> Route:
     """The ONE route policy: which engine (dense / batch / specialized), and on which backend.
 
@@ -899,7 +1081,7 @@ def resolve_route(
       population itself (``EVOGP_BATCH_MIN_POP``) with a ``BatchUnsupported``.
     * ``auto`` with an explicit backend -> the historical rule: dense iff that
       backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
-      *and* ``rows`` (when given) is inside ``EVOGP_DENSE_AUTO_MAX_ROWS``.
+      *and* ``rows`` (when given) fits :func:`auto_row_allowance`.
     * ``auto`` without an explicit backend -> the policy owns the backend: dense on
       ``iree`` from ``EVOGP_DENSE_AUTO_MIN_POP`` (64) up when a device is
       available, and ``numpy`` for the specialized route -- below the threshold,
@@ -907,6 +1089,16 @@ def resolve_route(
       compile costs 271-284 ms/tree and can never amortize).
     ``auto`` NEVER selects the batch engine: that half of the policy is exactly
     the dense / specialized rule above.
+
+    The rows half is a MEMORY rule (:func:`auto_rows_decline`): ``rows`` is inside
+    the allowance only while ``pop_size * tree_len * rows * 4`` bytes fit
+    ``EVOGP_DENSE_AUTO_BUDGET_MB`` (and ``rows`` does not exceed an explicit
+    ``EVOGP_DENSE_AUTO_MAX_ROWS`` pin).  ``tree_len`` is the population's row
+    stride (``max_tree_len``) and is OPTIONAL: the wired call sites do not know it,
+    so they pass ``pop_size`` only and :func:`evaluate_dense` /
+    :func:`sr_fitness_dense` enforce the envelope where the shape IS known -- with
+    an unknown ``tree_len`` this function can only apply the pin, never a
+    shape-derived decline.
     """
     mode = resolve_eval_mode(eval_mode)
     explicit = str(backend).strip() if backend else os.environ.get(BACKEND_ENV, "").strip()
@@ -962,7 +1154,14 @@ def resolve_route(
         )
 
     minimum = resolve_auto_min_pop(auto_min_pop)
-    decline = _rows_decline_reason(rows, mode=mode, auto_max_rows=auto_max_rows)
+    decline = _rows_decline_reason(
+        rows,
+        mode=mode,
+        auto_max_rows=auto_max_rows,
+        pop_size=pop_size,
+        tree_len=tree_len,
+        auto_budget_mb=auto_budget_mb,
+    )
     if explicit:
         # An explicit backend keeps the historical auto rule exactly.
         name = resolve_backend_name(backend, iree_device_index)
@@ -1024,6 +1223,8 @@ def should_use_dense(
     auto_min_pop: Optional[int] = None,
     rows: Optional[int] = None,
     auto_max_rows: Optional[int] = None,
+    tree_len: Optional[int] = None,
+    auto_budget_mb: Optional[int] = None,
 ) -> bool:
     """The ONE policy decision: try the dense evaluator for this population?
 
@@ -1034,7 +1235,10 @@ def should_use_dense(
     ``resolve_route(...).fallback_backend``.  It is ``False`` for the ``batch``
     engine as well (that route is reported by ``Route.engine``, never by this
     flag).  ``pop_size`` is the population about to be evaluated (``1`` for a
-    ``Tree``).
+    ``Tree``); ``rows``/``tree_len`` describe the data plane and are optional --
+    without ``tree_len`` the rows rule can only apply the
+    ``EVOGP_DENSE_AUTO_MAX_ROWS`` pin, and the memory envelope is enforced by
+    :func:`evaluate_dense` / :func:`sr_fitness_dense`, which know the real shape.
     """
     return resolve_route(
         pop_size,
@@ -1044,6 +1248,8 @@ def should_use_dense(
         eval_mode=eval_mode,
         auto_min_pop=auto_min_pop,
         auto_max_rows=auto_max_rows,
+        tree_len=tree_len,
+        auto_budget_mb=auto_budget_mb,
     ).use_dense
 
 
@@ -1160,7 +1366,7 @@ def _warn_trace_cap(longest: int, cap: int, row_len: int, backend_name: str) -> 
 
     Every other :class:`DenseUnsupported` decline stays silent by design: the
     specialized engine is the cheap (or the only correct) answer there --
-    multi-output, a structural doubt, the ``auto`` rows ceiling -- and numpy is
+    multi-output, a structural doubt, the ``auto`` rows rule -- and numpy is
     cheap there too.  An over-cap tree on a NON-numpy backend is the exception:
     the fallback compiles one graph PER DISTINCT TREE STRUCTURE (~0.5-2.6 s
     each, i.e. up to ``pop_size`` compiles for a fresh population) where the
@@ -2014,6 +2220,25 @@ def _decline_rows(x: Any) -> Optional[int]:
     return None
 
 
+def _population_shape(batch_subtree_size: Any) -> Tuple[Optional[int], Optional[int]]:
+    """``(pop_size, tree_len)`` of the population tensors from their SHAPE only.
+
+    ``tree_len`` is the row stride (``max_tree_len``), the quantity
+    :func:`auto_row_allowance` sizes the memory envelope with.  Like
+    :func:`_decline_rows` this reads ``.shape`` and nothing else, so a declined
+    attempt pays neither a device-to-host copy nor a host conversion; anything
+    without a 2-D shape yields ``(None, None)``, which makes the envelope
+    inapplicable (only the row pin can decline then).
+    """
+    shape = getattr(batch_subtree_size, "shape", None)
+    try:
+        if shape is not None and len(shape) == 2:
+            return int(shape[0]), int(shape[1])
+    except (TypeError, ValueError):  # pragma: no cover - exotic shape objects
+        return None, None
+    return None, None
+
+
 def _resident_array(tensor: Any, dtype: Any, name: str) -> np.ndarray:
     """Memoized :func:`evoxc_engine._as_numpy`: the host copy of an unchanged tensor.
 
@@ -2602,15 +2827,19 @@ def evaluate_dense(
             fall back to ``evoxc_engine.decode_population`` + ``evaluate``.
     """
     # The wired call sites hand us only ``pop_size``, so the ``auto`` rows rule
-    # (``EVOGP_DENSE_AUTO_MAX_ROWS``) is enforced here, where the row count is
-    # known: a decline is reported the way every other "do not use dense" answer
-    # is, i.e. as DenseUnsupported, and the caller falls back to the specialized
-    # engine.  ``per_row=True`` sees one row per tree and is never gated.  The
-    # check runs BEFORE the host conversion of ``x``, so a declined call pays
-    # neither the D2H nor (on the memoized path) anything else.
+    # (``EVOGP_DENSE_AUTO_BUDGET_MB`` / ``EVOGP_DENSE_AUTO_MAX_ROWS``) is enforced
+    # here, where BOTH halves of the envelope's "shape" are known: the data-row
+    # count from ``x`` and the population's ``(pop_size, tree_len)`` from the
+    # population tensors.  A decline is reported the way every other "do not use
+    # dense" answer is, i.e. as DenseUnsupported, and the caller falls back to the
+    # specialized engine.  ``per_row=True`` sees one row per tree and is never
+    # gated.  The check runs BEFORE the host conversion of ``x`` (the population
+    # shape is read from ``.shape`` only), so a declined call pays neither the D2H
+    # nor (on the memoized path) anything else.
+    pop_size, tree_len = _population_shape(batch_subtree_size)
     rows = None if per_row else _decline_rows(x)
     if rows is not None:
-        decline = auto_rows_decline(rows)
+        decline = auto_rows_decline(rows, pop_size=pop_size, tree_len=tree_len)
         if decline:
             raise DenseUnsupported(decline)
     query = _resident_array(x, np.float32, "x")
@@ -2619,7 +2848,9 @@ def evaluate_dense(
             f"x must be 2-D (rows, {int(input_len)}), got shape {query.shape}"
         )
     if rows is None and not per_row:  # row count known only after the conversion
-        decline = auto_rows_decline(int(query.shape[0]))
+        decline = auto_rows_decline(
+            int(query.shape[0]), pop_size=pop_size, tree_len=tree_len
+        )
         if decline:
             raise DenseUnsupported(decline)
     entry = _plan_entry(
@@ -2709,18 +2940,23 @@ def sr_fitness_dense(
 
     A call that is going to decline (:func:`auto_rows_decline`) now declines
     from ``inputs.shape`` BEFORE any host conversion, so a declined attempt pays
-    nothing at all.
+    nothing at all: the row count and the population's ``(pop_size, tree_len)``
+    both come from ``.shape``, which is what the memory envelope
+    (``pop_size * tree_len * rows * 4`` bytes) is computed from.
     """
+    pop_size, tree_len = _population_shape(batch_subtree_size)
     rows = _decline_rows(inputs)
     if rows is not None:
-        decline = auto_rows_decline(rows)
+        decline = auto_rows_decline(rows, pop_size=pop_size, tree_len=tree_len)
         if decline:
             raise DenseUnsupported(decline)
     xt = _resident_input(inputs, int(input_len), "inputs")
     if xt.shape[0] <= 0:
         raise ValueError("sr_fitness needs at least one data point, got 0 rows")
     if rows is None:  # not a torch-tensor-shaped input: gate after the conversion
-        decline = auto_rows_decline(int(xt.shape[0]))
+        decline = auto_rows_decline(
+            int(xt.shape[0]), pop_size=pop_size, tree_len=tree_len
+        )
         if decline:
             raise DenseUnsupported(decline)
     label = _resident_array(labels, np.float32, "labels")
