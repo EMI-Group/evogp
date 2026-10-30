@@ -1,10 +1,10 @@
 {
  "env": {
   "schema": "evogp-bench-evoxc-v1",
-  "created_utc": "2026-10-30T11:24:06Z",
-  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A43/src",
-  "tree_root_sha": "e41f704ef6b3dd338ade76864e61ec2dfd6d6ad1",
-  "cwd": "/root/evogp/.genesis/workers/worker_T1_A43",
+  "created_utc": "2026-10-30T14:42:04Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A58/src",
+  "tree_root_sha": "6cdd68be8fe0d21a6ec906da383b69ddb1c62496",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A58",
   "arm": "evoxc-auto",
   "python": "3.12.3",
   "python_executable": "/tmp/rocvenv/bin/python",
@@ -17,11 +17,11 @@
   "iree_base_runtime": "3.11.0",
   "evoxc_path": "/root/evoxc/.genesis/workers/worker_T1_A1/evoxc/__init__.py",
   "evoxc_sha": "be145eee52053422c77694e072700a8314d0346d",
-  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A43/src/evogp/__init__.py",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A58/src/evogp/__init__.py",
   "gpu": "AMD Instinct MI300X VF",
   "gpu_total_memory_gb": 191.7,
   "knobs": {
-   "EVOGP_BENCH_ARTIFACT_DIR": "/root/evogp/.genesis/workers/worker_T1_A43/test/benchmark/evoxc/results/largescale2/main/artifacts",
+   "EVOGP_BENCH_ARTIFACT_DIR": "/root/evogp/.genesis/workers/worker_T1_A58/test/benchmark/evoxc/results/largescale2/main/artifacts",
    "EVOXC_DISABLE_LOCATIONS": "1"
   },
   "evoxc_version": "0.0.0+unknown",
@@ -60,7 +60,9 @@
   "gp_warmup": 1,
   "gp_reps": 5,
   "workloads": [
-   "sr_fitness"
+   "sr_fitness",
+   "forward",
+   "batch_forward"
   ],
   "seed": 0,
   "sync_bracketed": true
@@ -99,20 +101,20 @@
  },
  "workloads": {
   "sr_fitness": {
-   "first_call_ms": 16522.4387,
+   "first_call_ms": 14314.9956,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    821.9818,
-    857.2231,
-    860.8546,
-    869.8556,
-    826.7753
+    105.6573,
+    105.9597,
+    105.8981,
+    105.7543,
+    105.792
    ],
-   "median_ms": 857.2231,
-   "min_ms": 821.9818,
-   "max_ms": 869.8556,
-   "mean_ms": 847.3381,
+   "median_ms": 105.792,
+   "min_ms": 105.6573,
+   "max_ms": 105.9597,
+   "mean_ms": 105.8123,
    "cache": {
     "before": {
      "hits": 0,
@@ -126,53 +128,200 @@
     },
     "after_first_call": {
      "hits": 0,
-     "misses": 1642,
-     "entries": 1642,
+     "misses": 1,
+     "entries": 1,
      "maxsize": 4096,
-     "memo_hits": 179,
-     "memo_misses": 1642,
-     "memo_entries": 1642,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
      "memo_maxsize": 4096
     },
     "after": {
      "hits": 0,
-     "misses": 1642,
-     "entries": 1642,
+     "misses": 1,
+     "entries": 1,
      "maxsize": 4096,
-     "memo_hits": 12926,
-     "memo_misses": 1642,
-     "memo_entries": 1642,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
      "memo_maxsize": 4096
     },
-    "compile_misses_this_workload": 1642,
-    "compile_misses_first_call": 1642
+    "compile_misses_this_workload": 1,
+    "compile_misses_first_call": 1
    },
    "digest": {
     "shape": [
      2048
     ],
-    "sha256": "7490a11b4234a35ae8182a465c2f418a",
+    "sha256": "57728831d80ca0e78440c15b65f7e064",
     "finite": 2004,
     "nan": 44,
     "posinf": 0,
     "neginf": 0,
-    "abs_sum": 1.1775220294534817e+20
+    "abs_sum": 1.1775220339137849e+20
+   }
+  },
+  "forward": {
+   "first_call_ms": 10972.7653,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    1.4332,
+    1.4223,
+    1.3798,
+    1.3623,
+    1.3649
+   ],
+   "median_ms": 1.3798,
+   "min_ms": 1.3623,
+   "max_ms": 1.4332,
+   "mean_ms": 1.3925,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 1,
+     "entries": 1,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 2,
+     "entries": 2,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 2,
+     "entries": 2,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 1,
+    "compile_misses_first_call": 1
+   },
+   "digest": {
+    "shape": [
+     2048,
+     1
+    ],
+    "sha256": "5f336e24b6a23726073a25859f64ef16",
+    "finite": 2004,
+    "nan": 44,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 9503800.365548933
+   }
+  },
+  "batch_forward": {
+   "first_call_ms": 14175.868,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    110.2813,
+    110.1266,
+    110.3901,
+    110.6179,
+    110.3367
+   ],
+   "median_ms": 110.3367,
+   "min_ms": 110.1266,
+   "max_ms": 110.6179,
+   "mean_ms": 110.3505,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 2,
+     "entries": 2,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 3,
+     "entries": 3,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 3,
+     "entries": 3,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 1,
+    "compile_misses_first_call": 1
+   },
+   "digest": {
+    "shape": [
+     2048,
+     1024,
+     1
+    ],
+    "sha256": "5a21db2c9c85d97de609c629c3352166",
+    "finite": 2052096,
+    "nan": 45056,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 1053685184093.8474
    }
   }
  },
  "gp_step": null,
  "notes": [
-  "largescale2 second half. d7 evoxc-dense-iree is NOT re-run: the first attempt OOM-killed the job unit (memcg 200G, kernel log 11:02:24) and a bounded re-run recorded status timeout at 247.6s (its .log is retained, no .json)."
+  "d7 cell: plain evoxc-dense-iree stays unscheduled (cap declines into 1664 per-structure compiles, cgroup OOM)"
  ],
+ "auto_trace_cap": {
+  "available": true,
+  "auto_max_tree_len": 256,
+  "tree_len_max": 123,
+  "row_len": 128,
+  "cap_pinned": false,
+  "base_cap": 64,
+  "caps": {
+   "sr_fitness": {
+    "auto": 128,
+    "dense": 64
+   },
+   "batch_forward": {
+    "auto": 128,
+    "dense": 64
+   },
+   "forward": {
+    "auto": 128,
+    "dense": 64
+   }
+  }
+ },
  "setup_ms": 0.0,
  "engine_cache_final": {
   "hits": 0,
-  "misses": 1642,
-  "entries": 1642,
+  "misses": 3,
+  "entries": 3,
   "maxsize": 4096,
-  "memo_hits": 12926,
-  "memo_misses": 1642,
-  "memo_entries": 1642,
+  "memo_hits": 0,
+  "memo_misses": 0,
+  "memo_entries": 0,
   "memo_maxsize": 4096
  },
  "dense_policy": {

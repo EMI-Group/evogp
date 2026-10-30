@@ -1,10 +1,10 @@
 {
  "env": {
   "schema": "evogp-bench-evoxc-v1",
-  "created_utc": "2026-10-30T10:46:37Z",
-  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A42/src",
-  "tree_root_sha": "c652230a64d8447fc40374e916351a6a529e8183",
-  "cwd": "/root/evogp/.genesis/workers/worker_T1_A42",
+  "created_utc": "2026-10-30T14:20:08Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A58/src",
+  "tree_root_sha": "6cdd68be8fe0d21a6ec906da383b69ddb1c62496",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A58",
   "arm": "torch-per-tree",
   "python": "3.12.3",
   "python_executable": "/tmp/rocvenv/bin/python",
@@ -17,11 +17,11 @@
   "iree_base_runtime": "3.11.0",
   "evoxc_path": "/root/evoxc/.genesis/workers/worker_T1_A1/evoxc/__init__.py",
   "evoxc_sha": "be145eee52053422c77694e072700a8314d0346d",
-  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A42/src/evogp/__init__.py",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A58/src/evogp/__init__.py",
   "gpu": "AMD Instinct MI300X VF",
   "gpu_total_memory_gb": 191.7,
   "knobs": {
-   "EVOGP_BENCH_ARTIFACT_DIR": "/root/evogp/.genesis/workers/worker_T1_A42/test/benchmark/evoxc/results/largescale2/main/artifacts",
+   "EVOGP_BENCH_ARTIFACT_DIR": "/root/evogp/.genesis/workers/worker_T1_A58/test/benchmark/evoxc/results/largescale2/main/artifacts",
    "EVOXC_DISABLE_LOCATIONS": "1"
   },
   "evoxc_version": "0.0.0+unknown",
@@ -59,7 +59,9 @@
   "gp_warmup": 1,
   "gp_reps": 5,
   "workloads": [
-   "sr_fitness"
+   "sr_fitness",
+   "forward",
+   "batch_forward"
   ],
   "seed": 0,
   "sync_bracketed": true
@@ -98,20 +100,20 @@
  },
  "workloads": {
   "sr_fitness": {
-   "first_call_ms": 157.7332,
+   "first_call_ms": 157.6223,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    31.2664,
-    31.5065,
-    30.868,
-    30.6539,
-    30.5499
+    31.0701,
+    30.6637,
+    30.851,
+    30.1738,
+    30.9529
    ],
-   "median_ms": 30.868,
-   "min_ms": 30.5499,
-   "max_ms": 31.5065,
-   "mean_ms": 30.9689,
+   "median_ms": 30.851,
+   "min_ms": 30.1738,
+   "max_ms": 31.0701,
+   "mean_ms": 30.7423,
    "cache": {
     "before": {
      "hits": 0,
@@ -157,13 +159,161 @@
     "neginf": 0,
     "abs_sum": 5.185975336729443e+18
    }
+  },
+  "forward": {
+   "first_call_ms": 23.7518,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    23.3157,
+    22.1641,
+    23.9293,
+    23.877,
+    22.848
+   ],
+   "median_ms": 23.3157,
+   "min_ms": 22.1641,
+   "max_ms": 23.9293,
+   "mean_ms": 23.2268,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 0,
+    "compile_misses_first_call": 0
+   },
+   "digest": {
+    "shape": [
+     256,
+     1
+    ],
+    "sha256": "62f1e4def9378b547741dbc8651ac4c0",
+    "finite": 256,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 16508.491063792026
+   }
+  },
+  "batch_forward": {
+   "first_call_ms": 24.5313,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    23.5342,
+    23.749,
+    23.3817,
+    25.3658,
+    24.0133
+   ],
+   "median_ms": 23.749,
+   "min_ms": 23.3817,
+   "max_ms": 25.3658,
+   "mean_ms": 24.0088,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 0,
+     "entries": 0,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 0,
+    "compile_misses_first_call": 0
+   },
+   "digest": {
+    "shape": [
+     256,
+     16384,
+     1
+    ],
+    "sha256": "e2076327abc38a9a31385c87d661f3a0",
+    "finite": 4194304,
+    "nan": 0,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 321335319962.2065
+   }
   }
  },
  "gp_step": null,
  "notes": [
+  "3-workload re-measure for the headline column; fresh window replication of the sr_fitness table",
   "torch arm: the tree decode / batched plan is built once, outside the timed region (setup_ms); per-call cost is torch ops only"
  ],
- "setup_ms": 2.7002,
+ "auto_trace_cap": {
+  "available": true,
+  "auto_max_tree_len": 256,
+  "tree_len_max": 31,
+  "row_len": 64,
+  "cap_pinned": false,
+  "base_cap": 64,
+  "caps": {
+   "sr_fitness": {
+    "auto": 64,
+    "dense": 64
+   },
+   "batch_forward": {
+    "auto": 64,
+    "dense": 64
+   },
+   "forward": {
+    "auto": 64,
+    "dense": 64
+   }
+  }
+ },
+ "setup_ms": 2.7064,
  "engine_cache_final": {
   "hits": 0,
   "misses": 0,

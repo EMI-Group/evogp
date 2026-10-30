@@ -1,10 +1,10 @@
 {
  "env": {
   "schema": "evogp-bench-evoxc-v1",
-  "created_utc": "2026-10-30T10:35:57Z",
-  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A42/src",
-  "tree_root_sha": "c652230a64d8447fc40374e916351a6a529e8183",
-  "cwd": "/root/evogp/.genesis/workers/worker_T1_A42",
+  "created_utc": "2026-10-30T14:03:04Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A58/src",
+  "tree_root_sha": "6cdd68be8fe0d21a6ec906da383b69ddb1c62496",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A58",
   "arm": "evoxc-auto",
   "python": "3.12.3",
   "python_executable": "/tmp/rocvenv/bin/python",
@@ -17,11 +17,11 @@
   "iree_base_runtime": "3.11.0",
   "evoxc_path": "/root/evoxc/.genesis/workers/worker_T1_A1/evoxc/__init__.py",
   "evoxc_sha": "be145eee52053422c77694e072700a8314d0346d",
-  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A42/src/evogp/__init__.py",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A58/src/evogp/__init__.py",
   "gpu": "AMD Instinct MI300X VF",
   "gpu_total_memory_gb": 191.7,
   "knobs": {
-   "EVOGP_BENCH_ARTIFACT_DIR": "/root/evogp/.genesis/workers/worker_T1_A42/test/benchmark/evoxc/results/largescale2/main/artifacts",
+   "EVOGP_BENCH_ARTIFACT_DIR": "/root/evogp/.genesis/workers/worker_T1_A58/test/benchmark/evoxc/results/largescale2/main/artifacts",
    "EVOXC_DISABLE_LOCATIONS": "1"
   },
   "evoxc_version": "0.0.0+unknown",
@@ -60,7 +60,9 @@
   "gp_warmup": 1,
   "gp_reps": 5,
   "workloads": [
-   "sr_fitness"
+   "sr_fitness",
+   "forward",
+   "batch_forward"
   ],
   "seed": 0,
   "sync_bracketed": true
@@ -99,20 +101,20 @@
  },
  "workloads": {
   "sr_fitness": {
-   "first_call_ms": 6619.0901,
+   "first_call_ms": 6770.2379,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    11.0172,
-    10.9665,
-    11.0781,
-    11.0193,
-    10.9669
+    11.0325,
+    10.9909,
+    10.9875,
+    11.0916,
+    11.0109
    ],
-   "median_ms": 11.0172,
-   "min_ms": 10.9665,
-   "max_ms": 11.0781,
-   "mean_ms": 11.0096,
+   "median_ms": 11.0109,
+   "min_ms": 10.9875,
+   "max_ms": 11.0916,
+   "mean_ms": 11.0227,
    "cache": {
     "before": {
      "hits": 0,
@@ -158,15 +160,164 @@
     "neginf": 0,
     "abs_sum": 126371126618432.19
    }
+  },
+  "forward": {
+   "first_call_ms": 5930.6158,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    0.9172,
+    0.8822,
+    0.8525,
+    0.8698,
+    0.8524
+   ],
+   "median_ms": 0.8698,
+   "min_ms": 0.8524,
+   "max_ms": 0.9172,
+   "mean_ms": 0.8748,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 1,
+     "entries": 1,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 2,
+     "entries": 2,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 2,
+     "entries": 2,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 1,
+    "compile_misses_first_call": 1
+   },
+   "digest": {
+    "shape": [
+     2048,
+     1
+    ],
+    "sha256": "a0769faa3a5d5ce06d77b9970007d213",
+    "finite": 2031,
+    "nan": 17,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 404056.8509792427
+   }
+  },
+  "batch_forward": {
+   "first_call_ms": 6605.2471,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    14.8655,
+    14.9433,
+    14.9979,
+    14.7572,
+    14.7471
+   ],
+   "median_ms": 14.8655,
+   "min_ms": 14.7471,
+   "max_ms": 14.9979,
+   "mean_ms": 14.8622,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 2,
+     "entries": 2,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 3,
+     "entries": 3,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 3,
+     "entries": 3,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 1,
+    "compile_misses_first_call": 1
+   },
+   "digest": {
+    "shape": [
+     2048,
+     1024,
+     1
+    ],
+    "sha256": "22a0311d4541bde860f83fdf4d52f0ec",
+    "finite": 2079744,
+    "nan": 17408,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 1325303486.3248992
+   }
   }
  },
  "gp_step": null,
- "notes": [],
+ "notes": [
+  "3-workload re-measure for the headline column; fresh window replication of the sr_fitness table"
+ ],
+ "auto_trace_cap": {
+  "available": true,
+  "auto_max_tree_len": 256,
+  "tree_len_max": 31,
+  "row_len": 64,
+  "cap_pinned": false,
+  "base_cap": 64,
+  "caps": {
+   "sr_fitness": {
+    "auto": 64,
+    "dense": 64
+   },
+   "batch_forward": {
+    "auto": 64,
+    "dense": 64
+   },
+   "forward": {
+    "auto": 64,
+    "dense": 64
+   }
+  }
+ },
  "setup_ms": 0.0,
  "engine_cache_final": {
   "hits": 0,
-  "misses": 1,
-  "entries": 1,
+  "misses": 3,
+  "entries": 3,
   "maxsize": 4096,
   "memo_hits": 0,
   "memo_misses": 0,

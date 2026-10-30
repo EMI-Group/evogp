@@ -1,10 +1,10 @@
 {
  "env": {
   "schema": "evogp-bench-evoxc-v1",
-  "created_utc": "2026-10-30T11:32:43Z",
-  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A43/src",
-  "tree_root_sha": "e41f704ef6b3dd338ade76864e61ec2dfd6d6ad1",
-  "cwd": "/root/evogp/.genesis/workers/worker_T1_A43",
+  "created_utc": "2026-10-30T14:30:29Z",
+  "tree_root": "/root/evogp/.genesis/workers/worker_T1_A58/src",
+  "tree_root_sha": "6cdd68be8fe0d21a6ec906da383b69ddb1c62496",
+  "cwd": "/root/evogp/.genesis/workers/worker_T1_A58",
   "arm": "evoxc-auto",
   "python": "3.12.3",
   "python_executable": "/tmp/rocvenv/bin/python",
@@ -17,11 +17,11 @@
   "iree_base_runtime": "3.11.0",
   "evoxc_path": "/root/evoxc/.genesis/workers/worker_T1_A1/evoxc/__init__.py",
   "evoxc_sha": "be145eee52053422c77694e072700a8314d0346d",
-  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A43/src/evogp/__init__.py",
+  "evogp_file": "/root/evogp/.genesis/workers/worker_T1_A58/src/evogp/__init__.py",
   "gpu": "AMD Instinct MI300X VF",
   "gpu_total_memory_gb": 191.7,
   "knobs": {
-   "EVOGP_BENCH_ARTIFACT_DIR": "/root/evogp/.genesis/workers/worker_T1_A43/test/benchmark/evoxc/results/largescale2/main/artifacts",
+   "EVOGP_BENCH_ARTIFACT_DIR": "/root/evogp/.genesis/workers/worker_T1_A58/test/benchmark/evoxc/results/largescale2/main/artifacts",
    "EVOXC_DISABLE_LOCATIONS": "1"
   },
   "evoxc_version": "0.0.0+unknown",
@@ -60,7 +60,9 @@
   "gp_warmup": 1,
   "gp_reps": 5,
   "workloads": [
-   "sr_fitness"
+   "sr_fitness",
+   "forward",
+   "batch_forward"
   ],
   "seed": 0,
   "sync_bracketed": true
@@ -99,20 +101,20 @@
  },
  "workloads": {
   "sr_fitness": {
-   "first_call_ms": 6689.2163,
+   "first_call_ms": 6990.7025,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    36.8179,
-    36.835,
-    36.8234,
-    37.0028,
-    36.9173
+    37.273,
+    37.2381,
+    37.0405,
+    37.2488,
+    37.2749
    ],
-   "median_ms": 36.835,
-   "min_ms": 36.8179,
-   "max_ms": 37.0028,
-   "mean_ms": 36.8793,
+   "median_ms": 37.2488,
+   "min_ms": 37.0405,
+   "max_ms": 37.2749,
+   "mean_ms": 37.2151,
    "cache": {
     "before": {
      "hits": 0,
@@ -158,17 +160,164 @@
     "neginf": 0,
     "abs_sum": 3.4899082063232824e+16
    }
+  },
+  "forward": {
+   "first_call_ms": 5478.2875,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    0.9135,
+    0.9075,
+    0.8969,
+    0.8588,
+    0.9095
+   ],
+   "median_ms": 0.9075,
+   "min_ms": 0.8588,
+   "max_ms": 0.9135,
+   "mean_ms": 0.8972,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 1,
+     "entries": 1,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 2,
+     "entries": 2,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 2,
+     "entries": 2,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 1,
+    "compile_misses_first_call": 1
+   },
+   "digest": {
+    "shape": [
+     4096,
+     1
+    ],
+    "sha256": "2d7089d22acc2c9293820b286836c8be",
+    "finite": 4071,
+    "nan": 25,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 6634070.096362006
+   }
+  },
+  "batch_forward": {
+   "first_call_ms": 6560.6008,
+   "warmup": 2,
+   "reps": 5,
+   "samples_ms": [
+    46.7682,
+    46.478,
+    46.6005,
+    46.7458,
+    46.7415
+   ],
+   "median_ms": 46.7415,
+   "min_ms": 46.478,
+   "max_ms": 46.7682,
+   "mean_ms": 46.6668,
+   "cache": {
+    "before": {
+     "hits": 0,
+     "misses": 2,
+     "entries": 2,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after_first_call": {
+     "hits": 0,
+     "misses": 3,
+     "entries": 3,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "after": {
+     "hits": 0,
+     "misses": 3,
+     "entries": 3,
+     "maxsize": 4096,
+     "memo_hits": 0,
+     "memo_misses": 0,
+     "memo_entries": 0,
+     "memo_maxsize": 4096
+    },
+    "compile_misses_this_workload": 1,
+    "compile_misses_first_call": 1
+   },
+   "digest": {
+    "shape": [
+     4096,
+     1024,
+     1
+    ],
+    "sha256": "e9a2ab8c4e283a010e5ffdfb8e7dcd6e",
+    "finite": 4168704,
+    "nan": 25600,
+    "posinf": 0,
+    "neginf": 0,
+    "abs_sum": 14183414509.772587
+   }
   }
  },
  "gp_step": null,
  "notes": [
-  "largescale2 second half. d7 evoxc-dense-iree is NOT re-run: the first attempt OOM-killed the job unit (memcg 200G, kernel log 11:02:24) and a bounded re-run recorded status timeout at 247.6s (its .log is retained, no .json)."
+  "3-workload re-measure for the headline column; fresh window replication of the sr_fitness table"
  ],
+ "auto_trace_cap": {
+  "available": true,
+  "auto_max_tree_len": 256,
+  "tree_len_max": 31,
+  "row_len": 64,
+  "cap_pinned": false,
+  "base_cap": 64,
+  "caps": {
+   "sr_fitness": {
+    "auto": 64,
+    "dense": 64
+   },
+   "batch_forward": {
+    "auto": 64,
+    "dense": 64
+   },
+   "forward": {
+    "auto": 64,
+    "dense": 64
+   }
+  }
+ },
  "setup_ms": 0.0,
  "engine_cache_final": {
   "hits": 0,
-  "misses": 1,
-  "entries": 1,
+  "misses": 3,
+  "entries": 3,
   "maxsize": 4096,
   "memo_hits": 0,
   "memo_misses": 0,
