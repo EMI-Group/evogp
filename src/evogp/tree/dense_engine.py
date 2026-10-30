@@ -163,14 +163,17 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
     :class:`evogp.tree.fused_engine.FusedUnsupported`.  It runs on the TORCH
     device rather than on an evoxc backend, so it uses the same ``iree`` backend
     SPELLING the other device routes use (the facade declines for any other name)
-    and its fallback is always specialized+``numpy`` -- a per-tree compile can
-    never amortize after a decline.  With no explicit backend it needs a device
-    usable from torch and ``pop_size >= EVOGP_FUSED_MIN_POP`` (default 16 -- the
-    kernel is flat in ``pop_size``, 0.088-0.103 ms from pop 1 to 128, so the
-    threshold only keeps a one-shot ``Tree`` off a cold Triton JIT); below that
-    threshold, or with no device, the route IS specialized+``numpy`` (the engine
-    field stays ``"specialized"``).  ``auto`` NEVER selects this engine, so the
-    fused route is reached only through an explicit ``EVOGP_EVAL_MODE=fused``.
+    and its fallback is ALWAYS specialized on ``numpy`` -- the explicit-backend
+    arm included, even when ``EVOGP_EVOXC_BACKEND`` names ``iree``, because a
+    per-tree iree compile can never amortize after a decline (the explicit
+    spelling drives ``backend`` only, never ``fallback_backend``).  With no
+    explicit backend it needs a device usable from torch and
+    ``pop_size >= EVOGP_FUSED_MIN_POP`` (default 16 -- the kernel is flat in
+    ``pop_size``, 0.088-0.103 ms from pop 1 to 128, so the threshold only keeps a
+    one-shot ``Tree`` off a cold Triton JIT); below that threshold, or with no
+    device, the route IS specialized+``numpy`` (the engine field stays
+    ``"specialized"``).  ``auto`` NEVER selects this engine, so the fused route is
+    reached only through an explicit ``EVOGP_EVAL_MODE=fused``.
 
 Any other value raises ``ValueError`` naming the variable.  The dense-specific
 knobs below stay as they are.
@@ -1537,9 +1540,10 @@ def resolve_route(
       (``iree``, the spelling every device route uses) while a device is usable
       from torch AND ``pop_size >= EVOGP_FUSED_MIN_POP``; otherwise the route IS
       specialized+``numpy`` (``engine`` stays ``"specialized"``, so the call site
-      behaves exactly like the pre-existing routes).  The fallback is always
-      specialized+``numpy``: the fused route has no numpy twin, and a per-tree
-      compile can never amortize after a decline.
+      behaves exactly like the pre-existing routes).  The fallback is ALWAYS
+      specialized on ``numpy`` -- the explicit-backend arm included, even when
+      ``EVOGP_EVOXC_BACKEND`` names ``iree``: the fused route has no numpy twin,
+      and a per-tree iree compile can never amortize after a decline.
     * ``auto`` with an explicit backend -> the historical rule: dense iff that
       backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
       *and* ``rows`` (when given) fits :func:`auto_row_allowance`.
@@ -1604,13 +1608,16 @@ def resolve_route(
         # Opt-in FOURTH engine: the Triton kernel route.  It runs on the TORCH
         # device rather than on an evoxc backend, so it uses the same "iree"
         # backend spelling the other device routes use (the facade declines for any
-        # other name), and its fallback is always specialized+numpy: a per-tree
-        # compile can never amortize after a decline.
+        # other name), and its fallback is ALWAYS specialized+numpy -- the explicit
+        # arm included: a per-tree iree compile can never amortize after a decline
+        # (the same reasoning as the batch route's non-explicit arms), so the
+        # explicit spelling drives ``backend`` only, never ``fallback_backend``.
         if explicit:
             name = resolve_backend_name(backend, iree_device_index)
-            return Route(False, name, name,
+            return Route(False, name, "numpy",
                          "EVOGP_EVAL_MODE=fused: always attempt the fused (Triton) "
-                         f"evaluator on the explicit {name!r} backend", engine="fused")
+                         f"evaluator on the explicit {name!r} backend (specialized "
+                         "fallback on numpy)", engine="fused")
         if not device_available():
             return Route(False, "numpy", "numpy",
                          "EVOGP_EVAL_MODE=fused: no CUDA/HIP device usable from torch "
