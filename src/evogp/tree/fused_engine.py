@@ -394,6 +394,21 @@ def _decline_if_numpy(backend: Optional[str]) -> None:
         )
 
 
+def _launch(launcher, *args, **kwargs):
+    """Call a launch helper, mapping "no triton" onto the facade's decline.
+
+    :func:`fused_kernels.kernels` raises :class:`fused_kernels.FusedUnavailable`
+    when the actual import (or the libdevice layout) fails, which
+    :func:`fused_available` cannot see because it answers from
+    ``importlib.util.find_spec`` without importing anything.  A caller must get
+    the documented ``FusedUnsupported`` decline in that case too -- never an
+    ``ImportError`` out of a route it was told is optional.
+    """
+    try:
+        return launcher(*args, **kwargs)
+    except fused_kernels.FusedUnavailable as exc:
+        raise FusedUnsupported(str(exc)) from exc
+
 def _require_available() -> None:
     """Decline when the box cannot run Triton at all."""
     if not torch.cuda.is_available():
@@ -663,7 +678,8 @@ def _evaluate_fused(
 
     if per_row:
         # Tree t reads x[t]; no transpose is needed (a scalar load per VAR node).
-        out = fused_kernels.launch_value(
+        out = _launch(
+            fused_kernels.launch_value,
             prepared.node_value,
             prepared.node_type,
             prepared.subtree_size,
@@ -677,7 +693,8 @@ def _evaluate_fused(
         )
         result = out.squeeze(1)  # (pop, 1, 1) -> (pop, 1) view of the fresh buffer
     else:
-        result = fused_kernels.launch_value(
+        result = _launch(
+            fused_kernels.launch_value,
             prepared.node_value,
             prepared.node_type,
             prepared.subtree_size,
@@ -813,7 +830,8 @@ def _sr_fitness_fused(
     # (N, 1) -> (N,) pointer view: ``out_len == 1`` is enforced by _prepare, so the
     # label column is contiguous and the flatten is free.
     label_ptr = label_column.reshape(-1)
-    partials = fused_kernels.launch_loss(
+    partials = _launch(
+        fused_kernels.launch_loss,
         prepared.node_value,
         prepared.node_type,
         prepared.subtree_size,
