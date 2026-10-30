@@ -1148,7 +1148,7 @@ EVOGP_EVAL_MODE=batch $PY test/benchmark/evoxc/validate.py \
   --note "round3: the batch route (shipped default knobs, evoxc_r4) vs the plain-torch oracle on the item-1/item-4 cells"
 ```
 
-A re-measure always writes a **fresh `--out-dir`**, and `results/batch_opt_round2/` is now refused by **both** drivers (`batch_economics.py` and `band_sweep.py` list it in `FROZEN_RESULT_DIRS`, alongside `final`/`baseline`/`batch`, and the sweep adds `batch_opt_round1`), so round-2 evidence can never be overwritten by a round-3 rerun.
+A re-measure always writes a **fresh `--out-dir`**, and `results/batch_opt_round2/` is now refused by **both** drivers (`batch_economics.py`'s `FROZEN_RESULT_DIRS` is `("final", "baseline", "batch_opt_round2")` — its own default out-dir is `results/batch`, which is why `batch` is not in that refusal list — and `band_sweep.py`'s is `("final", "baseline", "batch", "batch_opt_round1", "batch_opt_round2")`), so round-2 evidence can never be overwritten by a round-3 rerun.
 `batch_economics.py` defaults `--evoxc-root` to `/root/evoxc`, which is why the live runs above pass `--evoxc-root /tmp/evoxc_r4` explicitly; `band_sweep.py` already defaults to it.
 
 ### 15.7 Coverage statement

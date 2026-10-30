@@ -5,9 +5,8 @@ per evaluation compared with the plain-PyTorch implementation of the same tree
 evaluation?** — on identical populations, in the same session, warm/steady-state,
 with every arm validated numerically against the repo's independent oracle.
 
-It is deliberately separate from `../r2/`, `../r4/`, `../r5/`, `../r6/`: those
-rounds compare the evoxc engine against the *deleted legacy CUDA engine* and their
-committed numbers stay as history. This subtree never touches them.
+It is deliberately separate from `../r2/`, `../r4/`, `../r5/`, `../r6/`, which compare
+against the *deleted legacy CUDA engine* and stay frozen as history.
 
 The current evidence is the post-optimization campaign in `results/final/` (HEAD
 vs the pre-optimization snapshot `530518e`, same window, same harness) plus its
@@ -21,10 +20,10 @@ pool-1 control and `dense` and settles the compile-pool and band-size knobs
 [Round 3](#round-3-the-refreshed-columns-the-compile-pool-default-and-the-band-cap) below).
 
 ```
-common.py       workload construction (one definition shared by every arm), cell
+common.py       workload construction (one definition shared by every arm): cell
                 grid, env block, warm-timing helper, route inspection
-arms_torch.py   the two baselines: PerTreeEvaluator (Python tree walk, torch ops
-                per node) and BatchedEvaluator (one vectorized pass per population)
+arms_torch.py   the two baselines: PerTreeEvaluator (Python tree walk) and
+                BatchedEvaluator (one vectorized pass per population)
 arms.py         the arm namespace: TorchArm / EvoxcArm wrappers, env application,
                 SR loss problem + GP pipeline construction
 worker.py       ONE process, ONE (cell, arm): the measured unit
@@ -32,39 +31,34 @@ campaign.py     sequential driver: one subprocess per config, idle-device guard,
                 `--tree-root` switch, per-config logs + `campaign.json`
 validate.py     numeric validation of every arm against reference_eval.py
 decompose.py    per-call phase breakdown of one cell on both routes
-summarize.py    renders the records into one markdown report (stdlib only; gp_step
-                falls back to steps[], before/after via --compare-results)
+summarize.py    renders the records into one markdown report (stdlib only)
 check.py        the gate over one campaign result directory (stdlib only, exit 1
                 on failure); a before/after round is gated one side at a time
 cold_start.py   cold-start column: import -> first fitness on the default route,
                 one process per population; --artifact-dir = populate + reload
 training_run.py end-to-end training run: per-generation wall ms + best-fitness
                 trajectory for the engine, the plain-torch evaluator and a snapshot
-batch_economics.py batch-route compile economics: per-generation structure
-                signature, merged-graph compile misses and hit rate for `batch`
-                vs `dense` over a real StandardPipeline.step() loop
+batch_economics.py batch-route compile economics over a real
+                StandardPipeline.step() loop (`econ_child.py` is its child half)
 counter_blocks.py strict number/block helpers the optional batch counter surfaces
                 share (a missing or non-numeric counter reads None, never 0)
+band_report.py  the band/merge report of one merged plan (fields + policy verdict)
+stages.py       the ten-stage per-call vocabulary and every derived stage block
 content.py      the content-addressed plan-key table of the batch route and every
                 derived block (attempts / hit_rate / per-row outcome)
-reuse_probe.py  plan-key reuse workload: cold call, identity call, rebuilt-but-equal
-                population, its identity call -- one child process per column
+reuse_probe.py  plan-key reuse workload: cold, identity, rebuilt-but-equal, identity
+band_sweep.py   band-size / merge-composition sweep driver (one record per
+                (cell, config): warm medians, stage split, band report, oracle)
+band_measure.py its child half: the measurement loop and the record skeleton
 results/        the evidence: baseline/ (frozen earlier round), final/ (after/,
                 before/, decompose/, cold/, training/, validation.json, RENDERED.md)
-                and batch/ (warm-r5, small-r5, flat-r5, flat1000-r5, flat1000-3w-r5,
-                <cell>/<route>.json, economics.json, validation-*.json,
-                RENDERED-*.md; plus the --reps 3 pilot dirs warm/, small/, flat/,
-                flat1000/), batch_opt_round1/ (base/, after_{default,w1,w8}/,
-                after_dense/, campaign/, reuse/, content-blocks/, SUMMARY.md),
-                batch_opt_round2/ (warm/, auto/, composition/, round3-cold/,
-                smoke-cold/) and batch_opt_round3/ (economics/, item2/long-tree/,
-                item3/p256|p64/, item4/, validation/, SUMMARY.md — the newest batch
-                evidence, rendered in "Round 3" below)
-FINAL.md        report of record for the post-optimization dense/specialized
-                campaign (tables, gate, reproduce commands)
-BATCH.md        report of record for the batch route round (warm per-call and
-                gp_step tables, compile economics and break-even, the one winning
-                regime, validation, gates, reproduce commands)
+                and batch/ (the warm-r5/small-r5/flat-r5/flat1000-r5/flat1000-3w-r5
+                rounds, <cell>/<route>.json, economics.json, validation-*.json,
+                RENDERED-*.md and the --reps 3 pilots), batch_opt_round1/,
+                batch_opt_round2/ and batch_opt_round3/ (the newest batch evidence,
+                rendered in "Round 3" below; each round has its own SUMMARY.md)
+FINAL.md        report of record for the post-optimization dense/specialized campaign
+BATCH.md        report of record for the batch route round (§15 = round 3)
 SUMMARY.md      rendered report of the earlier baseline round
 VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreement
 ```
@@ -84,21 +78,19 @@ VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreemen
 | `evoxc-batch-iree-flat` | the same route with `EVOGP_BATCH_BANDS=flat`: one unbanded merge, O(N²) in the population, so the flat-vs-banded merge can be compared on real GP workloads (it is expected to lose badly at pop 1000 — that comparison is what the arm records) |
 | `evoxc-dense-iree-raised` | `EVOGP_EVAL_MODE=dense` + iree with the trace cap pinned to the **cell's** tree length (`EVOGP_DENSE_MAX_TREE_LEN={tree_len}`): identical to `evoxc-dense-iree` on a main-grid cell (L ≤ 64) and the same route with the cap raised on a long-tree cell, so dense actually serves that population instead of declining to `specialized` |
 
-Both torch arms are *implemented in this harness* (`arms_torch.py`), op semantics
-copied from the oracle: `DIV` → NaN on a zero divisor, `loose_div`/`loose_inv`
-clamp the divisor with `copysign(DELTA, y)`, `max`/`min` via `torch.where`,
-comparisons return ±1.0, `if` selects on `cond > 0`. Their decode/plan cost is
-built once outside the timed region and reported as `setup_ms`.
+Both torch arms are *implemented in this harness* (`arms_torch.py`), with op semantics
+copied from the oracle (`DIV` → NaN on a zero divisor, `loose_div`/`loose_inv` clamping
+the divisor with `copysign(DELTA, y)`, `max`/`min` via `torch.where`, comparisons
+returning ±1.0, `if` selecting on `cond > 0`) and the decode/plan cost built once
+outside the timed region, reported as `setup_ms`.
 
 The two `evoxc-batch-*` arms are the harness's handle on the engine's **third
-evaluation route** (`EVOGP_EVAL_MODE=batch`, `src/evogp/tree/batch_engine.py`
-through `evoxc.batch_functions`): instead of one graph per population *shape*
-(`dense`) or per tree *structure* (`specialized`), it compiles **one merged graph
-per population**, keyed on the multiset of tree structures. The `auto` policy
-resolves to `dense` or `specialized` only, never to this route, so both arms pin the
-mode; iree is the backend and numpy the fallback, exactly as on the dense route.
-Neither arm is a default-route claim (`auto` never resolves to `batch`); the measured verdict is in
-[`BATCH.md`](BATCH.md) and
+evaluation route** (`EVOGP_EVAL_MODE=batch`, `src/evogp/tree/batch_engine.py` through
+`evoxc.batch_functions`): instead of one graph per population *shape* (`dense`) or per
+tree *structure* (`specialized`), it compiles **one merged graph per population**,
+keyed on the multiset of tree structures. `auto` resolves to `dense` or `specialized`
+only, so both arms pin the mode; neither is a default-route claim, and the measured
+verdict is in [`BATCH.md`](BATCH.md) and
 [Batch route: compile economics](#batch-route-compile-economics-batch_economicspy).
 
 Its knobs are all `EVOGP_BATCH_*`, single-sourced in `common.BATCH_KNOBS` and
@@ -117,36 +109,33 @@ resolver > the documented default (`batch_policy.knobs_source` says which applie
 
 An arm spec may carry a `knobs` mapping (`{env var: value}`) beyond the two route
 selectors; `-flat` is exactly `{"EVOGP_BATCH_BANDS": "flat"}` and
-`evoxc-dense-iree-raised` is exactly `{"EVOGP_DENSE_MAX_TREE_LEN": "{tree_len}"}`.
+`evoxc-dense-iree-raised` exactly `{"EVOGP_DENSE_MAX_TREE_LEN": "{tree_len}"}`.
 `arms.apply_arm_env(arm, cell)` clears **every** route variable
-(`common.ROUTE_ENV_VARS`: the `EVOGP_BATCH_*` set and `EVOGP_DENSE_MAX_TREE_LEN`)
-first for every arm (torch arms included), so no value can leak from one arm's
-process environment into another's, and then writes the arm's own knobs. A knob
-value may be a per-cell template — `{tree_len}`, `{pop}`, `{input_len}`, `{rows}`
-are substituted from the cell dict (`arms.resolve_knob_value`), and a template
-without a cell raises `ValueError` naming the arm and the placeholder instead of
-exporting the literal. The record's `env.applied_knobs` carries the **resolved**
-values. An unregistered arm name still raises `KeyError`. `--arms all` covers all
-ten arms and `--arms batch` selects exactly the two batch arms, in registry order
-(the batch arms are registered last and `evoxc-dense-iree-raised` after them, so no
-existing order or render changes).
+(`common.ROUTE_ENV_VARS`: the `EVOGP_BATCH_*` set and `EVOGP_DENSE_MAX_TREE_LEN`) first
+for every arm (torch arms included) and then writes the arm's own knobs, so no value
+can leak from one arm's environment into another's. A knob value may be a per-cell
+template (`{tree_len}`, `{pop}`, `{input_len}`, `{rows}`, resolved by
+`arms.resolve_knob_value`; a template without a cell raises `ValueError` naming the arm
+and the placeholder) and `env.applied_knobs` carries the **resolved** values; an
+unregistered arm name raises `KeyError`. `--arms all` covers all ten arms and `--arms
+batch` exactly the two batch arms, in registry order (registered last, so no existing
+order or render changes).
 
 The dense route's trace cap is `EVOGP_DENSE_MAX_TREE_LEN` (`dense_engine`,
-default **64**): the dense evaluator traces `L = min(cap, max_tree_len)` positions,
-and a population whose longest tree exceeds the cap raises `DenseUnsupported`,
-which is what makes the public API fall back to the per-tree `specialized` route
-(one compile per distinct structure) *silently*. `evoxc-dense-iree` therefore
-measures the fallback on a long-tree cell, `evoxc-dense-iree-raised` measures dense
-itself (cap raised to the cell's tree length), and each explicit-dense record
-states which of the two happened under `dense_route` (`supported`, `reason`,
-`max_tree_len_cap`, `tree_len_max`, `probe_ms`) with the resolved cap also echoed
-in `dense_policy.max_tree_len_cap`. `campaign.py` never forwards the variable from
-the caller's environment: it is per-arm provenance.
+default **64**): the evaluator traces `L = min(cap, max_tree_len)` positions, and a
+population whose longest tree exceeds the cap raises `DenseUnsupported`, which makes
+the public API fall back to the per-tree `specialized` route *silently*.
+`evoxc-dense-iree` therefore measures the fallback on a long-tree cell,
+`evoxc-dense-iree-raised` measures dense itself, and each explicit-dense record
+states which happened under `dense_route` (`supported`, `reason`,
+`max_tree_len_cap`, `tree_len_max`, `probe_ms`), with the resolved cap echoed in
+`dense_policy.max_tree_len_cap`; `campaign.py` never forwards the variable from the
+caller's environment, because it is per-arm provenance.
 
 Both arms need a tree that ships the module *and* declares `batch` in
-`dense_engine.EVAL_MODES`; where it does not, the worker's preflight fails the
-config with one readable paragraph and writes **no** record (the dry runs below are
-the torch-free way to learn that before paying a compile).
+`dense_engine.EVAL_MODES`; where it does not, the worker's preflight fails the config
+with one readable paragraph and writes **no** record (the dry runs below are the
+torch-free way to learn that before paying a compile).
 
 ## Workloads
 
@@ -182,20 +171,17 @@ The column has two axes, and the pair of cells per tree length separates them.
 `max_tree_len` (`tree_len`) is the row stride of the tree tensors and the length the
 dense route traces: the cap `EVOGP_DENSE_MAX_TREE_LEN` defaults to 64, so at stride
 128/256 dense declines the population and the API falls back to per-tree
-`specialized`, which is why the column is read as `evoxc-dense-iree` (the fallback)
-against `evoxc-dense-iree-raised` (dense itself) against the batch arms.
+`specialized` — which is why the column is read as `evoxc-dense-iree` (the fallback),
+`evoxc-dense-iree-raised` (dense itself) and the batch arms.
 `max_layer_cnt` (`-d<k>` in the id, 5 when absent) is what actually decides how many
 nodes the generated trees carry (a full tree is `2 ** d − 1` nodes), so it — not
-`tree_len` — governs the evaluation work: with seed 0 / pop 64 the node count is
-identical at stride 32, 64 and 128 for one depth cap and grows with the cap
-(`d=5` mean 15.8 / max 29 nodes, `d=6` mean 27.1 / max 57, `d=7` mean 35.5 / max 101,
-`d=8` mean 69.9 / max 187).
-The cap-5 cells are therefore the stock generation with only the row stride made
-long, and each `-d<k>` sibling raises the depth cap (the real node-count axis) at
-that same stride.
-Stride 128/256 and caps up to 8 are legal descriptor settings: the library's
-`MAX_STACK` = 1024 is not a constraint at these lengths, and `2 ** d − 1 ≤ tree_len`
-holds for every cell above.
+`tree_len` — governs the evaluation work: with seed 0 / pop 64 the node count grows
+with the cap and is identical at stride 32, 64 and 128 for one cap (`d=5` mean 15.8 /
+max 29 nodes, `d=6` 27.1 / 57, `d=7` 35.5 / 101, `d=8` 69.9 / 187).
+The cap-5 cells are the stock generation with only the row stride made long, and each
+`-d<k>` sibling raises the depth cap at that same stride; stride 128/256 with caps up to
+8 are legal descriptor settings (`MAX_STACK` = 1024 is no constraint here, and
+`2 ** d − 1 ≤ tree_len` holds for every cell above).
 
 * Populations are generated deterministically: `torch.manual_seed(0)` +
   `Forest.random_generate(pop, GenerateDescriptor(...))` with the campaign function
@@ -208,62 +194,47 @@ holds for every cell above.
   `cache.compile_misses_first_call`, never inside the warm numbers), then
   `--warmup 2` calls, then `--reps 5` sync-bracketed samples → median/min/max/mean
   and the raw samples. `gp_step` uses `--gp-warmup 1 --gp-reps 5`.
-* **Sequential, one config at a time**, with an idle-device guard before each
-  config: `rocm-smi --showpids` must show no process on the card other than the
-  driver itself (`campaign.py` reports the guard verdict in every log line, and the
-  driver record keeps the whole guard block — a contaminated config is reported,
-  never silently averaged in).
+* **Sequential, one config at a time**, with an idle-device guard before each config:
+  `rocm-smi --showpids` must show no process on the card other than the driver itself
+  (`campaign.py` reports the verdict in every log line and keeps the whole guard block
+  in its driver record — a contaminated config is reported, never silently averaged
+  in).
 * **`auto` is timed as the policy resolves it**, never as a forced mode: on this
   device box that is dense+iree from `pop >= 64` and specialized+numpy below the
   threshold (`EVOGP_DENSE_AUTO_MIN_POP`), so the `evoxc-auto` arm measures the dense
-  path at pop ≥ 64 and the specialized path at pop 16, and `evoxc-auto-iree` differs
-  from it only at pop 16 (specialized+iree). Each record keeps the decision under
-  `routes.<workload>` (`would_use_dense` plus the pop/rows halves).
-* `specialized`-iree compiles one graph per *distinct* tree structure and a
-  measured iree compile costs ~272-284 ms per structure on this box, which makes a
-  fresh 256- or 1000-tree population cost minutes of compile and a GP step re-pay it
-  every generation. That route is therefore timed on `pop ∈ {16, 64}` only; the
-  excluded cells are listed in `campaign.json` under `protocol.scope_dropped`.
-  Every other arm covers the whole grid. (The `pop 16` cell of the shipped default
-  is the cheap specialized+**numpy** route: 13 per-structure misses, 82 ms first
-  call — the per-structure compile cost belongs to iree, not to specialized.)
+  path at pop ≥ 64 and the specialized path at pop 16 (`evoxc-auto-iree` differs only
+  there). Each record keeps the decision under `routes.<workload>` (`would_use_dense`
+  plus the pop/rows halves).
+* `specialized`-iree compiles one graph per *distinct* tree structure at ~272-284 ms
+  per structure on this box, so a fresh 256- or 1000-tree population costs minutes of
+  compile and a GP step re-pays it every generation: that route is timed on
+  `pop ∈ {16, 64}` only (the excluded cells are listed in `campaign.json` under
+  `protocol.scope_dropped`) while every other arm covers the whole grid. The `pop 16`
+  cell of the shipped default is the cheap specialized+**numpy** route (13
+  per-structure misses, 82 ms first call) — the per-structure compile cost belongs to
+  iree, not to specialized.
 * **The batch arms pay a merged-graph compile instead**: one graph for the whole
-  population's structure multiset, so their `first_call_ms` is seconds to minutes
-  and their `compile_misses_first_call` is large. That is the measurement, not an
-  anomaly: the same one-untimed-first-call protocol keeps it out of the warm
-  medians, and the record carries the merged-graph counters in `batch_cache` (plus
-  the per-workload `cache.batch_*` deltas and the per-generation `batch_compile_misses` /
-  `batch_plan_misses`) next to the evoxc ones. The compile counters are the ones
-  `batch_cache_stats()` actually exposes: `batch_exec_misses` is the exec table (a hit
-  never reaches `evoxc.lower`/`compile`/`load`, so a miss is a real recompile) and
-  `batch_plan_misses` is the plan table (re-decode + re-trace + re-merge, no compile);
-  `batch_cache.stats_keys` records which of them the route exposes.
-  `forest_stats.structure_signature` names the population the graph was keyed on.
+  population's structure multiset, so `first_call_ms` is seconds to minutes and
+  `compile_misses_first_call` is large. That is the measurement, not an anomaly: the
+  same one-untimed-first-call protocol keeps it out of the warm medians, and the record
+  carries the merged-graph counters in `batch_cache` (plus per-workload `cache.batch_*`
+  deltas and per-generation `batch_compile_misses` / `batch_plan_misses`) next to the
+  evoxc ones — `batch_exec_misses` for the exec table (a hit never reaches
+  `evoxc.lower`/`compile`/`load`, so a miss is a real recompile), `batch_plan_misses`
+  for the plan table, and `batch_cache.stats_keys` for what the route exposes.
 * **The batch arms have no `campaign.SCOPE` rule**: `campaign.SCOPE` covers
   `evoxc-specialized-iree` only, and the batch round scheduled its cells explicitly
-  instead. Its compile numbers name the path they were measured on: the
-  single-executable path (`EVOGP_BATCH_COMPILE_WORKERS=1`, the control arm) costs
-  10.9–12.2 s per workload at pop 256 and 91.0–162.0 s at pop 1000 (91.1 s at
-  p1000-L32-i8-N1024 and 162.0 s at p1000-L64-i32-N1024 in the gateable
-  `results/batch/warm-r5` records, 166.9 s in the `--reps 3` pilot
-  `results/batch/warm`), plus 102.7 s for a flat, K=1 merge at pop 1000 — i.e.
-  exactly the numbers a scoping rule would be built from. The shipped default — band
-  size 16, `EVOGP_BATCH_COMPILE_WORKERS` 4, no band request — is the **chunked** shape
-  at pop 256 (`chunk_sizes` `[57, 56, 56, 56]`; round 3 reads 4 064.48 ms cold and
-  3.7250 ms warm on `p256-L32-i8-N1024` `sr_fitness`, against the pool-1 single-body
-  control's 10 725.86 / 1.9941 ms), and chunking is inert below 32 deduped functions,
-  so the pop-64 cells stay on the single-body path (2 274.46 ms cold for the shipped
-  default at `p64-L64-i32-N64` `sr_fitness` against the pool-1 control's
-  2 268.96 ms — no trade; round 2's 1 675.9 / 1 059.2 ms are the same shape on
-  `batch_forward` / `forward`).
-  The same shape at the previous band size of 32 read 4.44 s cold and
-  1.80× the warm call (2.011 → 3.628 ms; 3.78 s at 7 chunks) — see
-  [`BATCH.md`](BATCH.md) §6, §13, §14 and §15 (the round-3 re-pricing),
+  instead. Its compile numbers name the path: the single-executable path
+  (`EVOGP_BATCH_COMPILE_WORKERS=1`, the control arm) costs 10.9–12.2 s per workload
+  at pop 256 and 91.0–162.0 s at pop 1000, plus 102.7 s for a flat, K=1 merge at
+  pop 1000, while the shipped default (band size 16, pool 4, no band request) is the
+  **chunked** shape at pop 256 and the single-body path at pop 64, where chunking is
+  inert below 32 deduped functions. Per-path tables and the band-size history:
+  [`BATCH.md`](BATCH.md) §6, §13, §14 and §15,
   [`results/batch_opt_round1/SUMMARY.md`](results/batch_opt_round1/SUMMARY.md),
   [`results/batch_opt_round2/`](results/batch_opt_round2/) and
   [`results/batch_opt_round3/`](results/batch_opt_round3/).
-  `--timeout` (default 1800 s per
-  config) bounds a runaway config, and a batch-arm config that exceeds it is
+  `--timeout` (default 1800 s per config) bounds a runaway config, and an overrun is
   recorded as `status: "timeout"` with its worker log as evidence, never retried
   away as a defect.
 
@@ -281,9 +252,9 @@ training runs, the noise audit and the caveats. This section is the short versio
   (the last on the `pop ∈ {16, 64}` cells only) — 130 records at HEAD in
   `results/final/after/`.
 * **`before`**: the same harness in the same window against the pre-optimization
-  snapshot `/tmp/evogp_preopt` (commit `530518e`) through `--tree-root` — 90
-  records in `results/final/before/`, evoxc arms only, because the torch baselines
-  are tree-root-independent and their after values serve both sides.
+  snapshot `/tmp/evogp_preopt` (commit `530518e`) through `--tree-root` — 90 records
+  in `results/final/before/`, evoxc arms only, because the torch baselines are
+  tree-root-independent and their after values serve both sides.
 * **Rules**: one process per `(cell, arm)`, one timed config at a time, the
   idle-device guard before every config, warm medians of 5 sync-bracketed reps
   after 2 warmups, and the cold compile always reported separately.
@@ -348,217 +319,143 @@ like `results/final/after|before/` did.
 
 ## Cold start and a whole training run
 
-Two questions the per-call grid above cannot answer, each measured by its own
-script (records under `results/final/cold/` and `results/final/training/`, which
-`check.py` does not gate):
+Two questions the per-call grid cannot answer, each with its own script (records under
+`results/final/cold/` and `results/final/training/`, which `check.py` does not gate):
 
 * `cold_start.py` — what a user feels: wall time from module import to the first
-  synchronized fitness value on the DEFAULT route, on an empty in-memory compile
-  cache. One cell and **one population per process** (the compile cache and
-  executable memo are per process, so `--pop` replaces a loop); the record keeps
-  `wall_to_first_fitness_ms` plus its visible breakdown (`import_ms`,
-  `workload_build_ms`, `first_call_ms`), `evoxc_engine.cache_stats()` compile
-  misses around the first call, the resolved route, and `--repeat` repeats that
-  run on the already-warm process cache (`cold: false`, never averaged with the
-  cold one). `--artifact-dir DIR` turns on the opt-in disk layer
-  (`EVOGP_EVOXC_ARTIFACT_DIR`, `src/evogp/tree/artifact_cache.py`) and drives it
-  as **two child processes** — `populate` (cold artifact write) then `reload`
-  (warm artifact) — recording the directory's file count/bytes before and after;
-  its record's `wall_to_first_fitness_ms` is a per-phase dict, and a tree without
-  the feature (the pre-optimization snapshot) records `artifact_cache: "absent"`
-  and skips that half.
-* `training_run.py` — one complete `StandardPipeline`/`GeneticProgramming`
-  training run on the in-process `src/evogp/sr_test.py` symbolic-regression
-  problem (synthetic, no dataset, no network), one process per `--arm`:
-  `engine` (the shipped pipeline and route), `torch-per-tree` (the same GP loop
-  and operators with `arms_torch.PerTreeEvaluator` substituted as the problem's
-  fitness) and `preopt` (the engine arm against a caller-supplied `--tree-root`
-  snapshot). Every generation is a sync-bracketed sample and the full
-  `best_fitness_by_generation` trajectory, `best_fitness_at` (gens 10/25/50),
-  `trajectory_digest` and `final_pop_size` are recorded next to the timings:
-  a faster arm that converges worse is not a win.
+  synchronized fitness value on the DEFAULT route, on an empty in-memory compile cache.
+  One cell and **one population per process** (every cache is per process, so `--pop`
+  replaces a loop); the record keeps `wall_to_first_fitness_ms` with its breakdown
+  (`import_ms`, `workload_build_ms`, `first_call_ms`), the compile misses around the
+  first call, the resolved route, and `--repeat` repeats on the already-warm cache
+  (`cold: false`, never averaged with the cold one). `--artifact-dir DIR` turns on the
+  opt-in disk layer (`EVOGP_EVOXC_ARTIFACT_DIR`, `src/evogp/tree/artifact_cache.py`) as
+  **two child processes** — `populate` (cold artifact write) then `reload` (warm
+  artifact) — and a tree without the feature records `artifact_cache: "absent"`.
+* `training_run.py` — one complete `StandardPipeline`/`GeneticProgramming` run on the
+  in-process `src/evogp/sr_test.py` symbolic-regression problem (synthetic, no dataset,
+  no network), one process per `--arm`: `engine`, `torch-per-tree` (the same GP loop and
+  operators with `arms_torch.PerTreeEvaluator` as the problem's fitness) and `preopt`
+  (the engine arm against a caller-supplied `--tree-root` snapshot). Every generation is
+  a sync-bracketed sample, and the full `best_fitness_by_generation` trajectory,
+  `best_fitness_at` (gens 10/25/50), `trajectory_digest` and `final_pop_size` are
+  recorded next to the timings: a faster arm that converges worse is not a win.
 
-The driver in both cases is the library's own loop — `StandardPipeline.step()`
-(what `run()` executes) for training, the public `Forest.SR_fitness` for cold
-start — so no private call path or monkeypatch is being timed.
+Both drivers use the library's own loop — `StandardPipeline.step()` (what `run()`
+executes) for training, the public `Forest.SR_fitness` for cold start — so no private
+call path or monkeypatch is timed.
 
 `--tree-root <dir>` (or a `src/` inside it) makes `worker.py` import `evogp` from
 that tree and puts it first on the worker's `PYTHONPATH`; the record's `env.tree_root`
 and `env.tree_root_sha` say which checkout produced the numbers (`tree_root_sha` is
 `null` for a snapshot, which has no `.git` — record the archived SHA next to it).
 
+
 ## Batch route: compile economics (`batch_economics.py`)
 
-The batch route raises a question no other route asks: it compiles **one merged
-graph per population**, keyed on the population's structure multiset, and a GP
-generation replaces most of that population. So does generation `g + 1` reuse a
-graph this process already compiled, or does it pay a fresh merged-graph compile
-every generation? If it recompiles every time, the compile eats the route's
-warm-runtime advantage over `dense`; if elites and duplicates hold the multiset
-stable, the merged-graph cache hits and the route wins. Nobody knows which happens
-on a real run, so this script **measures** the hit rate instead of asserting one.
+The batch route compiles **one merged graph per population** (keyed on the structure
+multiset) and a GP generation replaces most of that population, so the question is
+whether generation `g + 1` reuses a compiled graph or pays a fresh merge; this script
+**measures** the hit rate instead of asserting one. One child process per
+`(cell, route)` — every cache is per process — and one record with four parts:
+`first_call` (one sync-bracketed `Forest.SR_fitness` on the freshly built population,
+expected to be large), `sr_fitness` (warm medians, `--warmup 2 --reps 5`), `generations`
+(default 8 real `StandardPipeline.step()` iterations, not warmed up, each row carrying
+the population signature snapshotted **before** the step, its timings, both caches'
+compile misses and `compile_hit`) and `summary` (derived only from those rows); the
+per-field schema is the `econ_child.py` docstring's, the tables [`BATCH.md`](BATCH.md)
+§4–§14.
 
-One child process per `(cell, route)` — the evoxc compile cache, the executable
-memo and the merged-graph cache all live in process memory, so a route loop inside
-one process would measure warm caches only. Each record has four parts:
-
-* `first_call` — ONE sync-bracketed `Forest.SR_fitness` on the freshly built
-  population: the merged-graph compile (plus the cold host decode) for `batch`, the
-  dense-graph compile for `dense`, with both caches' counters around it and the
-  value digest. Expected to be large; reading it as a defect is the mistake this
-  script exists to prevent.
-* `sr_fitness` — the warm/steady-state medians of the same call on the same
-  population (`--warmup 2 --reps 5`, via `common.time_call`), with the compile
-  misses of **both** caches around the untimed call. Its `median_ms` is the warm
-  number the per-call grid would report.
-* `generations` — `--generations` (default 8) iterations of a real
-  `StandardPipeline.step()` loop, deliberately **not** warmed up, so generation 1 is
-  the honest first generation. Before each step the population's structure-multiset
-  signature is snapshotted (that IS the population the step is about to evaluate),
-  and each row keeps `population_signature`, `distinct_structures`,
-  `signature_seen_before`, total/eval/ops ms, the compile misses of both caches,
-  `compile_hit` and that generation's `best_fitness`.
-* `summary` — derived only from those rows, never asserted:
-  `generation_hit_rate` (with `generations_unknown` next to it, for a route whose
-  counters cannot judge a row), `generations_with_compile`,
-  `distinct_population_signatures`, `median_warm_eval_ms` vs `median_cold_eval_ms`
-  (eval ms of the hit rows vs the recompiling rows), `first_call_ms`,
-  `warm_median_ms`, and `compile_ms_share` — the wall time of the recompiling
-  generations over the loop's total wall, i.e. an upper bound on "how much of the
-  loop the compile generations own", not a compile timer. The merged-graph cache's
-  own `compile_misses_first_call` / `_generations` / `_total` ride along.
-
-The records also price the route's **content-addressed** plan key (the third counter
-surface, `batch_content_stats`), because the identity key cannot answer a *rebuilt*
-population: `first_call.content`, `sr_fitness.content`, `generations[i].content` and
-`summary.content` carry the five counters plus `attempts` (hits + misses, how often the
-content key was consulted at all) and `hit_rate`, and the summary adds the `generations`
-outcome counts (`with_content_hit` / `with_content_miss` / `no_attempt` / `unknown`).
-`generations[i].batch_plan_misses` and the summary's
-`merged_graph_cache.plan_misses_generations` state the plan table alongside the exec
-table, so a row is not read as if only one merged-graph cache existed. `content.py` is
-the one owner of that vocabulary and `counter_blocks.py` of the number handling: a tree
-without the accessor records `available: false` with every counter `null` and a note,
-never a `0`. `summary.compile_share` states what it divides
-(`numerator_kind: parallel-stage-counter-sum` over `denominator_kind: loop-wall-ms`)
-and whether it exceeded 1 (`share_gt_one`), so a share above 1 reads as the pool's
-per-chunk compile timers summed against the loop's wall time rather than an accounting
-error — `p256-L32-i8-N1024` at the shipped 4 workers reads 2.3743 (12440.8 ms over
-5239.9 ms, chunks 57/56/56/56). The blocks are in
+Generation 1 is **expected to hit** (`step()` evaluates `algorithm.forest` before
+selecting, so it evaluates the population the timed first call already compiled); the
+interesting numbers are generations 2..G, where a fresh population changes the
+structure multiset. `dense` runs the identical code path and owns no merged-graph
+cache, so its `batch_*` keys are **absent, not null**. Every row also prices the
+route's **content-addressed** plan key (`content.py` owns the vocabulary,
+`counter_blocks.py` the null-never-zero numbers: a tree without the accessor records
+`available: false`, every counter `null` and a note, never a `0`), and
+`summary.compile_share` states what it divides (`numerator_kind:
+parallel-stage-counter-sum` over `denominator_kind: loop-wall-ms`) and whether it
+exceeded 1 (`share_gt_one`), so a share above 1 is the pool's per-chunk compile timers
+summed against the loop's wall time, not an accounting error; the blocks are in
 `results/batch_opt_round1/content-blocks/`.
 
-Generation 1 is **expected to hit**: `step()` evaluates `algorithm.forest` before
-selecting, so generation 1 evaluates the initial population — the very population
-whose graph the timed first call already compiled. That is recorded as measured
-(not warmed away), and the interesting numbers are generations 2..G, where a fresh
-population changes the structure multiset. `dense` goes through the identical code
-path as the comparison column: its per-generation compile counter is the evoxc
-engine's own, and it owns no merged-graph cache at all, so its `batch_*` keys are
-**absent, not null**.
+Records go to `--out-dir` (default `results/batch/`; `results/final`,
+`results/baseline` and `results/batch_opt_round2` are refused) as
+`<out-dir>/<cell>/<route>.json` plus one driver record `economics.json`
+(`evogp-bench-evoxc-v1-batch-economics`: every config's status, wall time and which
+`EVOXC_DISABLE_LOCATIONS` applied). `--dry-run` is stdlib-only and prints every planned
+config, one `batch policy ...` line per batch route and a warning when the tree ships no
+`src/evogp/tree/batch_engine.py`, so an unaffordable compile is never started to
+discover that; an overrun of `--timeout` (default 3600 s) is recorded as `timeout` with
+its log as evidence.
 
-Records go to `--out-dir` (default `results/batch/`; `results/final` and
-`results/baseline` are refused) as `<out-dir>/<cell>/<route>.json` — default cells
-`p256-L32-i8-N1024,p1000-L32-i8-N1024,p1000-L64-i32-N1024`, default routes
-`batch,dense`, plus the `batch-flat` token for the unbanded merge — with the child's
-`.log` next to it and one driver record `<out-dir>/economics.json` (schema
-`evogp-bench-evoxc-v1-batch-economics`) listing every config's status and wall time,
-the protocol, and which `EVOXC_DISABLE_LOCATIONS` applied (the driver defaults it to
-`1` when the caller left it unset, and records `caller` vs `driver-default`).
-`--dry-run` is stdlib-only (no torch, no `env_block`): it prints every planned
-config, one `batch policy ...` line per batch route with the resolved knobs, and a
-warning when the tree under measurement does not ship
-`src/evogp/tree/batch_engine.py` (or ships it without declaring the mode), so an
-unaffordable compile is never started to discover that.
-Like every other timed column it wants an idle GPU and one config at a time; a
-config that overruns `--timeout` (default 3600 s) is recorded as `timeout` with its
-log as evidence.
+A route knob is swept with `--knob NAME=VALUE`, not by registering an arm per value:
+it is repeatable, validated against `common.ROUTE_ENV_VARS`, and applied **after**
+`arms.apply_arm_env` cleared the route variables and wrote the arm's own spec and
+**before** the policy is recorded, so `batch_policy`, `env.applied_knobs` and
+`knobs_override` carry the value the engine really read (exporting the variable is not
+the way — the arm spec clears it first). That is how the compiled-graph pool is swept
+(`EVOGP_BATCH_COMPILE_WORKERS=1`, `4` and `8` as three runs of one cell) with no new
+arm.
 
-A route knob is swept with `--knob NAME=VALUE`, not by registering an arm per value.
-`--knob` is repeatable, its names are validated against `common.ROUTE_ENV_VARS` (the
-`EVOGP_BATCH_*` set plus `EVOGP_DENSE_MAX_TREE_LEN`; an unregistered name or an empty
-value is a usage error), and the value is applied **after** `arms.apply_arm_env` cleared
-the route variables and wrote the arm's own spec, and **before** the policy is recorded
-— so `batch_policy`, `env.applied_knobs` and the record's own `knobs_override` all carry
-the value the engine really read. Exporting the variable is not the way: the arm spec
-clears it first. That is how the compiled-graph pool is swept —
-`EVOGP_BATCH_COMPILE_WORKERS=1`, `4` and `8` as three runs of one cell, one process per
-value because the knob is per process — and it needs no new arm.
 ### Named composition routes
-A route token is not just an arm: `ROUTE_SPECS` in `batch_economics.py` gives each token
-its own `{"arm", "knobs"}` spec, so three batch configurations can be measured in one
-driver run. On top of `batch` / `batch-flat` / `dense` (each still exactly its registry
-arm), round 2's generation-loop column registers `batch-banded`
-(`EVOGP_BATCH_BANDS=auto`, `EVOGP_BATCH_COMPILE_WORKERS=1`), `batch-flat-chunked`
-(`EVOGP_BATCH_BANDS=none`, `EVOGP_BATCH_COMPILE_WORKERS=4`, `EVOGP_BATCH_CHUNK_BANDS`
-deliberately **unset**: the chunk gate refuses an explicit `EVOGP_BATCH_BANDS` spelling —
-`none`/`flat` included — without that opt-in, so this route stays single-body despite its
-pool) and
-`batch-auto-chunked` (`EVOGP_BATCH_BANDS=auto`, `EVOGP_BATCH_CHUNK_BANDS=1`,
-`EVOGP_BATCH_COMPILE_WORKERS=4`).
-The env layers are applied in one order, the same one the dry run reports:
-`arms.apply_arm_env` **clears** every `common.ROUTE_ENV_VARS` entry (the `EVOGP_BATCH_*`
-set — `EVOGP_BATCH_CHUNK_BANDS` included — plus `EVOGP_DENSE_MAX_TREE_LEN`) and writes
-the arm's spec, then the named route's spec, then an explicit `--knob` (which therefore
-wins for the same variable). `protocol.route_knobs` states, per variable, the value, the
-raw `env_value` (`null` = really unset) and the layer that won — `harness-knob` >
-`route` > `arm` > `env`, or the engine's own `module` resolver / `harness-default` /
-`unset` when the environment carries none; `protocol.batch_compile_workers` is its
-compile-pool row. Each batch record also carries `common.band_report`'s block for the
-plan(s) that served it (`band_report.sr_fitness` plus every distinct plan under
-`band_reports`), so a composition record states whether the band clamp fired
-(`band_requested` / `band_requested_bands` / `band_clamped` / `band_note`), what the
-cost model estimated and which per-body `chunk_bands` the merge produced — null (never
-`0`) when no plan could be described.
-`--dry-run` prints one line per `(cell, route)` with the route's own knob spec and the
-resolved route environment, so `bands` / `compile_workers` / `chunk_bands` are readable
-per route before a multi-minute compile is started.
-The child-side loop internals (cold call, warm medians, per-generation record assembly,
-the three counter-delta helpers and the summary derivation) live in the torch-free sibling
-`econ_child.py`; `batch_economics.py` stays the driver (CLI, cell/route resolution, env
-construction, subprocess launching, `economics.json`).
 
-The batched commands are in [Commands of record](#commands-of-record) below (dry run, plus the
-default `batch,dense` column) and, in full, in [`BATCH.md`](BATCH.md) §10.
+A route token is not just an arm: `ROUTE_SPECS` gives each token its own
+`{"arm", "knobs"}` spec, so several batch configurations run in one driver run. On top
+of `batch` / `batch-flat` / `dense` (each exactly its registry arm) the knob-spec
+routes are `batch-banded` (`EVOGP_BATCH_BANDS=auto`, pool 1), `batch-flat-chunked`
+(`EVOGP_BATCH_BANDS=none`, pool 4, `EVOGP_BATCH_CHUNK_BANDS` deliberately **unset** —
+the chunk gate refuses an explicit `EVOGP_BATCH_BANDS` spelling without that opt-in, so
+it stays single-body despite its pool), `batch-auto-chunked` (`bands=auto` +
+`CHUNK_BANDS=1` + pool 4), `batch-b16-banded` (the pool-1 control at band size 16) and
+`batch-b16-chunked` (band 16 + `CHUNK_BANDS=1` + pool 4, the shape round 3 cross-checks
+against the unpinned default).
+`arms.apply_arm_env` **clears** every `common.ROUTE_ENV_VARS` entry
+(`EVOGP_BATCH_CHUNK_BANDS` and `EVOGP_DENSE_MAX_TREE_LEN` included) and writes the
+arm's spec, then the named route's spec, then an explicit `--knob` (which therefore
+wins for the same variable); `protocol.route_knobs` states per variable the value, the
+raw `env_value` (`null` = really unset) and the winning layer (`harness-knob` >
+`route` > `arm` > `env`, else the engine's `module` resolver / `harness-default` /
+`unset`). Each batch record also carries `common.band_report`'s block for the plan(s)
+that served it — whether the band clamp fired, and which per-body `chunk_bands` the
+merge produced, null (never `0`) when no plan could be described. The child-side loop
+internals live in the torch-free `econ_child.py`; `batch_economics.py` stays the
+driver, and the commands are in [Commands of record](#commands-of-record) and
+[`BATCH.md`](BATCH.md) §10.
 
-**Measured verdict (see [`BATCH.md`](BATCH.md) for the tables).** On a real generation loop the
-question is answered against the route: the merged-graph cache hits only generation 1 (which re-evaluates
-the population the timed first call already compiled), so generations 2..G recompile — round 3 reads 7 of
-8 generations recompiling at every cell (8 distinct population signatures in 8 steps, hit rate 0.125; 1/4
-at pop 1000), 99.4–99.7 % of generation wall time inside the recompiling generations on the single-body
-arms, and a median cold eval of 2 600.93 / 2 894.58 / 588.22 ms against a warm 3.78 / 3.81 / 1.15 ms on
-the shipped default. With `EVOGP_BATCH_CACHE_SIZE = 8` a pop-256
-population already spans ~7–8 exec entries, so consecutive generations evict each other by construction.
-Consequently the route is **dominated by the shipped `dense+iree` route at every pop ≥ 64** on trees that
-fit the dense cap — 1.84–3.38× dense's warm `sr_fitness` at pop 256, and a `gp_step` 193–2355× slower than
-dense on the round-1 grid (5.36 vs 3446.20 ms at p256-L32, 12.35 vs
-17524.31 ms at p1000-L64). Its merged compile against dense's 3.4–6.5 s depends on the compile path: the
-single-executable arm (`EVOGP_BATCH_COMPILE_WORKERS=1`) pays 10.9–12.2 s at pop 256 and 91.0–162.0 s at
-pop 1000, while the shipped default (band size 16, 4 chunk compiles) compiles pop 256 cold in 4.06–4.07 s
-at 1.69–1.87× the warm single-body call (1.9941 → 3.7250 ms at L32, 2.2267 → 3.7720 ms at L64) and
-pop 1000 in 15 517.88 ms at 6.9384 ms warm — [`BATCH.md`](BATCH.md) §14 and §15. It beats
-`specialized+numpy` warm by 8.7–29.6× but `auto` never selects it.
-Its one win on this grid is a **fixed** population of ~64 trees over few data rows — p64-L64-i32-N64:
-0.979 ms vs dense's 1.410 ms, cold 2.17 s vs 6.18 s — a per-call win that a generation loop still loses.
-The loss and per-row paths match the oracle to ~1e-7 rel; `batch_forward` on the arithmetic set is
-non-bitwise where dense is exact, which is why the batch arms form their own digest group.
+**Measured verdict (tables of record: [`BATCH.md`](BATCH.md) §4–§14 and
+[`results/batch_opt_round2/`](results/batch_opt_round2/)).** The merged-graph cache
+hits only generation 1, so generations 2..G recompile (a `pop 256` population already
+spans ~7–8 exec entries at `EVOGP_BATCH_CACHE_SIZE = 8`, so consecutive generations
+evict each other by construction), and the route is **dominated by the shipped
+`dense+iree` route at every pop ≥ 64** on trees that fit the dense cap — 1.84–3.38×
+dense's warm `sr_fitness` at pop 256 and a `gp_step` 193–2355× slower on the round-1
+grid — though it beats `specialized+numpy` warm by 8.7–29.6×, and `auto` never selects
+it. Its one win on this grid is a **fixed** population of ~64 trees over few data rows
+(p64-L64-i32-N64: 0.979 ms vs dense's 1.410 ms, cold 2.17 s vs 6.18 s), which a
+generation loop still loses. The loss and per-row paths match the oracle to ~1e-7 rel;
+`batch_forward` on the arithmetic set is non-bitwise where dense is exact, which is why
+the batch arms form their own digest group.
 
-The band-policy decision and its evidence are [`BATCH.md`](BATCH.md) §14 — band size 16, `EVOGP_BATCH_BANDS=auto`
-opt-in only, `EVOGP_BATCH_CHUNK_BANDS` off — and the round-2 band/composition records live in
-[`results/batch_opt_round2/`](results/batch_opt_round2/).
-Round 3 re-tests the band size itself against the rocm binding cap (`k15` / `k7` pins, `BATCH.md` §15.3,
-[`results/batch_opt_round3/item3/`](results/batch_opt_round3/item3/)): no pin beat the shipped size, so the
-decision stands unchanged.
+The band-policy decision and its evidence are [`BATCH.md`](BATCH.md) §14 — band size
+16, `EVOGP_BATCH_BANDS=auto` opt-in only, `EVOGP_BATCH_CHUNK_BANDS` off — with the
+round-2 band/composition records in
+[`results/batch_opt_round2/`](results/batch_opt_round2/). Round 3 re-tests the band
+size itself against the rocm binding cap (`k15` / `k7` pins, `BATCH.md` §15.3,
+[`results/batch_opt_round3/item3/`](results/batch_opt_round3/item3/)): no pin beat the
+shipped size, so the decision stands unchanged.
+
 
 ### Long trees: where the route actually wins
 
 Every cell above holds 15–17-node trees, so none of them asks whether a route prices the trees a population
-really contains or the trace length it is allowed to emit. A second round prices that directly:
-`results/batch/long-trees/{l128,l256,p1000,gp}` — six `sr_fitness` cells (pop 256 at `tree_len` 128 with the
-generation depth pinned at d5/d6/d7, pop 256 at `tree_len` 256 at d5/d8, pop 1000 at d5) plus two `gp_step`
-cells, five arms each (`torch-per-tree`, `evoxc-specialized-numpy`, `evoxc-dense-iree`,
-`evoxc-dense-iree-raised` = the same route with `EVOGP_DENSE_MAX_TREE_LEN` pinned to the cell's stride, and
-`evoxc-batch-iree`; four in `gp`). Node counts are depth-driven, so the `-d<k>` suffix is the axis that makes
-the trees long, not `tree_len`.
+really contains or the trace length it is allowed to emit. A second round prices that directly in
+`results/batch/long-trees/{l128,l256,p1000,gp}` — six `sr_fitness` cells (pop 256 at stride 128 at d5/d6/d7,
+pop 256 at stride 256 at d5/d8, pop 1000 at d5) plus two `gp_step` cells, with `evoxc-dense-iree` (the
+fallback) against `evoxc-dense-iree-raised` (the same route with `EVOGP_DENSE_MAX_TREE_LEN` pinned to the
+cell's stride), `evoxc-batch-iree`, `evoxc-specialized-numpy` and `torch-per-tree`; node counts are
+depth-driven, so the `-d<k>` suffix is the axis that makes the trees long, not `tree_len`.
 
 **Verdict in one line:** while the population's longest tree fits the shipped dense cap of 64, need-capped
 dense still wins by 1.05–1.41×; past that cap batch wins by 1.5–4.2× over dense with the cap raised and
@@ -613,14 +510,13 @@ done
 ### Plan-key reuse: the rebuilt population (`reuse_probe.py`)
 
 A generation loop never presents the same programs twice, so it cannot say what the
-content key buys. `reuse_probe.py` asks the other regime directly — one child process
-per column, one cheap cell (`p64-L64-i32-N64`, seed 0, `evoxc-batch-iree`) and a fixed
+content key buys; `reuse_probe.py` asks the other regime directly — one child process per
+column, one cheap cell (`p64-L64-i32-N64`, seed 0, `evoxc-batch-iree`) and a fixed
 four-call sequence: `Forest` A cold, A again (the identity fast path), `Forest` **B
 rebuilt-but-equal** (a different object built from the same seed, verified
-`identical_content` in `no_shared_storage` by `forests.same_content`) against the same
-`x`/`labels`, then B again. Each call records its wall time, value digest, both
-merged-graph cache counters, the content counters and — where the tree ships them — the
-ten stage **call** counts, so "it skipped trace/merge/compile" is a measured statement.
+`identical_content` in `no_shared_storage`) against the same `x`/`labels`, then B again —
+recording per call the wall time, value digest, both cache counters, the content counters
+and the ten stage **call** counts, so "it skipped trace/merge/compile" is measured.
 
 **Result in one line:** on HEAD the rebuilt call is a content hit (1 hit / 0 misses,
 `hit_rate` 1.0) in **2.724 ms against the pre-round tree's 79.109 ms (29.0×)** with
@@ -799,37 +695,31 @@ protocol statement, environment, one warm table + one speedup table per workload
 the `gp_step` section, the cold-compile exclusion, digest agreement and caveats.
 Every table cell is a field of a record; a missing record or a contaminated guard
 stays visible instead of being averaged away.
-The final campaign's three renders (after, before, and the after-vs-before compare)
-are stored as plain text in `results/final/RENDERED.md`; the report of record that
-interprets them is [`FINAL.md`](FINAL.md). The batch round's renders are
-`results/batch/RENDERED-warm-r5.md`, `RENDERED-small-r5.md`, `RENDERED-flat-r5.md`
-and `RENDERED-flat1000-3w-r5.md`, plus the long-tree round's
-`results/batch/long-trees/RENDERED-{l128,l256,p1000,gp}.md`; [`BATCH.md`](BATCH.md) interprets them.
+The final campaign's three renders live in `results/final/RENDERED.md`, interpreted by
+[`FINAL.md`](FINAL.md); the batch round's are `results/batch/RENDERED-*.md` plus
+`results/batch/long-trees/RENDERED-{l128,l256,p1000,gp}.md`, interpreted by
+[`BATCH.md`](BATCH.md).
 
-A batch arm is rendered by the same rules as any other evoxc arm, with two
-additions: its `routes[...]` carries `kind: "batch"`, so the `auto route` column
-quotes `batch/iree → batch` (annotated `bands=flat` when the merge policy differs
-from the default — the batch arms are registered last, so they never shadow the
-default policy in that column), and one `Batch route arms: ...` caption naming the
-resolved knobs appears under each workload table. Both appear **only** in a
-directory that actually recorded a batch arm, so a batch-free render stays
-byte-identical, and `## Caveats` gains one bullet saying that a batch arm's
-`first_call_ms` is a merged-graph compile for the whole population and is excluded
-from the warm medians by protocol.
+A batch arm renders by the same rules: its `routes[...]` carries `kind: "batch"`, so
+the `auto route` column quotes `batch/iree → batch` (annotated `bands=flat` when the
+merge policy differs from the default), and one `Batch route arms: ...` caption names
+the resolved knobs under each workload table. Both appear **only** in a directory that
+recorded a batch arm, so a batch-free render stays byte-identical, and `## Caveats`
+gains one bullet: a batch arm's `first_call_ms` is a merged-graph compile for the whole
+population, excluded from the warm medians by protocol.
 
 * `gp_step` is read from `median_total_ms` / `median_eval_ms` / `median_ops_ms`, and
-  the eval/ops split carries the operator share of the generation
-  (`X.XX / Y.YY (op ZZ%)`). A record that carries `steps[]` but not those aggregate
-  keys is read from the upper median of `steps[].total_ms` / `steps[].eval_ms` -- the
-  statistic `worker.py` stores -- and marked `*`; a raw-steps record never blanks a
-  cell. The section also renders the per-cell `gp_step` speedup against both torch
-  arms and the `best_fitness` the timed pipeline reached.
+  the eval/ops split carries the operator share of the generation (`X.XX / Y.YY (op
+  ZZ%)`). A record with `steps[]` but not those aggregate keys is read from the upper
+  median of `steps[].total_ms` / `steps[].eval_ms` -- the statistic `worker.py`
+  stores -- and marked `*`; a raw-steps record never blanks a cell. The section also
+  renders the per-cell `gp_step` speedup against both torch arms and the timed
+  pipeline's `best_fitness`.
 * `--compare-results DIR --compare-label NAME` (default `before`) adds one table per
-  workload plus one for the `gp_step` total: the ratio of the primary directory's
-  median to the compare directory's, per cell and arm, both from the same session.
-  Only cells present in both directories are listed; an arm the primary side lacks is
-  quoted from the compare side as `- (before <ms>)`. Without the flag the render is
-  byte-identical to the single-directory one.
+  workload plus one for the `gp_step` total: the primary directory's median over the
+  compare directory's, per cell and arm. Only cells present in both are listed; an arm
+  the primary side lacks is quoted as `- (before <ms>)`, and without the flag the
+  render is byte-identical to the single-directory one.
 
 `check.py --results DIR` enforces the record contract (schema, provenance, >= 5 warm
 samples with `len(samples_ms) == reps`, `first_call_ms > 0`, a re-derived median,
@@ -841,45 +731,44 @@ then `--results results/final/before`): `results/final/` also holds the
 `cold/`, `training/` and `decompose*/` records, whose different schema the gate
 rejects.
 
-* `--allow-snapshot` turns a null `env.tree_root_sha` into a warning, but only when
-  the recorded `env.tree_root` really has no `.git` (a `git archive` export has no
-  HEAD, so the archived SHA has to be quoted next to the numbers).
+* `--allow-snapshot` turns a null `env.tree_root_sha` into a warning, but only when the
+  recorded `env.tree_root` really has no `.git` (a `git archive` export has no HEAD, so
+  the archived SHA is quoted next to the numbers).
 * `--allow-missing` and `--allow-digest-mismatch` declare the two expected
-  deviations: the 10 `evoxc-specialized-iree` cells that the compile-cost scope rule
-  never schedules at pop ≥ 256, and the numpy-vs-iree sha256 split on
+  deviations: the 10 `evoxc-specialized-iree` cells the compile-cost scope rule never
+  schedules at pop ≥ 256, and the numpy-vs-iree sha256 split on
   `forward`/`batch_forward`. Without them the same records report those as failures
-  (38 on the after side, 39 on `results/baseline`); with them the gates read
-  130 records / 3602 checks and 90 records / 2642 checks, 0 failures.
+  (38 on the after side, 39 on `results/baseline`); with them the gates read 130
+  records / 3602 checks and 90 records / 2642 checks, 0 failures.
 * `check_batch()` runs on every batch-arm record and checks provenance, not
   magnitude: it **fails** when `batch_policy.mode_supported` is not true, when the
   recorded route is not `batch` (or has no `kind: "batch"`), or when `batch_cache`
   has no boolean `available`; it only **warns** when the merged-graph compile is not
-  attributed to any cache counter (0 first-call misses across both caches), because
-  `first_call_ms` still carries the cost and the magnitude of a miss count is never
-  bounded by the gate; a `batch_cache.stats_keys` that carries no `batch_exec_misses`
-  (the exec table, the only one whose miss recompiles) is likewise a warning.
-  Expected-arm coverage defaults to the campaign's own
-  scheduled arms, so appending these two arms leaves previously recorded campaigns
-  gating exactly as before (`--allow-missing` semantics unchanged).
-* `check_content()` is the same kind of self-consistency check over the content blocks
-  (`content.py`), and it **warns** only: a block claiming `available: true` while every
-  content counter is null, or `available: false` while counters carry numbers, is a
-  contradiction worth printing — but a tree without `batch_content_stats()` legitimately
-  records nulls, and a hit rate of 0 is a measurement. It makes no `checker.check` call
-  at all, so the check count of a directory of frozen records (which carry no content
-  keys) is exactly what it was.
+  attributed to any cache counter (0 first-call misses across both caches —
+  `first_call_ms` still carries the cost and a miss count is never bounded by the
+  gate) and when `batch_cache.stats_keys` carries no `batch_exec_misses` (the exec
+  table, the only one whose miss recompiles). Expected-arm coverage defaults to the
+  campaign's own scheduled arms, so appending these two arms leaves previously
+  recorded campaigns gating exactly as before.
+* `check_content()` is the same self-consistency check over the content blocks
+  (`content.py`) and **warns** only: a block claiming `available: true` with every
+  content counter null, or `available: false` with counters carrying numbers, is a
+  contradiction worth printing — but a tree without `batch_content_stats()`
+  legitimately records nulls, and a hit rate of 0 is a measurement. It makes no
+  `checker.check` call, so the check count of a directory of frozen records (which
+  carry no content keys) is exactly what it was.
 * The gate still demands the `gp_step` aggregate keys: the renderer's `steps[]`
-  fallback is a reporting safety net, not a licence for a record to drop them.
+  fallback is a safety net, not a licence for a record to drop them.
 
 ## Numeric validation (`validate.py`)
 
 The oracle is `src/evogp/tests/reference_eval.py`, the plain-torch reference the
 pytest suite diffs against. For every validation cell and function set the same
-population is evaluated by the oracle (CPU), by both torch arms and by the engine
-(the route `EVOGP_EVAL_MODE`/`EVOGP_EVOXC_BACKEND` select), and the deviation of
-every arm is reported against the oracle *and* against the engine: max abs, max rel,
-NaN/Inf placement mismatches, bitwise-equality flag (`pop` is sliced to
-`--max-oracle` trees for the CPU oracle; the record says how many were compared).
+population is evaluated by the oracle (CPU), by both torch arms and by the engine (the
+route `EVOGP_EVAL_MODE`/`EVOGP_EVOXC_BACKEND` select), and every arm's deviation is
+reported against the oracle *and* the engine: max abs, max rel, NaN/Inf placement
+mismatches and a bitwise-equality flag (`pop` is sliced to `--max-oracle` trees for the
+CPU oracle; the record says how many were compared).
 
 Three function sets, because they mean different things:
 
@@ -889,35 +778,33 @@ Three function sets, because they mean different things:
 | `rich` | `arith` + `max min < loose_div loose_inv sin exp log abs sqrt` | transcendental float32 kernels differ legitimately — `1e-8`–`1e-5` abs on the torch path, up to `~1e-1` abs in the tail of `batch_forward` on the dense route |
 | `ternary` | `if + - * /` (needs a shorter-layer descriptor: the descriptor asserts `max_tree_len >=` the fully-branching size) | value path bitwise; the `if` select is where a naive implementation gets the operand order wrong |
 
-Measured on the final campaign (12 cases over the four scheduled cells; the exact
-table is in `VALIDATION.md`): the value path (`batch_forward`, `forward`) is
-**bit-identical** across the oracle, both torch arms and the engine on `arith` and
-`ternary` (max abs deviation `0.000e+00`), and `sr_fitness` agrees to `~3.5e-7`
-relative — that residual is float32 reduction order (the engine reduces on the host
-in numpy, the arms reduce in torch), not a semantic difference. `rich` is the one
-set with real spread: `~9.3e-2` abs / `~1.5e-4` rel for the torch arms and up to
-`4.4e-1` abs / `6.4e-1` rel for the dense route on `batch_forward`, i.e. the
-dense/IREE lowering of transcendentals rather than a wrong tree evaluation.
+Measured on the final campaign (12 cases over the four scheduled cells; exact table in
+`VALIDATION.md`): the value path (`batch_forward`, `forward`) is **bit-identical**
+across the oracle, both torch arms and the engine on `arith` and `ternary` (max abs
+`0.000e+00`), and `sr_fitness` agrees to `~3.5e-7` relative — float32 reduction order
+(the engine reduces on the host in numpy, the arms in torch), not a semantic
+difference. `rich` is the one set with real spread: `~9.3e-2` abs / `~1.5e-4` rel for
+the torch arms and up to `4.4e-1` abs / `6.4e-1` rel for the dense route on
+`batch_forward` — the dense/IREE lowering of transcendentals, not a wrong tree
+evaluation.
 
-Both torch arms were debugged this way and the two classic mistakes are worth
-knowing before touching them: the reversed-prefix walk pushes the **right-most**
-child first, so `stack.pop()` order is left-to-right (`a`, then `b`); and child
-positions are **per row** (`c1 = i+1`, `c2 = c1 + size[row, c1]`,
-`c3 = c2 + size[row, c2]`) — using row 0's sizes silently mis-wires every tree with
-a different shape.
+Both torch arms were debugged this way; two classic mistakes to know before touching
+them: the reversed-prefix walk pushes the **right-most** child first, so `stack.pop()`
+order is left-to-right (`a`, then `b`), and child positions are **per row**
+(`c1 = i+1`, `c2 = c1 + size[row, c1]`, `c3 = c2 + size[row, c2]`), so row 0's sizes
+silently mis-wire every tree of a different shape.
 
 ## Decomposition (`decompose.py`)
 
 One representative cell (`p256-L64-i32-N1024`) on both routes: module-level
 inclusive `perf_counter_ns` phase timers around the engine's own functions
-(`decode_population`, `_input_to_numpy`, `_executable`, `_run_tree`,
-`_evaluate_rows`, `prepare_dense`, `plan_dense`, `build_dense`, `run_loss_plan`, …),
-the residual between the workload and its instrumented children printed as its own
-row (that residual is the host glue: loss assembly, conversions, uploads), and seam
-counters for `evoxc.run` dispatches, `evoxc.Tensor.to` uploads, `Tensor.numpy`
-readbacks and `from_numpy` wraps. The uninstrumented median of the same call sits
-next to the instrumented one so the timer overhead is visible. Cold compile is
-reported separately.
+(`decode_population`, `_executable`, `_run_tree`, `_evaluate_rows`, `plan_dense`,
+`build_dense`, `run_loss_plan`, …), the residual between the workload and its
+instrumented children printed as its own row (that residual is the host glue: loss
+assembly, conversions, uploads), and seam counters for `evoxc.run` dispatches,
+`evoxc.Tensor.to` uploads, `Tensor.numpy` readbacks and `from_numpy` wraps. The
+uninstrumented median of the same call sits next to the instrumented one so the timer
+overhead is visible, and cold compile is reported separately.
 
 ## Rules for this subtree
 
@@ -931,10 +818,9 @@ reported separately.
   medians from `samples_ms` to catch a record that does not.
 * A batch arm's large `first_call_ms` and `compile_misses_first_call` are the
   recorded cold cost of one merged graph per population — never an anomaly to be
-  smoothed, retried or scoped away. `check.py` therefore only **warns** when that
-  compile is not attributed to any counter, and `batch_cache.available: false` (a
-  tree whose batch engine exposes no cache counters) is a reportable state, not a
-  defect.
+  smoothed, retried or scoped away; `check.py` therefore only **warns** when that
+  compile is not attributed to any counter, and `batch_cache.available: false` is a
+  reportable state, not a defect.
 * Numerical honesty over tidiness: if a cell looks contaminated, re-run it and say
   so in the record (`--note`) instead of dropping or smoothing the number.
 * `results/baseline/` and `results/final/**` are frozen evidence: a re-run writes
