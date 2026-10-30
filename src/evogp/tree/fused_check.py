@@ -8,21 +8,30 @@ WHAT IT CHECKS
 --------------
 1. **Parity against the oracle.**  ``src/evogp/tests/reference_eval.py`` is the
    numeric contract of record (pure torch/numpy, written independently of the
-   engines).  Four random populations cover the function-table families — the
-   benchmark arithmetic set, the arithmetic+ternary set, the loose/protected set
-   and a ``rich`` transcendental set — and a set of handmade adversarial rows
-   covers the shapes a random generator does not produce: single-node leaves, a
-   pure constant tree, a 40-deep left chain, a 40-deep right chain, full ternary
-   ``if`` trees, a real tree followed by garbage padding, and single-output rows
-   carrying ``OUT_NODE``-tagged nodes (which fall through to the ternary branch,
-   exactly like the oracle's ``_kind_from_type``).  Each population is compared on
-   all three surfaces: the batched value path (``per_row=False``), the per-tree
-   value path (``per_row=True``) and the SR loss (MSE and MAE).
-   Assertions: **bitwise** on the arithmetic-only set's value paths (that is the
-   claim ``fused_kernels.py``'s ``enable_fp_fusion=False`` buys), ``<= 1e-6``
-   relative everywhere else on the value path, ``<= 1e-5`` relative on the loss
-   path (the kernel reduces in float32 per row-block, the oracle reduces in one
-   float32 ``sum``, so the two differ by accumulation order only).
+   engines).  Five random populations cover the function-table families — the
+   benchmark arithmetic set, the arithmetic+ternary set, the loose/protected set,
+   a ``rich`` transcendental set and a ``compare_unary`` set (``>``, ``<=``,
+   ``neg``, ``abs``, ``sinh``, ``cosh``, ``+``, ``*``) that is the ONLY place the
+   six operators no other set draws are exercised — the hand-written
+   ``sinh``/``cosh`` ``(exp(x) -+ exp(-x)) * 0.5`` compositions included — and a
+   set of handmade adversarial rows covers the shapes a random generator does not
+   produce: single-node leaves, a pure constant tree, a 40-deep left chain, a
+   40-deep right chain, full ternary ``if`` trees, a real tree followed by garbage
+   padding, and single-output rows carrying ``OUT_NODE``-tagged nodes (which fall
+   through to the ternary branch, exactly like the oracle's ``_kind_from_type``).
+   Each population is compared on all three surfaces: the batched value path
+   (``per_row=False``), the per-tree value path (``per_row=True``) and the SR loss
+   (MSE and MAE).
+   Assertions: every ``PARITY_SETS`` entry carries its own MEASURED ``value_tol``
+   (``0.0`` = the value path must be bitwise, which is what ``fused_kernels.py``'s
+   ``enable_fp_fusion=False`` buys — measured for ``arithmetic`` and
+   ``compare_unary``, ``1e-7`` relative for the other three, i.e. the measured
+   ``max_rel`` of 0 with a margin); every adversarial case carries its own
+   measured ``bitwise`` flag (``False`` only where a NaN payload / signed zero
+   makes the byte comparison meaningless, and its ``note`` says which); the loss
+   path is ``<= 1e-5`` relative everywhere (the kernel reduces in float32 per
+   row-block, the oracle reduces in one float32 ``sum``, so the two differ by
+   accumulation order only).
 2. **Goldens.**  The two frozen fixture families of ``test/equivalence/test_goldens``
    (``src/evogp/tests/goldens/*.npz`` = this package's engine schema, and
    ``test/goldens/*.npz`` = outputs of the deleted CUDA kernels) at the documented
@@ -114,16 +123,16 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # --------------------------------------------------------------------------- #
 # paths: the module lives in <repo>/src/evogp/tree, so src/ and the test oracle
-# are two levels up.  Adding them here keeps `python -m evogp.tree.fused_check`
-# usable with only PYTHONPATH=src, while PYTHONPATH still wins for evogp itself.
+# are two levels up.  ``main`` adds the oracle's directory (see ``_setup_paths``),
+# which keeps `python -m evogp.tree.fused_check` usable with only PYTHONPATH=src
+# while PYTHONPATH still wins for evogp itself.  Deliberately NOT at import time:
+# importing this module must not mutate ``sys.path``.  Every ``-m`` child leg the
+# driver stages spawn re-enters through ``main``, so the child sees the same path.
 # --------------------------------------------------------------------------- #
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SRC_ROOT = os.path.dirname(os.path.dirname(_HERE))
 _TESTS_DIR = os.path.join(os.path.dirname(_HERE), "tests")
 _REPO_ROOT = os.path.dirname(_SRC_ROOT)
-for _path in (_TESTS_DIR,):
-    if _path not in sys.path:
-        sys.path.append(_path)
 
 #: The six timing cells.  Ids come from the harness's own ``common.cell`` so a
 #: number recorded here is addressable by the same name as every other round.
@@ -136,20 +145,24 @@ CELL_SPECS: List[Dict[str, Any]] = [
     dict(pop=2048, tree_len=128, input_len=32, rows=1024, max_layer_cnt=7),
 ]
 
-#: ``using_funcs`` sets of the parity stage.  ``arithmetic`` is the only one whose
-#: value path must be bitwise (no transcendental emits an fp64 round trip there).
+#: ``using_funcs`` sets of the parity stage.  ``value_tol`` is the MEASURED bound
+#: of the value paths (``0.0`` = bitwise): ``arithmetic`` and ``compare_unary`` are
+#: bitwise (no transcendental round trip, and no NaN payload / signed zero), the
+#: other three measured ``max_rel`` 0 as well but keep a 1e-7 margin because a
+#: transcendental emitter could move by an ulp.  The loss bound stays ``LOSS_RTOL``
+#: for every set (accumulation order, not semantics).
 PARITY_SETS: Dict[str, Dict[str, Any]] = {
     "arithmetic": dict(
         using_funcs=("+", "-", "*", "/"),
         input_len=8,
         max_layer_cnt=4,
-        bitwise=True,
+        value_tol=0.0,
     ),
     "ternary": dict(
         using_funcs=("+", "-", "*", "/", "if"),
         input_len=4,
         max_layer_cnt=3,
-        bitwise=False,
+        value_tol=1e-7,
     ),
     "loose": dict(
         using_funcs=(
@@ -165,7 +178,7 @@ PARITY_SETS: Dict[str, Dict[str, Any]] = {
         ),
         input_len=8,
         max_layer_cnt=4,
-        bitwise=False,
+        value_tol=1e-7,
     ),
     "rich": dict(
         using_funcs=(
@@ -184,7 +197,20 @@ PARITY_SETS: Dict[str, Dict[str, Any]] = {
         ),
         input_len=8,
         max_layer_cnt=4,
-        bitwise=False,
+        value_tol=1e-7,
+    ),
+    # The six operators no other set draws: ``GT``(11) / ``LE``(12) from the
+    # comparison family and ``SINH``(17) / ``COSH``(18) / ``NEG``(25) / ``ABS``(26)
+    # from the unary one.  ``sinh``/``cosh`` are the hand-written
+    # ``(exp(x) -+ exp(-x)) * 0.5`` compositions (``utils`` has no native branch
+    # for a device ``sinh``), i.e. exactly where divergence from the oracle's
+    # ``torch.sinh``/``torch.cosh`` would hide.  Measured BITWISE on both value
+    # paths, hence ``value_tol=0.0``.
+    "compare_unary": dict(
+        using_funcs=(">", "<=", "neg", "abs", "sinh", "cosh", "+", "*"),
+        input_len=8,
+        max_layer_cnt=4,
+        value_tol=0.0,
     ),
 }
 
@@ -412,7 +438,14 @@ def _full_ternary(depth: int, input_len: int) -> Sequence[Any]:
 
 
 def adversarial_cases() -> List[Dict[str, Any]]:
-    """Handmade populations: the shapes a random generator never produces."""
+    """Handmade populations: the shapes a random generator never produces.
+
+    Every case carries a MEASURED ``bitwise`` flag: ``True`` means the value paths
+    of this row are already bitwise against the oracle and the stage enforces
+    ``value_limit=0.0``, ``False`` means the case has a documented reason (a NaN
+    payload or a signed zero) for which a byte comparison says nothing, so the
+    stage falls back to ``VALUE_RTOL`` -- and the ``note`` spells the reason out.
+    """
     from evogp.tree.utils import Func
 
     add, mul, div, sqrt, log_op = (
@@ -452,36 +485,42 @@ def adversarial_cases() -> List[Dict[str, Any]]:
             name="leaf_var",
             rows=[("var", 0)],
             input_len=4,
+            bitwise=True,
             note="single VAR root",
         ),
         dict(
             name="leaf_const",
             rows=[("const", 2.5)],
             input_len=4,
+            bitwise=True,
             note="single CONST root (never compiled on the specialized route)",
         ),
         dict(
             name="const_tree",
             rows=[const_tree],
             input_len=4,
+            bitwise=True,
             note="pure constant subtree",
         ),
         dict(
             name="left_chain_40",
             rows=[_chain(40, right=False, input_len=8)],
             input_len=8,
+            bitwise=True,
             note="40-deep left chain, one pending operand",
         ),
         dict(
             name="right_chain_40",
             rows=[_chain(40, right=True, input_len=8)],
             input_len=8,
+            bitwise=True,
             note="40-deep right chain, 40 pending operands",
         ),
         dict(
             name="full_if_3",
             rows=[_full_ternary(3, 4)],
             input_len=4,
+            bitwise=True,
             note="complete ternary if tree (13 nodes)",
         ),
         dict(
@@ -490,19 +529,26 @@ def adversarial_cases() -> List[Dict[str, Any]]:
             input_len=4,
             pad_to=64,
             garbage_tail=True,
+            bitwise=True,
             note="5-node tree, NaN/nonsense padding behind it",
         ),
         dict(
             name="out_node_tags",
             rows=[out_tagged],
             input_len=4,
+            bitwise=True,
             note="OUT_NODE-tagged nodes -> TFUNC fall-through (out_len 1)",
         ),
         dict(
             name="mixed_deep",
             rows=[mixed],
             input_len=4,
-            note="DIV by const 0 (NaN per the emitter), SQRT/LOG of a var",
+            # MEASURED: the values agree (max_abs 0.0) but the bytes do not, because
+            # the DIV-by-a-literal-zero branch is a NaN and the two evaluators write
+            # different NaN payloads -- a byte comparison is meaningless here.
+            bitwise=False,
+            note="DIV by const 0 (NaN per the emitter), SQRT/LOG of a var; "
+            "NOT bitwise: NaN payload",
         ),
         dict(
             name="mixed_bag",
@@ -519,7 +565,10 @@ def adversarial_cases() -> List[Dict[str, Any]]:
             input_len=4,
             pad_to=32,
             garbage_tail=True,
-            note="all of the above in ONE population (pop 8)",
+            # MEASURED: the same rows as above, so the same NaN-payload split.
+            bitwise=False,
+            note="all of the above in ONE population (pop 8); "
+            "NOT bitwise: the NaN payload of the DIV-by-zero row",
         ),
     ]
 
@@ -902,7 +951,7 @@ def stage_parity(args: argparse.Namespace) -> int:
             forest.batch_subtree_size,
         )
         print(f"\n[{name}] using_funcs={list(spec['using_funcs'])}")
-        limit = 0.0 if spec["bitwise"] else VALUE_RTOL
+        limit = float(spec["value_tol"])
         p, t = _check_population(
             name,
             rows,
@@ -912,9 +961,9 @@ def stage_parity(args: argparse.Namespace) -> int:
             labels=workload["labels"],
             value_limit=limit,
             note=(
-                "bitwise required (arithmetic set)"
-                if spec["bitwise"]
-                else f"value <= {VALUE_RTOL:g} rel"
+                f"bitwise required (measured value_tol={limit:g})"
+                if limit == 0.0
+                else f"value <= {limit:g} rel (measured 0 with a margin)"
             ),
         )
         passed += p
@@ -932,6 +981,7 @@ def stage_parity(args: argparse.Namespace) -> int:
         batch_x = torch.rand(int(args.parity_rows), input_len, device="cuda")
         labels = torch.rand(int(args.parity_rows), 1, device="cuda")
         per_row_x = torch.rand(pop, input_len, device="cuda")
+        print(f"\n[{case['name']}]")
         p, t = _check_population(
             case["name"],
             (node_value, node_type, subtree_size),
@@ -939,7 +989,7 @@ def stage_parity(args: argparse.Namespace) -> int:
             batch_x=batch_x,
             per_row_x=per_row_x,
             labels=labels,
-            value_limit=VALUE_RTOL,
+            value_limit=0.0 if case["bitwise"] else VALUE_RTOL,
             note=case["note"],
         )
         passed += p
@@ -1318,6 +1368,618 @@ def np_scalar(array) -> float:
 # --------------------------------------------------------------------------- #
 # stage 2b: the decline matrix and the knob/stat contracts (cheap, no tuning)
 # --------------------------------------------------------------------------- #
+# stage 2b helpers: the regression contracts of the hardened kernel and facade
+#
+# Each helper appends ``(name, ok, detail)`` rows to the stage's ``checks`` list and
+# is RUN WRAPPED (see ``stage_declines``), so a crash reports as one FAIL line
+# instead of killing the matrix.  They reuse the battery's own machinery
+# (``pack_rows`` / ``_full_ternary`` / ``_expect``) on purpose: a second way of
+# building a population would be a second thing to get wrong.
+# --------------------------------------------------------------------------- #
+def _expect(tag: str, fn, kind, needle: Optional[str] = None) -> Tuple[str, bool, str]:
+    """One "this call must raise ``kind``" expectation, as a ``checks`` row."""
+    try:
+        fn()
+    except kind as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        ok = needle is None or needle in str(exc)
+        if not ok:
+            detail = f"{detail} (does not name {needle!r})"
+        return (tag, ok, detail)
+    except Exception as exc:  # noqa: BLE001 - the wrong type is a failure
+        return (tag, False, f"raised {type(exc).__name__}: {exc}")
+    return (tag, False, "did NOT raise")
+
+
+def _dev_x(rows: int, input_len: int):
+    """A deterministic ``(rows, input_len)`` device block (same values every call)."""
+    import torch
+
+    torch.manual_seed(4321)
+    return torch.rand(int(rows), int(input_len), device="cuda")
+
+
+def _fused_value(
+    rows_specs: Sequence[Sequence[Any]],
+    *,
+    pad_to: int,
+    input_len: int,
+    data_rows: int,
+    size0: Optional[int] = None,
+    size_row: int = 0,
+):
+    """``evaluate_fused`` on a hand-built population, optionally with a forced size.
+
+    ``size0`` overrides ``batch_subtree_size[size_row, 0]`` AFTER packing, which is
+    the only way to build the malformed rows the kernel's clamp has to survive
+    (``pack_rows`` always writes the honest subtree sizes).
+    """
+    from evogp.tree import fused_engine
+
+    node_value, node_type, subtree_size = pack_rows(rows_specs, pad_to=pad_to)
+    if size0 is not None:
+        subtree_size = subtree_size.clone()
+        subtree_size[int(size_row), 0] = int(size0)
+    return fused_engine.evaluate_fused(
+        node_value,
+        node_type,
+        subtree_size,
+        int(input_len),
+        1,
+        _dev_x(data_rows, input_len),
+        per_row=False,
+    )
+
+
+def _bitwise_row(tag: str, fn_got, fn_want, *, note: str = "") -> Tuple[str, bool, str]:
+    """Compare two call results BITWISE (the contract of a layout/out_device leg)."""
+    import torch
+
+    try:
+        got = fn_got()
+        want = fn_want()
+    except Exception as exc:  # noqa: BLE001
+        return (tag, False, f"raised {type(exc).__name__}: {exc}")
+    same = tuple(got.shape) == tuple(want.shape) and torch.equal(got, want)
+    detail = f"bitwise={same} shape {tuple(got.shape)}"
+    if not same and tuple(got.shape) == tuple(want.shape):
+        detail += f" max|delta|={float((got.float() - want.float()).abs().max()):.3e}"
+    return (tag, bool(same), detail + ((" " + note) if note else ""))
+
+
+def _stats_row(tag: str, key: str) -> Tuple[str, bool, str]:
+    """A stats snapshot must NEVER raise, whatever the ambient knob says (S7)."""
+    from evogp.tree import fused_engine
+
+    try:
+        value = fused_engine.fused_cache_stats().get(key)
+    except Exception as exc:  # noqa: BLE001
+        return (tag, False, f"raised {type(exc).__name__}: {exc}")
+    return (tag, value == -1, f"{key}={value} (-1 = present but unusable)")
+
+
+def _check_row_length_clamp(checks: List[Tuple[str, bool, str]]) -> None:
+    """B1: ``subtree_size[0]`` is clamped to the row (no spill, no out-of-bounds).
+
+    The rows below are padded to EXACTLY their node count, so the clamp
+    ``min(max(subtree_size[0], 0), tree_len)`` IS the honest length and the honest
+    value is the assertion: a row that walked past its own cells would read the
+    NEXT row's nodes (or the memory behind the last row) and produce a different
+    number.  ``-5`` is the floor side of the same clamp: it floors to 0, i.e. the
+    walk does nothing and the value is exactly 0.0.
+    """
+    import torch
+
+    from evogp.tree.utils import Func
+
+    add, mul = int(Func.ADD), int(Func.MUL)
+    tree = _full_ternary(3, 4)  # exactly 13 nodes
+    other = (mul, (("var", 0), (add, (("const", 1.5), ("var", 1)))))  # 5 nodes
+    honest = _fused_value([tree], pad_to=13, input_len=4, data_rows=8)
+    for size0 in (30000, 32767):
+        forced = _fused_value([tree], pad_to=13, input_len=4, data_rows=8, size0=size0)
+        checks.append(
+            (
+                f"B1: subtree_size[0]={size0} == the honest 13-node row",
+                torch.equal(forced, honest),
+                f"clamped to tree_len 13; "
+                f"max|delta|={float((forced - honest).abs().max()):.3e}",
+            )
+        )
+    floored = _fused_value([tree], pad_to=13, input_len=4, data_rows=8, size0=-5)
+    empty = _fused_value([tree], pad_to=13, input_len=4, data_rows=8, size0=0)
+    checks.append(
+        (
+            "B1: subtree_size[0]=-5 floors to 0 (no crash, exactly 0.0)",
+            torch.equal(floored, empty) and float(floored.abs().max()) == 0.0,
+            f"max|value|={float(floored.abs().max()):.3e}, same as size 0: "
+            f"{torch.equal(floored, empty)}",
+        )
+    )
+    spilled = _fused_value([tree, other], pad_to=13, input_len=4, data_rows=8, size0=32767)
+    honest_pair = _fused_value([tree, other], pad_to=13, input_len=4, data_rows=8)
+    checks.append(
+        (
+            "B1: 32767 on a row FOLLOWED by another tree does not spill",
+            torch.equal(spilled, honest_pair),
+            f"max|delta|={float((spilled - honest_pair).abs().max()):.3e} "
+            "(row 1 holds a different tree, so an overshoot would show)",
+        )
+    )
+
+
+def _check_underflow_determinism(checks: List[Tuple[str, bool, str]]) -> None:
+    """S8: a malformed tree popping an EMPTY stack yields a defined, stable value.
+
+    ``MUL(VAR0, <nothing>)`` is two nodes: the walk reaches the binary root with an
+    EMPTY stack.  The scratch block is shared per shape class, so the two junk
+    populations below leave DIFFERENT bytes in the slot that pop would read -- one
+    masked operand (``other=0.0``) or the other, the malformed result must be the
+    same.  Before the mask it was the PREVIOUS call's leftover.
+    """
+    import torch
+
+    from evogp.tree.utils import Func
+
+    add, mul = int(Func.ADD), int(Func.MUL)
+
+    def junk(value: float):
+        """A right-leaning const chain: it leaves a ``2 * value``-ish sum on the stack."""
+        node: Any = ("const", value)
+        for _ in range(3):
+            node = (add, (("const", value), node))
+        return node
+
+    def run(spec) -> Any:
+        return _fused_value([spec], pad_to=8, input_len=4, data_rows=8)
+
+    malformed = (mul, (("var", 0),))
+    first_junk = run(junk(5.0))
+    first = run(malformed)
+    second_junk = run(junk(-7.0))
+    second = run(malformed)
+    checks.append(
+        (
+            "S8: an empty-stack pop is deterministic across junk fills",
+            torch.equal(first, second),
+            f"junk max {float(first_junk.max()):.3e} vs "
+            f"{float(second_junk.max()):.3e} -> value "
+            f"{float(first.min()):.3e} / {float(second.min()):.3e}",
+        )
+    )
+    checks.append(
+        (
+            "S8: the masked (missing) operand is exactly 0.0",
+            float(first.abs().max()) == 0.0 and float(second.abs().max()) == 0.0,
+            f"max|value|={float(first.abs().max()):.3e} / "
+            f"{float(second.abs().max()):.3e}",
+        )
+    )
+
+
+def _check_geometry_knobs(checks: List[Tuple[str, bool, str]]) -> None:
+    """S3/S7: an off-power-of-two block cap is floored, and a bad knob never raises.
+
+    ``tl.arange`` needs a power of two, so ``EVOGP_FUSED_BLOCK_ROWS=100`` used to
+    fail INSIDE Triton; the resolver and ``plan`` now floor it to 64.  An unusable
+    spelling still refuses the call (``ValueError``) while a stats SNAPSHOT -- the
+    one thing a driver prints unconditionally -- reports ``-1`` instead.
+    """
+    import torch
+
+    from evogp.tree import fused_engine, fused_kernels
+
+    node_value, node_type, subtree_size = pack_rows([("var", 0)], pad_to=4)
+    x = torch.rand(8, 4, device="cuda")
+    call = dict(
+        batch_node_value=node_value,
+        batch_node_type=node_type,
+        batch_subtree_size=subtree_size,
+        input_len=4,
+        output_len=1,
+    )
+    names = ("EVOGP_FUSED_BLOCK_ROWS", "EVOGP_FUSED_NUM_WARPS")
+    saved = {name: os.environ.get(name) for name in names}
+    try:
+        os.environ["EVOGP_FUSED_BLOCK_ROWS"] = "100"
+        try:
+            out = fused_engine.evaluate_fused(**call, x=x, per_row=False)
+            served, detail = tuple(out.shape) == (1, 8, 1), f"shape {tuple(out.shape)}"
+        except Exception as exc:  # noqa: BLE001
+            served, detail = False, f"raised {type(exc).__name__}: {exc}"
+        checks.append(("S3: BLOCK_ROWS=100 is SERVED (floored to 64)", served, detail))
+        geom = fused_kernels.plan(1024, per_row=False, block_rows=100, num_warps=1)
+        checks.append(
+            ("S3: plan(block_rows=100) floors the block to 64", int(geom["block_rows"]) == 64,
+             f"block_rows={geom['block_rows']} n_rb={geom['n_rb']}")
+        )
+        reported = fused_engine.fused_cache_stats()["fused_block_rows"]
+        checks.append(
+            ("S3: stats report the floored cap (64, not 100)", reported == 64, str(reported))
+        )
+        os.environ["EVOGP_FUSED_BLOCK_ROWS"] = "abc"
+        checks.append(_stats_row("S7: fused_cache_stats() with BLOCK_ROWS=abc", "fused_block_rows"))
+        checks.append(
+            _expect(
+                "S3: resolve_block_rows() still refuses 'abc'",
+                fused_engine.resolve_block_rows,
+                ValueError,
+                "EVOGP_FUSED_BLOCK_ROWS",
+            )
+        )
+        os.environ.pop("EVOGP_FUSED_BLOCK_ROWS", None)
+        os.environ["EVOGP_FUSED_NUM_WARPS"] = "0"
+        checks.append(_stats_row("S7: fused_cache_stats() with NUM_WARPS=0", "fused_num_warps"))
+        checks.append(
+            _expect(
+                "S7: resolve_num_warps() still refuses '0'",
+                fused_engine.resolve_num_warps,
+                ValueError,
+                "EVOGP_FUSED_NUM_WARPS",
+            )
+        )
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def _check_scratch_budget(checks: List[Tuple[str, bool, str]]) -> None:
+    """S1: the scratch table is bounded by BYTES, and a smaller budget evicts.
+
+    It used to be bounded by an entry COUNT (8), i.e. up to 8x the envelope.  Two
+    2 MiB shapes are allocated, then a call with a 1 MiB budget has to EVICT them
+    rather than add to them.
+    """
+    import torch
+
+    from evogp.tree import fused_engine
+
+    def serve(pop: int, tree_len: int, rows: int, **kwargs) -> None:
+        node_value, node_type, subtree_size = pack_rows(
+            [("var", 0)] * int(pop), pad_to=int(tree_len)
+        )
+        fused_engine.evaluate_fused(
+            node_value,
+            node_type,
+            subtree_size,
+            4,
+            1,
+            torch.rand(int(rows), 4, device="cuda"),
+            per_row=False,
+            **kwargs,
+        )
+
+    serve(64, 32, 256)  # 2 MiB of scratch
+    serve(128, 16, 256)  # another 2 MiB
+    stats = fused_engine.fused_cache_stats()
+    budget = fused_engine.resolve_max_scratch_mb() * 2**20
+    checks.append(
+        (
+            "S1: fused_scratch_bytes stays inside the resolved budget",
+            stats["fused_scratch_bytes"] <= budget and stats["fused_scratch_entries"] >= 2,
+            f"{stats['fused_scratch_bytes'] / 2**20:.2f} MiB in "
+            f"{stats['fused_scratch_entries']} entries <= {budget / 2**20:.0f} MiB",
+        )
+    )
+    before = fused_engine.fused_cache_stats()
+    # A shape class the table has never seen (a reused one would be a HIT and prove
+    # nothing) with a budget the entries above cannot fit in.
+    serve(3, 5, 8, max_scratch_mb=1)
+    after = fused_engine.fused_cache_stats()
+    checks.append(
+        (
+            "S1: a shrinking budget EVICTS instead of growing the table",
+            after["fused_scratch_evictions"] > before["fused_scratch_evictions"]
+            and after["fused_scratch_bytes"] <= 2**20,
+            f"evictions +{after['fused_scratch_evictions'] - before['fused_scratch_evictions']}, "
+            f"bytes {before['fused_scratch_bytes'] / 2**20:.2f} -> "
+            f"{after['fused_scratch_bytes'] / 2**20:.2f} MiB",
+        )
+    )
+
+
+def _check_operator_table(checks: List[Tuple[str, bool, str]]) -> None:
+    """S5: the kernels' emitted operator table IS ``utils.FUNCS``, split by arity.
+
+    A function id with no branch evaluates to ``0.0`` silently, so this assertion is
+    the battery's half of the guard (the import-time check in ``fused_kernels`` is
+    the other half): removing a branch or adding an operator has to fail here.
+    """
+    from evogp.tree import fused_kernels
+    from evogp.tree.utils import FUNCS, Func
+
+    declared = fused_kernels.emitted_function_ids()
+    binary = tuple(f for f in FUNCS if Func.BF_START <= f < Func.UF_START)
+    unary = tuple(f for f in FUNCS if Func.UF_START <= f < Func.END)
+    checks.append(
+        (
+            "S5: emitted_function_ids() == utils.FUNCS split by arity",
+            tuple(declared["binary"]) == binary and tuple(declared["unary"]) == unary,
+            f"binary {len(declared['binary'])}/{len(binary)} ids "
+            f"{sorted(binary)[0]}..{sorted(binary)[-1]}, "
+            f"unary {len(declared['unary'])}/{len(unary)} ids "
+            f"{sorted(unary)[0]}..{sorted(unary)[-1]}",
+        )
+    )
+
+
+def _check_noncontiguous(checks: List[Tuple[str, bool, str]]) -> None:
+    """B2: a non-contiguous input / label / population block is read correctly.
+
+    The kernel dereferences raw pointers derived from the SHAPE, so a column slice
+    of a padded ``x`` (or a stride-2 population table) would be read with the wrong
+    strides and yield plausible garbage -- no exception, no decline, a wrong answer.
+    Every leg therefore compares against the same call on ``.contiguous()`` copies,
+    bitwise, through the PUBLIC API.
+    """
+    import torch
+
+    from evogp.tree import Forest
+    from evogp.tree.utils import Func
+
+    add = int(Func.ADD)
+    pop, input_len, tree_len, rows = 64, 4, 8, 32
+    node_value, node_type, subtree_size = pack_rows(
+        [(add, (("var", 0), ("var", 1)))] * pop, pad_to=tree_len
+    )
+    forest = Forest(input_len, 1, node_value, node_type, subtree_size)
+    saved = os.environ.get("EVOGP_EVAL_MODE")
+    os.environ["EVOGP_EVAL_MODE"] = "fused"  # >= EVOGP_FUSED_MIN_POP, so it is SERVED
+    try:
+        torch.manual_seed(99)
+        padded = torch.rand(rows, input_len + 8, device="cuda")
+        sliced = padded[:, :input_len]
+        checks.append(
+            _bitwise_row(
+                "B2: batch_forward on a column slice == contiguous",
+                lambda: forest.batch_forward(sliced),
+                lambda: forest.batch_forward(sliced.contiguous()),
+                note=f"(contiguous={sliced.is_contiguous()})",
+            )
+        )
+        padded_row = torch.rand(pop, input_len + 8, device="cuda")
+        row_slice = padded_row[:, :input_len]
+        checks.append(
+            _bitwise_row(
+                "B2: forward(per_row) on a column slice == contiguous",
+                lambda: forest.forward(row_slice),
+                lambda: forest.forward(row_slice.contiguous()),
+                note=f"(contiguous={row_slice.is_contiguous()})",
+            )
+        )
+        labels = torch.rand(rows, 3, device="cuda")[:, :1]
+        checks.append(
+            _bitwise_row(
+                "B2: SR_fitness with sliced inputs/labels == contiguous",
+                lambda: forest.SR_fitness(sliced, labels),
+                lambda: forest.SR_fitness(sliced.contiguous(), labels.contiguous()),
+                note=f"(labels contiguous={labels.is_contiguous()})",
+            )
+        )
+
+        def strided(table):
+            """The same values in a stride-2 view (the population tables themselves)."""
+            wide = torch.zeros(
+                (table.shape[0], 2 * table.shape[1]),
+                dtype=table.dtype,
+                device=table.device,
+            )
+            wide[:, ::2] = table
+            return wide[:, ::2]
+
+        sliced_forest = Forest(
+            input_len, 1, strided(node_value), strided(node_type), strided(subtree_size)
+        )
+        plain_forest = Forest(
+            input_len, 1, node_value, node_type, subtree_size
+        )
+        checks.append(
+            _bitwise_row(
+                "B2: a stride-2 population equals its contiguous copy",
+                lambda: sliced_forest.batch_forward(sliced),
+                lambda: plain_forest.batch_forward(sliced),
+                note="(population tables non-contiguous="
+                f"{not sliced_forest.batch_subtree_size.is_contiguous()})",
+            )
+        )
+    finally:
+        if saved is None:
+            os.environ.pop("EVOGP_EVAL_MODE", None)
+        else:
+            os.environ["EVOGP_EVAL_MODE"] = saved
+
+
+def _check_out_device(checks: List[Tuple[str, bool, str]]) -> None:
+    """``out_device``: a host request returns the SAME numbers; a same-device one is a no-op."""
+    import torch
+
+    from evogp.tree import fused_engine
+    from evogp.tree.utils import Func
+
+    add = int(Func.ADD)
+    node_value, node_type, subtree_size = pack_rows(
+        [(add, (("var", 0), ("var", 1)))] * 4, pad_to=8
+    )
+    rows = (node_value, node_type, subtree_size)
+    x = _dev_x(16, 4)
+    labels = _dev_x(16, 1)
+    device = fused_engine.evaluate_fused(*rows, 4, 1, x, per_row=False)
+    host = fused_engine.evaluate_fused(*rows, 4, 1, x, per_row=False, out_device="cpu")
+    checks.append(
+        (
+            "out_device='cpu': evaluate_fused values are unchanged",
+            host.device.type == "cpu" and torch.equal(host, device.cpu()),
+            f"device {host.device} bitwise={torch.equal(host, device.cpu())}",
+        )
+    )
+    same = fused_engine.evaluate_fused(
+        *rows, 4, 1, x, per_row=False, out_device=device.device
+    )
+    checks.append(
+        (
+            "out_device == the computation device: a no-op",
+            same.device == device.device and torch.equal(same, device),
+            f"device {same.device} bitwise={torch.equal(same, device)}",
+        )
+    )
+    loss = fused_engine.sr_fitness_fused(*rows, 4, 1, x, labels)
+    loss_host = fused_engine.sr_fitness_fused(*rows, 4, 1, x, labels, out_device="cpu")
+    close = bool(
+        torch.allclose(loss_host, loss.cpu(), rtol=LOSS_RTOL, atol=0.0)
+        if not torch.equal(loss_host, loss.cpu())
+        else True
+    )
+    checks.append(
+        (
+            "out_device='cpu': sr_fitness_fused values are unchanged",
+            loss_host.device.type == "cpu" and close,
+            f"device {loss_host.device} "
+            f"bitwise={torch.equal(loss_host, loss.cpu())}",
+        )
+    )
+
+
+def _check_envelope_bytes(checks: List[Tuple[str, bool, str]]) -> None:
+    """S2: the envelope charges the bytes a launch ACTUALLY allocates.
+
+    ``p2048-L128-i32-N1024`` at ``out_len=8`` is the shipped ``d7`` shape: the OLD
+    ``pop * tree_len * rows * 4`` formula reads 1 024 MiB and fits a 1 050 MiB
+    budget, while the scratch (1 024 MiB, rounded to 4 blocks of 256 lanes) plus the
+    ``(pop, rows, out_len)`` value buffer (64 MiB) is 1 088 MiB and must decline.
+    """
+    from evogp.tree import fused_engine, fused_kernels
+
+    pop, tree_len, rows, out_len, budget_mb = 2048, 128, 1024, 8, 1050
+    geom = fused_kernels.plan(
+        rows,
+        per_row=False,
+        block_rows=fused_engine.resolve_block_rows(),
+        num_warps=fused_engine.resolve_num_warps(),
+    )
+    scratch = pop * int(geom["n_rb"]) * tree_len * int(geom["block_rows"]) * 4
+    values = pop * rows * out_len * 4
+    old = pop * tree_len * rows * 4
+    checks.append(
+        (
+            "S2: the shape fits the PRE-FIX formula but not the real bytes",
+            old <= budget_mb * 2**20 < scratch + values,
+            f"old {old / 2**20:.0f} MiB <= {budget_mb} MiB < scratch "
+            f"{scratch / 2**20:.0f} + values {values / 2**20:.0f} MiB",
+        )
+    )
+    checks.append(
+        _expect(
+            "S2: p2048-L128 out_len=8 declines at 1050 MiB",
+            lambda: fused_engine._check_envelope(
+                pop, tree_len, rows, budget_mb, out_len=out_len
+            ),
+            fused_engine.FusedUnsupported,
+            "value buffer",
+        )
+    )
+    budget = fused_engine._check_envelope(pop, tree_len, rows, 8192)
+    checks.append(
+        (
+            "S2: p2048-L128-i32-N1024-d7 returns the budget at 8192",
+            budget == 8192,
+            f"returned {budget!r}",
+        )
+    )
+
+
+def _check_decline_fallback(checks: List[Tuple[str, bool, str]]) -> None:
+    """B3: a DECLINED fused call lands on specialized+``numpy`` -- the explicit arm too.
+
+    ``EVOGP_EVAL_MODE=fused`` + ``EVOGP_EVOXC_BACKEND=iree`` used to keep ``iree`` as
+    the fallback, i.e. a decline paid a per-tree iree compile.  The proof is the
+    ``backend=`` keyword the specialized engine actually receives: a monkeypatched
+    ``evoxc_engine.evaluate`` records it (restored in a ``finally``).
+    """
+    import torch
+
+    from evogp.tree import Forest, dense_engine, evoxc_engine, fused_engine
+    from evogp.tree.utils import Func
+
+    route = dense_engine.resolve_route(256, backend="iree", eval_mode="fused")
+    checks.append(
+        (
+            "B3: resolve_route(256, iree, fused) falls back to 'numpy'",
+            (route.backend, route.fallback_backend) == ("iree", "numpy"),
+            f"backend {route.backend} / fallback {route.fallback_backend}",
+        )
+    )
+    add = int(Func.ADD)
+    pop, input_len, tree_len, rows = 32, 4, 64, 1024
+    node_value, node_type, subtree_size = pack_rows(
+        [(add, (("var", 0), ("var", 1)))] * pop, pad_to=tree_len
+    )
+    forest = Forest(input_len, 1, node_value, node_type, subtree_size)
+    x = _dev_x(rows, input_len)
+    names = ("EVOGP_EVAL_MODE", "EVOGP_EVOXC_BACKEND", "EVOGP_FUSED_MAX_SCRATCH_MB")
+    saved = {name: os.environ.get(name) for name in names}
+    os.environ["EVOGP_EVAL_MODE"] = "fused"
+    os.environ["EVOGP_EVOXC_BACKEND"] = "iree"
+    os.environ["EVOGP_FUSED_MAX_SCRATCH_MB"] = "1"  # 8 MiB of scratch: a real decline
+    recorded: Dict[str, Any] = {}
+    original = evoxc_engine.evaluate
+
+    def spy(population, inputs, **kwargs):
+        recorded["backend"] = kwargs.get("backend")
+        return original(population, inputs, **kwargs)
+
+    before = fused_engine.fused_cache_stats()
+    evoxc_engine.evaluate = spy
+    try:
+        out = forest.batch_forward(x)
+        served, detail = tuple(out.shape) == (pop, rows, 1), f"shape {tuple(out.shape)}"
+    except Exception as exc:  # noqa: BLE001
+        served, detail = False, f"raised {type(exc).__name__}: {exc}"
+    finally:
+        evoxc_engine.evaluate = original
+        after = fused_engine.fused_cache_stats()
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    checks.append(
+        ("B3: the declined call is still SERVED by the fallback", served, detail)
+    )
+    checks.append(
+        (
+            "B3: the fallback ran on the specialized engine's numpy backend",
+            recorded.get("backend") == "numpy",
+            f"recorded backend={recorded.get('backend')!r} "
+            "(EVOGP_EVOXC_BACKEND=iree, EVOGP_FUSED_MAX_SCRATCH_MB=1)",
+        )
+    )
+    checks.append(
+        (
+            "B3: the fused route did DECLINE (the fallback is what served it)",
+            after["fused_declines"] == before["fused_declines"] + 1,
+            f"declines +{after['fused_declines'] - before['fused_declines']}",
+        )
+    )
+
+
+#: The hardened-contract helpers ``stage_declines`` runs (wrapped, one FAIL each).
+CONTRACT_CHECKS = (
+    _check_row_length_clamp,
+    _check_underflow_determinism,
+    _check_geometry_knobs,
+    _check_operator_table,
+    _check_scratch_budget,
+    _check_envelope_bytes,
+    _check_noncontiguous,
+    _check_out_device,
+    _check_decline_fallback,
+)
+
+
+# --------------------------------------------------------------------------- #
 def stage_declines(args: argparse.Namespace) -> int:
     """``FusedUnsupported`` on every unsupported call, and the stats/knob contracts.
 
@@ -1334,6 +1996,20 @@ def stage_declines(args: argparse.Namespace) -> int:
     (it used to be the decline case) while ``MAX_OUT_LEN + 1`` declines with a
     reason naming ``MAX_OUT_LEN`` and ``output_len 0`` is a ``ValueError`` (an
     unusable argument, not a decline).
+
+    The second half of the stage is the set of REGRESSION CONTRACTS the hardened
+    kernel/facade earned (``CONTRACT_CHECKS``): an oversized / negative
+    ``subtree_size[0]`` is clamped to the row (B1), an empty-stack pop is a
+    deterministic masked ``0.0`` rather than the previous call's scratch bytes
+    (S8), an off-power-of-two ``EVOGP_FUSED_BLOCK_ROWS`` is floored to 64 and an
+    unusable knob reports ``-1`` from the stats snapshot instead of raising (S3 /
+    S7), the scratch table is bounded by BYTES and evicts on a smaller budget
+    (S1), ``emitted_function_ids()`` is exactly ``utils.FUNCS`` by arity (S5), the
+    envelope charges the scratch + value buffer it really allocates (S2),
+    non-contiguous inputs / labels / population tables give the same BITWISE
+    numbers as their ``.contiguous()`` copies (B2), ``out_device`` changes
+    placement only (never the numbers) and a DECLINED fused call on the explicit
+    ``iree`` spelling still lands on specialized+``numpy`` (B3).
     """
     import torch
 
@@ -1343,18 +2019,7 @@ def stage_declines(args: argparse.Namespace) -> int:
     checks: List[Tuple[str, bool, str]] = []
 
     def expect(name: str, fn, kind, needle: Optional[str] = None) -> None:
-        try:
-            fn()
-        except kind as exc:
-            detail = f"{type(exc).__name__}: {exc}"
-            ok = needle is None or needle in str(exc)
-            if not ok:
-                detail = f"{detail} (does not name {needle!r})"
-            checks.append((name, ok, detail))
-        except Exception as exc:  # noqa: BLE001 - the wrong type is a failure
-            checks.append((name, False, f"raised {type(exc).__name__}: {exc}"))
-        else:
-            checks.append((name, False, "did NOT raise"))
+        checks.append(_expect(name, fn, kind, needle))
 
     node_value, node_type, subtree_size = pack_rows([("var", 0)], pad_to=4)
     x = torch.rand(8, 4, device="cuda")
@@ -1432,19 +2097,25 @@ def stage_declines(args: argparse.Namespace) -> int:
         lambda: fused_engine.evaluate_fused(**call, x=x.cpu().numpy(), per_row=False),
         fused_engine.FusedUnsupported,
     )
-    # The envelope is a budget on ``pop * tree_len * rows * 4`` BYTES, so the
-    # check is landed with a legal but tiny budget (a non-positive one is a knob
-    # error, raised as ``ValueError`` above) on the ``p256-L64-i32-N1024`` shape.
+    # The envelope is a budget over the bytes a launch actually allocates (scratch
+    # + value buffer + loss chart), so the check is landed with a legal but tiny
+    # budget (a non-positive one is a knob error, raised as ``ValueError`` above) on
+    # the ``p256-L64-i32-N1024`` shape: it must name the components it summed.
     expect(
         "decline: scratch envelope (1 MiB on p256-L64-N1024)",
         lambda: fused_engine._check_envelope(256, 64, 1024, 1),
         fused_engine.FusedUnsupported,
+        needle="value buffer",
     )
+    # The one-sided control: the SAME shape inside the budget RETURNS the resolved
+    # budget in MiB (the entry points pass it down as the scratch table's budget;
+    # it used to return ``None``).
+    served_budget = fused_engine._check_envelope(256, 64, 1024, 8192)
     checks.append(
         (
             "served: same shape inside an 8192 MiB envelope",
-            fused_engine._check_envelope(256, 64, 1024, 8192) is None,
-            "ok",
+            served_budget == 8192,
+            f"returned {served_budget!r} MiB",
         )
     )
     expect(
@@ -1503,6 +2174,20 @@ def stage_declines(args: argparse.Namespace) -> int:
             str(fused_engine.resolve_block_rows()),
         )
     )
+
+    # the hardened kernel/facade contracts (B1, B2, B3, S1, S2, S3, S5, S7, S8).
+    # Wrapped: a helper that raises is ONE failed line, not a dead matrix.
+    for helper in CONTRACT_CHECKS:
+        try:
+            helper(checks)
+        except Exception as exc:  # noqa: BLE001
+            checks.append(
+                (
+                    f"{helper.__name__} did not run",
+                    False,
+                    f"raised {type(exc).__name__}: {exc}",
+                )
+            )
 
     # counters: own namespace, pinned key count of cache_stats(), shared reset
     stats = fused_engine.fused_cache_stats()
@@ -2392,7 +3077,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="time through the public API with EVOGP_EVAL_MODE=fused (--stage timing)",
     )
     parser.add_argument("--block", type=int, default=256, help="EVOGP_FUSED_BLOCK_ROWS for tune-one")
-    parser.add_argument("--warps", type=int, default=4, help="EVOGP_FUSED_NUM_WARPS for tune-one")
+    # ``fused_kernels.DEFAULT_NUM_WARPS`` is the SHIPPED default (1); the parser is
+    # built before any ``evogp`` import (so ``python src/evogp/tree/fused_check.py``
+    # stays usable), hence the lazy resolution in ``main``.
+    parser.add_argument(
+        "--warps",
+        type=int,
+        default=None,
+        help="EVOGP_FUSED_NUM_WARPS for tune-one (default: fused_kernels.DEFAULT_NUM_WARPS)",
+    )
     parser.add_argument(
         "--blocks", default="64,128,256,512", help="BLOCK_ROWS grid of the tuning driver"
     )
@@ -2408,13 +3101,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _setup_paths() -> None:
+    """Make the in-repo oracle (``src/evogp/tests``) importable.
+
+    Called from :func:`main` — and therefore from every ``-m`` child leg the driver
+    stages spawn — so merely IMPORTING this module never mutates ``sys.path``.
+    """
+    if _TESTS_DIR not in sys.path:
+        sys.path.append(_TESTS_DIR)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    _setup_paths()
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.only:
         args.only = [item.strip() for item in args.only.split(",") if item.strip()]
     if args.stage in ("time-one", "tune-one") and not args.cell:
         parser.error(f"--stage {args.stage} needs --cell")
+    if args.stage == "tune-one" and args.warps is None:
+        # ``--warps``' default IS the shipped kernel default (single-sourced).
+        from evogp.tree import fused_kernels
+
+        args.warps = int(fused_kernels.DEFAULT_NUM_WARPS)
     status = 0
     if args.stage in ("parity", "all"):
         status |= stage_parity(args)
