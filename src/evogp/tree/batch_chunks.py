@@ -17,6 +17,14 @@ What lives here (and what does not):
   ``load`` statements appear for the chunked path; it returns the executables in
   submission order plus the ``build_stage_ms`` record and folds the region's wall
   clock / job count into :mod:`evogp.tree.batch_stages`.
+* :func:`supports_dispatch_formation` -- the feature probe behind the
+  ``EVOGP_BATCH_DISPATCH_FORMATION`` policy: does the INSTALLED evoxc iree adapter
+  declare the ``dispatch_formation`` compile option?  Asking the adapter is the
+  only reliable answer (evoxc's ``_resolve_compile_options`` raises
+  ``BackendError`` on an unknown option, so an unguarded ``options=`` would turn a
+  merely older evoxc into a failed plan), and it is asked of the adapter MODULE --
+  ``evoxc.backends.get()`` would activate the adapter and import the whole iree
+  runtime just to read a static option table.
 * NOT here: the front tables, the re-binding rules, the executable key and the
   run path -- those are :mod:`evogp.tree.batch_engine`.  This module never
   imports ``batch_engine``, so the facade stays the only public entry point.
@@ -41,7 +49,85 @@ import evoxc
 from . import batch_stages
 from .evoxc_engine import _gpu_device_kind
 
-__all__ = ["build_bodies", "chunk_sizes"]
+__all__ = ["build_bodies", "chunk_sizes", "supports_dispatch_formation"]
+
+
+#: Memoized answers of :func:`supports_dispatch_formation`, per backend name.  A
+#: plan resolves the spelling on every call, but the adapter's option table cannot
+#: change inside a process, so the registry walk happens once; ``refresh=True``
+#: (and the tests) clears the entry.
+_SUPPORT_CACHE: Dict[str, bool] = {}
+
+
+#: The compile option the probe looks for, and the stage table it lives in.
+_PROBE_OPTION = "dispatch_formation"
+
+
+def _adapter_compile_options(backend_name: str) -> Optional[set]:
+    """The ``KNOWN_OPTIONS["compile"]`` union declared by the adapter MODULE.
+
+    Deliberately imports the adapter module named by
+    ``evoxc.backends.registry.OPTIONAL_ADAPTERS`` instead of calling
+    ``evoxc.backends.get(name)``: ``get()`` auto-activates the adapter, i.e. it
+    runs ``register()``, which probes the compiler dependency and therefore
+    imports the full ``iree`` / ``iree.compiler`` / ``iree._runtime_libs`` stack
+    (seconds of import plus a nanobind teardown footprint) just to read a static
+    option table.  The module's backend CLASSES carry the same
+    ``KNOWN_OPTIONS`` dict that ``evoxc.compile`` later validates against, so the
+    answer cannot drift from what a build would accept.
+
+    Returns ``None`` when the backend is not an optional adapter (the numpy
+    backend) or when evoxc predates ``OPTIONAL_ADAPTERS``.
+    """
+    from evoxc.backends import registry
+
+    adapters = getattr(registry, "OPTIONAL_ADAPTERS", None)
+    path = adapters.get(backend_name) if hasattr(adapters, "get") else None
+    if not path:
+        return None
+    import importlib
+
+    module = importlib.import_module(path)
+    options: set = set()
+    for value in vars(module).values():
+        known = getattr(value, "KNOWN_OPTIONS", None) if isinstance(value, type) else None
+        if hasattr(known, "get"):
+            options |= set(known.get("compile") or ())
+    return options
+
+
+def supports_dispatch_formation(backend_name: str = "iree", *, refresh: bool = False) -> bool:
+    """Does this evoxc install know the ``dispatch_formation`` compile option?
+
+    Read off the adapter's OWN ``KNOWN_OPTIONS["compile"]`` set -- the table
+    evoxc validates an options dict against before it translates anything -- so
+    the answer cannot drift from what ``evoxc.compile`` will accept.  A backend
+    that is not an optional compiler adapter, an evoxc without
+    ``OPTIONAL_ADAPTERS``, an adapter module that fails to import and any other
+    surprise answer ``False``: the probe must never raise, because it decides
+    whether an OPTIONAL compile flag is passed, never whether a plan is
+    buildable.
+
+    A merely absent option is the ONLY thing this forgives: an unknown option
+    VALUE is still rejected by evoxc itself (``BackendError``), which is the
+    behaviour the knob documents.
+
+    The answer is memoized per backend name (``refresh=True`` re-probes), which is
+    what keeps the per-call resolution free after the first plan.
+    """
+    name = str(backend_name or "").strip().lower()
+    if not name:
+        return False
+    if not refresh and name in _SUPPORT_CACHE:
+        return _SUPPORT_CACHE[name]
+    supported = False
+    try:
+        options = _adapter_compile_options(name)
+        supported = options is not None and _PROBE_OPTION in options
+    except Exception:  # noqa: BLE001 - absent adapter/dependency means "not supported"
+        supported = False
+    _SUPPORT_CACHE[name] = supported
+    return supported
 
 
 def chunk_sizes(n_functions: int, workers: int) -> Tuple[int, ...]:

@@ -65,8 +65,10 @@ Two lifetimes
 ``evoxc_engine.clear_cache()`` is the in-memory point: :func:`_clear_tables` is
 registered there (as a hook, not via ``dense_memo.register``, so
 ``dense_cache_stats()`` keeps returning exactly the dense route's keys) and drops
-all three tables plus the refusal counter.  Nothing on disk is involved -- this
-route deliberately has no artifact layer (``BATCH_EVAL.md`` §9.2).
+all three tables plus the refusal counter.  Nothing on disk is involved: the batch
+route's disk tier is :mod:`evogp.tree.batch_artifacts` (the engine's
+``EVOGP_EVOXC_ARTIFACT_DIR`` layer, deleted by ``evoxc_engine.clear_artifacts()``
+and counted by ``batch_artifact_stats()``), which this module never touches.
 """
 
 from __future__ import annotations
@@ -102,7 +104,12 @@ def _default_cache_size() -> int:
 
 
 class _ContentMemo(dense_memo.DenseMemo):
-    """The content table, where a HIT means an entry was actually SERVED.
+    """A table whose HIT means an entry was actually SERVED (not merely found).
+
+    Used by BOTH tables that need it: the content table (below) and the executable
+    table, whose hits are served either from memory or from the opt-in disk tier
+    (:mod:`evogp.tree.batch_artifacts`), so neither may be counted as a compile
+    miss.
 
     The verification (``entry.plan.programs == programs``) happens in the caller,
     AFTER the key lookup, so the plain :meth:`DenseMemo.lookup` cannot tell a
@@ -153,7 +160,10 @@ class _ContentMemo(dense_memo.DenseMemo):
 #: re-binds a hit to the caller's plan (see the facade's module docstring).  On the
 #: chunked path the value is that chunk's raw ``evoxc.Executable`` (nothing of the
 #: population's), for the same reason a hit is re-bound.
-BATCH_EXEC_MEMO = dense_memo.DenseMemo("batch_exec", _default_cache_size())
+#: A hit is counted for a body served EITHER from this table or from the opt-in disk
+#: tier, so ``batch_exec_misses`` is the number of bodies actually COMPILED (a disk
+#: hit is not a compile miss); ``batch_artifact_stats()`` splits the two.
+BATCH_EXEC_MEMO = _ContentMemo("batch_exec", _default_cache_size())
 #: :class:`BatchExecutable` of an unchanged population, keyed by the three
 #: population identity tokens + every resolved plan parameter.
 BATCH_PLAN_MEMO = dense_memo.DenseMemo("batch_plan", _default_cache_size())
@@ -199,7 +209,9 @@ def batch_cache_stats() -> Dict[str, int]:
 
     ``batch_exec_hits`` / ``batch_exec_misses`` / ``batch_exec_entries`` /
     ``batch_exec_maxsize`` describe :data:`BATCH_EXEC_MEMO` (a hit never reaches
-    ``evoxc.lower`` / ``compile`` / ``load``), ``batch_plan_*`` describe
+    ``evoxc.lower`` / ``compile`` / ``load``, whether it came from memory or from
+    the opt-in disk tier of :mod:`evogp.tree.batch_artifacts`; a miss is a body that
+    really compiled), ``batch_plan_*`` describe
     :data:`BATCH_PLAN_MEMO` (a hit skips the host decode, the traces and the
     merge).  Deliberately a separate function: ``cache_stats()`` (exactly 8 keys),
     ``dense_cache_stats()`` and ``artifact_cache_stats()`` are pinned by the suite.

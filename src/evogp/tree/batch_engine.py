@@ -141,7 +141,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import torch
 
-from . import batch_chunks, batch_stages, dense_memo
+from . import batch_artifacts, batch_chunks, batch_stages, dense_memo
 
 # The route's whole public vocabulary lives in the siblings -- re-exported here so
 # ``evogp.tree.batch_engine`` stays the one import path for callers.
@@ -159,7 +159,11 @@ from .batch_knobs import (
     DEFAULT_CACHE_SIZE,
     DEFAULT_CHUNK_BANDS,
     DEFAULT_COMPILE_WORKERS,
+    DEFAULT_DISPATCH_FORMATION,
     DEFAULT_MIN_POP,
+    DISPATCH_FORMATION_AGGRESSIVE,
+    DISPATCH_FORMATION_ENV,
+    DISPATCH_FORMATIONS,
     EVAL_MODE,
     LOSS_VARIANT,
     MIN_CHUNK_FUNCTIONS,
@@ -175,6 +179,7 @@ from .batch_knobs import (
     resolve_bands,
     resolve_chunk_bands,
     resolve_compile_workers,
+    resolve_dispatch_formation,
     resolve_min_pop,
     resolve_switch_ops,
 )
@@ -200,6 +205,7 @@ from .batch_programs import (
     _plan_host,
     _pop_size,
     plan_digest,
+    plan_dispatch_formation,
 )
 
 # The front tables and the memo keys of a compiled body live in ``batch_keys``; the
@@ -222,6 +228,8 @@ from .batch_keys import (
     batch_cache_stats,
     batch_content_stats,
 )
+from .batch_build import _build_options, _resolve_route_backend, build_batch
+from .batch_report import describe_plan
 from .batch_run import (
     _input_block,
     _inputs,
@@ -263,6 +271,8 @@ __all__ = [
     "BatchExecutable",
     "BatchPlan",
     "BatchUnsupported",
+    "batch_artifact_reset",
+    "batch_artifact_stats",
     "batch_cache_stats",
     "batch_content_stats",
     "batch_stage_reset",
@@ -270,6 +280,10 @@ __all__ = [
     "build_batch",
     "chunk_band_count",
     "clamp_auto_band_count",
+    "DEFAULT_DISPATCH_FORMATION",
+    "DISPATCH_FORMATION_ENV",
+    "DISPATCH_FORMATIONS",
+    "resolve_dispatch_formation",
     "describe_plan",
     "evaluate_batch",
     "plan_band_spec",
@@ -309,6 +323,32 @@ def batch_stage_reset() -> None:
     batch_stages.stage_reset()
 
 
+def batch_artifact_stats() -> Dict[str, int]:
+    """``batch_artifact_*`` counters of the route's opt-in disk tier (seven keys).
+
+    ``batch_artifact_enabled`` / ``batch_artifact_files`` describe the tier
+    (``EVOGP_EVOXC_ARTIFACT_DIR`` set or not, and how many artifacts the route's own
+    ``batch/`` region holds), ``batch_artifact_hits`` / ``batch_artifact_misses``
+    count the bodies a build found on disk versus had to compile,
+    ``batch_artifact_load_failures`` the files present but unusable (discarded, then
+    rebuilt), ``batch_artifact_stores`` / ``batch_artifact_save_failures`` the saves
+    that succeeded / were skipped.  Unset/empty is the default and answers zeros
+    with ``enabled == 0`` -- the tier then costs one environment read per body.
+
+    Deliberately its own function, like ``batch_content_stats()``: the eight-key
+    ``batch_cache_stats()``, the 32-key ``batch_stage_stats()``, ``cache_stats()``,
+    ``dense_cache_stats()`` and ``artifact_cache_stats()`` are pinned by the suite,
+    and this surface must not make an in-memory counter change meaning.  A disk hit
+    is counted as an executable HIT there too (it reaches no compile).
+    """
+    return batch_artifacts.stats()
+
+
+def batch_artifact_reset() -> None:
+    """Zero the disk tier's counters (the files and the memory tables are untouched)."""
+    batch_artifacts.reset_stats()
+
+
 def plan_batch(
     batch_node_value: Any,
     batch_node_type: Any,
@@ -329,6 +369,7 @@ def plan_batch(
     iree_device_index: Optional[int] = None,
     compile_workers: Optional[int] = None,
     chunk_bands: Optional[bool] = None,
+    dispatch_formation: Optional[str] = None,
 ) -> BatchPlan:
     """Decode + dedup + trace + merge one population (host work only, no compile).
 
@@ -359,6 +400,13 @@ def plan_batch(
             :func:`evogp.tree.batch_knobs.resolve_chunk_bands`.  OFF refuses a chunked
             plan while an explicit count or ``auto`` is in play; ON merges each of the
             ``W`` chunks with the same request sized to it (rows/indices unchanged).
+        dispatch_formation: the ``EVOGP_BATCH_DISPATCH_FORMATION`` request
+            (``auto`` (the environment / default), ``aggressive`` or
+            ``default``/``off``) for the compile of this plan's bodies; the plan
+            records both the request and the EFFECTIVE spelling
+            (:func:`evogp.tree.batch_programs.plan_dispatch_formation`).  ``auto``
+            enables the flag only on a GPU compile target whose evoxc knows it, and
+            an evoxc without the option degrades to ``default`` instead of raising.
 
     Returns:
         The :class:`BatchPlan`.  Nothing is compiled, no executable exists yet.
@@ -401,27 +449,8 @@ def plan_batch(
         device=device,
         compile_workers=compile_workers,
         chunk_bands=resolve_chunk_bands(chunk_bands),
+        dispatch_formation=dispatch_formation,
     )
-
-
-def _resolve_route_backend(
-    backend: Optional[str], iree_device_index: Optional[int]
-) -> Tuple[str, Any, Dict[str, Any]]:
-    """Resolve ``(backend_name, device, options)``; a bad NAME is a decline.
-
-    The name is checked before delegating to the engine's resolver, so an unknown
-    backend -- which is a "this route does not build that" answer -- surfaces as
-    :class:`BatchUnsupported` instead of the resolver's ``ValueError``.  Every
-    other resolver error (an unusable ``EVOGP_EVOXC_OPT_LEVEL``, a negative device
-    index) is a configuration mistake and keeps propagating as ``ValueError``.
-    """
-    name = backend if backend else os.environ.get(BACKEND_ENV, "").strip()
-    if name and name not in SUPPORTED_BACKENDS:
-        raise BatchUnsupported(
-            f"batch_engine: unsupported backend {name!r} (this route builds "
-            f"{list(SUPPORTED_BACKENDS)})"
-        )
-    return _resolve_backend(backend, iree_device_index)
 
 
 def _check_population(pop_size: int, minimum: Optional[int] = None) -> None:
@@ -436,142 +465,6 @@ def _check_population(pop_size: int, minimum: Optional[int] = None) -> None:
             f"batch_engine: pop_size={pop_size} is below {MIN_POP_ENV}={threshold} "
             "(the merge pays a compile that only pays back at scale)"
         )
-
-
-def build_batch(
-    plan: BatchPlan,
-    *,
-    backend: Optional[str] = None,
-    iree_device_index: Optional[int] = None,
-) -> BatchExecutable:
-    """Compile (or reuse) the merged graph of ``plan``; the ONLY build site.
-
-    ``backend`` / ``iree_device_index`` default to the values the plan was resolved
-    with, so ``build_batch(plan_batch(...))`` works without repeating them.
-
-    Contract of :data:`BATCH_EXEC_MEMO` (the only table this function reads): a body
-    is keyed by the merged function multiset and shapes -- a HIT is REBOUND to the
-    current population's plan, never returned with another population's row
-    mapping.  Only the compiled body (and the backend / device it was built for)
-    crosses between populations; the returned :class:`BatchExecutable` always
-    carries ``plan``, so ``pop_size``, ``row_index``, ``function_rows``, ``programs``
-    and the staged specs are this call's.  A repeated evaluation of an unchanged
-    population therefore still does no re-lower, re-compile or re-load, and a
-    same-multiset population of a different size shares the compile WITHOUT sharing
-    its staging.
-
-    Two shapes of build, decided by the PLAN (:func:`_plan_host`), never here
-    (``len(plan.chunks)`` is the chunk count in both shapes):
-
-    * ``len(plan.chunks) == 1`` -- the original single body: one ``lower``/
-      ``compile``/``load`` of ``plan.merged`` (which is that chunk's graph), stored
-      in :data:`BATCH_EXEC_MEMO` as the whole :class:`BatchExecutable`, and
-      ``executable`` / ``executables`` both set.
-    * ``len(plan.chunks) > 1`` -- one body per chunk: every body not already in
-      :data:`BATCH_EXEC_MEMO` (keyed with the partition triple, see
-      :func:`_chunk_executable_key`) is built by
-      :func:`evogp.tree.batch_chunks.build_bodies` in a thread pool of
-      ``plan.compile_workers``; each built body is stored raw and every memo hit is
-      re-bound to the caller's chunk after :func:`_check_executable_matches`.  Such
-      a plan's ``executable`` is ``None`` -- ``executables`` (one body per chunk) is
-      authoritative.
-
-    The build path is the explicit evoxc staging sequence --
-    ``evoxc.lower`` -> ``evoxc.compile`` -> ``evoxc.load`` -- because
-    ``build_cached`` / ``evoxc.build`` reject a ``Graph``.  ``target_backends`` is
-    the GPU HAL kind read from torch (:func:`evogp.tree.evoxc_engine._gpu_device_kind`)
-    on iree and omitted on numpy; the compile options carry ``opt_level`` only.
-
-    Raises:
-        BatchUnsupported: the resolved backend is not one this route builds, or a
-            memoized executable does not fit ``plan``
-            (:func:`_check_executable_matches`).
-        evoxc errors from ``lower`` / ``compile`` / ``load``: propagated (a backend
-            failure is not a decline -- there is nothing safer to fall back to);
-            on the chunked path the FIRST such failure is re-raised.
-    """
-    backend_name, device, options = _resolve_route_backend(
-        backend if backend is not None else plan.backend_name,
-        iree_device_index,
-    )
-    if len(plan.chunks) <= 1:
-        key = _executable_key(plan, backend_name, device, options)
-        cached = BATCH_EXEC_MEMO.lookup(key)
-        if cached is not None:
-            # RE-BIND: the compiled body is shared, the caller's plan is not.  Only
-            # ``executable`` / ``backend`` / ``device`` may travel across
-            # populations (and ``backend``/``device`` are equal by key); the
-            # returned value is a FRESH BatchExecutable around the CURRENT plan, so
-            # no downstream read of ``.plan`` can see the first population's row
-            # mapping.  ``pins`` stays empty: pins belong to the plan-memo entry
-            # that holds the population storages (``_plan_entry`` attaches this
-            # call's pins), and a cross-population pin would only keep a foreign
-            # buffer alive.
-            _check_executable_matches(plan, cached.executable)
-            return BatchExecutable(
-                plan=plan,
-                executable=cached.executable,
-                executables=(cached.executable,),
-                backend=backend_name,
-                device=device,
-            )
-        executables, build_stage_ms = batch_chunks.build_bodies(
-            [plan.merged],
-            [0],
-            backend_name=backend_name,
-            device=device,
-            options=options,
-            workers=1,
-        )
-        executable = executables[0]
-        built = BatchExecutable(
-            plan=plan,
-            executable=executable,
-            executables=(executable,),
-            backend=backend_name,
-            device=device,
-            build_stage_ms=build_stage_ms,
-        )
-        BATCH_EXEC_MEMO.store(key, built)
-        return built
-    bodies: List[Any] = [None] * len(plan.chunks)
-    pending: List[Any] = []
-    pending_keys: List[Any] = []
-    pending_index: List[int] = []
-    for chunk in plan.chunks:
-        key = _chunk_executable_key(plan, chunk, backend_name, device, options)
-        cached = BATCH_EXEC_MEMO.lookup(key)
-        if cached is not None:
-            _check_executable_matches(
-                plan, cached, specs=chunk.specs, n_functions=len(chunk.functions)
-            )
-            bodies[chunk.index] = cached
-            continue
-        pending.append(chunk.merged)
-        pending_keys.append(key)
-        pending_index.append(int(chunk.index))
-    if pending:
-        built_bodies, build_stage_ms = batch_chunks.build_bodies(
-            pending,
-            pending_index,
-            backend_name=backend_name,
-            device=device,
-            options=options,
-            workers=int(plan.compile_workers),
-        )
-        for index, key, body in zip(pending_index, pending_keys, built_bodies):
-            BATCH_EXEC_MEMO.store(key, body)
-            bodies[index] = body
-    else:
-        build_stage_ms = {"lower": 0.0, "compile": 0.0, "load": 0.0}
-    return BatchExecutable(
-        plan=plan,
-        executable=None,
-        executables=tuple(bodies),
-        backend=backend_name,
-        device=device,
-        build_stage_ms=build_stage_ms,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -597,6 +490,7 @@ def _plan_entry(
     iree_device_index: Optional[int] = None,
     compile_workers: Optional[int] = None,
     chunk_bands: Optional[bool] = None,
+    dispatch_formation: Optional[str] = None,
 ) -> BatchExecutable:
     """The memoized plan+build pipeline behind both public entry points.
 
@@ -665,6 +559,9 @@ def _plan_entry(
         "alignment": resolve_alignment(alignment),
         "compile_workers": resolve_compile_workers(compile_workers),
         "chunk_bands": resolve_chunk_bands(chunk_bands),
+        "dispatch_formation": plan_dispatch_formation(
+            backend_name, device, dispatch_formation
+        )[1],
     }
     tokens = [
         dense_memo.token(batch_node_value),
@@ -692,6 +589,7 @@ def _plan_entry(
             device,
             resolved["compile_workers"],
             resolved["chunk_bands"],
+            resolved["dispatch_formation"],
         )
         entry = BATCH_PLAN_MEMO.lookup(key)
         if entry is not None:
@@ -724,6 +622,7 @@ def _plan_entry(
         resolved["alignment"],
         resolved["compile_workers"],
         resolved["chunk_bands"],
+        resolved["dispatch_formation"],
         backend_name,
         device,
     )
@@ -774,6 +673,7 @@ def _plan_entry(
         pop=pop,
         compile_workers=resolved["compile_workers"],
         chunk_bands=resolved["chunk_bands"],
+        dispatch_formation=dispatch_formation,
     )
     plan = dataclasses.replace(
         plan, stage_ms={"decode": decode_ms, **plan.stage_ms}
@@ -810,6 +710,7 @@ def evaluate_batch(
     switch_ops: Optional[bool] = None,
     alignment: Optional[str] = None,
     compile_workers: Optional[int] = None,
+    dispatch_formation: Optional[str] = None,
 ) -> torch.Tensor:
     """Evaluate a whole population with ONE merged graph (drop-in for
     :func:`evogp.tree.dense_engine.evaluate_dense`).
@@ -848,6 +749,7 @@ def evaluate_batch(
         backend=backend,
         iree_device_index=iree_device_index,
         compile_workers=compile_workers,
+        dispatch_formation=dispatch_formation,
     )
     plan = entry.plan
     x_host = _input_block(entry, x, input_len, per_row)
@@ -876,6 +778,7 @@ def sr_fitness_batch(
     switch_ops: Optional[bool] = None,
     alignment: Optional[str] = None,
     compile_workers: Optional[int] = None,
+    dispatch_formation: Optional[str] = None,
 ) -> torch.Tensor:
     """SR fitness with the reduction folded IN-GRAPH (drop-in for
     :func:`evogp.tree.dense_engine.sr_fitness_dense`).
@@ -916,6 +819,7 @@ def sr_fitness_batch(
         backend=backend,
         iree_device_index=iree_device_index,
         compile_workers=compile_workers,
+        dispatch_formation=dispatch_formation,
     )
     plan = entry.plan
     x_host = _input_block(entry, inputs, input_len, False)
@@ -925,76 +829,3 @@ def sr_fitness_batch(
         return _to_tensor(
             np.ascontiguousarray(_map_rows(rows, plan)), inputs, out_device
         )
-
-
-# ---------------------------------------------------------------------------
-# introspection
-# ---------------------------------------------------------------------------
-def describe_plan(plan: BatchPlan) -> Dict[str, Any]:
-    """A cheap, JSON-ish description of ``plan`` (for tests and a future runner).
-
-    Reports the population size and the deduped function count, how many rows
-    collide onto an earlier function, the merge shape (band count/strategy/sizes,
-    emitted ops, class counters), the graph input shapes, the route
-    (backend/device), and the plan's build shape: ``compile_workers`` (the chunk
-    count actually used, ``1`` for the single-body plan), ``chunk_count`` /
-    ``chunk_sizes`` (read off ``plan.chunks``, which holds one record per compiled
-    body in both plan shapes) and the plan-side ``stage_ms`` split.  It reads the
-    stored report only -- nothing is decoded, traced or compiled.
-
-    A CHUNKED plan (``chunk_count > 1``) reports its whole-graph keys from the
-    aggregate report: ``specs`` / ``spec_dtypes`` are empty (no single graph
-    exists), ``band_sizes`` is empty and ``band_strategy`` / the class counters are
-    ``None``; ``emitted_ops`` is the summed value and ``n_functions`` the global
-    count.
-
-    The band-policy keys are the cost model's report seam -- ``bands``, the two cost
-    estimates, ``band_requested`` / ``band_requested_bands`` (the ``auto`` ``K`` before
-    clamping), ``band_clamped`` / ``band_note``, ``band_policy`` and the per-body
-    ``chunk_bands`` / ``chunk_band_strategies`` (missing -> ``None``/``False``/``{}``).
-    """
-    report = plan.report or {}
-    shapes = [tuple(int(dim) for dim in spec.shape) for spec in plan.specs]
-    return {
-        "variant": plan.variant,
-        "per_row": bool(plan.per_row),
-        "use_mse": bool(plan.use_mse) if plan.variant == LOSS_VARIANT else None,
-        "pop_size": int(plan.pop_size),
-        "functions": len(plan.functions),
-        "const_functions": sum(1 for program, _ in plan.functions if program is None),
-        "row_index_collisions": int(plan.pop_size) - len(plan.functions),
-        "input_len": int(plan.input_len),
-        "output_len": int(plan.output_len),
-        "n_rows": int(plan.n_rows),
-        "band_count": int(plan.band_count),
-        "band_sizes": list(report.get("band_sizes") or ()),
-        "band_strategy": report.get("band_strategy"),
-        "switch_ops": bool(plan.switch_ops),
-        "alignment": plan.alignment,
-        "emitted_ops": report.get("emitted_ops"),
-        "value_classes": report.get("value_classes"),
-        "shared_classes": report.get("shared_classes"),
-        "stacked_constants": report.get("stacked_constants"),
-        "output_muxes": report.get("output_muxes"),
-        "n_functions": report.get("n_functions"),
-        "bands": int(plan.band_count),
-        "cost_estimate": report.get("cost_estimate"),
-        "flat_cost_estimate": report.get("flat_cost_estimate"),
-        "band_requested": plan.band_requested or report.get("band_requested"),
-        "band_requested_bands": report.get("band_requested_bands"),
-        "band_clamped": bool(plan.band_clamped or report.get("band_clamped")),
-        "band_note": plan.band_note or report.get("band_note"),
-        "band_policy": dict(plan.band_policy or {}),
-        "chunk_bands": [int(chunk.band_count) for chunk in plan.chunks],
-        "chunk_band_strategies": [
-            chunk.report.get("band_strategy") for chunk in plan.chunks
-        ],
-        "compile_workers": int(plan.compile_workers),
-        "chunk_count": len(plan.chunks),
-        "chunk_sizes": [int(len(chunk.functions)) for chunk in plan.chunks],
-        "stage_ms": dict(plan.stage_ms),
-        "specs": shapes,
-        "spec_dtypes": [str(spec.dtype) for spec in plan.specs],
-        "backend": plan.backend_name,
-        "device": str(plan.device),
-    }
