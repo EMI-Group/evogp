@@ -122,6 +122,7 @@ This box: AMD MI300X VF, torch 2.13.0+rocm7.1, IREE 3.11, `EVOXC_DISABLE_LOCATIO
 `Forest.random_generate` with `GenerateDescriptor(max_tree_len=L, input_len=il, using_funcs=["+","-","*",
 "/","sin","exp"], max_layer_cnt=5)`, `N=1024` rows, **medians of 5 warm calls, one process per route**.
 "cold" is the batch route's first call (trace + merge + lower + compile + load).
+This grid is the SINGLE-BODY path (`W = 1`, and a band request forces that body), so its cold column is the pool-1 number, not the shipped chunked default's: at pop 256 x L=32 x il=8 the current window reads 10 725.86 ms cold / 1.9941 ms warm on the pool-1 path against 4 064.48 ms / 3.7250 ms on the shipped default, so read the per-merged-function cold cost quoted below as a pool-1 figure too.
 
 `Forest.SR_fitness` (loss variant, `per_row=False`), warm ms — batch+iree / specialized+numpy / dense+iree:
 

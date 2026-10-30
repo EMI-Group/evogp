@@ -145,7 +145,7 @@ DEFAULT_CACHE_SIZE = 8
 #: recompile, 8 distinct signatures in 8 steps), while one short run of a big
 #: population is aggregate-cold-sensitive and wants the shipped 4.  Where the pool
 #: costs the winning niche nothing it is inert: below ``MIN_CHUNK_FUNCTIONS``
-#: (32) functions it is one chunk, and the ``p64`` fixed-population cell (63
+#: (32 functions) it is one chunk, and the ``p64`` fixed-population cell (63
 #: functions) plans ``chunk_count 1`` / ``chunk_sizes [63]`` with no trade at all
 #: (cold 2 268.96 -> 2 274.46 ms, warm 1.1494 -> 1.1141 ms).
 #: ``EVOGP_BATCH_COMPILE_WORKERS=1`` is the documented escape hatch for a workload
