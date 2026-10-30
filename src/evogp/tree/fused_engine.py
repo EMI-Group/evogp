@@ -178,8 +178,12 @@ Environment knobs (read per call unless noted; an unusable value raises
   launch ACTUALLY allocates (scratch + value buffer + loss chart, with the row axis
   rounded UP to the block; the formula is :func:`_check_envelope`'s).  It is also
   the budget handed to the scratch table for that call, so a call can never admit
-  an allocation its own table refuses.  Being exact costs ~3.8 us of host glue per
-  call (+4 % warm at ``p256-L64-i32-N1024``: 0.1000 -> 0.1013 ms).
+  an allocation its own table refuses.  The verdict is memoized on its own eight
+  resolved inputs (:data:`_ENVELOPE_MEMO`), so being exact costs **0.5 us** of host
+  glue per call instead of the 2.0 us the byte arithmetic and
+  :func:`fused_kernels.plan` cost UNMEMOIZED (+2 % warm at
+  ``p256-L64-i32-N1024``, host-only medians) -- and the ~1.5 us of ambient knob
+  reads beside it are the same three ``os.environ`` reads the route always paid.
 * ``EVOGP_FUSED_HOST_MEMO`` (16, IMPORT TIME) -- entries of the transpose table.
 * ``EVOGP_FUSED_MIN_POP`` (16) -- the pop-size threshold the POLICY consumes
   through :func:`resolve_min_pop`: with ``EVOGP_EVAL_MODE=fused`` and no explicit
@@ -193,19 +197,16 @@ for an unusable ``EVOGP_FUSED_BLOCK_ROWS`` / ``EVOGP_FUSED_NUM_WARPS``.
 
 The threshold is a measured crossover, not a safety floor: the kernel is FLAT in
 ``pop_size`` (0.088-0.103 ms from pop 1 to pop 128 at ``L=64`` / ``input_len`` 32
-/ ``N`` 1024, warm medians, MI300X; records
-``fused_results/minpop.json``, table ``fused_results/ENVELOPE.md`` §3) while the
-specialized fallback scales linearly with the tree count -- fused / specialized /
-``torch-batched`` in ms: pop 1 0.093 / 0.490 / 1.396, pop 4 0.092 / 0.925 / 1.951,
-pop 8 0.159 (clock-ramp outlier; the kernel is 0.088-0.103) / 1.644 / 2.662,
-pop 16 0.103 / 2.725 / 3.367, pop 32 0.097 / 5.679 / 3.954, pop 64
-0.097 / 12.154 / 4.233, pop 128 0.092 / 22.536 / 4.110.  The old gate of 64
-therefore threw away 26.5x at pop 16 and 10.1x at pop 4.  16 rather than 1-8
-because every measurement is at ``N`` 1024 only and a 1-8-tree population on a
-tiny row plane is the one class where a single per-tree numpy run could undercut
-the kernel's ~0.09 ms launch floor (unmeasured), and because it keeps a single
-``Tree.forward`` on the specialized route instead of paying a ~1.4 s cold JIT for
-a one-shot call.
+/ ``N`` 1024, warm medians, MI300X) while the specialized fallback scales linearly
+with the tree count -- fused / specialized / ``torch-batched`` in ms: pop 4
+0.092 / 0.925 / 1.951, pop 16 0.103 / 2.725 / 3.367, pop 64 0.097 / 12.154 /
+4.233, pop 128 0.092 / 22.536 / 4.110 -- so the old gate of 64 threw away 26.5x at
+pop 16 and 10.1x at pop 4.  16 rather than 1-8 because every measurement is at
+``N`` 1024 only and a 1-8-tree population on a tiny row plane is the one class
+where a single per-tree numpy run could undercut the kernel's ~0.09 ms launch
+floor (unmeasured), and because it keeps a single ``Tree.forward`` on the
+specialized route instead of paying a ~1.4 s cold JIT for a one-shot call
+(records ``fused_results/minpop.json``, table ``fused_results/ENVELOPE.md`` §3).
 """
 
 from __future__ import annotations
@@ -255,13 +256,7 @@ DEFAULT_MAX_SCRATCH_MB = 8192
 HOST_MEMO_ENV = "EVOGP_FUSED_HOST_MEMO"
 DEFAULT_HOST_MEMO = 16
 #: Pop-size threshold the ROUTE POLICY consumes through ``resolve_min_pop``
-#: (consulted by ``dense_engine.resolve_fused_min_pop``; not used here).  The
-#: kernel is flat in ``pop_size`` (0.088-0.103 ms from pop 1 to 128) while the
-#: specialized fallback scales linearly with the tree count, so the threshold is
-#: the measured crossover: 16 is where ``fused`` is 26.5x ahead of the fallback
-#: (pop 16: 0.103 vs 2.725 ms) while a single ``Tree.forward`` stays on the
-#: specialized route instead of paying a cold Triton JIT; see the module docstring
-#: for the full column and :func:`resolve_min_pop`.
+#: (consulted by ``dense_engine.resolve_fused_min_pop``; not used here).
 MIN_POP_ENV = "EVOGP_FUSED_MIN_POP"
 DEFAULT_MIN_POP = 16
 #: Outputs the multi-output kernel serves.  It accumulates into the
@@ -362,20 +357,13 @@ def resolve_min_pop(value: Optional[int] = None) -> int:
 
     Documented here so the wiring round has a single reader, exactly like
     ``dense_engine.resolve_auto_min_pop``.  Nothing in this module consults it: a
-    direct :func:`evaluate_fused` call is served at any ``pop >= 1``.
-
-    The default is the MEASURED crossover, not a safety floor: the kernel is flat
-    in ``pop_size`` (0.088-0.103 ms from pop 1 to pop 128 at ``L=64`` /
-    ``input_len`` 32 / ``N`` 1024, warm medians, MI300X; records
-    ``fused_results/minpop.json``, table ``fused_results/ENVELOPE.md`` §3) while
-    the specialized fallback is linear in the tree count (pop 16: 0.103 ms against
-    2.725 ms, i.e. 26.5x; pop 4: 0.092 against 0.925, i.e. 10.1x).  It stays at 16
-    rather than 1-8 because every measurement is at ``N`` 1024 only -- a 1-8-tree
-    population on a tiny row plane is the one class where one per-tree numpy run
-    could undercut the kernel's ~0.09 ms launch floor (unmeasured) -- and because
-    a single ``Tree.forward`` (``pop_size == 1``) then keeps the specialized route
-    instead of paying a ~1.4 s cold Triton JIT for a one-shot call.  A value below
-    1 is refused: this is a ``pop_size`` threshold.
+    direct :func:`evaluate_fused` call is served at any ``pop >= 1``.  The default is
+    the MEASURED crossover, not a safety floor, and the column (plus why it is 16
+    rather than 1-8) is in the module docstring and ``fused_results/ENVELOPE.md`` §3:
+    the kernel is flat in ``pop_size`` while the specialized fallback is linear in
+    the tree count, so 16 is where the route is 26.5x ahead (0.103 vs 2.725 ms) and
+    pop 4 is 10.1x (0.092 vs 0.925).  A value below 1 is refused: this is a
+    ``pop_size`` threshold.
     """
     minimum = _env_int(MIN_POP_ENV, DEFAULT_MIN_POP) if value is None else int(value)
     if minimum < 1:
@@ -399,6 +387,18 @@ XT_MEMO = DenseMemo("fused_xt", _default_host_memo())
 #: This route's own counters (never folded into ``cache_stats()``).
 _STATS: Dict[str, int] = {"fused_calls": 0, "fused_declines": 0}
 _STATS_LOCK = threading.RLock()
+
+#: Memo of the ENVELOPE VERDICT: ``(pop, tree_len, rows, out_len, holds_values,
+#: block_rows, num_warps, budget)`` -> the decline message, or :data:`_SERVED`.
+#: The key is the whole input of the verdict as RESOLVED (never a raw ambient
+#: string), so it is a pure-function memo: a knob flip changes the key, nothing has
+#: to invalidate it, and two threads may race only into recomputing one entry.
+#: Bounded at :data:`_ENVELOPE_MEMO_MAX` entries by FIFO eviction (a GP run uses one
+#: or two shapes; the bound protects a caller that sweeps them).
+_ENVELOPE_MEMO: Dict[Tuple[int, int, int, int, bool, int, int, int], Any] = {}
+_ENVELOPE_MEMO_MAX = 32
+_ENVELOPE_MISS = object()
+_SERVED = object()
 
 
 def _bump(name: str, amount: int = 1) -> None:
@@ -444,15 +444,18 @@ def fused_cache_stats() -> Dict[str, int]:
 
 
 def clear_fused_cache() -> None:
-    """Reset every counter and drop the transpose/stack tables (memory only).
+    """Reset every counter and drop the transpose/stack/envelope tables (memory only).
 
     Registered with :func:`evoxc_engine._register_cache_reset` at import time, so
     ``evoxc_engine.clear_cache()`` -- the single in-memory invalidation point of
-    the engine -- flushes this route too.  Nothing here touches the disk.
+    the engine -- flushes this route too.  Nothing here touches the disk.  Dropping
+    :data:`_ENVELOPE_MEMO` is hygiene, not correctness: its keys carry every input of
+    the verdict, so no entry can go stale.
     """
     with _STATS_LOCK:
         for name in list(_STATS):
             _STATS[name] = 0
+        _ENVELOPE_MEMO.clear()
     XT_MEMO.reset()
     fused_kernels.clear_caches()
 
@@ -615,7 +618,7 @@ def _check_envelope(
     is the row axis ROUNDED UP to the block (1 000 rows at 256 lanes is 4 blocks,
     i.e. 1 024 lanes) and ``rows`` never enters the scratch term directly.
     ``holds_values`` says which path the caller is on (the single-output loss path
-    allocates no value buffer, and only the loss path allocates a chart); rows is
+    allocates no value buffer, and only the loss path allocates a chart); ``rows`` is
     the DATA-row count (``1`` for ``per_row``, hence no ``per_row`` here), and
     unresolved knobs go through the resolvers, so a caller that knows nothing still
     gets a CONSERVATIVE check.  Returns the resolved budget in MiB so the entry
@@ -623,11 +626,46 @@ def _check_envelope(
     same number the envelope was checked against.  The measured peak-allocated
     tracks the scratch term within 3.5 %, value buffer on top
     (``fused_results/ENVELOPE.md``).
+
+    The verdict is a PURE function of the eight RESOLVED arguments
+    (:func:`_envelope_verdict`), so it is memoized in :data:`_ENVELOPE_MEMO`: the
+    key carries the resolved knobs, not the raw strings, so an in-process knob flip
+    changes the key and a stale entry cannot exist (no invalidation hook).
     """
     block_rows = resolve_block_rows(block_rows)
     num_warps = resolve_num_warps(num_warps)
     budget = resolve_max_scratch_mb(max_scratch_mb)
+    # No normalisation in the KEY: an ``int``/``numpy.int64``/``True`` spelling hashes
+    # and compares equal, and :func:`_envelope_verdict` normalises the values it does
+    # arithmetic on (a served call then pays one tuple build + one dict lookup).
+    key = (pop, tree_len, rows, out_len, holds_values, block_rows, num_warps, budget)
+    verdict = _ENVELOPE_MEMO.get(key, _ENVELOPE_MISS)
+    if verdict is _ENVELOPE_MISS:
+        verdict = _envelope_verdict(key) or _SERVED
+        # Rare path, so the lock and the FIFO eviction cost nothing per served call.
+        with _STATS_LOCK:
+            if len(_ENVELOPE_MEMO) >= _ENVELOPE_MEMO_MAX:
+                _ENVELOPE_MEMO.pop(next(iter(_ENVELOPE_MEMO)))
+            _ENVELOPE_MEMO[key] = verdict
+    if verdict is not _SERVED:
+        raise FusedUnsupported(verdict)
+    return budget
+
+
+def _envelope_verdict(key: Tuple[int, int, int, int, bool, int, int, int]) -> Optional[str]:
+    """The decline message of one :data:`_ENVELOPE_MEMO` key, or ``None`` when served.
+
+    The byte formula of :func:`_check_envelope`, kept in one place: ``key`` is
+    ``(pop, tree_len, rows, out_len, holds_values, block_rows, num_warps, budget)``,
+    i.e. every input the verdict depends on, so this is a pure function.  The values
+    are normalised HERE (the memo key is not), so a ``numpy`` integer reaching either
+    public form of the check cannot change the arithmetic.
+    """
+    pop, tree_len, rows, out_len, holds_values, block_rows, num_warps, budget = key
     pop, tree_len, rows, out_len = int(pop), int(tree_len), int(rows), int(out_len)
+    holds_values, block_rows, num_warps, budget = (
+        bool(holds_values), int(block_rows), int(num_warps), int(budget),
+    )
     # ``rows`` already encodes ``per_row`` (1 row); ``plan``'s flag does not move it.
     geom = fused_kernels.plan(rows, per_row=False, block_rows=block_rows,
                               num_warps=num_warps)
@@ -636,16 +674,16 @@ def _check_envelope(
     values = pop * rows * out_len * 4 if (holds_values or out_len > 1) else 0
     partials = 0 if holds_values else pop * n_rb * 4
     total = scratch + values + partials
-    if total > budget * _MIB:
-        raise FusedUnsupported(
-            f"memory envelope exceeded: scratch {scratch / _MIB:.1f} MiB + value "
-            f"buffer {values / _MIB:.1f} MiB + loss chart {partials / _MIB:.3f} MiB "
-            f"= {total / _MIB:.1f} MiB > {MAX_SCRATCH_MB_ENV} {budget} MiB for "
-            f"pop_size {pop} * max_tree_len {tree_len} * rows {rows} * out_len "
-            f"{out_len} at {n_rb} row blocks of {block} lanes (raise it, or use the "
-            "dense/batch route for this shape)"
-        )
-    return budget
+    if total <= budget * _MIB:
+        return None
+    return (
+        f"memory envelope exceeded: scratch {scratch / _MIB:.1f} MiB + value "
+        f"buffer {values / _MIB:.1f} MiB + loss chart {partials / _MIB:.3f} MiB "
+        f"= {total / _MIB:.1f} MiB > {MAX_SCRATCH_MB_ENV} {budget} MiB for "
+        f"pop_size {pop} * max_tree_len {tree_len} * rows {rows} * out_len "
+        f"{out_len} at {n_rb} row blocks of {block} lanes (raise it, or use the "
+        "dense/batch route for this shape)"
+    )
 
 
 # --------------------------------------------------------------------------- #
