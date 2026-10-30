@@ -626,16 +626,194 @@ called straight) and `recorded kernel-only` = the per-cell kernel medians of §3
 
 ---
 
+## 16. Correctness hardening — an independent review's findings, fixed with a case each
+
+An independent review of the shipped route found eleven defects in three classes: an **out-of-bounds device
+read** (B1), **silent wrong numbers** (B2), a **fallback that contradicted its own docstring** (B3), and six
+robustness/hygiene items (S1, S2, S3, S5, S7, S9) plus a gate that was weaker than its claims (S6).
+All are fixed at HEAD; every one carries a regression case in `fused_check.py --stage declines`
+(**24 → 54** contract checks; `--stage parity` **56 → 60** comparisons), and the six headline cells were
+re-timed against an extracted pre-fix tree: **+0.4 … +3.6 % per cell** (§16.6), i.e. inside the §15 protocol
+spread and inside the ≤10 % bar.
+
+### 16.1 Out-of-bounds device read (B1) and the previous call's bytes (S8)
+
+`subtree_size[0]` was never clamped: it drove `range(0, n)`, the `j = n-1` first index, every
+`node_value_ptr + row_base + j` / `node_type_ptr + row_base + j` load and the child lookahead, so a row whose
+`subtree_size[0]` exceeded `max_tree_len` read the NEXT row and — on the last row — past the allocation.
+
+- **Fix (B1):** `n = tl.minimum(tl.maximum(tl.load(subtree_size_ptr + row_base).to(tl.int32), 0), tree_len)`
+  in BOTH kernels; the loop bound, the first index and the child lookahead all derive from the clamped value,
+  so a malformed row walks its own row only, for at most `tree_len` iterations.
+- **Proof:** `p256-L64-i32-N1024` with `subtree_size[0] = 32 767` costs **13.7010 ms** before the clamp and
+  **0.0526 ms** after it, against **0.0561 ms** for the honest row — the old kernel really did run 32 767
+  stray iterations. The battery (`_check_row_length_clamp`) asserts the oversized row now produces EXACTLY
+  the honest row's value (`max|delta| = 0.000e+00`) for `subtree_size[0]` = 30 000 / 32 767 / −5, including a
+  case whose FOLLOWING row holds a different tree (a spill would show up as a delta).
+- **S8 (deterministic underflow):** a binary/ternary pop read `stack[sp-1]`/`stack[sp-2]` through a clamped
+  slot index, so a malformed tree read whatever the shared scratch block held from an earlier call (measured:
+  the same call returned `6.0e6` or `-4.5e9` depending on what dirtied the block). Both pops are now masked
+  (`mask = rmask & (sp >= 1)` / `(sp >= 2)`, `other=0.0`), so the operand is a deterministic `0.0`
+  (`_check_underflow_determinism` calls the malformed row twice with different junk fills and asserts
+  `torch.equal`).
+- **Residual:** a malformed tree still yields a defined-but-arbitrary number instead of the specialized
+  engine's `ValueError`, because the route declines nothing on STRUCTURE (that contract stays with
+  `evoxc_engine.decode_population`). What changed is that the value is bounded, deterministic, and cannot read
+  out of bounds. The scratch block remains shared per `(device, n_prog, stack_cap, BLOCK_R)` shape class, so
+  concurrent calls of one shape class need one stream — stated in `fused_kernels`' docstring.
+
+### 16.2 Silent wrong numbers on non-contiguous inputs (B2)
+
+The kernel does raw pointer arithmetic (`x_ptr + t*input_len + vi`, `node_value_ptr + row_base + j`,
+`labels_ptr + r*out_len + k`) while `_as_device_tensor` only cast device/dtype, and `utils.check_tensor` passes
+an already-cuda tensor through untouched — so any non-contiguous `x`, label block or population table was read
+with the wrong strides and returned plausible garbage:
+
+| case (`EVOGP_EVAL_MODE=fused`, `p256-L64-i32-N1024`) | pre-fix max&#124;delta&#124; vs the contiguous copy | now |
+|---|---|---|
+| `Forest.forward(x_padded[:, :32])` (per_row) | **1.150381e+04** | 0.0 (bitwise) |
+| `Forest.SR_fitness(x_nc, labels_padded[:, :1])` | **1.024000e+03** | 0.0 (bitwise) |
+| `Forest.batch_forward`, stride-2 population tables | **1.182486e+08** | 0.0 (bitwise) |
+| `Forest.SR_fitness`, stride-2 population tables | **1.394022e+13** | 0.0 (bitwise) |
+| multi-output (`out_len=2`) value + loss, strided labels/tables | (same class) | 0.0 (bitwise) |
+
+**Fix:** `_as_device_tensor` makes the tensor contiguous after the device/dtype casts (`if not
+value.is_contiguous(): value = value.contiguous()`), and it is the one place all five operands pass (the three
+population tables in `_prepare`, `x` on both value paths, `inputs`, `labels`).
+**Cost:** a cached flag test, no copy — measured 0.084 µs per tensor, 0.35–1.00 µs per call across the five
+operands (`is_contiguous()` fired zero times in every measured cell). The battery (`_check_noncontiguous`) and
+the new `out_device` checks pin it bitwise.
+
+### 16.3 The decline now lands where the docstring says (B3)
+
+`resolve_route`'s fused branch used to build `Route(False, name, name, engine="fused")` for an explicitly named
+backend, so `EVOGP_EVAL_MODE=fused EVOGP_EVOXC_BACKEND=iree` fell back to per-structure `iree` compiles — the
+compile-bound, artifact-unbounded path `DENSE_EVAL.md` warns about — while both `resolve_route`'s and
+`dense_engine`'s docstrings promised specialized+`numpy`.
+
+**Resolution:** the fallback is ALWAYS `"numpy"` on every arm (the reasoning used for the batch route: a
+per-tree iree compile cannot amortize), and the explicit-iree arm keeps `backend="iree"` so the served path is
+unchanged. Both fields stay inside `evoxc_engine.SUPPORTED_BACKENDS`.
+**Proof (`_check_decline_fallback`):** with `EVOGP_EVAL_MODE=fused` + `EVOGP_EVOXC_BACKEND=iree` +
+`EVOGP_FUSED_MAX_SCRATCH_MB=1` on a pop-32/L64/N1024 forest the call really declines (`fused_declines` +1) and
+is still served; a spy on `evoxc_engine.evaluate` records `backend='numpy'`; and
+`resolve_route(256, backend="iree", eval_mode="fused").fallback_backend == "numpy"`.
+
+### 16.4 What the envelope and the scratch table actually hold (S1, S2)
+
+Exact bytes one launch allocates, and what the pre-fix formula compared (value path unless noted):
+
+| shape | lanes (`n_rb` × block) | scratch | value buffer | chart | total | old formula |
+|---|---|---|---|---|---|---|
+| `p2048-L128-N1024`, `out_len=8` | 4 × 256 (1 024) | 1 024.0 MiB | 64.0 | 0 | **1 088.0** | 1 024.0 → the old check SERVED this at a 1 050 MiB budget |
+| `p2048-L128-i32-N1024-d7` | 4 × 256 | 1 024.0 | 8.0 | 0 | **1 032.0** | 1 024.0 (served at 8 192) |
+| `p256-L64-i32-N1024` (loss) | 4 × 256 | 64.0 | 0 | 0.004 | 64.0 | 64.0 |
+| `p1000-L64-i32-N1000` (loss, rows not a block multiple) | 4 × 256 (1 024 lanes) | 250.0 | 0 | 0.015 | **250.02** | 244.14 |
+
+- **S2:** `_check_envelope(pop, tree_len, rows, max_scratch_mb, *, block_rows=None, num_warps=None,
+  out_len=1, holds_values=True) -> int` charges `pop*n_rb*tree_len*block*4` (with the row-block ROUNDING, so
+  1 000 rows at 256 lanes is 1 024 lanes) + `pop*rows*out_len*4` (the value path, and the multi-output loss
+  path) + `pop*n_rb*4` (the loss chart), declines with a message naming all three components, and returns the
+  resolved budget so the scratch TABLE is budgeted by the number the envelope was checked against. The campaign's
+  measured peak-allocated tracks the scratch term within 3.5 %, the value buffer on top (`fused_results/ENVELOPE.md`).
+  Battery `_check_envelope_bytes`: the 1 050 MiB call now declines naming `value buffer`; `d7` at 8 192 returns `8192`.
+- **S1:** the scratch table is an LRU bounded by total BYTES, `n_prog*stack_cap*block_rows*4` against the call's
+  `EVOGP_FUSED_MAX_SCRATCH_MB` (it used to be bounded only by an entry count of 8, i.e. up to 8× the budget).
+  Counters `fused_scratch_bytes` / `fused_scratch_evictions` (`_check_scratch_budget`: 4.00 MiB in 6 entries
+  ≤ budget; a 1 MiB budget on a fresh shape class evicts, +6 evictions, 4.00 → 0.00 MiB).
+- **The verdict is memoized** on its eight resolved inputs (`_ENVELOPE_MEMO`, 32 entries, FIFO, 0.54 µs against
+  2.34 µs): a pure-function memo, so an in-process knob flip (`EVOGP_FUSED_MAX_SCRATCH_MB=1`,
+  `EVOGP_FUSED_BLOCK_ROWS=100`, `EVOGP_FUSED_NUM_WARPS=0`) is a miss on the next call and needs no invalidation.
+
+### 16.5 Knobs, tables and a gate that measures its claims (S3, S5, S6, S7, S9)
+
+- **S3:** `EVOGP_FUSED_BLOCK_ROWS` is a CAP rounded DOWN to a power of two (`100` → `64`, the rule
+  `tl.arange` needs and the one `plan` applies), reported as the effective value by
+  `fused_cache_stats()["fused_block_rows"]`; a value below 1 still raises naming the variable. Battery
+  `_check_geometry_knobs` serves a real call at `=100`, checks `plan(...)["block_rows"] == 64`, and checks
+  `=abc` → stats `-1` with the resolver still raising.
+- **S5:** the op table is data, not a fifth hard-coded id list — `emitted_function_ids()` derives the ids from
+  `utils.Func` and a module-import cross-check compares them against `utils.FUNCS` (by arity) AND against the
+  ids the `if/elif` chains actually compare (an AST scan, so a removed branch fails at import); `DELTA` is
+  single-sourced from `utils.DELTA` as a `tl.constexpr`. Battery `_check_operator_table`: binary 13/13
+  (ids 1–13), unary 15/15 (ids 14–28).
+- **S7:** `fused_cache_stats()` never raises — an unusable ambient knob reports `-1` (informational), while the
+  resolver still raises `ValueError`.
+- **S9:** `num_warps` default 4 → 1 in the geometry note; `_prepare`'s documented order is the code's order
+  (cheap shape probes → `_decline_if_numpy` → `_require_available`); `fused_available()` is now the real gate
+  inside `_require_available`; dead `import math` / `_TRITON_IMPORT_ERROR` removed; `fused_check.py --warps`
+  defaults to `fused_kernels.DEFAULT_NUM_WARPS` and its `sys.path` mutation moved from import time into `main()`.
+- **S6 (the gate):** every parity set now carries a MEASURED tolerance instead of one global `VALUE_RTOL`, and
+  the four sets became five (the new `compare_unary` covers `GT` / `LE` / `NEG` / `ABS` / `SINH` / `COSH`, the
+  six operators the gate never exercised — `sinh`/`cosh` are the hand-written `(exp(x) ∓ exp(-x))·0.5`
+  compositions, exactly where divergence from `torch.sinh`/`torch.cosh` could hide):
+
+  | set | `value_tol` | measured `max_rel` (value) | value bitwise | loss `max_rel` (MSE / MAE) |
+  |---|---|---|---|---|
+  | `arithmetic` | 0.0 | 0.0 | yes | 1.46e-07 / 1.96e-07 |
+  | `compare_unary` (new) | 0.0 | 0.0 | **yes** (`sinh`/`cosh` included) | 1.03e-07 / 1.77e-07 |
+  | `ternary` | 1e-7 | 0.0 | yes | 1.65e-07 / 1.59e-07 |
+  | `rich` | 1e-7 | 0.0 | yes | 1.06e-07 / 1.77e-07 |
+  | `loose` | 1e-7 | 0.0 | no — bytes differ, `max_abs` 0.0 | 1.11e-07 / 1.77e-07 |
+
+  The `1e-7` margins are "measured 0 with a margin", not observed deviations. The handmade adversarial rows now
+  carry a measured `bitwise` flag and are enforced at `value_limit=0.0` (8 of 10; `mixed_deep` and `mixed_bag`
+  stay at `VALUE_RTOL` because their DIV-by-a-literal-zero row writes a different NaN payload — values agree,
+  `max_abs` 0.0). Loss keeps `LOSS_RTOL` 1e-5 on every set (accumulation order only).
+- **The bitwise claim is therefore per surface:** the value path is bit-for-bit against
+  `src/evogp/tests/reference_eval.py` on the arithmetic, comparison, ternary and transcendental surfaces
+  (`sinh`/`cosh` included); the loose (`loose_*`) surface can differ in the NaN payload bit while the value
+  agrees — so the kernel docstring's "bit-for-bit" line names the sets instead of claiming all of them.
+
+### 16.6 What the hardening costs (six cells, public API, vs the pre-fix tree)
+
+One process per cell, `EVOGP_EVAL_MODE=fused`, 3 warmup + 15 reps × 5 rounds, four order-alternated rounds,
+medians; the pre-fix arm is `git archive 47cd344^` extracted to a scratch dir and driven by the same script:
+
+| cell | value pre → now | loss pre → now | per_row pre → now | value speedup pre → now |
+|---|---|---|---|---|
+| `p256-L32-i8-N1024` | 0.1024 → 0.1053 (+2.9 %) | 0.1240 → 0.1275 (+2.9 %) | 0.0947 → 0.0977 (+3.2 %) | 40.5× → 39.4× |
+| `p256-L64-i32-N1024` | 0.1021 → 0.1055 (+3.4 %) | 0.1264 → 0.1273 (+0.8 %) | 0.0964 → 0.0980 (+1.7 %) | 43.9× → 42.5× |
+| `p256-L64-i32-N4096` | 0.1104 → 0.1125 (+1.9 %) | 0.1241 → 0.1268 (+2.2 %) | 0.0948 → 0.0977 (+3.1 %) | 45.1× → 44.2× |
+| `p1000-L64-i32-N1024` | 0.1093 → 0.1127 (+3.1 %) | 0.1240 → 0.1280 (+3.2 %) | 0.0949 → 0.0983 (+3.6 %) | 44.6× → 43.2× |
+| `p4096-L64-i32-N1024` | 0.1436 → 0.1455 (+1.3 %) | 0.1575 → 0.1582 (+0.4 %) | 0.0995 → 0.1013 (+1.8 %) | 73.0× → 72.1× |
+| `p2048-L128-i32-N1024-d7` | 0.1729 → 0.1765 (+2.1 %) | 0.1860 → 0.1889 (+1.6 %) | 0.1265 → 0.1299 (+2.6 %) | 152.1× → 149.0× |
+
+Where it goes (paired same-process stubs, `p256-L64`, host-only): the **kernel is unchanged** (kernel-only A/B
+±3 %, as often faster as slower — the clamps and the masked pops cost nothing measurable), the exact-bytes
+envelope is **+0.54 µs** once memoized (it was +2.1…3.9 µs unmemoized, which is what the first re-timing caught),
+and the contiguity guard is **+0.4…1.0 µs** of flag tests. Measured public-API delta: **+2.8 µs mean**, ~+2.4 %;
+the residual ~1.5 µs is inside the ±3 % inter-process band of this shared box.
+A first (2-round, not order-alternated) protocol read +8…+11 % on the p256 cells and −9 % on `p4096`; that spread
+was arm-order drift, which is why §15's protocol keeps the order alternation.
+
+### 16.7 Residual gaps after the round
+
+- The route still declines nothing on STRUCTURE: a malformed tree produces a bounded, deterministic,
+  arbitrary number instead of the specialized engine's `ValueError` (by design, §16.1).
+- One scratch block is shared per `(device, n_prog, stack_cap, BLOCK_R)` shape class — single-stream use, or
+  the pop masks' `0.0` and the block's previous contents can interleave (documented, not enforced).
+- `EVOGP_FUSED_BLOCK_ROWS` values between two powers of two silently become the lower one (reported in the
+  stats, not refused).
+- `MAX_OUT_LEN` is 8: a wider multi-output population declines by name.
+- `fused_envelope.py`'s `envelope_ok` still uses the pre-S2 `cell_tensor_bytes` rule; it is a dev CLI outside the
+  gate and its records predate §16.4.
+- Module sizes are deliberate single units: `fused_engine.py` 1 072 lines and `fused_kernels.py` 1 215 lines
+  (a compilation unit each, like `evoxc_engine.py`); `fused_check.py` 3 151 lines (one self-contained battery).
+
+---
+
 ## Measured detail (moved from tree/CONTEXT.md)
 
 Facade bookkeeping and route-shape facts that this campaign's sections above rely on (no number below replaces one
 stated above; where they overlap, the campaign's own tables win):
 
-- `fused_cache_stats()` returns 13 keys: `fused_calls` / `fused_declines` (facade attempts / declines),
+- `fused_cache_stats()` returns 15 keys: `fused_calls` / `fused_declines` (facade attempts / declines),
   `fused_xt_hits` / `fused_xt_misses` / `fused_xt_entries` / `fused_xt_maxsize` (the transpose table, touched ONLY
   by `per_row=False` and the loss path), `fused_kernel_launches` / `fused_kernel_compiles` / `fused_scratch_allocs`
-  / `fused_scratch_reuses` / `fused_scratch_entries` (the launch side), plus the informational `fused_block_rows` /
-  `fused_num_warps`.
+  / `fused_scratch_reuses` / `fused_scratch_entries` / `fused_scratch_evictions` / `fused_scratch_bytes` (the launch
+  side, byte-bounded per §16.4), plus the informational `fused_block_rows` / `fused_num_warps` (which report `-1`
+  instead of raising when the ambient knob is unusable).
 - `fused_calls` counts ATTEMPTS (bumped before the try, `fused_engine.py:608` / `:747`), so a decline moves BOTH
   counters and a shape-contract `ValueError` moves `fused_calls` alone: proving a call was served means
   `Δcalls − Δdeclines == n` AND `Δfused_kernel_launches == n`, while `fused_kernel_compiles` is "first launch of
@@ -647,18 +825,19 @@ stated above; where they overlap, the campaign's own tables win):
   timing `_prepare` / `_transposed` / `fused_kernels.launch_value` / `launch_loss` separately, which is what
   `fused_check._stage_split` does for the value/loss kernel-vs-host columns; the route has no host readback, so a
   "readback" stage does not exist.
-- An explicit `EVOGP_EVOXC_BACKEND` changes the route's shape: `iree` makes the FALLBACK `iree` as well
-  (`Route(False, 'iree', 'iree', engine='fused')`, so a decline lands on per-tree iree compiles) and `numpy` still
-  returns `engine='fused'` with `backend='numpy'`, which `_decline_if_numpy` refuses on every call — a probe
-  printing only `resolve_route(pop, eval_mode='fused').engine` therefore cannot distinguish a served call from a
-  guaranteed decline.
+- An explicit `EVOGP_EVOXC_BACKEND` changes only the SERVED path, never the fallback: `iree` keeps
+  `backend='iree'` with `fallback_backend='numpy'` (`Route(False, 'iree', 'numpy', engine='fused')`, so a decline
+  lands on specialized+`numpy`, never on a per-tree iree compile) and `numpy` still returns `engine='fused'` with
+  `backend='numpy'`, which `_decline_if_numpy` refuses on every call — a probe printing only
+  `resolve_route(pop, eval_mode='fused').engine` therefore cannot distinguish a served call from a guaranteed
+  decline.
 - The facade declines (never guesses) on no triton, no device, a host tensor, `backend != "iree"`,
   `output_len > MAX_OUT_LEN`, `rows < 1`, `pop < 1` and the `EVOGP_FUSED_MAX_SCRATCH_MB` envelope, and maps
   `fused_kernels.FusedUnavailable` onto that decline so an optional route never raises `ImportError`.
   `output_len = 0` and `tree_len < 1` are shape-contract `ValueError`s, not declines.
 - Prep is device-side only: `per_row=False` transposes `x` once into the identity-memoized `XT_MEMO` (a
   `DenseMemo`), `per_row=True` needs nothing.
-- `fused_check.py` is ~1.9k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is
+- `fused_check.py` is ~3.1k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is
   one self-contained dev battery (parity sets, the golden cross-check, the decline matrix, the wiring gate, the
   six-cell timing and the geometry sweep share one workload builder and one comparison helper), so do not split it
   into modules.
@@ -668,8 +847,8 @@ stated above; where they overlap, the campaign's own tables win):
   fallback while `pop_size == 1` / a population below `EVOGP_FUSED_MIN_POP` / a box with no device stay
   `specialized`+`numpy`, that `auto` never selects it, and that a multi-output population (`output_len=2`) is SERVED
   by `_fused_multi_kernel` with the specialized reference's numbers, one `fused_calls` and no `fused_declines`;
-  `--stage timing --wired` re-times the six cells through the same public calls. Recorded: 56/56 oracle comparisons,
-  10/10 goldens at 1e-4, 24/24 decline/contract checks, 31/31 wiring checks (the `--stage multi` set of §11 adds
+  `--stage timing --wired` re-times the six cells through the same public calls. Recorded: 60/60 oracle comparisons,
+  10/10 goldens at 1e-4, 54/54 decline/contract checks, 31/31 wiring checks (the `--stage multi` set of §11 adds
   65/65 comparisons on top).
 
 The earlier six-cell sweep that preceded this campaign (kept for the record; `BLOCK_R` 256 / 1 warp): **48.6x-167.6x**
@@ -687,4 +866,4 @@ Its backend SPELLING is `iree` and its fallback is always specialized+`numpy`; a
 All five call sites carry the fused attempt between the dense one and the specialized tail, catching exactly `fused_engine.FusedUnsupported` and continuing on `route.fallback_backend`.
 There is NO per-stage timer surface on this route (the split must be reconstructed by timing `_prepare` / `_transposed` / `fused_kernels.launch_value` / `launch_loss` separately, which is what `fused_check._stage_split` does), and there is no readback stage at all.
 `import triton` happens only inside `fused_kernels.kernels()`, so `import evogp.tree` stays GPU/triton-free; `TRITON_CACHE_DIR` must be writable or the first launch dies with `OSError: [Errno 30] Read-only file system: '/root/.triton'` — on this box `$HOME` is read-only, so every fused run needs `TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache`.
-`fused_check.py` is ~1.9k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is one self-contained dev battery (parity sets, the golden cross-check, the decline matrix, the wiring gate, the six-cell timing and the geometry sweep share one workload builder and one comparison helper), so do not split it into modules.
+`fused_check.py` is ~3.1k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is one self-contained dev battery (parity sets, the golden cross-check, the decline matrix, the wiring gate, the six-cell timing and the geometry sweep share one workload builder and one comparison helper), so do not split it into modules.
