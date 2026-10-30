@@ -1600,11 +1600,10 @@ def stage_timing(args: argparse.Namespace) -> int:
     if args.wired:
         print(
             "TIMING (WIRED): EVOGP_EVAL_MODE=fused through Forest.batch_forward / "
-            "Forest.SR_fitness /"
+            "Forest.SR_fitness / Forest.forward"
         )
         print(
-            "Forest.forward vs torch-batched (warm medians, 2 warmup + 10 "
-            "sync-bracketed reps)"
+            "  vs torch-batched (warm medians, 2 warmup + 10 sync-bracketed reps)"
         )
     else:
         print(
