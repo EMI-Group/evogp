@@ -30,8 +30,9 @@ engine.  This module pins that policy:
   an optional tightening pin -- so the large-row / large-population cells stay on
   dense instead of falling back to the rows-flat specialized engine;
 * the ``auto`` trace-cap rule (``auto_trace_cap``: raise the cap to the
-  population's realized longest tree) is an ENTRY-POINT rule, not a policy one:
-  it never moves the route, and when it refuses a population both
+  population's realized longest tree ROUNDED UP to a power of two, so one compiled
+  dense graph spans a whole band of lengths) is an ENTRY-POINT rule, not a policy
+  one: it never moves the route, and when it refuses a population both
   ``evaluate_dense`` and ``sr_fitness_dense`` raise a ``device_fallback``
   ``DenseUnsupported`` that makes ``decline_backend`` continue on the route's
   DEVICE backend (``iree``) instead of the ordinary specialized+``numpy``
@@ -585,16 +586,21 @@ SIN = int(Func.SIN)
 #: The two length axes differ on purpose, because that is exactly the
 #: distinction the ``auto`` raise exists for: the default cap
 #: (``EVOGP_DENSE_MAX_TREE_LEN`` = 64) is below BOTH, the row stride is what the
-#: cap is compared against, and the REALIZED length (123) is what the population
-#: actually costs -- so the raise is ``min(123, min(256, envelope)) = 123`` and
+#: cap is compared against, and the REALIZED length (123) is rounded UP to the
+#: 128-node band the raise traces -- so the raise is ``min(256, 128) = 128`` and
 #: the cell is the one the rule was priced on (857.22 ms per-tree numpy against
 #: 105.62 ms dense at the raised cap).
 CAP_POP = 2048
 CAP_ROW_LEN = 128
 CAP_LONGEST = 123
+#: What ``auto`` actually raises the reference cell to: ``CAP_LONGEST`` rounded up
+#: to the next power of two (``128``), NOT the realized length -- the rounding is
+#: what keeps ONE compiled dense graph alive across a band of lengths.
+CAP_RAISED = 128
 CAP_ROWS = 1024
 CAP_INPUT_LEN = 2
 assert dense.DEFAULT_MAX_TREE_LEN < CAP_LONGEST <= CAP_ROW_LEN, CAP_LONGEST
+assert CAP_LONGEST < CAP_RAISED <= dense.DEFAULT_AUTO_MAX_TREE_LEN, CAP_RAISED
 #: The reference cell's allowance is the ceiling (256), the envelope being looser:
 #: stated with the ceiling as an ARGUMENT, so this module-level fact never depends
 #: on an ambient ``EVOGP_DENSE_AUTO_MAX_TREE_LEN`` / budget.
@@ -676,12 +682,12 @@ def test_the_cap_rule_never_moves_the_route(pop, monkeypatch):
     """The trace-cap rule is an ENTRY-POINT rule: the route is unchanged by it.
 
     ``auto_trace_cap`` raises the trace cap of a call whose population outgrew it
-    (123 nodes here, against a stride of 128 and the default cap of 64) to
-    ``min(longest, min(EVOGP_DENSE_AUTO_MAX_TREE_LEN, envelope))`` -- 123, i.e.
-    the realized length, not the stride -- and it must not feed back into the
-    policy: the decision itself stays dense+iree with a numpy fallback at the
-    threshold, at the reference cell and at the largest population the envelope
-    still keeps on dense, and re-resolving answers the very same route.
+    (123 nodes here, against a stride of 128 and the default cap of 64) to the
+    population's realized length ROUNDED UP TO A POWER OF TWO -- 128, not the
+    realized 123 and not the stride -- and it must not feed back into the policy:
+    the decision itself stays dense+iree with a numpy fallback at the threshold, at
+    the reference cell and at the largest population the envelope still keeps on
+    dense, and re-resolving answers the very same route.
     """
     on_device_box(monkeypatch)
     monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
@@ -701,7 +707,15 @@ def test_the_cap_rule_never_moves_the_route(pop, monkeypatch):
                 pop_size=pop,
                 rows=CAP_ROWS,
             )
-            == CAP_LONGEST
+            == CAP_RAISED
+        )
+        # neither does a band CROSSING: the cap the raise picks (128 here, 256 one
+        # band up) is an entry-point number the policy never reads back
+        assert (
+            dense.auto_trace_cap(
+                129, 256, eval_mode="auto", pop_size=pop, rows=CAP_ROWS
+            )
+            == 256
         )
         assert route == dense.resolve_route(
             pop, rows=CAP_ROWS, tree_len=CAP_ROW_LEN, eval_mode="auto"
@@ -796,10 +810,10 @@ def test_an_ordinary_dense_decline_still_falls_back_to_numpy(monkeypatch):
     """The device fallback is RESERVED for the cap rule: everything else is numpy.
 
     With the ceiling at its default the reference population fits the raise
-    (``min(123, 256) == 123``), so the call reaches the plan -- and the
-    multi-output refusal raised there is an ordinary, UNFLAGGED decline: a wired
-    call site therefore continues on the specialized engine over numpy, exactly
-    as before the rule existed.
+    (``123`` nodes rounded up to the ``128``-node band, inside the 256-node
+    allowance), so the call reaches the plan -- and the multi-output refusal raised
+    there is an ordinary, UNFLAGGED decline: a wired call site therefore continues
+    on the specialized engine over numpy, exactly as before the rule existed.
     """
     on_device_box(monkeypatch)
     monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")

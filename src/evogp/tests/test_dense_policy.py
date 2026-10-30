@@ -32,11 +32,15 @@ Coverage
   never consuming the flag for any other decline reason.
 * The ``auto`` trace-cap RAISE (``EVOGP_DENSE_AUTO_MAX_TREE_LEN``, bounded by the
   cap-axis envelope of ``EVOGP_DENSE_AUTO_BUDGET_MB``): the exact
-  ``min(longest, min(ceiling, envelope))`` arithmetic, the identity outside
-  ``auto`` / under a pinned cap / for a population that fits, the refusal's
-  message naming the binding term, and both entry points handing the raised cap
-  to the plan seam -- plus the ``DenseUnsupported(device_fallback=True)``
-  refusal, decided before the plan so no numpy fallback can be reached.
+  ``min(ceiling, next_power_of_two(max(base, longest)))`` arithmetic (65 / 123 /
+  127 -> 128, 129 / 201 -> 256), the POWER-OF-TWO BAND that makes one compiled
+  dense graph span a whole range of realized lengths, the allowance re-checked at
+  the ROUNDED value (a 110-node ceiling refuses a 100-node population), the
+  identity outside ``auto`` / under a pinned cap / for a population that fits,
+  the refusal's message naming the binding term and the rounded request, and both
+  entry points handing the raised cap to the plan seam -- plus the
+  ``DenseUnsupported(device_fallback=True)`` refusal, decided before the plan so
+  no numpy fallback can be reached.
 
 Provenance and constraints
 --------------------------
@@ -112,6 +116,11 @@ CAP_POP = 2048
 CAP_ROW_LEN = 128
 CAP_LONGEST = 123
 CAP_ROWS = 1024
+#: The cap ``auto`` actually raises the reference cell to: ``CAP_LONGEST`` rounded
+#: UP to the next power of two.  ``L`` is part of the dense graph key, so the raise
+#: tracks a BAND of realized lengths (65..128) rather than the exact length -- see
+#: :func:`_next_power_of_two` and section 7.
+CAP_RAISED = 128
 #: A budget (MiB) whose ``auto`` envelope allows exactly ONE trace node at that
 #: shape: ``8 * 2**20 // (2048 * 1024 * 4) == 1`` -- the envelope refusing the raise.
 CAP_TIGHT_BUDGET_MB = 8
@@ -744,10 +753,16 @@ def test_other_declines_stay_silent_and_do_not_consume_the_once_flag(monkeypatch
 # --------------------------------------------------------------------------- #
 # Under `auto` ONLY, and only when the trace cap was not pinned, the entry points
 # (`evaluate_dense` / `sr_fitness_dense`) raise the cap for an over-cap population
-# to `min(longest, min(ceiling, envelope))` -- the cap-axis twin of the rows rule
-# -- and, when that allowance cannot reach the population's longest tree, decline
-# with `DenseUnsupported(..., device_fallback=True)` so the call site continues on
-# the DEVICE backend instead of per-tree numpy.
+# to `min(ceiling, next_power_of_two(max(base, longest)))` -- the cap-axis twin of
+# the rows rule -- and, when that allowance cannot reach the ROUNDED request,
+# decline with `DenseUnsupported(..., device_fallback=True)` so the call site
+# continues on the DEVICE backend instead of per-tree numpy.
+#
+# The rounding is the point of the rule, not a detail: `L` is part of the dense
+# graph key, so a cap that tracked the realized longest tree exactly would compile
+# a fresh graph every generation of a GP loop (measured `gp_step` 10 014.83 ms at
+# the drifting cap against 124.46 ms at a pinned L=128), while a power-of-two band
+# (65..128, 129..256) shares ONE graph for a few percent more trace work.
 #
 # Everything below is policy algebra plus a `_plan_entry` seam: the raise is
 # inspected at the scale it was designed for (pop 2 048, 123-node trees, N = 1 024)
@@ -827,7 +842,13 @@ def call_cap_entry(entry: str, **kwargs):
 
 
 def test_auto_cap_rule_arithmetic_is_exact():
-    """``min(longest, min(ceiling, envelope))`` on the documented cells."""
+    """``min(ceiling, next_power_of_two(max(base, longest)))`` on the documented cells.
+
+    The cap ``auto`` raises to is the population's realized longest tree ROUNDED UP
+    to a power of two -- never the realized length itself -- because ``L`` is part
+    of the dense graph key: an exact raise would compile a fresh graph every time
+    the longest tree drifts, i.e. once per generation of a GP loop.
+    """
     assert dense.AUTO_MAX_TREE_LEN_ENV == "EVOGP_DENSE_AUTO_MAX_TREE_LEN"
     assert dense.DEFAULT_AUTO_MAX_TREE_LEN == 256
     assert dense.resolve_auto_max_tree_len() == dense.DEFAULT_AUTO_MAX_TREE_LEN
@@ -843,7 +864,7 @@ def test_auto_cap_rule_arithmetic_is_exact():
             pop_size=CAP_POP,
             rows=CAP_ROWS,
         )
-        == CAP_LONGEST
+        == CAP_RAISED
     )
     assert (
         dense.auto_cap_decline(
@@ -851,12 +872,13 @@ def test_auto_cap_rule_arithmetic_is_exact():
         )
         is None
     )
-    # the hypothetical 201-node cell at a 256-wide stride / N 1024 is served too
+    # the hypothetical 201-node cell at a 256-wide stride / N 1024 is served too --
+    # 201 rounds UP to 256, which is exactly the raise's default ceiling
     assert (
         dense.auto_trace_cap(
             201, 256, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
         )
-        == 201
+        == 256
     )
     # per_row=True is ONE data row per tree, so the envelope cannot bind there
     assert dense.auto_tree_len_allowance(CAP_POP, None) == 256
@@ -864,9 +886,10 @@ def test_auto_cap_rule_arithmetic_is_exact():
         dense.auto_trace_cap(
             CAP_LONGEST, CAP_ROW_LEN, eval_mode="auto", pop_size=CAP_POP
         )
-        == CAP_LONGEST
+        == CAP_RAISED
     )
-    # ... and the raise never invents a cap: an allowance below `longest` refuses
+    # ... and the raise never invents a cap: an allowance below the ROUNDED request
+    # refuses (300 nodes ask for 512, far above the 256-node allowance)
     assert (
         dense.auto_trace_cap(
             300, 512, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
@@ -877,6 +900,96 @@ def test_auto_cap_rule_arithmetic_is_exact():
         dense.auto_cap_decline(300, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS)
         is not None
     )
+
+
+@pytest.mark.parametrize(
+    "longest, row_len, expected",
+    [
+        (65, CAP_ROW_LEN, 128),  # just past the base cap 64 -> the 65..128 band
+        (CAP_LONGEST, CAP_ROW_LEN, 128),  # the reference cell (123 nodes)
+        (127, CAP_ROW_LEN, 128),  # the top of the same band
+        (201, 256, 256),  # the 129..256 band, served right at the ceiling
+    ],
+)
+def test_auto_cap_rounds_a_realized_length_up_to_a_power_of_two(longest, row_len, expected):
+    """65 / 123 / 127 nodes -> 128 and 201 -> 256: the raise rounds UP, never down.
+
+    The base cap is still 64 and the reference cell's allowance still 256, so the
+    rounding alone decides these answers: a population whose longest tree drifted
+    from 65 to 127 keeps hitting ONE ``L = 128`` compiled graph instead of paying a
+    fresh compile at every intermediate length.
+    """
+    assert dense.DEFAULT_MAX_TREE_LEN == 64
+    assert dense.auto_tree_len_allowance(CAP_POP, CAP_ROWS) == 256
+    assert (
+        dense.auto_trace_cap(
+            longest, row_len, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        == expected
+    )
+    # every one of those cells is SERVED (the refusal is the other half of the rule)
+    assert (
+        dense.auto_cap_decline(
+            longest, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        is None
+    )
+
+
+def test_one_power_of_two_band_shares_the_effective_cap():
+    """The point of the change: a drifting longest tree keeps ONE compiled graph.
+
+    Two populations inside one band resolve to the SAME effective cap (123 / 125 /
+    127 -> 128), and -- since ``128`` is itself a power of two above the base cap 64
+    -- so does a population whose longest tree reaches the top of the band.  Only
+    the generation that CROSSES the boundary (128 -> 129) re-splits the graph, which
+    is the change's residual limit: a GP loop recompiles once per power-of-two
+    boundary, never once per realized length.
+    """
+    cell = dict(eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS)
+    assert [dense.auto_trace_cap(n, CAP_ROW_LEN, **cell) for n in (123, 125, 127)] == [
+        128,
+        128,
+        128,
+    ]
+    # ... and the boundary itself belongs to the LOWER band: 128 stays 128 (the
+    # raise's answer, not the base cap, because 128 > 64)
+    assert dense.auto_trace_cap(128, CAP_ROW_LEN, **cell) == 128
+    assert dense.auto_trace_cap(129, 256, **cell) == 256
+    assert dense.auto_trace_cap(201, 256, **cell) == 256
+    # both bands sit under the 256-node allowance, so neither declines
+    assert dense.auto_cap_decline(123, **cell) is None
+    assert dense.auto_cap_decline(129, **cell) is None
+
+
+def test_the_allowance_is_checked_at_the_rounded_cap():
+    """A ceiling above the realized length but below the ROUNDED request REFUSES.
+
+    ``longest=100`` would be raised to the 128-node band, so a
+    ``EVOGP_DENSE_AUTO_MAX_TREE_LEN=110`` ceiling cannot serve it even though 110 is
+    above the 100 real nodes: the raise never traces a non-power-of-two cap and
+    never clamps the rounded request down to the allowance (no partial raise).  Once
+    the ceiling reaches the rounded value the very same population is served.
+    """
+    cell = dict(eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS)
+    assert dense.DEFAULT_MAX_TREE_LEN == 64
+    assert (
+        dense.auto_tree_len_allowance(CAP_POP, CAP_ROWS, auto_max_tree_len=110) == 110
+    )
+    # 100 real nodes -> a 128-node request, 110 allowed -> the base cap (a DECLINE)
+    assert (
+        dense.auto_trace_cap(100, CAP_ROW_LEN, auto_max_tree_len=110, **cell)
+        == dense.DEFAULT_MAX_TREE_LEN
+    )
+    reason = dense.auto_cap_decline(100, auto_max_tree_len=110, **cell)
+    assert reason is not None
+    assert f"{dense.AUTO_MAX_TREE_LEN_ENV}=110 is the tighter term" in reason
+    assert "128" in reason  # the rounded request the allowance does not reach
+    # the ceiling reaching the ROUNDED value serves the same population
+    assert (
+        dense.auto_trace_cap(100, CAP_ROW_LEN, auto_max_tree_len=128, **cell) == 128
+    )
+    assert dense.auto_cap_decline(100, auto_max_tree_len=128, **cell) is None
 
 
 def test_auto_tree_len_allowance_is_the_envelope_solved_for_the_trace_length(
@@ -963,6 +1076,28 @@ def test_trace_cap_pinned_reports_the_argument_and_the_env(monkeypatch):
         )
         is None
     )
+    # a pinned cap is never ROUNDED either: the rounding exists to keep an
+    # UNPINNED raise loop-friendly, while 96 here is the user's own number and is
+    # returned exactly -- from the environment and from the argument
+    monkeypatch.setenv(dense.MAX_TREE_LEN_ENV, "96")
+    assert dense.trace_cap_pinned() is True
+    assert (
+        dense.auto_trace_cap(
+            CAP_LONGEST, 256, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS
+        )
+        == 96
+    )
+    assert (
+        dense.auto_trace_cap(
+            CAP_LONGEST,
+            256,
+            eval_mode="auto",
+            pop_size=CAP_POP,
+            rows=CAP_ROWS,
+            max_tree_len=96,
+        )
+        == 96
+    )
     monkeypatch.delenv(dense.MAX_TREE_LEN_ENV)
     assert dense.trace_cap_pinned() is False
 
@@ -996,10 +1131,19 @@ def test_the_raise_is_auto_only(mode):
 
 
 def test_a_population_that_fits_the_cap_takes_no_raise():
-    """``longest <= base`` -- and a row stride that already fits -- is the identity."""
+    """``longest <= base`` -- and a row stride that already fits -- is the identity.
+
+    Rounding never applies here: the raise (and therefore its power-of-two
+    rounding) only ever starts from an over-cap population, so a fitting one keeps
+    the base cap verbatim and is never declined.
+    """
     assert (
         dense.auto_trace_cap(64, 128, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS)
         == 64
+    )
+    assert (
+        dense.auto_cap_decline(64, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS)
+        is None
     )
     assert (
         dense.auto_trace_cap(8, 128, eval_mode="auto", pop_size=CAP_POP, rows=CAP_ROWS)
@@ -1064,13 +1208,13 @@ def test_auto_cap_decline_names_the_binding_term():
 
 @pytest.mark.parametrize("entry", ["value", "loss"])
 def test_the_raise_reaches_the_plan_of_both_entry_points(entry, monkeypatch):
-    """``auto`` SERVES the population: the plan is built at the RAISED cap."""
+    """``auto`` SERVES the population: the plan is built at the ROUNDED raised cap."""
     monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
     recorded = capture_plan(monkeypatch)
     with pytest.raises(PlanCaptured) as excinfo:
         call_cap_entry(entry, backend="numpy")
-    assert excinfo.value.args[0] == CAP_LONGEST  # the cap the plan was handed
-    assert recorded["max_tree_len"] == CAP_LONGEST
+    assert excinfo.value.args[0] == CAP_RAISED  # the cap the plan was handed
+    assert recorded["max_tree_len"] == CAP_RAISED
     assert recorded["max_tree_len"] == dense.auto_trace_cap(
         CAP_LONGEST,
         CAP_ROW_LEN,
@@ -1146,6 +1290,44 @@ def test_a_refused_raise_declines_flagged_before_the_plan(entry, monkeypatch):
     assert "automatic trace-cap raise" in exc.reason
     # ... and it is not the once-per-process over-cap surprise (that warning belongs
     # to the pinned paths, which reach ``prepare_dense``)
+    assert dense._TRACE_CAP_WARNED is False
+
+
+def test_a_rounded_refusal_declines_flagged_before_the_plan(monkeypatch):
+    """The ROUNDED request refusing at a wired entry point: the same flagged decline.
+
+    A 100-node population at the reference shape asks for a 128-node trace cap (the
+    next power of two), so a ``EVOGP_DENSE_AUTO_MAX_TREE_LEN=110`` ceiling refuses it
+    even though 110 is above the realized length -- the allowance is re-checked at
+    the ROUNDED value, not at ``longest``.  The refusal is decided from the shape
+    BEFORE the plan (``forbid_plan``: neither the plan seam nor the population's host
+    decode may run) and leaves the once-per-process over-cap warning free, so a wired
+    call site continues on the route's DEVICE backend instead of per-tree numpy.
+    ``backend="iree"`` is only a NAME here: nothing compiles.
+    """
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "auto")
+    monkeypatch.setenv(dense.AUTO_MAX_TREE_LEN_ENV, "110")
+    monkeypatch.setattr(dense, "_TRACE_CAP_WARNED", False)
+    forbid_plan(monkeypatch)
+    values, types, sizes = chain_rows(100, CAP_ROW_LEN, CAP_POP)
+    assert int(sizes[:, 0].max()) == 100  # the realized longest tree
+    with pytest.raises(dense.DenseUnsupported) as excinfo:
+        dense.evaluate_dense(
+            values,
+            types,
+            sizes,
+            INPUT_LEN,
+            1,
+            CAP_PER_ROW_X,
+            per_row=True,
+            backend="iree",
+        )
+    exc = excinfo.value
+    assert exc.device_fallback is True
+    assert f"{dense.AUTO_MAX_TREE_LEN_ENV}=110 is the tighter term" in exc.reason
+    assert "128" in exc.reason  # the rounded request, not the 100 realized nodes
+    # the refusal happens before ``prepare_dense``, so the pinned-path warning that
+    # reports an over-cap population is still unspent
     assert dense._TRACE_CAP_WARNED is False
 
 
