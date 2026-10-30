@@ -78,6 +78,7 @@ VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreemen
 | `evoxc-batch-iree-flat` | the same route with `EVOGP_BATCH_BANDS=flat`: one unbanded merge, O(N²) in the population, so the flat-vs-banded merge can be compared on real GP workloads (it is expected to lose badly at pop 1000 — that comparison is what the arm records) |
 | `evoxc-batch-iree-aggressive` | the same route with `EVOGP_BATCH_DISPATCH_FORMATION=aggressive`: the merged compile's evoxc dispatch-formation option pinned instead of derived, so `auto`'s own choice can be compared against it (and the spelling can be priced where `auto` does *not* take it) |
 | `evoxc-batch-iree-artifact` | the same route on the **persistent on-disk executable tier** (`EVOGP_EVOXC_ARTIFACT_DIR`, pointing at `campaign.py --artifact-dir` / `$EVOGP_BENCH_ARTIFACT_DIR`, default `<out>/artifacts`): a disk hit skips `lower`/`compile`/`load`, so this is the only arm whose *cold* column can change without the route changing |
+| `evoxc-batch-iree-default` | the same route with `EVOGP_BATCH_DISPATCH_FORMATION=default`: the **pre-change control** of the merged compile — no `--iree-dispatch-creation-enable-aggressive-fusion`, i.e. the spelling the route derived before the knob grew its `auto` default. `evoxc-batch-iree` (no value → `auto` → `aggressive` on a rocm/cuda target) stays the shipped default; this arm is what its records are read against |
 | `evoxc-dense-iree-raised` | `EVOGP_EVAL_MODE=dense` + iree with the trace cap pinned to the **cell's** tree length (`EVOGP_DENSE_MAX_TREE_LEN={tree_len}`): identical to `evoxc-dense-iree` on a main-grid cell (L ≤ 64) and the same route with the cap raised on a long-tree cell, so dense actually serves that population instead of declining to `specialized` |
 
 Both torch arms are *implemented in this harness* (`arms_torch.py`), with op semantics
@@ -95,8 +96,8 @@ only, so all batch arms pin the mode; none is a default-route claim, and the mea
 verdict is in [`BATCH.md`](BATCH.md) and
 [Batch route: compile economics](#batch-route-compile-economics-batch_economicspy).
 
-**The improved batch route** is those same two arms plus the two below it, and they
-answer two questions the shipped route could not:
+**The improved batch route** is those same two arms plus the three below it, and they
+answer the questions the shipped route could not:
 
 * `evoxc-batch-iree-aggressive` — `EVOGP_BATCH_DISPATCH_FORMATION=aggressive`. The knob
   (single-sourced in `common.BATCH_KNOBS`, default `auto`) resolves the merged compile's
@@ -125,6 +126,17 @@ answer two questions the shipped route could not:
   is `<out>/artifacts`, i.e. per run. `EVOGP_EVOXC_ARTIFACT_DIR` itself is per-arm
   provenance and is cleared for every other arm (`common.ROUTE_ENV_VARS`), so no
   pre-existing arm silently becomes a disk-cached run.
+* `evoxc-batch-iree-default` — the **before/after control**, not a route of its own:
+  `EVOGP_BATCH_DISPATCH_FORMATION=default` pins the merged compile to derive no
+  `--iree-dispatch-creation-enable-aggressive-fusion` flag, which is what the route did
+  before the knob's `auto` default started enabling it on a rocm/cuda compile target.
+  `evoxc-batch-iree` sets nothing and therefore reads `auto` (`aggressive` here) and
+  stays the shipped default; a record states the request (`batch_policy.dispatch_formation`:
+  `auto` on one arm, `default` on this one — the `knobs_source` entry reads `arm` for
+  both, since each value is one the registry really wrote) and the effective spelling
+  (`batch_plan_summary.band_report.dispatch_formation`). A before/after therefore reads
+  `evoxc-batch-iree-default` against `evoxc-batch-iree` on the same cell, same seed,
+  same population.
 
 Its knobs are all `EVOGP_BATCH_*`, single-sourced in `common.BATCH_KNOBS` and
 resolved in a record as arm value > inherited environment > the engine's own
@@ -139,11 +151,12 @@ resolver > the documented default (`batch_policy.knobs_source` says which applie
 | `EVOGP_BATCH_CACHE_SIZE` | unset (engine default) | the merged-graph cache size; the harness records the resolved value and never sets it |
 | `EVOGP_BATCH_MIN_POP` | `64` | population floor: below it one merged graph cannot amortize its build, so the route declines to `specialized` (the record's `routes.*.decline_reason` carries the sentence) |
 | `EVOGP_BATCH_COMPILE_WORKERS` | `default` | the compiled-graph pool width: how many chunk compiles of the merged graph may run at once (the route default is on, 4 workers; `0`/`1` is the old single-executable path). It moves the route's **cold** cost, so it is swept with `batch_economics.py --knob EVOGP_BATCH_COMPILE_WORKERS=N` rather than with one arm per value, and the record reads the resolved width and its source |
-| `EVOGP_BATCH_DISPATCH_FORMATION` | `auto` | the merged compile's evoxc `dispatch_formation` option: `auto` enables `aggressive` only for an iree backend whose compile target is a GPU (`rocm`/`cuda`) and whose evoxc declares the option, `default`/`off` derive no flag, an explicit `aggressive` is honoured everywhere (it may be slower on a non-GPU target). The record keeps the request (`batch_policy.dispatch_formation`) and the effective spelling (`batch_plan_summary.band_report.dispatch_formation`), because `auto` resolves per compile target; the `evoxc-batch-iree-aggressive` arm pins it |
+| `EVOGP_BATCH_DISPATCH_FORMATION` | `auto` | the merged compile's evoxc `dispatch_formation` option: `auto` enables `aggressive` only for an iree backend whose compile target is a GPU (`rocm`/`cuda`) and whose evoxc declares the option, `default`/`off` derive no flag, an explicit `aggressive` is honoured everywhere (it may be slower on a non-GPU target). The record keeps the request (`batch_policy.dispatch_formation`) and the effective spelling (`batch_plan_summary.band_report.dispatch_formation`), because `auto` resolves per compile target; the `evoxc-batch-iree-aggressive` arm pins it and `evoxc-batch-iree-default` pins the pre-change `default` |
 
 An arm spec may carry a `knobs` mapping (`{env var: value}`) beyond the two route
 selectors; `-flat` is exactly `{"EVOGP_BATCH_BANDS": "flat"}`, `-aggressive` exactly
-`{"EVOGP_BATCH_DISPATCH_FORMATION": "aggressive"}`, `-artifact` exactly
+`{"EVOGP_BATCH_DISPATCH_FORMATION": "aggressive"}`, `-default` exactly
+`{"EVOGP_BATCH_DISPATCH_FORMATION": "default"}`, `-artifact` exactly
 `{"EVOGP_EVOXC_ARTIFACT_DIR": "{artifact_dir}"}` and `evoxc-dense-iree-raised` exactly
 `{"EVOGP_DENSE_MAX_TREE_LEN": "{tree_len}"}`.
 `arms.apply_arm_env(arm, cell)` clears **every** route variable
@@ -158,8 +171,8 @@ and the placeholder) -- plus `{artifact_dir}`, which is the harness's own hook
 (`$EVOGP_BENCH_ARTIFACT_DIR`, else `<out>/artifacts`, resolved by
 `common.artifact_dir`) and therefore needs no cell -- and `env.applied_knobs` carries the
 **resolved** values; an
-unregistered arm name raises `KeyError`. `--arms all` covers all twelve arms and `--arms
-batch` exactly the four batch arms, in registry order (registered last, so no existing
+unregistered arm name raises `KeyError`. `--arms all` covers all thirteen arms and `--arms
+batch` exactly the five batch arms, in registry order (registered last, so no existing
 order or render changes). `campaign.py --dry-run` prints each arm's resolved knob spec
 once (`arm knobs <arm> ...`), which is how an operator checks the env without a device.
 
@@ -805,7 +818,7 @@ rejects.
   `first_call_ms` still carries the cost and a miss count is never bounded by the
   gate) and when `batch_cache.stats_keys` carries no `batch_exec_misses` (the exec
   table, the only one whose miss recompiles). Expected-arm coverage defaults to the
-  campaign's own scheduled arms, so appending these two arms leaves previously
+  campaign's own scheduled arms, so appending an arm leaves previously
   recorded campaigns gating exactly as before.
 * `check_content()` is the same self-consistency check over the content blocks
   (`content.py`) and **warns** only: a block claiming `available: true` with every

@@ -17,8 +17,12 @@ What is pinned here:
   (``ARTIFACT_ENV_VARS``), and the dense route's new ``EVOGP_DENSE_AUTO_BUDGET_MB``
   is part of ``DENSE_ENV_VARS``;
 * every pre-existing arm id is unchanged (byte-identical, in registry order) and the
-  two new arms -- ``evoxc-batch-iree-aggressive`` / ``evoxc-batch-iree-artifact`` --
-  resolve to the env they claim, the disk tier through the harness's own hook;
+  three new arms -- ``evoxc-batch-iree-aggressive`` / ``evoxc-batch-iree-artifact`` /
+  ``evoxc-batch-iree-default`` -- resolve to the env they claim, the disk tier through
+  the harness's own hook;
+* ``evoxc-batch-iree-default`` is the PRE-CHANGE control of the merged compile: the
+  dispatch-formation request pinned to ``default`` (no aggressive fusion) while
+  ``evoxc-batch-iree`` stays the shipped default (``auto``, i.e. no knob at all);
 * no arm leaks a route knob: every ``common.ROUTE_ENV_VARS`` entry is cleared before an
   arm's own spec is written, for every arm including the torch baselines;
 * ``common.route_decision`` passes the population SHAPE (``pop_size`` / ``rows`` /
@@ -139,7 +143,11 @@ def test_existing_arm_ids_are_unchanged():
 
 
 def test_new_arm_ids_are_appended_last_and_are_batch_arms():
-    new = ("evoxc-batch-iree-aggressive", "evoxc-batch-iree-artifact")
+    new = (
+        "evoxc-batch-iree-aggressive",
+        "evoxc-batch-iree-artifact",
+        "evoxc-batch-iree-default",
+    )
     assert tuple(common.EVOXC_ARMS)[-len(new):] == new
     assert tuple(common.ALL_ARMS)[-len(new):] == new
     for arm in new:
@@ -148,6 +156,36 @@ def test_new_arm_ids_are_appended_last_and_are_batch_arms():
     # ``--arms batch`` picks them up from the ONE predicate (no extra rule)
     batch_arms = [arm for arm in common.EVOXC_ARMS if common.is_batch_arm(arm)]
     assert list(batch_arms) == ["evoxc-batch-iree", "evoxc-batch-iree-flat", *new]
+
+
+def test_default_formation_arm_is_the_pre_change_control():
+    """``evoxc-batch-iree-default`` pins the PRE-``auto`` spelling, nothing else."""
+    arm = "evoxc-batch-iree-default"
+    assert common.EVOXC_ARMS[arm] == {
+        "eval_mode": "batch",
+        "backend": "iree",
+        "family": "evoxc",
+        "knobs": {DISPATCH_ENV: "default"},
+    }
+    applied = arms.apply_arm_env(arm)
+    # exactly the two route selectors plus the one knob: no band, no disk tier
+    assert applied["knobs"] == {DISPATCH_ENV: "default"}
+    assert os.environ["EVOGP_EVAL_MODE"] == "batch"
+    assert os.environ["EVOGP_EVOXC_BACKEND"] == "iree"
+    assert os.environ[DISPATCH_ENV] == "default"
+    applied_vars = {
+        name for name in MANAGED_VARS if name in os.environ
+    }
+    assert applied_vars == {
+        "EVOGP_EVAL_MODE", "EVOGP_EVOXC_BACKEND", DISPATCH_ENV,
+    }, applied_vars
+    assert common.arm_knob_env(arm) == {DISPATCH_ENV: "default"}
+    # the shipped default arm keeps its own spec: ``auto``, i.e. NO knob at all
+    assert common.EVOXC_ARMS["evoxc-batch-iree"] == {
+        "eval_mode": "batch", "backend": "iree", "family": "evoxc",
+    }
+    arms.apply_arm_env("evoxc-batch-iree")
+    assert DISPATCH_ENV not in os.environ
 
 
 def test_aggressive_arm_pins_the_request_formed_spelling():
@@ -361,12 +399,26 @@ def test_dry_run_states_the_new_knobs_once(tmp_path, monkeypatch, capsys):
     ])
     assert code == 0
     printed = capsys.readouterr().out
-    # the two new arms are scheduled, and each new variable is stated exactly once
-    assert "evoxc-batch-iree-aggressive" in printed
-    assert "evoxc-batch-iree-artifact" in printed
-    assert printed.count(DISPATCH_ENV) == 1
+    # the new arms are scheduled, and each new variable is stated once per arm that
+    # pins it (the dispatch formation has two such arms: aggressive and default)
+    for arm in (
+        "evoxc-batch-iree-aggressive",
+        "evoxc-batch-iree-artifact",
+        "evoxc-batch-iree-default",
+    ):
+        assert f"would run p64-L64-i32-N64 {arm}" in printed, arm
+    assert printed.count(DISPATCH_ENV) == 2
     assert printed.count(ARTIFACT_DIR_VAR) == 1
     assert f"{DISPATCH_ENV}=aggressive" in printed
+    assert f"{DISPATCH_ENV}=default" in printed
+    # ... and the dry run resolves the route per arm, so the control reads ``default``
+    # where the shipped default arm reads ``auto``
+    policy_lines = {
+        line.split()[2]: line for line in printed.splitlines()
+        if line.startswith("batch policy ")
+    }
+    assert "dispatch_formation=default" in policy_lines["evoxc-batch-iree-default"]
+    assert "dispatch_formation=auto" in policy_lines["evoxc-batch-iree"]
     # the disk directory is the campaign's own per-run default
     assert f"{ARTIFACT_DIR_VAR}={os.path.abspath(os.path.join(str(out), 'artifacts'))}" in printed
 

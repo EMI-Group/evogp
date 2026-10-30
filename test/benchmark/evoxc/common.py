@@ -136,6 +136,19 @@ EVOXC_ARMS: Dict[str, Dict[str, Optional[str]]] = {
         "family": "evoxc",
         "knobs": {"EVOGP_EVOXC_ARTIFACT_DIR": "{artifact_dir}"},
     },
+    # the PRE-CHANGE control for the merged compile: the batch route with the
+    # dispatch-formation request pinned to ``default``, i.e. NO
+    # ``--iree-dispatch-creation-enable-aggressive-fusion`` -- the spelling the route
+    # derived before ``EVOGP_BATCH_DISPATCH_FORMATION`` grew its ``auto`` default.
+    # ``evoxc-batch-iree`` stays the shipped default: it sets no value, so it resolves
+    # ``auto`` (``aggressive`` on a rocm/cuda compile target), and this arm is the arm
+    # to read next to it when a record has to say what that default changed.
+    "evoxc-batch-iree-default": {
+        "eval_mode": "batch",
+        "backend": "iree",
+        "family": "evoxc",
+        "knobs": {"EVOGP_BATCH_DISPATCH_FORMATION": "default"},
+    },
 }
 TORCH_ARMS: Dict[str, Dict[str, Any]] = {
     "torch-per-tree": {"impl": "per_tree", "family": "torch"},
@@ -861,18 +874,27 @@ def batch_engine_present(src: Optional[str] = None) -> bool:
         return False
 
 
-def _registered_knob_value(env_name: str) -> Optional[str]:
+def _registered_knob_value(env_name: str, value: Optional[str] = None) -> Optional[str]:
     """The value an arm of the registry would write for ``env_name`` (or None).
 
     Lets ``batch_policy`` label a variable as arm-supplied instead of merely
     inherited: arms write their ``knobs`` mapping into ``os.environ`` before the
     engine is imported, so the registry is the only record of who set it.
+
+    Two arms may register the SAME variable with different values (the batch route's
+    dispatch-formation pins ``aggressive`` and ``default``), so a caller that passes the
+    observed ``value`` gets the value an arm really wrote -- ``"arm"`` then means "one
+    of the registry's arms wrote exactly this".  Without one, the first registered value
+    is returned (the historical reading).
     """
-    for spec in EVOXC_ARMS.values():
-        value = (spec.get("knobs") or {}).get(env_name)
-        if value is not None:
-            return str(value)
-    return None
+    values = [
+        str(spec["knobs"][env_name])
+        for spec in EVOXC_ARMS.values()
+        if (spec.get("knobs") or {}).get(env_name) is not None
+    ]
+    if value is not None and str(value) in values:
+        return str(value)
+    return values[0] if values else None
 
 
 def _resolve_batch_knob(
@@ -890,7 +912,7 @@ def _resolve_batch_knob(
     """
     env_value = os.environ.get(env_name)
     if env_value is not None:
-        arm_value = _registered_knob_value(env_name)
+        arm_value = _registered_knob_value(env_name, env_value)
         return env_value, "arm" if arm_value == env_value else "env"
     if module is not None:
         for attr in candidates:
