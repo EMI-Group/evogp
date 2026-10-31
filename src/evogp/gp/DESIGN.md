@@ -17,7 +17,7 @@ Four parallel `[pop_size, max_nodes]` evoxc tensors, replacing `../tree/`'s `(va
 Child addressing stays the repo-wide invariant: `c1 = i + 1`, `c2 = c1 + size[c1]`, `c3 = c2 + size[c2]`.
 `MAX_STACK` / `MAX_FULL_DEPTH` / `NType` / `Func` are imported from `../tree/utils.py` (single source; that module is torch-free).
 
-## Generation (`init_population`) — level-wise sampling, then one scatter to pre-order
+## Generation (`init_population`) — level-wise sampling, then one argsort to pre-order
 The decision structure of `../tree/generation.py` is reproduced exactly, because it is what defines the distribution:
 - node at depth `d` is a **function** iff `r >= depth2leaf_probs[d]`, else a leaf;
 - its function id is `searchsorted(roulette_funcs, r, right=True)` = the number of cdf entries `<= r`, i.e. `reduce_sum(cast(cdf <= r))` (evoxc has no `searchsorted`);
@@ -30,8 +30,8 @@ Only a Python loop over levels (≤ `MAX_FULL_DEPTH + 1` = 11) and over child ra
 Then, in the same graph:
 1. **subtree sizes bottom-up** over the padded levels (children die when their rank ≥ the parent's arity or the parent is a leaf);
 2. **pre-order index top-down**: `pre(child at rank c) = pre(parent) + 1 + sum(size of live siblings with rank < c)` — at most two terms, so it is a couple of `select`/`gather`s per level (not a monotonic-stack scan);
-3. **one `scatter`** of the sampled opcode/payload/size into the `[pop_size, max_nodes]` pre-order buffers.
-Padded slots whose parent is not a live function are dropped by the scatter, exactly as in the torch implementation.
+3. **one `argsort`** of the `[pop_size, padded_total]` destination map (`axis=1`, int32) plus a `take_per_row` gather per channel, which places the sampled opcode/payload/size into the `[pop_size, max_nodes]` pre-order buffers; the mask `column < size[:, 0]` drops the padded columns. Measured: 0.16 ms at pop 4096 against 2.77 ms for the flat `scatter` this replaced (`stablehlo.scatter` lowers to a sequential update loop, ~45 ns per scattered index), and the buffer shrinks from `pop_size * (max_nodes + 1)` to `pop_size * padded_total`.
+Padded slots whose parent is not a live function map to destination column `max_nodes`, so they sort to the tail of the row and the `column < size[:, 0]` mask drops them — exactly the set the torch implementation drops; their mutual order is irrelevant because none survives.
 
 ## Splice (crossover, and subtree-replacement mutation) by index arithmetic
 Legacy semantics to preserve (`../tree/splicing.py::_splice`, ENGINE_SPEC §7): keep `[0, pos)`; copy the donor subtree to `[pos, pos + new_sub)`; shift the tail by `size_diff = new_sub - old_sub`; add `size_diff` to every **strict ancestor** of `pos`; leave a row whose new length exceeds `max_nodes` untouched.
@@ -52,7 +52,8 @@ Point mutation must not change arity silently: only same-arity opcode swaps (or 
 
 ## Elitism inside the variation graph
 The elite splice is two more ops of a graph the generation already runs, so it lives there instead of in a second executable:
-- order = `argsort(multiply(fitness, -1.0), descending=False, stable=True)`, cast to int32. Sorting the NEGATED vector ascending with `stable=True` is the in-graph spelling of `np.argsort(-fitness, kind="stable")`, so a tie keeps the lower row index; `descending=True` must not be used because it flips the tie order.
+- order = `elite_count` repeated `argmax` passes over a running mask (`variation._argmax_order`): `argmax` returns the FIRST maximal index, so every tie goes to the lower row index — the same rule as `np.argsort(-fitness, kind="stable")[:k]` — and each winner is masked out before the next pass. `-inf` alone cannot exclude an all-`-inf` vector, so a pass whose winner is already taken continues with `argmin(taken)`, which makes such a vector yield `0, 1, ...`. Cost: ~0.025 ms per elite row against 1.31–1.46 ms for one population-sized stable `argsort` of `-fitness` at pop 4096.
+  Fallback for a very large `elite_count`: above `variation._ARGSORT_ELITE_BREAK_EVEN` (50) elites, or when `elite_count == pop_size`, the sort is the cheaper path and `argsort(multiply(fitness, -1.0), descending=False, stable=True)`, cast to int32, is sliced instead. Sorting the NEGATED vector ascending with `stable=True` is the in-graph spelling of `np.argsort(-fitness, kind="stable")`, so a tie keeps the lower row index; `descending=True` must not be used because it flips that order.
 - the first `elite_count` entries index the parent rows, gathered out of the parent channels (bit-identical copies) and concatenated in front of the first `pop_size - elite_count` offspring rows; the rest of the offspring are dropped because they are exchangeable draws.
 - `next_fitness` = the elite values (`gather(fitness, elite_index)`) followed by `UNEVALUATED` (`-inf`) for the offspring, and it is an OUTPUT of the graph — which is why a device `step` needs no readback.
 `elite_index=` takes an explicit `[elite_count]` int32 vector instead of the ranking (one upload on a device run), and `elite_count=0` short-circuits to offspring-only with an all-`-inf` vector.
