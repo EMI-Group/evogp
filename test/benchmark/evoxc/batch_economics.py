@@ -820,12 +820,14 @@ def run_child(args: argparse.Namespace) -> int:
     import torch  # noqa: F401  (the child needs a device; econ_child/evogp import it too)
 
     common.import_evogp()
-    from evogp.tree import dense_engine, evoxc_engine
+    # engine handles resolved through ``sys.modules`` (see ``common.installed_module``)
+    dense_engine = common.installed_module("evogp.tree.dense_engine")
+    evoxc_engine = common.installed_module("evogp.tree.evoxc_engine")
 
     batch_module = None
     if is_batch:
         try:
-            from evogp.tree import batch_engine as batch_module
+            batch_module = common.installed_module("evogp.tree.batch_engine")
         except ImportError:  # the route can be absent on an older tree
             batch_module = None
 

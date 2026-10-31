@@ -147,7 +147,9 @@ class Instrument:
         self._undo.append((module, name, original))
 
     def install(self) -> None:
-        from evogp.tree import dense_engine, evoxc_engine
+        # engine handles resolved through ``sys.modules`` (see ``common.installed_module``)
+        dense_engine = common.installed_module("evogp.tree.dense_engine")
+        evoxc_engine = common.installed_module("evogp.tree.evoxc_engine")
 
         for module, names in ((evoxc_engine, PHASES["evoxc_engine"]), (dense_engine, PHASES["dense_engine"])):
             for name in names:
@@ -226,7 +228,7 @@ def measure(
     warmup: int,
     reps: int,
 ) -> Dict[str, Any]:
-    from evogp.tree import evoxc_engine
+    evoxc_engine = common.installed_module("evogp.tree.evoxc_engine")
 
     call = getattr(workload_obj, workload)
     stats = evoxc_engine.cache_stats

@@ -435,7 +435,7 @@ def measure(
     import torch  # noqa: F401  (the public API relocates every tensor to the device)
 
     common.import_evogp()
-    from evogp.tree import evoxc_engine
+    evoxc_engine = common.installed_module("evogp.tree.evoxc_engine")
 
     cold_only = bool(getattr(args, "cold_only", False))
     policy = common.batch_policy(src)
@@ -444,7 +444,7 @@ def measure(
     if problem:
         raise RouteUnavailable(problem)
     try:
-        from evogp.tree import batch_engine as batch_module
+        batch_module = common.installed_module("evogp.tree.batch_engine")
     except ImportError as exc:  # the route can be absent on an older tree
         raise RouteUnavailable(
             f"evogp.tree.batch_engine could not be imported from {src}: {exc!r}"

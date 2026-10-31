@@ -357,7 +357,7 @@ def run_child(args: argparse.Namespace) -> int:
 
     common.import_evogp()
     try:
-        from evogp.tree import batch_engine as batch_module
+        batch_module = common.installed_module("evogp.tree.batch_engine")
     except ImportError:  # the route can be absent on an older tree
         batch_module = None
     batch_stats = getattr(batch_module, "batch_cache_stats", None)

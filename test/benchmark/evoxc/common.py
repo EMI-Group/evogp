@@ -51,6 +51,7 @@ Run the campaign with ``python test/benchmark/evoxc/campaign.py --help``.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 import platform
@@ -867,6 +868,29 @@ def read_json(path: str) -> Any:
 # ---------------------------------------------------------------------------
 # route introspection
 # ---------------------------------------------------------------------------
+def installed_module(name: str) -> Any:
+    """Resolve the ``evogp`` submodule ``name`` FRESHLY on every call.
+
+    Every engine lookup in this harness goes through here instead of
+    ``from evogp.tree import dense_engine``, because a ``from ... import`` reads the
+    attribute CACHED ON THE PARENT PACKAGE: once ``evogp.tree`` has been imported for real
+    (the project gate runs ``src/evogp/tests`` first), a stub installed at
+    ``sys.modules["evogp.tree.dense_engine"] -- the way ``test_arm_registry.py``'s
+    ``fake_dense_engine`` replaces the policy -- is silently ignored and the REAL policy
+    answers the call.  That is an order-dependent test bug, not a measurement.
+
+    Preference order: the ``sys.modules`` entry (the already-installed stub, or the
+    module some earlier import installed), then a plain import of the FULL dotted name --
+    which itself consults ``sys.modules`` first.  The parent package's attribute is never
+    the source of truth.  Raises ``ImportError`` when neither holds, exactly as an import
+    would, so a caller that treats absence as a reportable state keeps doing that.
+    """
+    module = sys.modules.get(name)
+    if module is not None:
+        return module
+    return importlib.import_module(name)
+
+
 def _requested_eval_mode(eval_mode: Optional[str]) -> Optional[str]:
     """The route name the caller actually asked for, env fallback included.
 
@@ -1014,7 +1038,7 @@ def batch_policy(src: Optional[str] = None) -> Dict[str, Any]:
     # Does the installed policy know the route at all?  Its EVAL_MODES is the
     # authority; on today's tree ("dense", "specialized", "auto") it does not.
     try:
-        from evogp.tree import dense_engine
+        dense_engine = installed_module("evogp.tree.dense_engine")
 
         declared = list(getattr(dense_engine, "EVAL_MODES", ()) or ())
         policy["declared_modes"] = declared or None
@@ -1024,7 +1048,7 @@ def batch_policy(src: Optional[str] = None) -> Dict[str, Any]:
 
     module = None
     try:
-        from evogp.tree import batch_engine as module
+        module = installed_module("evogp.tree.batch_engine")
     except Exception as exc:  # noqa: BLE001 - the route can be absent
         policy["module_error"] = repr(exc)
 
@@ -1172,7 +1196,7 @@ def route_decision(
     if _requested_eval_mode(eval_mode) == "batch":
         return batch_route_decision(pop, rows)
 
-    from evogp.tree import dense_engine
+    dense_engine = installed_module("evogp.tree.dense_engine")
 
     shape = {"pop_size": pop, "tree_len": tree_len}
     decision = {

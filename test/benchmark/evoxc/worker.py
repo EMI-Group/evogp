@@ -655,7 +655,7 @@ def main() -> int:
     artifact_stats = None
     if is_batch:
         try:
-            from evogp.tree import batch_engine as _batch_engine_probe
+            _batch_engine_probe = common.installed_module("evogp.tree.batch_engine")
         except ImportError:  # noqa: F401 - the route is optional on older trees
             _batch_engine_probe = None
         batch_engine_module = _batch_engine_probe
@@ -688,13 +688,18 @@ def main() -> int:
     fused_stats = None
     if fused_possible:
         try:
-            from evogp.tree import fused_engine as _fused_engine_probe
+            _fused_engine_probe = common.installed_module("evogp.tree.fused_engine")
         except ImportError:  # noqa: F401 - the route is optional on older trees
             _fused_engine_probe = None
         fused_stats = counter_blocks.accessor(_fused_engine_probe, "fused_cache_stats")
 
     import torch
-    from evogp.tree import dense_engine, evoxc_engine
+
+    # engine handles resolved through ``sys.modules`` (``common.installed_module``) so a stub
+    # installed there -- how this harness's own tests replace the policy -- is honoured even
+    # after the real package was imported earlier in the process
+    dense_engine = common.installed_module("evogp.tree.dense_engine")
+    evoxc_engine = common.installed_module("evogp.tree.evoxc_engine")
 
     # the dense trace cap as the engine resolves it for THIS process (the arm's spec
     # already wrote ``EVOGP_DENSE_MAX_TREE_LEN``): read before the timings so a broken

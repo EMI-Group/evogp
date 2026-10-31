@@ -156,7 +156,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     from evogp.pipeline import StandardPipeline
     from evogp.problem import SymbolicRegression
-    from evogp.tree import Forest, dense_engine, evoxc_engine
+    from evogp.tree import Forest
+
+    # engine handles resolved through ``sys.modules`` (see ``common.installed_module``)
+    dense_engine = common.installed_module("evogp.tree.dense_engine")
+    evoxc_engine = common.installed_module("evogp.tree.evoxc_engine")
 
     import arms as arms_mod  # noqa: E402  (arm namespace + SRLossProblem)
     import worker as worker_mod  # noqa: E402  (forest_stats: population context)

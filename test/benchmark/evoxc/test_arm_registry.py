@@ -37,6 +37,12 @@ What is pinned here:
   not a shape-blind one -- and it asks the ONE resolver (``resolve_route``) wherever the
   POLICY owns the engine, so a served ``fused`` call and a shipped-default (``auto``) call
   both render as the engine that served them instead of as a fallback;
+* every engine handle is resolved by ``common.installed_module`` (the ``sys.modules`` entry
+  first, an import of the full dotted name second, NEVER the parent package's cached
+  attribute), and ``fake_dense_engine`` clears the route environment -- because the project
+  gate runs ``src/evogp/tests`` first, whose ``conftest.py`` leaves
+  ``EVOGP_EVOXC_BACKEND=numpy`` in the process and whose import of ``evogp.tree`` caches the
+  real engine on that package;
 * ``worker.may_use_fused`` is the harness's "may reach the fused route" predicate (an
   explicit ``fused`` arm OR ``auto``, either spelling), so the launch proof is opened for
   the shipped default too and a silent ``specialized`` fall-back cannot hide in it;
@@ -446,19 +452,56 @@ class _FakeDenseEngine(types.ModuleType):
         return None
 
 
-@pytest.fixture
-def fake_dense_engine(monkeypatch):
-    """Install the stub as ``evogp.tree.dense_engine`` (no torch, no evogp import)."""
+class _DecoyDenseEngine(types.ModuleType):
+    """The REAL policy's slot on the parent package -- any call here is the bug.
+
+    ``from evogp.tree import dense_engine`` answers with this attribute, so a stub that
+    replaces only ``sys.modules["evogp.tree.dense_engine"]`` is invisible to it.  Every
+    attribute access therefore raises, naming the resolution rule the harness must keep.
+    """
+
+    def __init__(self):
+        super().__init__("evogp.tree.dense_engine")
+
+    def __getattr__(self, name):
+        raise AssertionError(
+            f"the parent package's dense_engine attribute was consulted for {name!r}: "
+            "the engine must be resolved from sys.modules (common.installed_module)"
+        )
+
+
+def _install_fake_dense_engine(monkeypatch, parent_dense_engine=None):
+    """Put ``_FakeDenseEngine`` at ``sys.modules["evogp.tree.dense_engine"]`` for one test.
+
+    ``parent_dense_engine`` is what the fake ``evogp.tree`` package exposes as its
+    ``dense_engine`` ATTRIBUTE: the stub itself by default (both spellings agree), or
+    :class:`_DecoyDenseEngine` to prove the resolution ignores that cached attribute.
+
+    Hermetic in the ENVIRONMENT as well as in ``sys.modules``: ``route_decision`` reads
+    ``EVOGP_EVAL_MODE`` / ``EVOGP_EVOXC_BACKEND`` as the fallback for a caller that
+    pinned neither, and the project gate runs ``src/evogp/tests`` first, whose
+    ``conftest.py`` leaves ``EVOGP_EVOXC_BACKEND=numpy`` in the ambient environment --
+    an ambient pin would make the ``auto`` branch look like an explicit-backend request
+    (and skip the resolver) in the gate but not in isolation.  So no route variable may
+    survive into the decision: these tests are about the POLICY, not who ran before.
+    """
     stub = _FakeDenseEngine()
     evogp = types.ModuleType("evogp")
     tree = types.ModuleType("evogp.tree")
     evogp.tree = tree
-    tree.dense_engine = stub
+    tree.dense_engine = stub if parent_dense_engine is None else parent_dense_engine
     monkeypatch.setitem(sys.modules, "evogp", evogp)
     monkeypatch.setitem(sys.modules, "evogp.tree", tree)
     monkeypatch.setitem(sys.modules, "evogp.tree.dense_engine", stub)
-    monkeypatch.delenv("EVOGP_EVAL_MODE", raising=False)
+    for name in ("EVOGP_EVAL_MODE", "EVOGP_EVOXC_BACKEND") + tuple(common.ROUTE_ENV_VARS):
+        monkeypatch.delenv(name, raising=False)
     return stub
+
+
+@pytest.fixture
+def fake_dense_engine(monkeypatch):
+    """Install the stub as ``evogp.tree.dense_engine`` (no torch, no evogp import)."""
+    return _install_fake_dense_engine(monkeypatch)
 
 
 def test_route_decision_passes_the_population_shape(fake_dense_engine):
@@ -536,6 +579,73 @@ def test_route_decision_auto_asks_the_one_resolver(fake_dense_engine):
     assert small["engine"] == "specialized"
     assert small["backend"] == "numpy"
     assert small["would_use_fused"] is False
+
+
+def test_route_decision_resolves_the_engine_from_sys_modules(monkeypatch):
+    """The engine handle is resolved FRESH from ``sys.modules``, never off the package.
+
+    The parent package caches ``dense_engine`` as an attribute, so a ``from evogp.tree
+    import dense_engine`` would return the REAL policy for a stub installed only at
+    ``sys.modules["evogp.tree.dense_engine"]`` -- the order-dependent failure the gate hit
+    once ``src/evogp/tests`` had imported ``evogp.tree`` for real.  The decoy parent
+    attribute raises on any access, so a regression fails here instead of in the gate.
+    """
+    stub = _install_fake_dense_engine(monkeypatch, parent_dense_engine=_DecoyDenseEngine())
+    decision = common.route_decision(256, 1024, None, None, tree_len=32)
+    assert stub.calls["resolve_route"] == {
+        "pop_size": 256, "rows": 1024, "backend": None, "eval_mode": None, "tree_len": 32,
+    }
+    assert decision["engine"] == "fused"
+    assert decision["backend"] == "iree"
+
+
+def test_fake_dense_engine_neutralises_a_leaked_backend_pin(monkeypatch):
+    """A route variable leaked by an earlier suite cannot change the ``auto`` answer.
+
+    ``route_decision`` honours ``EVOGP_EVAL_MODE`` / ``EVOGP_EVOXC_BACKEND`` when the
+    caller pinned neither -- correct for a record, which must state the policy the
+    process really follows -- so the FIXTURE is what makes these unit tests hermetic.
+    The gate runs ``src/evogp/tests`` first and its ``conftest.py`` leaves
+    ``EVOGP_EVOXC_BACKEND=numpy`` behind; without this neutralisation the shipped-default
+    case looks like an explicit-backend request in the gate but not in isolation.
+    """
+    monkeypatch.setenv("EVOGP_EVOXC_BACKEND", "numpy")
+    monkeypatch.setenv("EVOGP_EVAL_MODE", "dense")
+    stub = _install_fake_dense_engine(monkeypatch)
+    assert "EVOGP_EVOXC_BACKEND" not in os.environ
+    assert "EVOGP_EVAL_MODE" not in os.environ
+    decision = common.route_decision(256, 1024, None, None, tree_len=32)
+    assert stub.calls["resolve_route"] == {
+        "pop_size": 256, "rows": 1024, "backend": None, "eval_mode": None, "tree_len": 32,
+    }
+    assert decision["engine"] == "fused"
+
+
+def test_installed_module_prefers_the_sys_modules_entry(fake_dense_engine):
+    """``common.installed_module`` is the ONE resolution rule, and the stub wins.
+
+    Torch-free by construction: the "installed" case is the fixture's stub.
+    """
+    assert common.installed_module("evogp.tree.dense_engine") is fake_dense_engine
+
+
+def test_installed_module_imports_a_full_name_when_nothing_is_installed(
+    tmp_path, monkeypatch
+):
+    """Absent from ``sys.modules``, the module is IMPORTED by its full dotted name."""
+    package = tmp_path / "harness_resolution_probe"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "engine.py").write_text("NAME = 'engine'\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "harness_resolution_probe", raising=False)
+    monkeypatch.delitem(sys.modules, "harness_resolution_probe.engine", raising=False)
+    module = common.installed_module("harness_resolution_probe.engine")
+    assert module.NAME == "engine"
+    assert sys.modules["harness_resolution_probe.engine"] is module
+    # a name no tree ships raises the import error the guarded callers already handle
+    with pytest.raises(ImportError):
+        common.installed_module("harness_resolution_probe.no_such_module")
 
 
 def test_route_decision_reports_no_engine_for_a_route_it_does_not_run(fake_dense_engine):
