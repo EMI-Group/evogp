@@ -949,10 +949,9 @@ Only `p4096` reads in the expected direction at this resolution; everything else
 ### 17.6 Gates after the change
 `fused_check --stage all` → **PARITY 56/56** comparisons inside tolerance (value `max_abs = 0.0` on all three
 function sets, loss `max_rel` ≤ 3.8e-07), **MULTI 65/65**, **GOLDENS 10/10** inside 1e-4, **DECLINES 57/57**,
-**WIRED 32/32**, **TIMING** worst-cell 61.06× `value` / 51.32× `loss` against `torch-batched` (0.065–0.139 ms
-`value`, `cold` 369–393 ms for the first value launch and 1.9 ms for a warm disk-cache load), **TUNING** minimax
-`512/2` at 1.06× the shipped `256/1` (default unchanged). `pytest src/evogp/tests -q` → **1 276 passed, 7 skipped,
-0 failed in 120 s** — the same counts as before the change.
+**WIRED 32/32**, **TIMING** worst-cell 102.59× `value` / 90.99× `loss` against `torch-batched`, **TUNING** minimax
+= the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` at 1.00× (default).
+`pytest src/evogp/tests -q` → **1 308 passed, 7 skipped, 0 failed**.
 
 ### 17.7 What this leaves
 - **The launch path, not the kernel, is the p256 headroom.** A warm `batch_forward` at `p256` is 0.065 ms of which
