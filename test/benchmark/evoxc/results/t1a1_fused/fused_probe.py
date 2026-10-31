@@ -15,8 +15,8 @@ ask for")::
     TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache \\
     PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1 \\
     EVOGP_EVAL_MODE=fused EVOGP_EVOXC_BACKEND=iree \\
-        /tmp/rocvenv/bin/python src/evogp/tree/fused_results/fused_probe.py \\
-        --cell p256-L32-i8-N1024 --out src/evogp/tree/fused_results/probes/p256-L32-i8-N1024.json
+        /tmp/rocvenv/bin/python test/benchmark/evoxc/results/t1a1_fused/fused_probe.py \\
+        --cell p256-L32-i8-N1024 --out test/benchmark/evoxc/results/t1a1_fused/probes/p256-L32-i8-N1024.json
 
 ``--help`` needs nothing but the standard library: every heavy import (torch, the
 harness, evogp) happens inside :func:`main` after the paths are set, so the CLI can be
@@ -82,26 +82,27 @@ import os
 import sys
 import time
 
-#: ``<repo>`` -- four directory hops up from this file (five counted from the file
-#: itself); :func:`_find_repo_root` adds a bounded ascending guard.
+#: ``<repo>`` -- found by :func:`_find_repo_root` from this file's own location (it
+#: lives INSIDE the harness now), so no hop count is baked in.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def _find_repo_root(start: str) -> str:
     """Resolve ``<repo>`` from this file's location, without naming a worktree.
 
-    The canonical depth is ``<repo>/src/evogp/tree/fused_results/``; the bounded ascending
-    scan is only a guard against a copy placed deeper (it looks for the harness directory),
-    so it either finds the checkout that contains this file or gives up and returns the
-    canonical answer.
+    This file lives INSIDE the harness now (``<repo>/test/benchmark/evoxc/results/
+    t1a1_fused/``), so the scan looks for the harness directory itself -- the one that
+    holds ``campaign.py`` and ``common.py`` -- by ascending from this file, and takes the
+    three hops back up from it.  A bounded scan instead of a fixed hop count is what keeps
+    a copy placed one level deeper finding the checkout instead of mis-resolving.
     """
-    root = os.path.abspath(os.path.join(start, "..", "..", "..", ".."))
-    probe = root
-    for _ in range(6):
-        if os.path.isdir(os.path.join(probe, "test", "benchmark", "evoxc")):
-            return probe
+    probe = os.path.abspath(start)
+    for _ in range(8):
+        if (os.path.isfile(os.path.join(probe, "campaign.py"))
+                and os.path.isfile(os.path.join(probe, "common.py"))):
+            return os.path.abspath(os.path.join(probe, "..", "..", ".."))
         probe = os.path.dirname(probe)
-    return root
+    return os.path.abspath(os.path.join(start, "..", "..", "..", "..", ".."))
 
 
 _REPO_ROOT = _find_repo_root(_HERE)
@@ -530,7 +531,7 @@ def gp_step_block(common, harness_arms, harness_worker, fused_engine, workload, 
 def build_parser() -> argparse.ArgumentParser:
     """The CLI (stdlib only: ``--help`` must work with no device and no harness)."""
     parser = argparse.ArgumentParser(
-        prog="python src/evogp/tree/fused_results/fused_probe.py",
+        prog="python test/benchmark/evoxc/results/t1a1_fused/fused_probe.py",
         description=(
             "One fused-route evidence record for ONE cell: route policy, served-call "
             "proof, numeric parity (torch-batched + CPU oracle), kernel/host/transpose "

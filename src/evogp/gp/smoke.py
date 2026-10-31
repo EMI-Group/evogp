@@ -216,7 +216,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         default=DEFAULT_TOURNAMENT_SIZE,
                         help="tournament pressure (default %(default)s)")
     parser.add_argument("--quiet", action="store_true",
-                        help="print only the summary, not every generation")
+                        help="print nothing (read the returned GPResult instead)")
     return parser
 
 

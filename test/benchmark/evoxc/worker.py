@@ -95,6 +95,7 @@ import arms as arms_mod  # noqa: E402
 import stages  # noqa: E402  (torch-free, evogp-free: the stage vocabulary + derived blocks)
 import content  # noqa: E402  (torch-free, evogp-free: the content-key vocabulary + derived blocks)
 import artifact  # noqa: E402  (torch-free, evogp-free: the disk-tier vocabulary + derived blocks)
+import counter_blocks  # noqa: E402  (torch-free, evogp-free: the strict number/block helpers)
 
 
 class TimedFitness:
@@ -243,6 +244,78 @@ def stats_keys(*snapshots: Any) -> List[str]:
         if isinstance(snapshot, dict) and snapshot:
             return sorted(snapshot)
     return []
+
+
+#: The fused route's 15 counters (``fused_engine.fused_cache_stats()``); six are GAUGES.
+FUSED_STATS_KEYS: Tuple[str, ...] = (
+    "fused_calls", "fused_declines", "fused_xt_hits", "fused_xt_misses",
+    "fused_xt_entries", "fused_xt_maxsize", "fused_kernel_launches",
+    "fused_kernel_compiles", "fused_scratch_allocs", "fused_scratch_reuses",
+    "fused_scratch_evictions", "fused_scratch_entries", "fused_scratch_bytes",
+    "fused_block_rows", "fused_num_warps",
+)
+#: The ones that are GAUGES (an AFTER-state), never a delta.
+FUSED_GAUGE_KEYS: Tuple[str, ...] = (
+    "fused_xt_entries", "fused_xt_maxsize", "fused_scratch_entries",
+    "fused_scratch_bytes", "fused_block_rows", "fused_num_warps",
+)
+#: The accessor the fused counters come from (recorded in every fused block).
+FUSED_STATS_FN_PATH = "evogp.tree.fused_engine.fused_cache_stats"
+#: The note a fused block carries when the accessor or its window is unavailable: the
+#: counters are then null (NEVER zero), because "the kernel was not launched" and "the
+#: route was never asked" must not look alike.
+FUSED_ABSENT_NOTE = (
+    f"the fused route exposes no {FUSED_STATS_FN_PATH}(), so every fused_* counter is "
+    "null (NOT zero): this record cannot say whether a Triton launch served the call"
+)
+
+
+def fused_window_block(before: Any, after: Any) -> Dict[str, Any]:
+    """The fused route's before -> after counter window (``FUSED_STATS_KEYS``).
+
+    Nine counters are RUNNING TOTALS, so they are after-minus-before
+    (``counter_blocks.delta_int``); the six :data:`FUSED_GAUGE_KEYS` describe the route's
+    STATE and are read off the AFTER snapshot.  A half-read or absent window reads
+    ``available: false`` with every counter ``None`` -- never a fabricated ``0``, which
+    is why a fused record can be told apart from one whose counters were not measured.
+    """
+    if not (counter_blocks.has_any(before, FUSED_STATS_KEYS)
+            and counter_blocks.has_any(after, FUSED_STATS_KEYS)):
+        note = (
+            "fused window unavailable: both the before and the after snapshot must be "
+            "dicts carrying fused_* counters -- a half-read window is null (NOT a "
+            "partial delta)"
+        )
+        return counter_blocks.block(
+            False, FUSED_STATS_FN_PATH, note, FUSED_STATS_KEYS, {}
+        )
+    values: Dict[str, Any] = {}
+    for key in FUSED_STATS_KEYS:
+        if key in FUSED_GAUGE_KEYS:
+            values[key] = counter_blocks.integer((after or {}).get(key))
+        else:
+            values[key] = counter_blocks.delta_int(before, after, key)
+    return counter_blocks.block(True, FUSED_STATS_FN_PATH, None, FUSED_STATS_KEYS, values)
+
+
+def fused_served(block: Dict[str, Any], calls: Optional[int]) -> Optional[bool]:
+    """Did ``calls`` calls reach a Triton launch?  ``fused_calls`` counts ATTEMPTS.
+
+    The fused facade is silent on a decline and never compiles, so
+    ``cache.compile_misses_first_call`` is ``0`` by construction and proves nothing: the
+    only existence proof is that every attempt of the window actually launched a kernel
+    (``fused_calls - fused_declines == calls`` with at least that many
+    ``fused_kernel_launches``).  ``None`` when the counters or the call count are
+    unknown, so "not proven" never reads as "served" or as "declined".
+    """
+    if not isinstance(block, dict):
+        return None
+    attempts = block.get("fused_calls")
+    declines = block.get("fused_declines")
+    launches = block.get("fused_kernel_launches")
+    if None in (attempts, declines, launches) or not calls:
+        return None
+    return int(attempts) - int(declines) == int(calls) and int(launches) >= int(calls)
 
 
 def stage_window_block(before: Any, after: Any) -> Dict[str, Any]:
@@ -569,6 +642,22 @@ def main() -> int:
         # lower/compile/load, so it is the one counter that can move a cold column
         artifact_stats = artifact.stats_fn(_batch_engine_probe)
 
+    # -- the fused (Triton) route's own cache counters (optional, fused arms only) ----
+    # The facade is silent on a decline and never compiles, so
+    # ``cache.compile_misses_first_call`` is 0 by construction and proves NOTHING here:
+    # ``fused_kernel_launches`` is the existence proof, and it lives on the route's own
+    # 15-counter surface.  Resolved only for a fused arm (getattr-probed, ``None`` when
+    # absent), so importing that module can never break a torch / evoxc / batch arm and a
+    # tree without the route records nulls plus a note instead of a fabricated 0.
+    is_fused = (common.EVOXC_ARMS.get(args.arm) or {}).get("eval_mode") == "fused"
+    fused_stats = None
+    if is_fused:
+        try:
+            from evogp.tree import fused_engine as _fused_engine_probe
+        except ImportError:  # noqa: F401 - the route is optional on older trees
+            _fused_engine_probe = None
+        fused_stats = counter_blocks.accessor(_fused_engine_probe, "fused_cache_stats")
+
     import torch
     from evogp.tree import dense_engine, evoxc_engine
 
@@ -695,6 +784,24 @@ def main() -> int:
                 "served nothing', which this record cannot claim"
             )
 
+    # -- fused route provenance / kernel-launch counters ----------------------
+    # Same rule as the batch block above: these keys exist ONLY for fused arms, so "not the
+    # fused route" stays distinguishable from "fused route whose proof was not recorded".
+    served_flags: List[Optional[bool]] = []
+    fused_before_workloads: Optional[Dict[str, Any]] = None
+    fused_after_workloads: Optional[Dict[str, Any]] = None
+    if is_fused:
+        # the window opens where the first workload's own window opens, so the totals below
+        # are this config's workload span and never a cumulative-from-import reading
+        fused_before_workloads = fused_stats() if fused_stats is not None else None
+        record["notes"].append(
+            "fused arm: the route compiles no evoxc graph, so "
+            "cache.compile_misses_first_call is 0 by construction -- the existence proof is "
+            "cache.fused_served / fused_cache.served_every_workload (fused_kernel_launches)"
+        )
+        if fused_stats is None:
+            record["notes"].append("fused arm: " + FUSED_ABSENT_NOTE)
+
     # -- what the policy resolves for this cell (per workload row count) -----
     # ``tree_len`` is the population's row stride (the cell's), i.e. the shape term of
     # ``auto``'s memory envelope: passing it makes the reported rows half the one the
@@ -777,15 +884,17 @@ def main() -> int:
         fn = getattr(arm_obj, name)
         cache_before = evoxc_engine.cache_stats()
         batch_before = batch_stats() if batch_stats is not None else None
+        fused_before = fused_stats() if fused_stats is not None else None
         # A batch arm's compile lands in time_call's untimed first call; the probe
-        # snapshots the merged-graph cache the instant that call returns.  Every other
-        # arm (and a batch arm with no stats callable) gets its own bound method
-        # untouched, i.e. no extra call in the timed loop.
-        probe = (
-            BatchStatsProbe(fn, batch_stats)
-            if is_batch and batch_stats is not None
-            else None
-        )
+        # snapshots the merged-graph cache the instant that call returns.  A fused arm
+        # gets the same treatment for its launch counters (the kernel JIT lands in that
+        # same first call).  Every other arm (and one with no stats callable) gets its
+        # own bound method untouched, i.e. no extra call in the timed loop.
+        probe = None
+        if is_batch and batch_stats is not None:
+            probe = BatchStatsProbe(fn, batch_stats)
+        elif is_fused and fused_stats is not None:
+            probe = BatchStatsProbe(fn, fused_stats)
         timing = common.time_call(
             probe if probe is not None else fn,
             warmup=args.warmup,
@@ -831,9 +940,31 @@ def main() -> int:
                 batch_first_call_misses = entry["cache"]["batch_compile_misses_first_call"]
             if batch_first_call_plan_misses is None:
                 batch_first_call_plan_misses = entry["cache"]["batch_plan_misses_first_call"]
+        if is_fused:
+            # the route compiles nothing, so the PROOF is that this workload's calls all
+            # reached a Triton launch: attempts - declines must equal the calls ``time_call``
+            # made (one cold + warmup + reps), and the launches must cover them
+            fused_after_first = probe.first if probe is not None else None
+            fused_after = fused_stats() if fused_stats is not None else None
+            entry["cache"]["fused"] = fused_window_block(fused_before, fused_after)
+            entry["cache"]["fused_first_call"] = fused_window_block(
+                fused_before, fused_after_first
+            )
+            entry["cache"]["fused_after_first_call"] = fused_after_first
+            entry["cache"]["fused_after"] = fused_after
+            entry["cache"]["fused_calls_timed"] = 1 + int(args.warmup) + int(args.reps)
+            entry["cache"]["fused_served"] = fused_served(
+                entry["cache"]["fused"], entry["cache"]["fused_calls_timed"]
+            )
+            served_flags.append(entry["cache"]["fused_served"])
         entry["digest"] = common.digest(result)
         record["workloads"][name] = entry
         del result
+
+    if is_fused:
+        # close the fused counter window over exactly the workload span: the GP loop below
+        # makes calls of its own, which the whole-config totals must never claim
+        fused_after_workloads = fused_stats() if fused_stats is not None else None
 
     # -- one full GP generation step ----------------------------------------
     if "gp_step" in requested:
@@ -1001,6 +1132,35 @@ def main() -> int:
             )
 
     record["engine_cache_final"] = evoxc_engine.cache_stats()
+    if is_fused:
+        # the route's own counter surface, beside the evoxc engine's (never folded into it):
+        # ``available: false`` with null counters means this tree has no fused counters, which
+        # is NOT the same as a route that never launched a kernel
+        served_every = (
+            None if not served_flags or any(flag is None for flag in served_flags)
+            else all(served_flags)
+        )
+        record["fused_cache"] = {
+            "available": fused_stats is not None,
+            "stats_fn": FUSED_STATS_FN_PATH,
+            "stats_before_workloads": fused_before_workloads,
+            "stats_after": fused_after_workloads,
+            "stats_keys": stats_keys(fused_before_workloads, fused_after_workloads),
+            "totals": fused_window_block(fused_before_workloads, fused_after_workloads),
+            "served_every_workload": served_every,
+        }
+        if served_every is False:
+            record["notes"].append(
+                "fused arm: NOT every workload reached a Triton launch "
+                f"(cache.fused_served per workload: {served_flags}), so the median of a "
+                "declined workload is the route's specialized+numpy FALLBACK, not a fused "
+                "measurement -- read that workload's cache.fused.fused_declines"
+            )
+        elif served_every is None:
+            record["notes"].append(
+                "fused arm: the kernel-launch proof is unavailable (null counters), so this "
+                "record says the fused route was ASKED for, never that it served a call"
+            )
     record["dense_policy"] = {
         "auto_min_pop": dense_engine.resolve_auto_min_pop(),
         # ``0`` = unpinned: the memory envelope (``auto_budget_mb``) decides the allowance

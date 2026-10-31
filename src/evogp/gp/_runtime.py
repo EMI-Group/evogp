@@ -21,8 +21,10 @@ re-export it):
   channels), :func:`index_array` (the ``[0, pop_size)``-validated index vector
   the legacy kernel left undefined) and :func:`unevaluated`;
 * **trace-time primitives** -- :func:`columns`, :func:`row_offsets`,
-  :func:`take_rows`, :func:`take_per_row`, :func:`row_values` and the typed
-  scalar constructors :func:`i32`, :func:`f32`.
+  :func:`constant_index`, :func:`take_rows`, :func:`take_per_row`,
+  :func:`row_values`, the typed scalar constructors :func:`i32`, :func:`f32` and
+  the ``cumsum`` decomposition :func:`cumsum_axis` (the stablehlo/iree emitter
+  has no ``cumsum``).
 
 Two evoxc facts drive the last group and are worth stating once here:
 
@@ -60,14 +62,20 @@ __all__ = [
     "reset",
     "key_spec",
     "unevaluated",
+    "resolve_device",
+    "is_tensor",
+    "device_text",
+    "to_device",
     "channels_numpy",
     "index_array",
     "gate_tensor",
     "columns",
     "row_offsets",
+    "constant_index",
     "take_rows",
     "take_per_row",
     "row_values",
+    "cumsum_axis",
     "i32",
     "f32",
     "as_channels",
@@ -280,12 +288,72 @@ def index_array(value, name: str, pop_size: int) -> np.ndarray:
     return array.astype(np.int32)
 
 
-def unevaluated(pop_size: int) -> "evoxc.Tensor":
-    """An all-``-inf`` (unevaluated) fitness vector of ``pop_size`` rows."""
+def unevaluated(pop_size: int, device=None) -> "evoxc.Tensor":
+    """An all-``-inf`` (unevaluated) fitness vector of ``pop_size`` rows.
+
+    Args:
+        pop_size: number of rows.
+        device: optional device (a spelling like ``"rocm"`` / ``"rocm:0"`` or an
+            ``evoxc.Device``).  ``None``/``"cpu"`` keeps the host vector the
+            numpy path has always produced; a device spelling uploads it so the
+            vector lives where the state's channels live (the driver reads it
+            back once per generation anyway).
+    """
     evoxc_module = evoxc()
-    return evoxc_module.full(
+    vector = evoxc_module.full(
         (int(pop_size),), float(UNEVALUATED), dtype=evoxc_module.float32
     )
+    target = resolve_device(evoxc_module, device)
+    return vector if vector.device == target else vector.to(target)
+
+
+# --------------------------------------------------------------------------- #
+# device plumbing (the iree route is device-resident end to end)
+# --------------------------------------------------------------------------- #
+def resolve_device(evoxc_module, device):
+    """The ``evoxc.Device`` of a device spelling (``None``/``"cpu"`` = host).
+
+    Accepts an ``evoxc.Device`` unchanged, and the ``"<kind>"`` /
+    ``"<kind>:<index>"`` spellings the operator entry points take (``"rocm"``
+    on this AMD box, ``"cuda"`` on an NVIDIA one, ``"cpu"`` for the numpy
+    backend).
+    """
+    if device is None:
+        return evoxc_module.Device("cpu", 0)
+    if isinstance(device, evoxc_module.Device):
+        return device
+    text = str(device).strip()
+    kind, _, index = text.partition(":")
+    if not kind:
+        raise ValueError(f"device must be a non-empty device string, got {device!r}")
+    return evoxc_module.Device(kind, int(index) if index else 0)
+
+
+def is_tensor(value) -> bool:
+    """``True`` for a concrete ``evoxc.Tensor`` (a device or host buffer)."""
+    return isinstance(value, evoxc().Tensor)
+
+
+def device_text(device) -> str:
+    """A stable ``"kind:index"`` spelling of a device (for memo keys)."""
+    resolved = resolve_device(evoxc(), device)
+    return f"{resolved.kind}:{resolved.index}"
+
+
+def to_device(value, device):
+    """``value`` on ``device`` (a no-op when it already lives there).
+
+    A numpy array is uploaded with ``evoxc.from_numpy(...).to(device)``; an
+    ``evoxc.Tensor`` is moved with ``.to(device)``.  Nothing is copied when the
+    tensor is already on the target device, so a device-resident caller pays
+    no transfer per generation.
+    """
+    evoxc_module = evoxc()
+    target = resolve_device(evoxc_module, device)
+    if isinstance(value, evoxc_module.Tensor):
+        return value if value.device == target else value.to(target)
+    wrapped = evoxc_module.from_numpy(np.asarray(value))
+    return wrapped if wrapped.device == target else wrapped.to(target)
 
 
 # --------------------------------------------------------------------------- #
@@ -314,6 +382,17 @@ def columns(evoxc_module, width: int):
 def row_offsets(evoxc_module, pop_size: int, width: int):
     """``[pop_size, 1]`` int64 ``row * width`` offsets for the flattened gathers."""
     table = (np.arange(int(pop_size), dtype=np.int64) * int(width)).reshape(-1, 1)
+    return evoxc_module.constant(evoxc_module.from_numpy(table))
+
+
+def constant_index(evoxc_module, length: int):
+    """The constant ``[0, length)`` int32 vector (a static row order).
+
+    The index list of "keep the first ``length`` rows": the offspring rows an
+    elite splice keeps, which is static for one graph, so it is baked in here
+    rather than passed by the caller.
+    """
+    table = np.arange(int(length), dtype=np.int32)
     return evoxc_module.constant(evoxc_module.from_numpy(table))
 
 
@@ -354,6 +433,53 @@ def row_values(evoxc_module, x, index):
     return take_per_row(
         evoxc_module, x, evoxc_module.reshape(index, (pop_size, 1))
     )
+
+
+def cumsum_axis(evoxc_module, x, axis: int, zero):
+    """``cumsum(x, axis=axis)`` over a STATIC axis, decomposed into primitives.
+
+    Args:
+        x: the tensor to scan.
+        axis: the scanned axis (its length must be static -- it always is here).
+        zero: a typed rank-0 constant of ``x``'s dtype (``i32(evoxc, 0)`` /
+            ``f32(evoxc, 0.0)``); it pads the shifted copies, and it must not be
+            a Python literal or the concatenation would promote to 64 bits.
+
+    Returns:
+        The scanned tensor, same shape and dtype as ``x``.
+
+    Notes:
+        The stablehlo emitter that ``backend="iree"`` uses has no ``cumsum``
+        ("op 'cumsum' is not supported in v1"), so the scan is built from
+        ``slice``/``broadcast``/``concatenate``/``add``: ``cumsum[i] =
+        x[i] + x[i-1] + ... + x[0]`` is the running sum of the ``L - 1``
+        left-shifted copies of ``x``, each padded with ``zero`` at the front.
+
+        The additions are in the same order as a sequential scan, so the result
+        is bit-identical to ``evoxc.cumsum`` on the numpy backend (exactly so
+        for the integer channels, which is what the encoding scans).
+    """
+    rank = len(x.shape)
+    length = int(x.shape[axis])
+    if length <= 1 or rank == 0:
+        return x
+    shape = [int(dim) for dim in x.shape]
+    acc = x
+    for shift in range(1, length):
+        # `shifted[j] = x[j - shift]`: keep the FIRST length - shift entries
+        # (dropping the tail) and prepend `shift` zeros.
+        lengths = list(shape)
+        lengths[axis] = length - shift
+        part = evoxc_module.slice(
+            x, start=(0,) * rank, lengths=tuple(lengths)
+        )
+        pad_shape = list(shape)
+        pad_shape[axis] = shift
+        shifted = evoxc_module.concatenate(
+            (evoxc_module.broadcast(zero, tuple(pad_shape)), part), axis=axis
+        )
+        acc = evoxc_module.add(acc, shifted)
+    return acc
 
 
 def gate_tensor(evoxc_module, key, prob, pop_size: int):

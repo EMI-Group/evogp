@@ -25,9 +25,16 @@ What is pinned here:
   ``evoxc-batch-iree`` stays the shipped default (``auto``, i.e. no knob at all);
 * no arm leaks a route knob: every ``common.ROUTE_ENV_VARS`` entry is cleared before an
   arm's own spec is written, for every arm including the torch baselines;
+* the fused (Triton) route's five ``EVOGP_FUSED_*`` knobs are route knobs too
+  (``FUSED_ENV_VARS``), and its two arms -- ``evoxc-fused-iree`` / ``evoxc-fused`` --
+  set the route selector and nothing else, appended after the last batch arm;
+* ``worker.fused_served`` is the fused route's existence proof: a launch counter, never
+  ``compile_misses_first_call`` (the route compiles no evoxc graph, so that is 0 by
+  construction), read null-never-zero out of ``fused_window_block``;
 * ``common.route_decision`` passes the population SHAPE (``pop_size`` / ``rows`` /
   ``tree_len``) into the policy, so a record states the memory-envelope decision and
-  not a shape-blind one;
+  not a shape-blind one -- and for a ``fused`` request it asks the ONE resolver
+  (``resolve_route``), so a served call renders as fused instead of as its fallback;
 * ``band_report`` surfaces the merged compile's ``dispatch_formation`` next to the
   request, and reads ``None`` (never a fabricated ``"default"``) when a description
   predates the knob;
@@ -52,6 +59,7 @@ import arms  # noqa: E402
 import band_report  # noqa: E402
 import campaign  # noqa: E402
 import common  # noqa: E402
+import worker  # noqa: E402  (its fused block + launch proof; torch-free at import)
 
 #: The arm ids that existed BEFORE the dispatch-formation / disk-tier arms were added,
 #: in registry order.  Pinned so a rename (which would invalidate every committed
@@ -131,6 +139,24 @@ def test_dense_budget_knob_is_registered():
     assert not set(common.DENSE_ENV_VARS) & set(common.BATCH_ENV_VARS)
 
 
+def test_fused_knobs_are_route_knobs():
+    """The five ``EVOGP_FUSED_*`` knobs are cleared per arm like every other route knob."""
+    assert common.FUSED_ENV_VARS == (
+        "EVOGP_FUSED_MIN_POP", "EVOGP_FUSED_BLOCK_ROWS", "EVOGP_FUSED_NUM_WARPS",
+        "EVOGP_FUSED_MAX_SCRATCH_MB", "EVOGP_FUSED_HOST_MEMO",
+    )
+    for name in common.FUSED_ENV_VARS:
+        assert name in common.ROUTE_ENV_VARS, name
+        assert common.ROUTE_ENV_VARS.count(name) == 1, name
+        assert name not in common.BATCH_ENV_VARS, name
+        assert name not in common.DENSE_ENV_VARS, name
+    # the cleared set is the sum of the four tables, in that order
+    assert common.ROUTE_ENV_VARS == (
+        common.BATCH_ENV_VARS + common.DENSE_ENV_VARS
+        + common.FUSED_ENV_VARS + common.ARTIFACT_ENV_VARS
+    )
+
+
 # ---------------------------------------------------------------------------
 # the two new arms
 # ---------------------------------------------------------------------------
@@ -151,14 +177,23 @@ def test_new_arm_ids_are_appended_last_and_are_batch_arms():
         "evoxc-batch-iree-artifact-p2",
         "evoxc-batch-iree-artifact-p8",
     )
-    assert tuple(common.EVOXC_ARMS)[-len(new):] == new
-    assert tuple(common.ALL_ARMS)[-len(new):] == new
+    # the fused (Triton) route is the FOURTH engine and is appended AFTER the batch arms,
+    # so every arm id above keeps its registry index (a committed record's ``arm`` key)
+    fused = ("evoxc-fused-iree", "evoxc-fused")
+    tail = new + fused
+    assert tuple(common.EVOXC_ARMS)[-len(tail):] == tail
+    assert tuple(common.ALL_ARMS)[-len(tail):] == tail
     for arm in new:
         assert common.is_batch_arm(arm), arm
         assert common.EVOXC_ARMS[arm]["backend"] == "iree"
     # ``--arms batch`` picks them up from the ONE predicate (no extra rule)
     batch_arms = [arm for arm in common.EVOXC_ARMS if common.is_batch_arm(arm)]
     assert list(batch_arms) == ["evoxc-batch-iree", "evoxc-batch-iree-flat", *new]
+    for arm in fused:
+        assert common.EVOXC_ARMS[arm]["eval_mode"] == "fused", arm
+        assert common.is_batch_arm(arm) is False, arm
+    assert common.EVOXC_ARMS["evoxc-fused-iree"]["backend"] == "iree"
+    assert common.EVOXC_ARMS["evoxc-fused"]["backend"] is None
 
 
 def test_default_formation_arm_is_the_pre_change_control():
@@ -237,6 +272,72 @@ def test_pool_pinned_artifact_arms_set_the_pool_and_the_disk_tier(tmp_path, monk
     )
 
 
+def test_fused_arms_set_the_route_and_no_knobs():
+    """The two fused arms are route selectors only: one explicit backend, one policy."""
+    iree = arms.apply_arm_env("evoxc-fused-iree")
+    assert iree == {"eval_mode": "fused", "backend": "iree", "knobs": {}}
+    assert os.environ["EVOGP_EVAL_MODE"] == "fused"
+    assert os.environ["EVOGP_EVOXC_BACKEND"] == "iree"
+    assert common.arm_knob_env("evoxc-fused-iree") == {}
+    # the bare spelling leaves the backend to the route's own policy
+    bare = arms.apply_arm_env("evoxc-fused")
+    assert bare == {"eval_mode": "fused", "backend": None, "knobs": {}}
+    assert os.environ["EVOGP_EVAL_MODE"] == "fused"
+    assert "EVOGP_EVOXC_BACKEND" not in os.environ
+    for name in common.FUSED_ENV_VARS:
+        assert name not in os.environ, name
+    for arm in ("evoxc-fused-iree", "evoxc-fused"):
+        assert common.EVOXC_ARMS[arm]["family"] == "evoxc", arm
+        assert common.is_batch_arm(arm) is False, arm
+
+
+def test_fused_launch_proof_is_the_only_existence_proof():
+    """``fused_kernel_launches`` proves a served call; ``compile_misses`` cannot."""
+    assert len(worker.FUSED_STATS_KEYS) == 15
+    assert len(worker.FUSED_GAUGE_KEYS) == 6
+    assert set(worker.FUSED_GAUGE_KEYS) < set(worker.FUSED_STATS_KEYS)
+    assert worker.FUSED_STATS_FN_PATH == "evogp.tree.fused_engine.fused_cache_stats"
+    served = {"fused_calls": 8, "fused_declines": 0, "fused_kernel_launches": 8}
+    assert worker.fused_served(served, 8) is True
+    # a call count the counters cannot account for is NOT a served call
+    assert worker.fused_served(served, 9) is False
+    # the silent fallback: one of the eight attempts declined, so nothing launched
+    declined = {"fused_calls": 8, "fused_declines": 1, "fused_kernel_launches": 7}
+    assert worker.fused_served(declined, 8) is False
+    assert worker.fused_served(declined, 7) is True
+    # unknown counters / no call count read ``None``, never ``False``
+    assert worker.fused_served({"fused_calls": None, "fused_declines": 0,
+                               "fused_kernel_launches": 0}, 8) is None
+    assert worker.fused_served(served, None) is None
+
+
+def test_fused_window_block_is_a_delta_with_after_state_gauges():
+    before = {key: 0 for key in worker.FUSED_STATS_KEYS}
+    before["fused_scratch_bytes"] = 1024
+    after = dict(before)
+    after.update({
+        "fused_calls": 8, "fused_kernel_launches": 8, "fused_xt_hits": 3,
+        "fused_xt_misses": 5, "fused_kernel_compiles": 2,
+        "fused_scratch_bytes": 4096,
+        "fused_block_rows": 32, "fused_num_warps": 4,
+    })
+    block = worker.fused_window_block(before, after)
+    assert block["available"] is True
+    assert block["stats_fn"] == worker.FUSED_STATS_FN_PATH
+    assert block["fused_calls"] == 8          # running total -> delta
+    assert block["fused_xt_misses"] == 5
+    assert block["fused_kernel_compiles"] == 2
+    assert block["fused_scratch_bytes"] == 4096   # gauge -> AFTER value
+    assert block["fused_block_rows"] == 32
+    assert block["fused_num_warps"] == 4
+    # an absent half of the window is null, never zero
+    absent = worker.fused_window_block(None, None)
+    assert absent["available"] is False
+    for key in worker.FUSED_STATS_KEYS:
+        assert absent[key] is None, key
+    assert absent["note"]
+
+
 def test_artifact_dir_falls_back_to_a_fixed_directory(monkeypatch):
     monkeypatch.delenv(common.ARTIFACT_DIR_ENV, raising=False)
     assert common.artifact_dir() == common.DEFAULT_ARTIFACT_DIR
@@ -284,7 +385,20 @@ class _FakeDenseEngine(types.ModuleType):
         self.EVAL_MODES = ("dense", "specialized", "batch", "auto")
 
     def resolve_eval_mode(self, value=None):
-        return "auto"
+        # echo an EXPLICIT request (the fused branch keys on it), the default otherwise
+        return "auto" if value is None else value
+
+    def resolve_route(self, pop_size, *, rows=None, backend=None, eval_mode=None,
+                      tree_len=None, **_kwargs):
+        """The ONE route resolver: a fused request for a device box, served."""
+        self.calls["resolve_route"] = {
+            "pop_size": pop_size, "rows": rows, "backend": backend,
+            "eval_mode": eval_mode, "tree_len": tree_len,
+        }
+        return types.SimpleNamespace(
+            use_dense=False, use_fused=True, backend="iree", fallback_backend="numpy",
+            reason="stub: fused served", engine="fused",
+        )
 
     def resolve_backend_name(self, value, index=None):
         return "iree" if value != "numpy" else "numpy"
@@ -337,6 +451,30 @@ def test_route_decision_tree_len_is_optional(fake_dense_engine):
     """A caller that does not know the stride still gets a decision, with ``None``."""
     common.route_decision(256, 1024, None, "iree")
     assert fake_dense_engine.calls["auto_rows_decline"]["tree_len"] is None
+
+
+def test_route_decision_fused_asks_the_one_resolver(fake_dense_engine):
+    """A ``fused`` request reports the resolver's engine, not ``resolve_backend_name``'s."""
+    decision = common.route_decision(256, 4096, "fused", "iree", tree_len=64)
+    assert fake_dense_engine.calls["resolve_route"] == {
+        "pop_size": 256, "rows": 4096, "backend": "iree",
+        "eval_mode": "fused", "tree_len": 64,
+    }
+    assert decision["eval_mode"] == "fused"
+    assert decision["engine"] == "fused"
+    assert decision["would_use_fused"] is True
+    assert decision["fused_fallback_backend"] == "numpy"
+    assert decision["fused_reason"] == "stub: fused served"
+    # the backend is the RESOLVED one: without the resolver a served call would render as
+    # ``fused/numpy -> fused`` and look like a decline
+    assert decision["backend"] == "iree"
+    # the four fused keys are ADDED, never renamed, and appear for a fused request only
+    assert set(decision) - {
+        "eval_mode", "backend", "should_use_dense_pop_only",
+        "should_use_dense_with_rows", "would_use_dense",
+    } == {"engine", "would_use_fused", "fused_fallback_backend", "fused_reason"}
+    auto = common.route_decision(256, 4096, None, "iree", tree_len=64)
+    assert "engine" not in auto and "would_use_fused" not in auto
 
 
 # ---------------------------------------------------------------------------

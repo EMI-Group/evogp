@@ -1,0 +1,3581 @@
+{
+  "children": [
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "gp",
+        "--pop",
+        "64",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/gp-64x1024.json"
+      ],
+      "pop": 64,
+      "rows": 1024,
+      "side": "gp",
+      "wall_s": 14.15
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "numpy",
+        "--pop",
+        "64",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/numpy-64x1024.json"
+      ],
+      "pop": 64,
+      "rows": 1024,
+      "side": "numpy",
+      "wall_s": 8.25
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "torch",
+        "--pop",
+        "64",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/torch-64x1024.json"
+      ],
+      "pop": 64,
+      "rows": 1024,
+      "side": "torch",
+      "wall_s": 12.39
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "torch-fused",
+        "--pop",
+        "64",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/torch-fused-64x1024.json"
+      ],
+      "pop": 64,
+      "rows": 1024,
+      "side": "torch-fused",
+      "wall_s": 9.36
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "fused",
+        "--pop",
+        "64",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/fused-64x1024.json"
+      ],
+      "pop": 64,
+      "rows": 1024,
+      "side": "fused",
+      "wall_s": 11.09
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "gp",
+        "--pop",
+        "256",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/gp-256x1024.json"
+      ],
+      "pop": 256,
+      "rows": 1024,
+      "side": "gp",
+      "wall_s": 14.11
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "numpy",
+        "--pop",
+        "256",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/numpy-256x1024.json"
+      ],
+      "pop": 256,
+      "rows": 1024,
+      "side": "numpy",
+      "wall_s": 9.4
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "torch",
+        "--pop",
+        "256",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/torch-256x1024.json"
+      ],
+      "pop": 256,
+      "rows": 1024,
+      "side": "torch",
+      "wall_s": 12.56
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "torch-fused",
+        "--pop",
+        "256",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/torch-fused-256x1024.json"
+      ],
+      "pop": 256,
+      "rows": 1024,
+      "side": "torch-fused",
+      "wall_s": 9.12
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "fused",
+        "--pop",
+        "256",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/fused-256x1024.json"
+      ],
+      "pop": 256,
+      "rows": 1024,
+      "side": "fused",
+      "wall_s": 11.19
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "gp",
+        "--pop",
+        "1000",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/gp-1000x1024.json"
+      ],
+      "pop": 1000,
+      "rows": 1024,
+      "side": "gp",
+      "wall_s": 14.25
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "numpy",
+        "--pop",
+        "1000",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/numpy-1000x1024.json"
+      ],
+      "pop": 1000,
+      "rows": 1024,
+      "side": "numpy",
+      "wall_s": 11.86
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "torch",
+        "--pop",
+        "1000",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/torch-1000x1024.json"
+      ],
+      "pop": 1000,
+      "rows": 1024,
+      "side": "torch",
+      "wall_s": 12.46
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "torch-fused",
+        "--pop",
+        "1000",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/torch-fused-1000x1024.json"
+      ],
+      "pop": 1000,
+      "rows": 1024,
+      "side": "torch-fused",
+      "wall_s": 9.13
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "fused",
+        "--pop",
+        "1000",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/fused-1000x1024.json"
+      ],
+      "pop": 1000,
+      "rows": 1024,
+      "side": "fused",
+      "wall_s": 11.23
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "gp",
+        "--pop",
+        "256",
+        "--rows",
+        "4096",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/gp-256x4096.json"
+      ],
+      "pop": 256,
+      "rows": 4096,
+      "side": "gp",
+      "wall_s": 14.07
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "numpy",
+        "--pop",
+        "256",
+        "--rows",
+        "4096",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/numpy-256x4096.json"
+      ],
+      "pop": 256,
+      "rows": 4096,
+      "side": "numpy",
+      "wall_s": 11.71
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "torch",
+        "--pop",
+        "256",
+        "--rows",
+        "4096",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/torch-256x4096.json"
+      ],
+      "pop": 256,
+      "rows": 4096,
+      "side": "torch",
+      "wall_s": 12.68
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "torch-fused",
+        "--pop",
+        "256",
+        "--rows",
+        "4096",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/torch-fused-256x4096.json"
+      ],
+      "pop": 256,
+      "rows": 4096,
+      "side": "torch-fused",
+      "wall_s": 9.17
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "fused",
+        "--pop",
+        "256",
+        "--rows",
+        "4096",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/genesis/task_71752cfe84d40424/evogp-measure-generation-3051515/fused-256x4096.json"
+      ],
+      "pop": 256,
+      "rows": 4096,
+      "side": "fused",
+      "wall_s": 11.14
+    }
+  ],
+  "command": "/tmp/rocvenv/bin/python -m evogp.gp.measure_generation --cells 64,256,1000,256x4096 --json src/evogp/gp/evidence/device_loop.json",
+  "config": {
+    "cells": [
+      [
+        64,
+        1024
+      ],
+      [
+        256,
+        1024
+      ],
+      [
+        1000,
+        1024
+      ],
+      [
+        256,
+        4096
+      ]
+    ],
+    "generations": 20,
+    "gp_knobs": {
+      "crossover_prob": 0.9,
+      "elite_count": 2,
+      "mutation_prob": 0.2,
+      "tournament_size": 4
+    },
+    "protocol": "one process per (side, cell); warm medians of --reps timed repetitions with torch.cuda.synchronize() around each; idle-device guard per child",
+    "reps": 15,
+    "seed": 0,
+    "sides": [
+      "gp",
+      "numpy",
+      "torch",
+      "torch-fused",
+      "fused"
+    ],
+    "warmup": 5,
+    "workload": {
+      "const_prob": 0.5,
+      "const_range": [
+        -5.0,
+        5.0
+      ],
+      "input_len": 8,
+      "layer_leaf_prob": 0.2,
+      "max_layer_cnt": 4,
+      "max_nodes": 32,
+      "sample_cnt": 8,
+      "using_funcs": [
+        "+",
+        "-",
+        "*",
+        "/"
+      ]
+    }
+  },
+  "guards": [
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 64,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "gp",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 64,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "numpy",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 64,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "torch",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 64,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "torch-fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 64,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "gp",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "numpy",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "torch",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "torch-fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 1000,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "gp",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 1000,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "numpy",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 1000,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "torch",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 1000,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "torch-fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 1000,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 4096,
+      "side": "gp",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 4096,
+      "side": "numpy",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 4096,
+      "side": "torch",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 4096,
+      "side": "torch-fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 4096,
+      "side": "fused",
+      "waited_s": 0.2
+    }
+  ],
+  "records": [
+    {
+      "backend": "iree",
+      "cold_ms": 4701.9151,
+      "device": "rocm",
+      "fresh_evaluation": {
+        "max_ms": 0.6095,
+        "mean_ms": 0.5752,
+        "median_ms": 0.572,
+        "min_ms": 0.5627,
+        "reps": 15,
+        "samples_ms": [
+          0.6095,
+          0.5908,
+          0.5785,
+          0.582,
+          0.5718,
+          0.5805,
+          0.5752,
+          0.5642,
+          0.5627,
+          0.5645,
+          0.5666,
+          0.5708,
+          0.5653,
+          0.572,
+          0.5732
+        ]
+      },
+      "pop": 64,
+      "rows": 1024,
+      "side": "gp",
+      "structure": {
+        "evaluation_runs": 1,
+        "generation_runs": 2,
+        "host_readbacks": 0,
+        "syncs": 0,
+        "transfers": 0,
+        "variation_runs": 1
+      },
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.596,
+          "mean_ms": 0.575,
+          "median_ms": 0.5761,
+          "min_ms": 0.5566,
+          "reps": 15,
+          "samples_ms": [
+            0.5767,
+            0.5758,
+            0.5826,
+            0.5776,
+            0.5772,
+            0.5768,
+            0.5696,
+            0.5566,
+            0.5637,
+            0.5761,
+            0.5746,
+            0.5802,
+            0.5703,
+            0.596,
+            0.5714
+          ]
+        },
+        "total": {
+          "max_ms": 1.09,
+          "mean_ms": 1.068,
+          "median_ms": 1.0659,
+          "min_ms": 1.0506,
+          "reps": 15,
+          "samples_ms": [
+            1.0506,
+            1.0829,
+            1.0854,
+            1.09,
+            1.0685,
+            1.06,
+            1.0581,
+            1.0555,
+            1.0716,
+            1.0659,
+            1.0597,
+            1.0741,
+            1.0658,
+            1.0688,
+            1.0622
+          ]
+        },
+        "variation": {
+          "max_ms": 0.5178,
+          "mean_ms": 0.5043,
+          "median_ms": 0.5036,
+          "min_ms": 0.4929,
+          "reps": 15,
+          "samples_ms": [
+            0.5178,
+            0.5139,
+            0.5145,
+            0.5001,
+            0.5048,
+            0.5106,
+            0.5035,
+            0.4999,
+            0.4929,
+            0.5072,
+            0.5036,
+            0.4951,
+            0.5112,
+            0.4934,
+            0.4961
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -7.692033,
+          -4.804387,
+          -4.804387,
+          -2.896472,
+          -2.896472,
+          -2.896472,
+          -2.896472,
+          -2.896472,
+          -2.611154,
+          -2.611154,
+          -2.580666,
+          -2.5612,
+          -1.564783,
+          -1.564783,
+          -1.540227,
+          -1.502523,
+          -1.479782,
+          -1.438826,
+          -1.402574,
+          -1.376907
+        ],
+        "median": [
+          -43.311756,
+          -17.261068,
+          -16.034729,
+          -14.874931,
+          -14.730766,
+          -14.710601,
+          -11.79775,
+          -7.493378,
+          -12.249826,
+          -12.680161,
+          -4.865871,
+          -3.35533,
+          -2.990382,
+          -3.190102,
+          -2.92803,
+          -2.620394,
+          -2.615937,
+          -2.626199,
+          -2.252385,
+          -7.097546
+        ]
+      }
+    },
+    {
+      "backend": "numpy",
+      "cold_ms": 78.7195,
+      "device": "cpu",
+      "fresh_evaluation": {
+        "max_ms": 3.0453,
+        "mean_ms": 2.7673,
+        "median_ms": 2.6735,
+        "min_ms": 2.5749,
+        "reps": 15,
+        "samples_ms": [
+          2.6601,
+          2.8117,
+          2.5903,
+          2.6084,
+          2.6292,
+          2.5749,
+          2.8995,
+          3.0453,
+          2.9071,
+          2.6385,
+          2.5963,
+          2.6735,
+          2.9017,
+          3.025,
+          2.948
+        ]
+      },
+      "pop": 64,
+      "rows": 1024,
+      "side": "numpy",
+      "timing": {
+        "evaluation": {
+          "max_ms": 6.2934,
+          "mean_ms": 5.6044,
+          "median_ms": 5.6661,
+          "min_ms": 4.9068,
+          "reps": 15,
+          "samples_ms": [
+            4.9068,
+            5.699,
+            5.9364,
+            5.6661,
+            5.8008,
+            5.6568,
+            6.2934,
+            5.8301,
+            5.6885,
+            5.2029,
+            5.1235,
+            5.2262,
+            5.5782,
+            5.9963,
+            5.4609
+          ]
+        },
+        "total": {
+          "max_ms": 10.2159,
+          "mean_ms": 9.7357,
+          "median_ms": 9.7975,
+          "min_ms": 9.1348,
+          "reps": 15,
+          "samples_ms": [
+            10.2159,
+            9.7975,
+            10.1381,
+            9.6599,
+            9.1998,
+            9.8927,
+            10.1146,
+            9.3987,
+            9.6762,
+            10.0539,
+            9.1348,
+            9.8728,
+            10.1288,
+            9.5497,
+            9.2015
+          ]
+        },
+        "variation": {
+          "max_ms": 4.2808,
+          "mean_ms": 4.0654,
+          "median_ms": 4.1357,
+          "min_ms": 3.8053,
+          "reps": 15,
+          "samples_ms": [
+            4.1565,
+            4.1131,
+            4.1481,
+            4.1357,
+            4.1821,
+            3.8262,
+            4.2808,
+            4.2553,
+            4.1261,
+            3.8053,
+            3.8171,
+            3.8094,
+            4.2143,
+            3.8372,
+            4.273
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -7.692033,
+          -4.804387,
+          -4.804387,
+          -2.896472,
+          -2.896472,
+          -2.896472,
+          -2.896472,
+          -2.896472,
+          -2.611154,
+          -2.611154,
+          -2.580666,
+          -2.5612,
+          -1.564783,
+          -1.564783,
+          -1.540227,
+          -1.502522,
+          -1.479782,
+          -1.438826,
+          -1.402574,
+          -1.376907
+        ],
+        "median": [
+          -43.311756,
+          -17.261068,
+          -16.034729,
+          -14.874931,
+          -14.730766,
+          -14.710602,
+          -11.797751,
+          -7.493378,
+          -12.249826,
+          -12.680161,
+          -4.865871,
+          -3.35533,
+          -2.990382,
+          -3.190102,
+          -2.92803,
+          -2.620394,
+          -2.615937,
+          -2.626199,
+          -2.252385,
+          -7.097546
+        ]
+      }
+    },
+    {
+      "cold_ms": 3451.063,
+      "eval_mode": "auto",
+      "pop": 64,
+      "rows": 1024,
+      "side": "torch",
+      "timing": {
+        "evaluation": {
+          "max_ms": 2.5916,
+          "mean_ms": 2.3745,
+          "median_ms": 2.3589,
+          "min_ms": 2.3246,
+          "reps": 15,
+          "samples_ms": [
+            2.5916,
+            2.3524,
+            2.3405,
+            2.3246,
+            2.358,
+            2.3598,
+            2.3626,
+            2.3589,
+            2.3436,
+            2.3526,
+            2.3989,
+            2.3565,
+            2.3819,
+            2.365,
+            2.3711
+          ]
+        },
+        "total": {
+          "max_ms": 5.0458,
+          "mean_ms": 4.8227,
+          "median_ms": 4.7984,
+          "min_ms": 4.7357,
+          "reps": 15,
+          "samples_ms": [
+            5.0458,
+            4.9791,
+            4.7754,
+            4.7763,
+            4.7747,
+            4.815,
+            4.7923,
+            4.7653,
+            4.7447,
+            4.7357,
+            4.8391,
+            4.8056,
+            4.8397,
+            4.8529,
+            4.7984
+          ]
+        },
+        "variation": {
+          "max_ms": 5.0458,
+          "mean_ms": 4.8227,
+          "median_ms": 2.4395,
+          "min_ms": 4.7357,
+          "reps": 15
+        }
+      },
+      "trajectory": {
+        "best": [
+          -11.702978,
+          -11.044665,
+          -7.401899,
+          -7.042878,
+          -4.79798,
+          -4.612252,
+          -4.197274,
+          -3.304438,
+          -3.484646,
+          -2.363772,
+          -1.94527,
+          -1.526189,
+          -1.841053,
+          -1.601276,
+          -1.489027,
+          -1.446252,
+          -1.356046,
+          -1.356046,
+          -1.356046,
+          -1.356046
+        ],
+        "median": [
+          -82.997375,
+          -16.815979,
+          -15.731853,
+          -17.163404,
+          -14.757812,
+          -11.747519,
+          -11.702978,
+          -12.241088,
+          -9.183265,
+          -7.82377,
+          -6.472937,
+          -4.605178,
+          -4.054338,
+          -3.229054,
+          -1.94527,
+          -2.36732,
+          -1.863133,
+          -2.30638,
+          -2.840651,
+          -3.163612
+        ]
+      }
+    },
+    {
+      "cold_ms": 621.4711,
+      "eval_mode": "fused",
+      "pop": 64,
+      "rows": 1024,
+      "side": "torch-fused",
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.2309,
+          "mean_ms": 0.214,
+          "median_ms": 0.2139,
+          "min_ms": 0.1955,
+          "reps": 15,
+          "samples_ms": [
+            0.2302,
+            0.1983,
+            0.1955,
+            0.21,
+            0.2173,
+            0.2243,
+            0.2086,
+            0.2146,
+            0.2031,
+            0.2139,
+            0.2309,
+            0.2078,
+            0.2164,
+            0.209,
+            0.2297
+          ]
+        },
+        "total": {
+          "max_ms": 2.634,
+          "mean_ms": 2.5273,
+          "median_ms": 2.554,
+          "min_ms": 2.3596,
+          "reps": 15,
+          "samples_ms": [
+            2.39,
+            2.4304,
+            2.3596,
+            2.5822,
+            2.634,
+            2.6195,
+            2.4594,
+            2.554,
+            2.4383,
+            2.6146,
+            2.6222,
+            2.509,
+            2.5957,
+            2.5361,
+            2.5653
+          ]
+        },
+        "variation": {
+          "max_ms": 2.634,
+          "mean_ms": 2.5273,
+          "median_ms": 2.3401,
+          "min_ms": 2.3596,
+          "reps": 15
+        }
+      },
+      "trajectory": {
+        "best": [
+          -11.702979,
+          -11.044665,
+          -7.401899,
+          -7.042878,
+          -4.79798,
+          -4.612252,
+          -4.197274,
+          -3.304438,
+          -3.484646,
+          -2.363772,
+          -1.94527,
+          -1.526189,
+          -1.841053,
+          -1.601276,
+          -1.489027,
+          -1.446252,
+          -1.356047,
+          -1.356047,
+          -1.356047,
+          -1.356047
+        ],
+        "median": [
+          -82.997375,
+          -16.815979,
+          -15.731853,
+          -17.163406,
+          -14.757812,
+          -11.747519,
+          -11.702979,
+          -12.241088,
+          -9.183266,
+          -7.82377,
+          -6.472936,
+          -4.605178,
+          -4.054338,
+          -3.229054,
+          -1.94527,
+          -2.36732,
+          -1.863133,
+          -2.30638,
+          -2.840651,
+          -3.163611
+        ]
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/evogp-triton-cache"
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fused_device_queued_vs_in_graph": {
+          "comparable": 64,
+          "finiteness_mismatch": 0,
+          "max_rel": 1.166159577792314e-07,
+          "max_rel_scaled": 5.976269079610574e-08,
+          "scale": 4183212.0
+        },
+        "fused_device_vs_in_graph": {
+          "comparable": 64,
+          "finiteness_mismatch": 0,
+          "max_rel": 1.166159577792314e-07,
+          "max_rel_scaled": 5.976269079610574e-08,
+          "scale": 4183212.0
+        },
+        "fused_host_vs_in_graph": {
+          "comparable": 64,
+          "finiteness_mismatch": 0,
+          "max_rel": 1.166159577792314e-07,
+          "max_rel_scaled": 5.976269079610574e-08,
+          "scale": 4183212.0
+        }
+      },
+      "pop": 64,
+      "rows": 1024,
+      "side": "fused",
+      "timing": {
+        "fused_device": {
+          "max_ms": 0.9202,
+          "mean_ms": 0.8286,
+          "median_ms": 0.8229,
+          "min_ms": 0.7963,
+          "reps": 15,
+          "samples_ms": [
+            0.8381,
+            0.851,
+            0.8488,
+            0.8082,
+            0.8253,
+            0.7963,
+            0.9202,
+            0.819,
+            0.8044,
+            0.8167,
+            0.8018,
+            0.8332,
+            0.8229,
+            0.833,
+            0.8105
+          ]
+        },
+        "fused_device_queued": {
+          "median_ms": 0.6717,
+          "note": "sum of the queued-transfer median and the host-channels fused median"
+        },
+        "fused_host": {
+          "max_ms": 0.4084,
+          "mean_ms": 0.3208,
+          "median_ms": 0.3173,
+          "min_ms": 0.2824,
+          "reps": 15,
+          "samples_ms": [
+            0.4084,
+            0.3306,
+            0.3001,
+            0.3462,
+            0.2995,
+            0.2992,
+            0.3311,
+            0.2938,
+            0.2824,
+            0.301,
+            0.2986,
+            0.3173,
+            0.3378,
+            0.3484,
+            0.3177
+          ]
+        },
+        "in_graph": {
+          "max_ms": 0.6688,
+          "mean_ms": 0.5773,
+          "median_ms": 0.5668,
+          "min_ms": 0.5545,
+          "reps": 15,
+          "samples_ms": [
+            0.6688,
+            0.5987,
+            0.5737,
+            0.5774,
+            0.5932,
+            0.5677,
+            0.5645,
+            0.5629,
+            0.5635,
+            0.562,
+            0.5635,
+            0.5791,
+            0.5668,
+            0.5545,
+            0.5628
+          ]
+        },
+        "in_graph_queued": {
+          "median_ms": 0.5668,
+          "note": "the in-graph run with a busy queue (pair lane minus the derived queued transfer)"
+        },
+        "transfer": {
+          "max_ms": 0.3134,
+          "mean_ms": 0.2726,
+          "median_ms": 0.266,
+          "min_ms": 0.2521,
+          "reps": 15,
+          "samples_ms": [
+            0.2966,
+            0.298,
+            0.2559,
+            0.2536,
+            0.3134,
+            0.2577,
+            0.256,
+            0.2936,
+            0.2672,
+            0.2543,
+            0.2551,
+            0.266,
+            0.2708,
+            0.2521,
+            0.2984
+          ]
+        },
+        "transfer_queued": {
+          "median_ms": 0.3544,
+          "note": "(in-graph run + transfer) pair minus the in-graph run"
+        }
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/evogp-triton-cache",
+      "verdict": {
+        "device_channels_queued_speedup": 0.8438,
+        "device_channels_speedup": 0.6888,
+        "faster_route": "in-graph",
+        "host_channels_speedup": 1.7863
+      }
+    },
+    {
+      "backend": "iree",
+      "cold_ms": 4610.3711,
+      "device": "rocm",
+      "fresh_evaluation": {
+        "max_ms": 0.7489,
+        "mean_ms": 0.7236,
+        "median_ms": 0.7219,
+        "min_ms": 0.712,
+        "reps": 15,
+        "samples_ms": [
+          0.7385,
+          0.7165,
+          0.7235,
+          0.7283,
+          0.712,
+          0.7132,
+          0.725,
+          0.7139,
+          0.7193,
+          0.7275,
+          0.7489,
+          0.7303,
+          0.7157,
+          0.7191,
+          0.7219
+        ]
+      },
+      "pop": 256,
+      "rows": 1024,
+      "side": "gp",
+      "structure": {
+        "evaluation_runs": 1,
+        "generation_runs": 2,
+        "host_readbacks": 0,
+        "syncs": 0,
+        "transfers": 0,
+        "variation_runs": 1
+      },
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.7418,
+          "mean_ms": 0.7282,
+          "median_ms": 0.7294,
+          "min_ms": 0.7134,
+          "reps": 15,
+          "samples_ms": [
+            0.7346,
+            0.7418,
+            0.7255,
+            0.7135,
+            0.7178,
+            0.7306,
+            0.7399,
+            0.7397,
+            0.7294,
+            0.7302,
+            0.7245,
+            0.7336,
+            0.7209,
+            0.7277,
+            0.7134
+          ]
+        },
+        "total": {
+          "max_ms": 1.4023,
+          "mean_ms": 1.3848,
+          "median_ms": 1.3869,
+          "min_ms": 1.3678,
+          "reps": 15,
+          "samples_ms": [
+            1.3699,
+            1.3949,
+            1.3829,
+            1.3728,
+            1.3869,
+            1.3748,
+            1.3988,
+            1.3874,
+            1.3678,
+            1.3912,
+            1.374,
+            1.3783,
+            1.3942,
+            1.3954,
+            1.4023
+          ]
+        },
+        "variation": {
+          "max_ms": 0.675,
+          "mean_ms": 0.6566,
+          "median_ms": 0.6563,
+          "min_ms": 0.6433,
+          "reps": 15,
+          "samples_ms": [
+            0.6664,
+            0.673,
+            0.6433,
+            0.6464,
+            0.655,
+            0.6512,
+            0.6441,
+            0.6639,
+            0.6519,
+            0.6565,
+            0.675,
+            0.6563,
+            0.6569,
+            0.6641,
+            0.6451
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -7.692033,
+          -7.692033,
+          -6.756296,
+          -5.707755,
+          -5.707755,
+          -3.414513,
+          -2.949415,
+          -2.464817,
+          -1.574375,
+          -1.574375,
+          -1.527215,
+          -1.527215,
+          -1.520405,
+          -0.724795,
+          -0.724795,
+          -0.460114,
+          -0.460114,
+          -0.460114,
+          -0.460114,
+          -0.460114
+        ],
+        "median": [
+          -46.461422,
+          -19.899679,
+          -16.126898,
+          -15.62845,
+          -15.776737,
+          -15.779724,
+          -14.199324,
+          -14.784168,
+          -14.030853,
+          -13.401813,
+          -13.569339,
+          -12.19256,
+          -11.617377,
+          -11.028605,
+          -8.076544,
+          -6.74484,
+          -5.24239,
+          -4.620671,
+          -3.424262,
+          -2.467039
+        ]
+      }
+    },
+    {
+      "backend": "numpy",
+      "cold_ms": 90.9894,
+      "device": "cpu",
+      "fresh_evaluation": {
+        "max_ms": 11.8584,
+        "mean_ms": 11.265,
+        "median_ms": 11.2501,
+        "min_ms": 10.8286,
+        "reps": 15,
+        "samples_ms": [
+          11.4864,
+          11.1285,
+          10.8394,
+          10.9585,
+          11.3441,
+          11.3713,
+          11.0322,
+          10.9658,
+          11.6559,
+          11.2501,
+          10.8286,
+          11.421,
+          11.1304,
+          11.8584,
+          11.704
+        ]
+      },
+      "pop": 256,
+      "rows": 1024,
+      "side": "numpy",
+      "timing": {
+        "evaluation": {
+          "max_ms": 25.6263,
+          "mean_ms": 20.65,
+          "median_ms": 21.0938,
+          "min_ms": 15.7252,
+          "reps": 15,
+          "samples_ms": [
+            15.7252,
+            18.2043,
+            23.0778,
+            21.7136,
+            21.0938,
+            18.6471,
+            18.031,
+            18.666,
+            19.5707,
+            21.6706,
+            22.5105,
+            22.1774,
+            20.2189,
+            22.817,
+            25.6263
+          ]
+        },
+        "total": {
+          "max_ms": 39.342,
+          "mean_ms": 35.1479,
+          "median_ms": 34.7337,
+          "min_ms": 33.3685,
+          "reps": 15,
+          "samples_ms": [
+            34.3139,
+            36.2972,
+            34.7337,
+            34.6348,
+            35.2593,
+            36.8191,
+            39.342,
+            34.4486,
+            35.2117,
+            34.9332,
+            33.3685,
+            34.1173,
+            35.4335,
+            34.6215,
+            33.6838
+          ]
+        },
+        "variation": {
+          "max_ms": 6.8637,
+          "mean_ms": 5.193,
+          "median_ms": 4.9801,
+          "min_ms": 4.5116,
+          "reps": 15,
+          "samples_ms": [
+            5.0202,
+            6.8637,
+            5.8763,
+            5.8584,
+            5.6369,
+            5.0948,
+            5.0986,
+            4.8587,
+            4.9771,
+            4.9801,
+            4.9457,
+            4.5116,
+            4.8564,
+            4.6202,
+            4.6966
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -7.692033,
+          -7.692033,
+          -6.756296,
+          -5.707755,
+          -5.707755,
+          -3.414513,
+          -2.949415,
+          -2.464817,
+          -1.574375,
+          -1.574375,
+          -1.527214,
+          -1.527214,
+          -1.520405,
+          -0.724795,
+          -0.724795,
+          -0.460114,
+          -0.460114,
+          -0.460114,
+          -0.460114,
+          -0.460114
+        ],
+        "median": [
+          -46.461422,
+          -19.899681,
+          -16.1269,
+          -15.62845,
+          -15.776736,
+          -15.779723,
+          -14.199325,
+          -14.784168,
+          -14.030853,
+          -13.401812,
+          -13.569339,
+          -12.19256,
+          -11.617377,
+          -11.028605,
+          -8.076544,
+          -6.74484,
+          -5.24239,
+          -4.620671,
+          -3.424262,
+          -2.467039
+        ]
+      }
+    },
+    {
+      "cold_ms": 3609.1222,
+      "eval_mode": "auto",
+      "pop": 256,
+      "rows": 1024,
+      "side": "torch",
+      "timing": {
+        "evaluation": {
+          "max_ms": 3.0713,
+          "mean_ms": 2.8986,
+          "median_ms": 2.903,
+          "min_ms": 2.6384,
+          "reps": 15,
+          "samples_ms": [
+            2.8096,
+            2.8524,
+            2.6384,
+            2.7165,
+            2.9249,
+            2.8932,
+            2.903,
+            2.9864,
+            2.8018,
+            3.0713,
+            2.9958,
+            2.9777,
+            2.9891,
+            3.0612,
+            2.8572
+          ]
+        },
+        "total": {
+          "max_ms": 5.6653,
+          "mean_ms": 5.4082,
+          "median_ms": 5.4398,
+          "min_ms": 4.963,
+          "reps": 15,
+          "samples_ms": [
+            5.3272,
+            5.3251,
+            4.963,
+            5.3266,
+            5.4398,
+            5.4504,
+            5.4256,
+            5.6653,
+            5.294,
+            5.6012,
+            5.4888,
+            5.5216,
+            5.4955,
+            5.5917,
+            5.2072
+          ]
+        },
+        "variation": {
+          "max_ms": 5.6653,
+          "mean_ms": 5.4082,
+          "median_ms": 2.5368,
+          "min_ms": 4.963,
+          "reps": 15
+        }
+      },
+      "trajectory": {
+        "best": [
+          -6.516621,
+          -6.516621,
+          -6.516621,
+          -6.428829,
+          -5.399454,
+          -1.870309,
+          -1.743368,
+          -0.746966,
+          -0.746966,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.442792,
+          -0.442792
+        ],
+        "median": [
+          -53.16642,
+          -16.00799,
+          -15.328354,
+          -14.304978,
+          -9.557068,
+          -9.557068,
+          -6.468941,
+          -6.428829,
+          -5.733451,
+          -4.645123,
+          -4.357527,
+          -3.429124,
+          -3.365067,
+          -3.425049,
+          -3.21264,
+          -3.101057,
+          -2.527848,
+          -3.429124,
+          -3.232774,
+          -2.451733
+        ]
+      }
+    },
+    {
+      "cold_ms": 611.85,
+      "eval_mode": "fused",
+      "pop": 256,
+      "rows": 1024,
+      "side": "torch-fused",
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.2525,
+          "mean_ms": 0.2243,
+          "median_ms": 0.2179,
+          "min_ms": 0.2084,
+          "reps": 15,
+          "samples_ms": [
+            0.2314,
+            0.2525,
+            0.211,
+            0.2136,
+            0.2311,
+            0.2233,
+            0.2464,
+            0.2111,
+            0.2114,
+            0.2448,
+            0.2084,
+            0.2129,
+            0.2332,
+            0.2159,
+            0.2179
+          ]
+        },
+        "total": {
+          "max_ms": 2.7314,
+          "mean_ms": 2.628,
+          "median_ms": 2.6169,
+          "min_ms": 2.4622,
+          "reps": 15,
+          "samples_ms": [
+            2.597,
+            2.6107,
+            2.6434,
+            2.6169,
+            2.6098,
+            2.4622,
+            2.5597,
+            2.6018,
+            2.6137,
+            2.6314,
+            2.6314,
+            2.6855,
+            2.7056,
+            2.7314,
+            2.7198
+          ]
+        },
+        "variation": {
+          "max_ms": 2.7314,
+          "mean_ms": 2.628,
+          "median_ms": 2.399,
+          "min_ms": 2.4622,
+          "reps": 15
+        }
+      },
+      "trajectory": {
+        "best": [
+          -6.51662,
+          -6.51662,
+          -6.51662,
+          -6.42883,
+          -5.399454,
+          -1.870309,
+          -1.743368,
+          -0.746966,
+          -0.746966,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866
+        ],
+        "median": [
+          -53.16642,
+          -16.007992,
+          -15.328354,
+          -14.304978,
+          -9.557068,
+          -9.557068,
+          -6.468942,
+          -6.42883,
+          -5.404991,
+          -5.410527,
+          -4.077537,
+          -5.032327,
+          -3.429124,
+          -3.429124,
+          -3.285978,
+          -3.429124,
+          -3.429124,
+          -3.370143,
+          -2.865034,
+          -2.465456
+        ]
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/evogp-triton-cache"
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fused_device_queued_vs_in_graph": {
+          "comparable": 255,
+          "finiteness_mismatch": 0,
+          "max_rel": 1.673157186132812e-07,
+          "max_rel_scaled": 9.054833327581946e-08,
+          "scale": 2827219456.0
+        },
+        "fused_device_vs_in_graph": {
+          "comparable": 255,
+          "finiteness_mismatch": 0,
+          "max_rel": 1.673157186132812e-07,
+          "max_rel_scaled": 9.054833327581946e-08,
+          "scale": 2827219456.0
+        },
+        "fused_host_vs_in_graph": {
+          "comparable": 255,
+          "finiteness_mismatch": 0,
+          "max_rel": 1.673157186132812e-07,
+          "max_rel_scaled": 9.054833327581946e-08,
+          "scale": 2827219456.0
+        }
+      },
+      "pop": 256,
+      "rows": 1024,
+      "side": "fused",
+      "timing": {
+        "fused_device": {
+          "max_ms": 0.9573,
+          "mean_ms": 0.9246,
+          "median_ms": 0.9205,
+          "min_ms": 0.8903,
+          "reps": 15,
+          "samples_ms": [
+            0.916,
+            0.9281,
+            0.9205,
+            0.9357,
+            0.8913,
+            0.8903,
+            0.9157,
+            0.9508,
+            0.955,
+            0.9062,
+            0.9066,
+            0.939,
+            0.909,
+            0.9469,
+            0.9573
+          ]
+        },
+        "fused_device_queued": {
+          "median_ms": 0.7826,
+          "note": "sum of the queued-transfer median and the host-channels fused median"
+        },
+        "fused_host": {
+          "max_ms": 0.5001,
+          "mean_ms": 0.4227,
+          "median_ms": 0.431,
+          "min_ms": 0.3574,
+          "reps": 15,
+          "samples_ms": [
+            0.5001,
+            0.442,
+            0.4495,
+            0.4328,
+            0.4397,
+            0.4139,
+            0.3762,
+            0.4416,
+            0.4156,
+            0.431,
+            0.4326,
+            0.4304,
+            0.396,
+            0.3574,
+            0.3811
+          ]
+        },
+        "in_graph": {
+          "max_ms": 0.8432,
+          "mean_ms": 0.7249,
+          "median_ms": 0.7165,
+          "min_ms": 0.7068,
+          "reps": 15,
+          "samples_ms": [
+            0.8432,
+            0.7346,
+            0.7193,
+            0.7165,
+            0.7209,
+            0.7194,
+            0.7124,
+            0.7126,
+            0.7092,
+            0.7116,
+            0.7161,
+            0.7148,
+            0.7178,
+            0.7068,
+            0.7188
+          ]
+        },
+        "in_graph_queued": {
+          "median_ms": 0.7165,
+          "note": "the in-graph run with a busy queue (pair lane minus the derived queued transfer)"
+        },
+        "transfer": {
+          "max_ms": 0.5373,
+          "mean_ms": 0.3295,
+          "median_ms": 0.3097,
+          "min_ms": 0.2896,
+          "reps": 15,
+          "samples_ms": [
+            0.3399,
+            0.3002,
+            0.2988,
+            0.3256,
+            0.2994,
+            0.3049,
+            0.5373,
+            0.3094,
+            0.3328,
+            0.3103,
+            0.329,
+            0.2966,
+            0.3097,
+            0.2896,
+            0.3592
+          ]
+        },
+        "transfer_queued": {
+          "median_ms": 0.3516,
+          "note": "(in-graph run + transfer) pair minus the in-graph run"
+        }
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/evogp-triton-cache",
+      "verdict": {
+        "device_channels_queued_speedup": 0.9155,
+        "device_channels_speedup": 0.7784,
+        "faster_route": "in-graph",
+        "host_channels_speedup": 1.6624
+      }
+    },
+    {
+      "backend": "iree",
+      "cold_ms": 4655.6144,
+      "device": "rocm",
+      "fresh_evaluation": {
+        "max_ms": 1.7461,
+        "mean_ms": 1.5385,
+        "median_ms": 1.5065,
+        "min_ms": 1.4729,
+        "reps": 15,
+        "samples_ms": [
+          1.5093,
+          1.5195,
+          1.538,
+          1.7461,
+          1.6957,
+          1.6152,
+          1.5065,
+          1.5015,
+          1.5078,
+          1.4839,
+          1.5058,
+          1.4868,
+          1.5046,
+          1.4838,
+          1.4729
+        ]
+      },
+      "pop": 1000,
+      "rows": 1024,
+      "side": "gp",
+      "structure": {
+        "evaluation_runs": 1,
+        "generation_runs": 2,
+        "host_readbacks": 0,
+        "syncs": 0,
+        "transfers": 0,
+        "variation_runs": 1
+      },
+      "timing": {
+        "evaluation": {
+          "max_ms": 1.49,
+          "mean_ms": 1.4654,
+          "median_ms": 1.4645,
+          "min_ms": 1.4548,
+          "reps": 15,
+          "samples_ms": [
+            1.4591,
+            1.4653,
+            1.49,
+            1.4663,
+            1.4609,
+            1.4666,
+            1.4645,
+            1.4553,
+            1.4695,
+            1.4782,
+            1.4584,
+            1.461,
+            1.4671,
+            1.4548,
+            1.4637
+          ]
+        },
+        "total": {
+          "max_ms": 2.9327,
+          "mean_ms": 2.741,
+          "median_ms": 2.7513,
+          "min_ms": 2.6484,
+          "reps": 15,
+          "samples_ms": [
+            2.6688,
+            2.7351,
+            2.699,
+            2.6792,
+            2.6484,
+            2.6524,
+            2.7064,
+            2.7546,
+            2.7513,
+            2.9327,
+            2.8065,
+            2.7631,
+            2.7838,
+            2.7789,
+            2.7543
+          ]
+        },
+        "variation": {
+          "max_ms": 1.2792,
+          "mean_ms": 1.2261,
+          "median_ms": 1.2179,
+          "min_ms": 1.194,
+          "reps": 15,
+          "samples_ms": [
+            1.2792,
+            1.2179,
+            1.2134,
+            1.2482,
+            1.233,
+            1.2226,
+            1.2062,
+            1.2397,
+            1.2083,
+            1.2029,
+            1.2679,
+            1.2107,
+            1.194,
+            1.2505,
+            1.1974
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -5.988708,
+          -5.988708,
+          -4.362157,
+          -4.362157,
+          -2.556242,
+          -2.440491,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866
+        ],
+        "median": [
+          -44.067329,
+          -18.439083,
+          -15.964048,
+          -15.368632,
+          -14.788992,
+          -11.70298,
+          -9.963753,
+          -9.557068,
+          -8.246567,
+          -6.468941,
+          -5.723232,
+          -5.399454,
+          -5.169722,
+          -5.399454,
+          -5.16685,
+          -4.334732,
+          -4.645123,
+          -4.645123,
+          -4.113938,
+          -3.937675
+        ]
+      }
+    },
+    {
+      "backend": "numpy",
+      "cold_ms": 135.9594,
+      "device": "cpu",
+      "fresh_evaluation": {
+        "max_ms": 38.5589,
+        "mean_ms": 37.1503,
+        "median_ms": 37.3512,
+        "min_ms": 35.9723,
+        "reps": 15,
+        "samples_ms": [
+          38.5589,
+          37.37,
+          38.442,
+          38.3444,
+          37.158,
+          37.3512,
+          37.7091,
+          37.4387,
+          36.3302,
+          37.7256,
+          36.1363,
+          36.3172,
+          35.9723,
+          36.0175,
+          36.3835
+        ]
+      },
+      "pop": 1000,
+      "rows": 1024,
+      "side": "numpy",
+      "timing": {
+        "evaluation": {
+          "max_ms": 67.669,
+          "mean_ms": 56.4882,
+          "median_ms": 57.7495,
+          "min_ms": 43.7147,
+          "reps": 15,
+          "samples_ms": [
+            43.7147,
+            43.7984,
+            49.4782,
+            51.9934,
+            55.3183,
+            55.7495,
+            55.9696,
+            58.748,
+            57.7495,
+            64.1844,
+            58.0876,
+            60.305,
+            63.9599,
+            67.669,
+            60.597
+          ]
+        },
+        "total": {
+          "max_ms": 74.6625,
+          "mean_ms": 70.8666,
+          "median_ms": 70.3517,
+          "min_ms": 68.3675,
+          "reps": 15,
+          "samples_ms": [
+            70.2915,
+            68.3675,
+            68.6755,
+            70.3883,
+            70.3517,
+            73.1916,
+            73.0658,
+            74.6625,
+            71.7336,
+            69.2613,
+            69.7931,
+            69.8609,
+            71.0776,
+            72.1265,
+            70.151
+          ]
+        },
+        "variation": {
+          "max_ms": 8.3289,
+          "mean_ms": 7.2354,
+          "median_ms": 7.1198,
+          "min_ms": 6.6518,
+          "reps": 15,
+          "samples_ms": [
+            7.3178,
+            7.3932,
+            7.3841,
+            6.7244,
+            7.525,
+            7.0933,
+            6.99,
+            7.1169,
+            7.0712,
+            6.6518,
+            7.1198,
+            7.5665,
+            8.3289,
+            7.4549,
+            6.7931
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -5.988708,
+          -5.988708,
+          -4.362157,
+          -4.362157,
+          -2.556242,
+          -2.440491,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866
+        ],
+        "median": [
+          -44.067329,
+          -18.439083,
+          -15.964046,
+          -15.368631,
+          -14.788992,
+          -11.702978,
+          -9.963754,
+          -9.557067,
+          -8.246567,
+          -6.446913,
+          -5.759512,
+          -5.399455,
+          -5.166849,
+          -5.169722,
+          -4.962841,
+          -4.596735,
+          -4.098106,
+          -3.768679,
+          -4.059405,
+          -3.550719
+        ]
+      }
+    },
+    {
+      "cold_ms": 3513.8107,
+      "eval_mode": "auto",
+      "pop": 1000,
+      "rows": 1024,
+      "side": "torch",
+      "timing": {
+        "evaluation": {
+          "max_ms": 5.5397,
+          "mean_ms": 4.9658,
+          "median_ms": 4.8556,
+          "min_ms": 4.568,
+          "reps": 15,
+          "samples_ms": [
+            4.717,
+            4.568,
+            4.8461,
+            4.7949,
+            4.8712,
+            4.832,
+            4.7658,
+            4.8556,
+            4.841,
+            4.9526,
+            5.0041,
+            5.3094,
+            5.1168,
+            5.4732,
+            5.5397
+          ]
+        },
+        "total": {
+          "max_ms": 8.1391,
+          "mean_ms": 7.5548,
+          "median_ms": 7.4334,
+          "min_ms": 7.1239,
+          "reps": 15,
+          "samples_ms": [
+            7.2803,
+            7.1239,
+            7.4301,
+            7.3826,
+            7.4602,
+            7.4235,
+            7.5571,
+            7.4202,
+            7.4168,
+            7.5218,
+            7.4334,
+            7.9001,
+            7.7724,
+            8.0611,
+            8.1391
+          ]
+        },
+        "variation": {
+          "max_ms": 8.1391,
+          "mean_ms": 7.5548,
+          "median_ms": 2.5778,
+          "min_ms": 7.1239,
+          "reps": 15
+        }
+      },
+      "trajectory": {
+        "best": [
+          -6.51662,
+          -5.906959,
+          -3.429124,
+          -3.429124,
+          -2.629807,
+          -2.629807,
+          -2.363772,
+          -1.415881,
+          -1.415881,
+          -1.415696,
+          -1.415696,
+          -1.415696,
+          -1.415696,
+          -0.483502,
+          -0.483502,
+          -0.483502,
+          -0.483502,
+          -0.483502,
+          -0.483502,
+          -0.483502
+        ],
+        "median": [
+          -58.972832,
+          -16.569691,
+          -15.62845,
+          -14.82826,
+          -11.702979,
+          -9.557068,
+          -9.557068,
+          -6.468941,
+          -5.493522,
+          -5.399454,
+          -4.339674,
+          -5.168557,
+          -3.550719,
+          -3.517337,
+          -3.700107,
+          -3.550719,
+          -4.607096,
+          -3.429124,
+          -3.550719,
+          -3.429124
+        ]
+      }
+    },
+    {
+      "cold_ms": 608.3225,
+      "eval_mode": "fused",
+      "pop": 1000,
+      "rows": 1024,
+      "side": "torch-fused",
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.2507,
+          "mean_ms": 0.2191,
+          "median_ms": 0.216,
+          "min_ms": 0.1925,
+          "reps": 15,
+          "samples_ms": [
+            0.2445,
+            0.2412,
+            0.2448,
+            0.2164,
+            0.2364,
+            0.216,
+            0.2507,
+            0.2162,
+            0.1968,
+            0.2029,
+            0.1972,
+            0.2144,
+            0.2024,
+            0.1925,
+            0.2147
+          ]
+        },
+        "total": {
+          "max_ms": 2.6781,
+          "mean_ms": 2.5469,
+          "median_ms": 2.6055,
+          "min_ms": 2.4163,
+          "reps": 15,
+          "samples_ms": [
+            2.6619,
+            2.6055,
+            2.6455,
+            2.6116,
+            2.6334,
+            2.6332,
+            2.6781,
+            2.4715,
+            2.4782,
+            2.4346,
+            2.4556,
+            2.422,
+            2.4163,
+            2.4321,
+            2.624
+          ]
+        },
+        "variation": {
+          "max_ms": 2.6781,
+          "mean_ms": 2.5469,
+          "median_ms": 2.3895,
+          "min_ms": 2.4163,
+          "reps": 15
+        }
+      },
+      "trajectory": {
+        "best": [
+          -6.51662,
+          -5.906959,
+          -3.429124,
+          -3.429124,
+          -2.629807,
+          -2.629807,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881,
+          -1.415881
+        ],
+        "median": [
+          -58.972824,
+          -16.569691,
+          -15.62845,
+          -14.828261,
+          -11.702979,
+          -9.557068,
+          -9.557068,
+          -6.51662,
+          -5.816685,
+          -4.269702,
+          -4.487329,
+          -4.04359,
+          -3.550719,
+          -3.55072,
+          -3.550719,
+          -3.55072,
+          -3.55072,
+          -3.550719,
+          -3.517337,
+          -3.55072
+        ]
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/evogp-triton-cache"
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fused_device_queued_vs_in_graph": {
+          "comparable": 997,
+          "finiteness_mismatch": 0,
+          "max_rel": 3.3621896022850706e-07,
+          "max_rel_scaled": 5.3094274006374505e-15,
+          "scale": 1.5429159425167852e+18
+        },
+        "fused_device_vs_in_graph": {
+          "comparable": 997,
+          "finiteness_mismatch": 0,
+          "max_rel": 3.3621896022850706e-07,
+          "max_rel_scaled": 5.3094274006374505e-15,
+          "scale": 1.5429159425167852e+18
+        },
+        "fused_host_vs_in_graph": {
+          "comparable": 997,
+          "finiteness_mismatch": 0,
+          "max_rel": 3.3621896022850706e-07,
+          "max_rel_scaled": 5.3094274006374505e-15,
+          "scale": 1.5429159425167852e+18
+        }
+      },
+      "pop": 1000,
+      "rows": 1024,
+      "side": "fused",
+      "timing": {
+        "fused_device": {
+          "max_ms": 1.5631,
+          "mean_ms": 1.3906,
+          "median_ms": 1.3819,
+          "min_ms": 1.323,
+          "reps": 15,
+          "samples_ms": [
+            1.3899,
+            1.4174,
+            1.323,
+            1.388,
+            1.3344,
+            1.3707,
+            1.5631,
+            1.4047,
+            1.3669,
+            1.4089,
+            1.3694,
+            1.3797,
+            1.3528,
+            1.3819,
+            1.4077
+          ]
+        },
+        "fused_device_queued": {
+          "median_ms": 1.3111,
+          "note": "sum of the queued-transfer median and the host-channels fused median"
+        },
+        "fused_host": {
+          "max_ms": 0.8773,
+          "mean_ms": 0.7884,
+          "median_ms": 0.79,
+          "min_ms": 0.7163,
+          "reps": 15,
+          "samples_ms": [
+            0.8773,
+            0.8263,
+            0.79,
+            0.7185,
+            0.7163,
+            0.7705,
+            0.8013,
+            0.8094,
+            0.8236,
+            0.7892,
+            0.7894,
+            0.7962,
+            0.7996,
+            0.7624,
+            0.7556
+          ]
+        },
+        "in_graph": {
+          "max_ms": 1.5651,
+          "mean_ms": 1.4883,
+          "median_ms": 1.4807,
+          "min_ms": 1.4588,
+          "reps": 15,
+          "samples_ms": [
+            1.5651,
+            1.5141,
+            1.5049,
+            1.4966,
+            1.4698,
+            1.4923,
+            1.4759,
+            1.4778,
+            1.4662,
+            1.487,
+            1.476,
+            1.4839,
+            1.4807,
+            1.4746,
+            1.4588
+          ]
+        },
+        "in_graph_queued": {
+          "median_ms": 1.4807,
+          "note": "the in-graph run with a busy queue (pair lane minus the derived queued transfer)"
+        },
+        "transfer": {
+          "max_ms": 0.4913,
+          "mean_ms": 0.4428,
+          "median_ms": 0.4382,
+          "min_ms": 0.411,
+          "reps": 15,
+          "samples_ms": [
+            0.4913,
+            0.4785,
+            0.4446,
+            0.4505,
+            0.434,
+            0.4473,
+            0.4253,
+            0.4288,
+            0.438,
+            0.411,
+            0.4382,
+            0.469,
+            0.4135,
+            0.4273,
+            0.4445
+          ]
+        },
+        "transfer_queued": {
+          "median_ms": 0.5211,
+          "note": "(in-graph run + transfer) pair minus the in-graph run"
+        }
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/evogp-triton-cache",
+      "verdict": {
+        "device_channels_queued_speedup": 1.1294,
+        "device_channels_speedup": 1.0715,
+        "faster_route": "fused",
+        "host_channels_speedup": 1.8743
+      }
+    },
+    {
+      "backend": "iree",
+      "cold_ms": 4594.5168,
+      "device": "rocm",
+      "fresh_evaluation": {
+        "max_ms": 1.5946,
+        "mean_ms": 1.5536,
+        "median_ms": 1.5467,
+        "min_ms": 1.5355,
+        "reps": 15,
+        "samples_ms": [
+          1.5946,
+          1.575,
+          1.5731,
+          1.5725,
+          1.5355,
+          1.5362,
+          1.5637,
+          1.5467,
+          1.5456,
+          1.536,
+          1.5481,
+          1.5477,
+          1.5458,
+          1.5464,
+          1.5364
+        ]
+      },
+      "pop": 256,
+      "rows": 4096,
+      "side": "gp",
+      "structure": {
+        "evaluation_runs": 1,
+        "generation_runs": 2,
+        "host_readbacks": 0,
+        "syncs": 0,
+        "transfers": 0,
+        "variation_runs": 1
+      },
+      "timing": {
+        "evaluation": {
+          "max_ms": 1.5948,
+          "mean_ms": 1.5481,
+          "median_ms": 1.5461,
+          "min_ms": 1.524,
+          "reps": 15,
+          "samples_ms": [
+            1.5647,
+            1.5527,
+            1.5948,
+            1.5632,
+            1.5461,
+            1.5621,
+            1.5524,
+            1.5539,
+            1.5285,
+            1.524,
+            1.544,
+            1.5365,
+            1.5304,
+            1.5344,
+            1.5345
+          ]
+        },
+        "total": {
+          "max_ms": 2.2452,
+          "mean_ms": 2.2131,
+          "median_ms": 2.2131,
+          "min_ms": 2.1914,
+          "reps": 15,
+          "samples_ms": [
+            2.1939,
+            2.2272,
+            2.2132,
+            2.1973,
+            2.2452,
+            2.2187,
+            2.1915,
+            2.2131,
+            2.207,
+            2.2371,
+            2.2272,
+            2.2205,
+            2.1914,
+            2.2035,
+            2.2097
+          ]
+        },
+        "variation": {
+          "max_ms": 0.9382,
+          "mean_ms": 0.709,
+          "median_ms": 0.6914,
+          "min_ms": 0.6751,
+          "reps": 15,
+          "samples_ms": [
+            0.6986,
+            0.9382,
+            0.7333,
+            0.7007,
+            0.6893,
+            0.6914,
+            0.6773,
+            0.6751,
+            0.7105,
+            0.683,
+            0.7055,
+            0.6813,
+            0.6796,
+            0.6755,
+            0.6952
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -7.828916,
+          -7.828916,
+          -6.207567,
+          -5.521075,
+          -4.474734,
+          -3.232423,
+          -3.232423,
+          -3.232423,
+          -2.338112,
+          -2.338112,
+          -2.230547,
+          -2.165831,
+          -1.488983,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031
+        ],
+        "median": [
+          -49.657982,
+          -19.762178,
+          -15.951865,
+          -15.688729,
+          -15.514142,
+          -15.584616,
+          -14.736004,
+          -14.863642,
+          -12.424857,
+          -11.15632,
+          -10.228287,
+          -9.73369,
+          -8.493938,
+          -6.825123,
+          -6.831871,
+          -6.595137,
+          -6.798714,
+          -5.717532,
+          -5.405651,
+          -5.140036
+        ]
+      }
+    },
+    {
+      "backend": "numpy",
+      "cold_ms": 126.5788,
+      "device": "cpu",
+      "fresh_evaluation": {
+        "max_ms": 33.1258,
+        "mean_ms": 32.3807,
+        "median_ms": 32.5423,
+        "min_ms": 30.8719,
+        "reps": 15,
+        "samples_ms": [
+          33.0113,
+          32.4418,
+          32.3525,
+          32.109,
+          32.714,
+          32.6738,
+          30.8719,
+          31.5182,
+          32.6544,
+          32.5423,
+          33.1258,
+          32.6416,
+          32.5279,
+          32.5935,
+          31.9328
+        ]
+      },
+      "pop": 256,
+      "rows": 4096,
+      "side": "numpy",
+      "timing": {
+        "evaluation": {
+          "max_ms": 72.2099,
+          "mean_ms": 60.5984,
+          "median_ms": 60.7586,
+          "min_ms": 47.3214,
+          "reps": 15,
+          "samples_ms": [
+            47.3214,
+            48.9729,
+            55.7684,
+            56.8452,
+            59.3239,
+            57.6177,
+            58.6349,
+            60.7586,
+            63.5329,
+            61.7888,
+            65.9447,
+            64.4317,
+            66.1085,
+            69.7171,
+            72.2099
+          ]
+        },
+        "total": {
+          "max_ms": 78.6504,
+          "mean_ms": 74.7034,
+          "median_ms": 74.3815,
+          "min_ms": 72.7427,
+          "reps": 15,
+          "samples_ms": [
+            74.3071,
+            74.3357,
+            73.8091,
+            76.0513,
+            75.5245,
+            75.404,
+            74.8614,
+            74.9125,
+            74.4421,
+            73.5593,
+            74.0176,
+            74.3815,
+            72.7427,
+            73.552,
+            78.6504
+          ]
+        },
+        "variation": {
+          "max_ms": 5.1492,
+          "mean_ms": 4.829,
+          "median_ms": 4.93,
+          "min_ms": 4.4665,
+          "reps": 15,
+          "samples_ms": [
+            4.4665,
+            5.0345,
+            4.93,
+            4.9407,
+            5.07,
+            4.5293,
+            5.1492,
+            4.7428,
+            4.9798,
+            4.6181,
+            5.0023,
+            4.6245,
+            4.8933,
+            4.5224,
+            4.9308
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -7.828916,
+          -7.828916,
+          -6.207566,
+          -5.521075,
+          -4.474734,
+          -3.232423,
+          -3.232423,
+          -3.232423,
+          -2.338112,
+          -2.338112,
+          -2.230547,
+          -2.165831,
+          -1.488982,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031
+        ],
+        "median": [
+          -49.657982,
+          -19.762177,
+          -15.951865,
+          -15.688729,
+          -15.514141,
+          -15.584616,
+          -14.736004,
+          -14.863642,
+          -12.424857,
+          -11.15632,
+          -10.228287,
+          -9.73369,
+          -8.493938,
+          -6.825123,
+          -6.741661,
+          -6.595137,
+          -6.798714,
+          -5.717532,
+          -5.405651,
+          -5.140036
+        ]
+      }
+    },
+    {
+      "cold_ms": 3500.0963,
+      "eval_mode": "auto",
+      "pop": 256,
+      "rows": 4096,
+      "side": "torch",
+      "timing": {
+        "evaluation": {
+          "max_ms": 3.7948,
+          "mean_ms": 3.6602,
+          "median_ms": 3.6314,
+          "min_ms": 3.5596,
+          "reps": 15,
+          "samples_ms": [
+            3.6242,
+            3.6314,
+            3.6043,
+            3.6152,
+            3.7308,
+            3.6582,
+            3.5644,
+            3.603,
+            3.7573,
+            3.6053,
+            3.7948,
+            3.6541,
+            3.5596,
+            3.7558,
+            3.744
+          ]
+        },
+        "total": {
+          "max_ms": 6.354,
+          "mean_ms": 6.1809,
+          "median_ms": 6.1769,
+          "min_ms": 5.9617,
+          "reps": 15,
+          "samples_ms": [
+            6.166,
+            6.3229,
+            5.9617,
+            6.2821,
+            6.2986,
+            6.0611,
+            6.1249,
+            6.1769,
+            6.1386,
+            6.0411,
+            6.354,
+            6.0409,
+            6.1987,
+            6.2943,
+            6.2523
+          ]
+        },
+        "variation": {
+          "max_ms": 6.354,
+          "mean_ms": 6.1809,
+          "median_ms": 2.5455,
+          "min_ms": 5.9617,
+          "reps": 15
+        }
+      },
+      "trajectory": {
+        "best": [
+          -6.535945,
+          -6.535945,
+          -6.411107,
+          -6.411107,
+          -3.468963,
+          -2.391126,
+          -1.39062,
+          -1.39062,
+          -1.39062,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195
+        ],
+        "median": [
+          -56.617287,
+          -15.980638,
+          -15.56481,
+          -14.722857,
+          -9.589398,
+          -9.589398,
+          -6.458835,
+          -6.185768,
+          -4.555187,
+          -3.546304,
+          -5.394526,
+          -5.342825,
+          -3.468963,
+          -5.234837,
+          -4.375026,
+          -5.331166,
+          -5.394526,
+          -5.332556,
+          -3.537147,
+          -3.678391
+        ]
+      }
+    },
+    {
+      "cold_ms": 608.6834,
+      "eval_mode": "fused",
+      "pop": 256,
+      "rows": 4096,
+      "side": "torch-fused",
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.2545,
+          "mean_ms": 0.2141,
+          "median_ms": 0.2132,
+          "min_ms": 0.1938,
+          "reps": 15,
+          "samples_ms": [
+            0.2193,
+            0.2168,
+            0.2279,
+            0.2221,
+            0.2132,
+            0.2016,
+            0.2221,
+            0.2335,
+            0.1951,
+            0.2025,
+            0.2545,
+            0.2004,
+            0.1985,
+            0.2097,
+            0.1938
+          ]
+        },
+        "total": {
+          "max_ms": 2.6562,
+          "mean_ms": 2.4732,
+          "median_ms": 2.4435,
+          "min_ms": 2.3828,
+          "reps": 15,
+          "samples_ms": [
+            2.6562,
+            2.596,
+            2.4977,
+            2.4398,
+            2.4002,
+            2.4802,
+            2.4435,
+            2.4221,
+            2.4203,
+            2.4116,
+            2.4997,
+            2.3828,
+            2.4102,
+            2.4446,
+            2.5937
+          ]
+        },
+        "variation": {
+          "max_ms": 2.6562,
+          "mean_ms": 2.4732,
+          "median_ms": 2.2303,
+          "min_ms": 2.3828,
+          "reps": 15
+        }
+      },
+      "trajectory": {
+        "best": [
+          -6.535945,
+          -6.535945,
+          -6.411107,
+          -6.411107,
+          -2.404876,
+          -2.404876,
+          -1.39062,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.466195,
+          -0.285584,
+          -0.27285,
+          -0.27285,
+          -0.27285,
+          -0.27285
+        ],
+        "median": [
+          -56.617287,
+          -15.980639,
+          -15.56481,
+          -14.722857,
+          -9.589398,
+          -9.589398,
+          -6.458836,
+          -6.206393,
+          -5.394526,
+          -3.468963,
+          -5.098214,
+          -4.290265,
+          -4.256295,
+          -4.271117,
+          -4.263927,
+          -4.359346,
+          -3.468963,
+          -4.50236,
+          -4.437864,
+          -3.653891
+        ]
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/evogp-triton-cache"
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fused_device_queued_vs_in_graph": {
+          "comparable": 255,
+          "finiteness_mismatch": 0,
+          "max_rel": 2.2143004230201768e-07,
+          "max_rel_scaled": 2.1950156969818835e-11,
+          "scale": 22778880000.0
+        },
+        "fused_device_vs_in_graph": {
+          "comparable": 255,
+          "finiteness_mismatch": 0,
+          "max_rel": 2.2143004230201768e-07,
+          "max_rel_scaled": 2.1950156969818835e-11,
+          "scale": 22778880000.0
+        },
+        "fused_host_vs_in_graph": {
+          "comparable": 255,
+          "finiteness_mismatch": 0,
+          "max_rel": 2.2143004230201768e-07,
+          "max_rel_scaled": 2.1950156969818835e-11,
+          "scale": 22778880000.0
+        }
+      },
+      "pop": 256,
+      "rows": 4096,
+      "side": "fused",
+      "timing": {
+        "fused_device": {
+          "max_ms": 1.0753,
+          "mean_ms": 1.0129,
+          "median_ms": 1.0093,
+          "min_ms": 0.9456,
+          "reps": 15,
+          "samples_ms": [
+            1.0556,
+            1.0587,
+            1.0753,
+            1.01,
+            1.0256,
+            0.9861,
+            1.0361,
+            0.9983,
+            1.0178,
+            0.9768,
+            1.0093,
+            0.9996,
+            0.9954,
+            0.9456,
+            1.0028
+          ]
+        },
+        "fused_device_queued": {
+          "median_ms": 0.7686,
+          "note": "sum of the queued-transfer median and the host-channels fused median"
+        },
+        "fused_host": {
+          "max_ms": 0.4129,
+          "mean_ms": 0.386,
+          "median_ms": 0.3862,
+          "min_ms": 0.3609,
+          "reps": 15,
+          "samples_ms": [
+            0.4056,
+            0.3769,
+            0.4129,
+            0.3759,
+            0.4059,
+            0.3693,
+            0.3664,
+            0.4124,
+            0.364,
+            0.3888,
+            0.3862,
+            0.3609,
+            0.4041,
+            0.3712,
+            0.3901
+          ]
+        },
+        "in_graph": {
+          "max_ms": 1.6085,
+          "mean_ms": 1.5441,
+          "median_ms": 1.5354,
+          "min_ms": 1.5206,
+          "reps": 15,
+          "samples_ms": [
+            1.6085,
+            1.5858,
+            1.5278,
+            1.5501,
+            1.528,
+            1.5394,
+            1.5284,
+            1.5535,
+            1.5354,
+            1.5354,
+            1.5206,
+            1.531,
+            1.5339,
+            1.5335,
+            1.55
+          ]
+        },
+        "in_graph_queued": {
+          "median_ms": 1.5354,
+          "note": "the in-graph run with a busy queue (pair lane minus the derived queued transfer)"
+        },
+        "transfer": {
+          "max_ms": 0.3435,
+          "mean_ms": 0.3124,
+          "median_ms": 0.311,
+          "min_ms": 0.2881,
+          "reps": 15,
+          "samples_ms": [
+            0.2924,
+            0.298,
+            0.3329,
+            0.2911,
+            0.297,
+            0.3435,
+            0.3142,
+            0.3106,
+            0.3265,
+            0.3293,
+            0.2902,
+            0.2881,
+            0.33,
+            0.3309,
+            0.311
+          ]
+        },
+        "transfer_queued": {
+          "median_ms": 0.3824,
+          "note": "(in-graph run + transfer) pair minus the in-graph run"
+        }
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/evogp-triton-cache",
+      "verdict": {
+        "device_channels_queued_speedup": 1.9977,
+        "device_channels_speedup": 1.5213,
+        "faster_route": "fused",
+        "host_channels_speedup": 3.9757
+      }
+    }
+  ],
+  "versions": {
+    "created_utc": "2026-10-31T02:46:07Z",
+    "cuda": null,
+    "evogp_sha": "73ac61d3456bacfe8340bb4b68b73ee04f11ffee",
+    "evoxc_file": "/root/evoxc/evoxc/__init__.py",
+    "evoxc_sha": "9f66feca58e9fcf21617e955212cdeb5ae80593a",
+    "evoxc_version": "0.0.0+unknown",
+    "gpu": "AMD Instinct MI300X VF",
+    "hip": "7.1.52802",
+    "iree_base_compiler": "3.11.0",
+    "iree_base_runtime": "3.11.0",
+    "knobs": {
+      "EVOXC_DISABLE_LOCATIONS": "1"
+    },
+    "numpy": "2.5.4",
+    "python": "3.12.3",
+    "python_executable": "/tmp/rocvenv/bin/python",
+    "torch": "2.13.0+rocm7.1",
+    "triton": "3.7.1"
+  }
+}

@@ -3,6 +3,8 @@
 Companion to `CONTEXT.md` (the binding brief) and `EVOXC_API.md` (the verified evoxc contract).
 This file holds the *how* — the concrete vectorized constructions this subtree uses, so the reasoning is not re-derived or lost.
 Every construction here keeps **static shapes** (`[pop_size, max_nodes]`), so one traced graph serves a whole run and only *values* vary per generation.
+That is also why the SAME programs serve both routes — host numpy and device-resident `iree` — with no per-backend branch in the math; the device loop (`variation.run → eval.run`, two graph runs, zero host syncs) is what the "Elitism inside the variation graph" and "Evaluation and the driver" sections build up to.
+Device-side figures quoted here come from `DEVICE_LOOP.md` (report of record, harness `measure_generation.py`).
 
 ## Channels (prefix / pre-order encoding, node 0 = root)
 Four parallel `[pop_size, max_nodes]` evoxc tensors, replacing `../tree/`'s `(value float32, type int16, size int16)` triple:
@@ -41,17 +43,32 @@ All of it is expressible in static shapes over `j = arange(max_nodes)`:
 Crossover: `pos`/`donor_pos` from `randint` over `[0, size[:, 0])` per row; every offspring is therefore structurally well-formed by construction.
 
 ## Selection
-Tournament (`k` opponents gathered by `randint` + `argmax` over the gathered fitness) and the rank/default modes; fitness arrives as an input tensor from the host readback, so selection needs no engine knowledge.
+Tournament (`k` opponents gathered by `randint` + `argmax` over the gathered fitness) and the rank/default modes; fitness arrives as a graph INPUT tensor, host array or device tensor, so selection needs no engine knowledge and a device generation never has to bring it back.
+The vector is sanitized in-graph first (`NaN → -inf`), because a NaN compares false against everything and would corrupt both the tournament and the elite ranking.
 
 ## Mutation
 `nonzero`/boolean masking is unavailable, so the torch family's *data-dependent row subset* becomes a **full-population masked apply**: draw candidate positions for every row, then `select(changed_mask, mutated, original)` per row.
 Point mutation must not change arity silently: only same-arity opcode swaps (or payload-only edits on leaves) keep the parent's `size` channel valid.
 
+## Elitism inside the variation graph
+The elite splice is two more ops of a graph the generation already runs, so it lives there instead of in a second executable:
+- order = `argsort(multiply(fitness, -1.0), descending=False, stable=True)`, cast to int32. Sorting the NEGATED vector ascending with `stable=True` is the in-graph spelling of `np.argsort(-fitness, kind="stable")`, so a tie keeps the lower row index; `descending=True` must not be used because it flips the tie order.
+- the first `elite_count` entries index the parent rows, gathered out of the parent channels (bit-identical copies) and concatenated in front of the first `pop_size - elite_count` offspring rows; the rest of the offspring are dropped because they are exchangeable draws.
+- `next_fitness` = the elite values (`gather(fitness, elite_index)`) followed by `UNEVALUATED` (`-inf`) for the offspring, and it is an OUTPUT of the graph — which is why a device `step` needs no readback.
+`elite_index=` takes an explicit `[elite_count]` int32 vector instead of the ranking (one upload on a device run), and `elite_count=0` short-circuits to offspring-only with an all-`-inf` vector.
+Rationale for the fusion is measured, not aesthetic: a separate splice graph cost a third `evoxc.run`, two H2D uploads and one readback per generation (`DEVICE_LOOP.md` §3), i.e. it was the only thing standing between the loop and a zero-sync generation.
+
 ## Evaluation and the driver
-`evaluate(channels) -> (pop_size,) float32` (maximized) is the whole plug-in surface.
-It is **host-side** work per generation (an evoxc engine call or the numpy evaluator), so the driver is a plain Python loop: run one built operator graph per generation, call `evaluate`, read fitness back once — exactly ONE host sync per generation.
+`evaluate(channels) -> (pop_size,) float32` (maximized) is the whole plug-in surface, and the driver is a plain Python loop: one built operator graph per generation plus one `evaluate` call.
 The driver never traces `evaluate`.
+Two kinds of objective are accepted with no declaration: a numpy-returning one (the host path) and an `evoxc`-tensor-returning one (`GraphEvaluator`), whose device then becomes the run's device.
+Host path: one readback per generation.
+Device path: `step` reads nothing back — the fitness tensor goes straight into the variation graph and the next fitness vector comes out of it — while `run` still reads the numbers back once per evaluated generation because its history and best-tree report are built from them, and downloads `best_channels` once at the end.
+`GraphEvaluator` closes the last host step of that path by tracing the STRUCTURE PRELUDE (leaf/function kind, function id, const value, variable index, the three child offsets) from the channels inside the graph and then calling the same `problem._graph_sr_fitness` body the host-pre-pass route uses, so a device generation is `variation.run → eval.run` with the channels never leaving the device and the numerics shared by construction.
 
 ## Torch bridge placement
-The subtree imports **no torch, not even lazily**. Therefore the adapter that turns channels into a `../tree/Forest` (or drives `../tree`'s engines) lives on the caller side, outside this subtree — the tests own that glue.
-The subtree itself ships: the numpy evaluator (the CPU-box path and the parity oracle) plus the duck-typed callable protocol.
+No module of this subtree contains a literal `import torch` / `from torch` / `import evox` statement — that is a pinned invariant, and it holds for the two places that need torch at all:
+- the fused backend `fused_eval.py`, which resolves torch, triton and `evogp.tree.fused_engine` through `importlib.import_module` INSIDE its functions and returns numpy, so it is an opt-in `evaluate=` callable and never a driver path;
+- the measurement harness `measure_generation.py`, which does the same to build the torch-stack sides it compares against.
+The adapter that turns channels into a `../tree/Forest` for any other purpose stays on the caller side, outside this subtree; the tests own that glue.
+The subtree itself ships the numpy evaluator (the CPU-box path and the parity oracle), the device-resident in-graph evaluator, and the duck-typed callable protocol.

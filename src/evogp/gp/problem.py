@@ -339,9 +339,12 @@ class CustomLoss(BaseProblem):
 #   population with a different function set recompiles once and then hits.
 #
 # The value buffer is grown column by column (``node = L-1`` down to ``0``) as a
-# ``[rows, pop_size, n_rows]`` tensor, and a child value is read with ONE flat
-# ``gather`` per child -- the construction of ``../tree/dense_engine.py``
-# (``_read_buffer``), which is the in-repo reference for this idiom.
+# ``[rows, pop_size, n_rows]`` tensor.  Only the second (and, for a ternary
+# function set, the third) child needs a gather -- ONE flat ``gather`` each, the
+# construction of ``../tree/dense_engine.py::_read_buffer``, the in-repo
+# reference for this idiom: pre-order makes a node's first child the next
+# column, so ``v1`` is the previous column's value tensor itself and costs no
+# read at all.
 #
 # Numerics: every emitter below is the op-for-op counterpart of the numpy
 # emitter in :mod:`evogp.gp.evaluator` (and of ``../tree/evoxc_engine.py``), so
@@ -422,6 +425,11 @@ def clear_graph_cache() -> None:
 def _c32(evoxc, value):
     """0-d float32 graph constant."""
     return evoxc.constant(evoxc.core.tensor(np.asarray(np.float32(value), np.float32)))
+
+
+def _i32(evoxc, value):
+    """0-d int32 graph constant."""
+    return evoxc.constant(evoxc.core.tensor(np.asarray(np.int32(value), np.int32)))
 
 
 def _c32_array(evoxc, array):
@@ -588,26 +596,64 @@ def _column(tensor, index: int, pop_size: int):
     return evoxc.reshape(evoxc.slice(tensor, (index, 0), (1, pop_size)), (pop_size, 1))
 
 
-def _read_buffer(buffer, rows: int, child, offset_base: int, pop: int, n_rows: int):
-    """Gather child value ``child[p]`` of every tree -> ``(pop, n_rows)``.
+def _row_offsets(evoxc, pop: int, n_rows: int):
+    """The ``(pop, n_rows)`` flat-offset grid ``p * n_rows + r`` of one block.
 
-    ``child`` is a clamped ``(pop, 1)`` int32 tensor of node indices; the buffer
-    holds nodes ``offset_base .. L-1`` in row order (row 0 = node
-    ``offset_base``).  One flat ``gather`` per child, exactly as
-    ``../tree/dense_engine.py::_read_buffer`` does it.
+    Built ONCE per graph: it is a pure function of the static shape, while the
+    walk below reads two child buffers per column.
+    """
+    return evoxc.add(
+        evoxc.reshape(evoxc.cast(evoxc.arange(pop), evoxc.int32) * n_rows, (pop, 1)),
+        evoxc.reshape(evoxc.cast(evoxc.arange(n_rows), evoxc.int32), (1, n_rows)),
+    )
+
+
+def _row_column(tensor, index: int, pop_size: int):
+    """Column ``index`` of a ``(pop, L)`` tensor as a ``(pop, 1)`` tensor."""
+    import evoxc  # noqa: PLC0415
+
+    return evoxc.slice(tensor, (0, index), (pop_size, 1))
+
+
+def _child_bases(evoxc, child, width: int, pop: int, n_rows: int, pn: int):
+    """``(pop, width)`` gather BASES of one child channel.
+
+    Entry ``[p, i]`` is ``clip(child[p, i] - (i+1), 0, rows_i - 1) * pn``, i.e.
+    everything a child read at column ``i`` needs from the index arithmetic but
+    the ``+ p * n_rows + r`` of :func:`_row_offsets`.  The clamp is a pure
+    function of the static shape (``rows_i = width - 1 - i``) and the whole
+    channel is available at trace time, so it is computed ONCE per graph instead
+    of once per child per column -- same numbers, a third of the dispatches.
+    """
+    columns = evoxc.reshape(evoxc.cast(evoxc.arange(width), evoxc.int32), (1, width))
+    upper = evoxc.subtract(_i32(evoxc, width - 2), columns)  # rows_i - 1
+    offset = evoxc.subtract(
+        evoxc.transpose(child, (1, 0)), evoxc.add(columns, _i32(evoxc, 1))
+    )  # (pop, width)
+    offset = evoxc.maximum(evoxc.minimum(offset, upper), _i32(evoxc, 0))
+    return evoxc.multiply(offset, pn)
+
+
+def _read_buffer(flat, base, index: int, pop: int, n_rows: int, row_offsets):
+    """Child value of column ``index`` for every tree -> ``(pop, n_rows)``.
+
+    ``flat`` is the ``rows * pop * n_rows`` flattening of the value buffer (row 0
+    = the newest column), ``base`` the :func:`_child_bases` grid of one child
+    channel and ``row_offsets`` the :func:`_row_offsets` grid.  ONE flat
+    ``gather`` per child, exactly as ``../tree/dense_engine.py::_read_buffer``
+    does it.
+
+    The index is flattened to ``(pn,)`` and the block reshaped back on purpose:
+    IREE lowers a 1-D index measurably faster than the equivalent ``(pop,
+    n_rows)`` one (measured at pop 256: 0.71 vs 0.89 ms at 1 024 rows, 1.56 vs
+    2.46 ms at 4 096), so the two reshapes are cheaper than the index they save.
     """
     import evoxc  # noqa: PLC0415
 
     pn = pop * n_rows
-    pn_off = evoxc.add(
-        evoxc.reshape(evoxc.cast(evoxc.arange(pop), evoxc.int32) * n_rows, (pop, 1)),
-        evoxc.reshape(evoxc.cast(evoxc.arange(n_rows), evoxc.int32), (1, n_rows)),
-    )
-    offset = evoxc.subtract(child, offset_base)
-    offset = evoxc.maximum(evoxc.minimum(offset, rows - 1), 0)
-    index = evoxc.reshape(evoxc.add(evoxc.multiply(offset, pn), pn_off), (pn,))
-    flat = evoxc.reshape(buffer, (rows * pn,))
-    return evoxc.reshape(evoxc.gather(flat, index, axis=0), (pop, n_rows))
+    index = evoxc.add(_row_column(base, index, pop), row_offsets)  # (pop, n_rows)
+    flat_index = evoxc.reshape(index, (pn,))
+    return evoxc.reshape(evoxc.gather(flat, flat_index, axis=0), (pop, n_rows))
 
 
 def _graph_body(kind, func_id, const_value, var_index, child1, child2, child3, x, cfg):
@@ -615,6 +661,19 @@ def _graph_body(kind, func_id, const_value, var_index, child1, child2, child3, x
 
     ``cfg`` is a static tuple ``(L, pop, n_rows, input_len, used_ids)``; it
     specializes the graph, so it is part of the build and run signature.
+
+    Two static facts of the pre-order walk keep the reads cheap:
+
+    * ``child1`` is no longer read: in prefix (pre-order) encoding the FIRST
+      child of a node is always the next column, so ``v1`` is the previous
+      column's value itself -- no read at all instead of a data-dependent
+      gather.  The argument stays in the signature because it is part of the
+      graph's input contract (:func:`_graph_inputs`,
+      ``graph_eval._structure_inputs``);
+    * a function set without :class:`~evogp.gp._constants.Func` ``IF`` cannot
+      produce a ternary node, so the ``phi`` and its THIRD-child gather are dead
+      code and are not emitted (``graph_eval._uncovered_rows`` masks a
+      ``TFUNC`` row for exactly that case).
     """
     import evoxc  # noqa: PLC0415
 
@@ -624,12 +683,17 @@ def _graph_body(kind, func_id, const_value, var_index, child1, child2, child3, x
     input_len = int(cfg[3])
     used_ids = tuple(int(v) for v in cfg[4])
     pn = pop * n_rows
+    ternary = Func.IF in used_ids
 
     x_flat = evoxc.reshape(x, (n_rows * input_len,))
     x_base = evoxc.reshape(
         evoxc.cast(evoxc.arange(n_rows), evoxc.int32) * input_len, (1, n_rows)
     )
+    row_offsets = _row_offsets(evoxc, pop, n_rows)
+    base2 = _child_bases(evoxc, child2, width, pop, n_rows, pn)
+    base3 = _child_bases(evoxc, child3, width, pop, n_rows, pn) if ternary else None
     zero = _c32(evoxc, 0.0)
+    values = [None] * width  # column index -> its (pop, n_rows) value
     buffer = None
     rows = 0
     root = None
@@ -639,9 +703,6 @@ def _graph_body(kind, func_id, const_value, var_index, child1, child2, child3, x
         f_i = _column(func_id, i, pop)
         cv_i = _column(const_value, i, pop)
         vi_i = _column(var_index, i, pop)
-        c1_i = _column(child1, i, pop)
-        c2_i = _column(child2, i, pop)
-        c3_i = _column(child3, i, pop)
 
         if buffer is None:
             # A function node at the last column would need a child outside the
@@ -649,13 +710,18 @@ def _graph_body(kind, func_id, const_value, var_index, child1, child2, child3, x
             # code there and are replaced by a constant.
             v1 = v2 = v3 = _c32(evoxc, 0.0)
         else:
-            v1 = _read_buffer(buffer, rows, c1_i, i + 1, pop, n_rows)
-            v2 = _read_buffer(buffer, rows, c2_i, i + 1, pop, n_rows)
-            v3 = _read_buffer(buffer, rows, c3_i, i + 1, pop, n_rows)
+            v1 = values[i + 1]  # pre-order: the first child of node i is node i+1
+            flat = evoxc.reshape(buffer, (rows * pn,))
+            v2 = _read_buffer(flat, base2, i, pop, n_rows, row_offsets)
+            v3 = (
+                _read_buffer(flat, base3, i, pop, n_rows, row_offsets)
+                if ternary
+                else v1
+            )
 
         # -- leaf value -------------------------------------------------------
-        x_index = evoxc.reshape(evoxc.add(vi_i, x_base), (pn,))
-        xv = evoxc.reshape(evoxc.gather(x_flat, x_index, axis=0), (pop, n_rows))
+        x_index = evoxc.add(vi_i, x_base)  # (pop, n_rows)
+        xv = evoxc.gather(x_flat, x_index, axis=0)
         leaf = evoxc.select(evoxc.equal(op_i, _K_VAR), xv, cv_i)
 
         if buffer is None:
@@ -673,16 +739,18 @@ def _graph_body(kind, func_id, const_value, var_index, child1, child2, child3, x
                     else _emit_unary(evoxc, fid, v1)
                 )
                 product = evoxc.select(evoxc.equal(f_i, fid), candidate, product)
-            value = evoxc.select(
-                evoxc.equal(op_i, _K_TFUNC),
-                _emit_ternary(evoxc, v1, v2, v3),
-                product,
-            )
-            value = evoxc.select(evoxc.less_equal(op_i, _K_CONST), leaf, value)
+            if ternary:
+                product = evoxc.select(
+                    evoxc.equal(op_i, _K_TFUNC),
+                    _emit_ternary(evoxc, v1, v2, v3),
+                    product,
+                )
+            value = evoxc.select(evoxc.less_equal(op_i, _K_CONST), leaf, product)
 
         if i == 0:
             root = value
             break
+        values[i] = value
         row = evoxc.reshape(value, (1, pop, n_rows))
         buffer = row if buffer is None else evoxc.concatenate([row, buffer], axis=0)
         rows += 1

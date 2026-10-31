@@ -37,6 +37,13 @@ protocol cannot slip into a table.  It verifies:
   ``available: false`` block whose counters carry numbers, is a ``WARN``.  Also an
   optional surface (null, never zero), so it too stays silent for a record with no
   content keys and never fails a gate;
+* for the fused (Triton) arms (``common.EVOXC_ARMS[arm]["eval_mode"] == "fused"``):
+  ``routes["sr_fitness"].eval_mode == "fused"`` is a ``FAIL`` (a fused arm must have
+  resolved to the fused route) and the route's own launch proof is a ``WARN`` -- a
+  ``fused_cache`` block present with a boolean ``available``, ``served_every_workload``
+  true, and no workload whose ``cache.fused_served`` is false (that median is the
+  specialized+numpy fallback).  The route compiles no evoxc graph, so its
+  ``compile_misses_first_call`` is 0 by construction and is never read as evidence;
 * digest agreement: all arms of one cell share one ``batch_forward`` and one
   ``forward`` sha256, and every workload's ``nan``/``finite`` counts agree across
   arms (``--allow-digest-mismatch`` downgrades the sha256 half to a warning);
@@ -57,7 +64,11 @@ fail, but only when the recorded ``env.tree_root`` really has no ``.git``).
 ``--results`` takes either a single result directory (``<results>/<cell>/<arm>.json``
 plus ``campaign.json``) or one that groups them: a directory whose subdirectories are
 themselves result directories (``results/final/{after,before}/``) is gated directory
-by directory in one run, and the exit code is 1 if any of them fails.
+by directory in one run, and the exit code is 1 if any of them fails.  A directory that
+holds at least one subdirectory with its own ``campaign.json`` is a container of
+CAMPAIGNS and is gated campaign by campaign, so a round's non-campaign columns
+(``cold/``, ``probes/``, ``sweep/``, ``decompose*/``) are skipped instead of being read
+as cells of one giant result directory -- they carry their own schemas.
 
 Usage (repository root, stdlib only, GPU-free)::
 
@@ -148,6 +159,11 @@ def is_number(value: Any) -> bool:
 
 def is_evoxc_arm(arm: str) -> bool:
     return arm in common.EVOXC_ARMS or arm not in common.TORCH_ARMS
+
+
+def is_fused_arm(arm: str) -> bool:
+    """Is this arm the fused (Triton) route?  Read off the registry, never a name match."""
+    return (common.EVOXC_ARMS.get(arm) or {}).get("eval_mode") == "fused"
 
 
 def median(samples: List[float]) -> Optional[float]:
@@ -255,10 +271,22 @@ def gate_targets(results_dir: str) -> List[str]:
     today's behaviour).  A directory that merely *groups* result directories
     (``results/final/{after,before}/``) is not gated itself -- it holds no records --
     and every immediate subdirectory that is a result directory is gated instead.
+
+    A directory holding at least one immediate subdirectory with its own
+    ``campaign.json`` is a CONTAINER OF CAMPAIGNS: it is gated campaign by campaign and
+    never as one result directory, even when it also holds non-campaign columns
+    (``results/t1a1_fused/{main,cold,probes,sweep}``, ``results/final/{after,before,
+    cold,...}``, ``results/batch/{warm-r5,...}``).  Those columns carry their own
+    schemas (a cold-start call, a probe, a band sweep) which ``check.py`` cannot gate,
+    so they are left to their own gates while every campaign directory is gated here.
     """
     children = [os.path.join(results_dir, name)
                 for name in sorted(os.listdir(results_dir))
                 if is_result_dir(os.path.join(results_dir, name))]
+    campaigns = [path for path in children
+                 if os.path.isfile(os.path.join(path, "campaign.json"))]
+    if campaigns:
+        return children
     if is_result_dir(results_dir) or not children:
         return [results_dir]
     return children
@@ -406,6 +434,69 @@ def check_batch(checker: Checker, card: str, record: Dict[str, Any]) -> None:
                      f"{BATCH_EXEC_MISS_KEY!r} — the exec table (the counter whose miss "
                      "recompiles) is not among the counters this route exposes, so the "
                      "compile deltas are read off a fallback key or are null")
+
+
+def check_fused(checker: Checker, card: str, record: Dict[str, Any]) -> None:
+    """The invariants that make a fused-route record trustworthy (fused arms only).
+
+    The fused (Triton) route compiles NO evoxc graph, so ``cache.compile_misses_first_call``
+    is 0 by construction and proves nothing: the existence proof is
+    ``fused_kernel_launches``, read out of the route's own counter block
+    (``record["fused_cache"]``, per workload ``workloads[*].cache.fused``/``fused_served``).
+
+    Routing is a ``FAIL`` -- a fused arm must have resolved to the fused route -- and
+    everything about the proof is a ``WARN``: a record that predates the fused counter
+    block (the whole committed ``t1a1_fused`` campaign) is still a valid timing record, it
+    merely cannot say WHICH engine served its median.  A ``served_every_workload`` that is
+    not ``True`` is the one thing a reader must not miss: that median is the route's
+    specialized+numpy FALLBACK, never a fused measurement.  Called exclusively for
+    ``is_fused_arm`` records, so it is a no-op for every other arm.
+    """
+    route = (record.get("routes") or {}).get("sr_fitness")
+    route = route if isinstance(route, dict) else {}
+    checker.check(
+        route.get("eval_mode") == "fused",
+        f"{card}: fused arm but routes.sr_fitness.eval_mode={route.get('eval_mode')!r} "
+        "!= 'fused' — this record cannot be a fused-route measurement (the arm needs "
+        "EVOGP_EVAL_MODE=fused and a tree whose EVAL_MODES declares 'fused')",
+    )
+    engine = route.get("engine")
+    if engine is None:
+        checker.warn(f"{card}: routes.sr_fitness carries no 'engine' — the record predates "
+                     "the fused branch of common.route_decision, so it cannot say whether "
+                     "the fused evaluator served the call or its fallback did")
+    elif engine != "fused":
+        checker.warn(f"{card}: routes.sr_fitness.engine={engine!r} != 'fused' — the route "
+                     f"DECLINED ({route.get('fused_reason')!r}), so the medians are the "
+                     f"{route.get('fused_fallback_backend')!r} fallback, not the fused kernel")
+
+    cache = record.get("fused_cache")
+    if cache is None:
+        checker.warn(f"{card}: no fused_cache block — this record predates the fused "
+                     "counter surface, so it has no fused_kernel_launches and cannot PROVE "
+                     "the kernel served the call (compile_misses_first_call is 0 by "
+                     "construction on this route)")
+    elif not isinstance(cache, dict) or not isinstance(cache.get("available"), bool):
+        checker.check(False, f"{card}: fused_cache is not an object with a boolean "
+                             f"'available' ({cache!r})")
+    else:
+        if cache["available"] is False:
+            checker.warn(f"{card}: fused_cache.available is false — this tree exposes no "
+                         "evogp.tree.fused_engine.fused_cache_stats(), so every fused_* "
+                         "counter is null (NOT zero) and the launch proof is missing")
+        elif cache.get("served_every_workload") is not True:
+            checker.warn(f"{card}: fused_cache.served_every_workload="
+                         f"{cache.get('served_every_workload')!r} — not every workload "
+                         "reached a Triton launch, so at least one median below is the "
+                         "specialized+numpy fallback rather than a fused measurement")
+    for name, entry in sorted((record.get("workloads") or {}).items()):
+        if not isinstance(entry, dict):
+            continue
+        served = (entry.get("cache") or {}).get("fused_served")
+        if served is False:
+            checker.warn(f"{card}/{name}: cache.fused_served is false — this workload's "
+                         f"{entry['median_ms']!r} ms median is the route's fallback, not a "
+                         "Triton launch (read cache.fused.fused_declines)")
 
 
 def iter_dicts(node: Any, path: str = ""):
@@ -686,6 +777,8 @@ def gate_dir(results_dir: str, args) -> Tuple[Checker, Dict[str, Any]]:
                 checker.check(False, f"{card}/{name}: workload block is not an object")
         if is_evoxc_arm(arm):
             check_cache(checker, card, record)
+        if is_fused_arm(arm):
+            check_fused(checker, card, record)
         if common.is_batch_arm(arm):
             check_batch(checker, card, record)
             check_stages(checker, card, record)
