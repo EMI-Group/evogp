@@ -18,9 +18,9 @@ Re-verified on the device reference box: `pytest src/evogp/tests -q` → 1 255 p
 ## 6. The existence proof (`test/benchmark/evoxc/worker.py`)
 `FUSED_STATS_KEYS` (the 15 `fused_cache_stats()` counters) and `FUSED_GAUGE_KEYS` (the 6 gauges, recorded as an AFTER snapshot rather than a delta) feed `fused_served()` (`attempts - declines == calls` and `launches >= calls`), and the per-workload block lands as `record["fused_cache"]` beside `record["engine_cache_final"]`.
 An engine name is not proof a call was served; `fused_kernel_launches` is (`fused_calls` counts ATTEMPTS), so a `compile_misses_first_call` of 0 proves nothing on this route — it compiles no evoxc graph.
-## 7. The one remaining red case (fixed)
-`src/evogp/tests/test_fused_route.py::test_auto_never_selects_fused` (pop 16 / 64 / 256) used to assert the pre-policy claim that `auto` never selects the fused route, which contradicted the shipped policy from `EVOGP_FUSED_MIN_POP` up.
-The assertion has been inverted rather than the policy (`test_auto_selects_fused_above_the_floor`, 3 cases) and the below-the-floor / no-triton arm kept as `test_auto_keeps_the_pre_fused_policy_below_the_floor_or_without_triton`, so the file is 39 passing cases.
+## 7. The `auto`-policy pin
+`src/evogp/tests/test_fused_route.py::test_auto_selects_fused_above_the_floor` (pop 16 / 64 / 256, 3 cases) pins `auto` → `fused` from `EVOGP_FUSED_MIN_POP` up, and `test_auto_keeps_the_pre_fused_policy_below_the_floor_or_without_triton` pins the below-the-floor / no-triton arm as `specialized`.
+No pre-policy assertion that `auto` never selects the fused route is left, so the file is 39 passing cases.
 ## 8. The campaign's gate
 `test/benchmark/evoxc/results/t1a1_fused/` is the campaign of record (the `test/` tree, beside `results/t1a1_baseline/`), and its gate is `check.py --results test/benchmark/evoxc/results/t1a1_fused --allow-snapshot --allow-missing --allow-digest-mismatch` → 20 records / 580 checks / 0 failures.
 The two allowances stay: a fused `arith`-set `sr_fitness` digest differs by float32 reduction order, and this round never scheduled every arm on every cell.

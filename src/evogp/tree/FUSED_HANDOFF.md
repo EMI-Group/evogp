@@ -15,9 +15,10 @@ Measurements and verdicts: `FUSED.md`; records: `test/benchmark/evoxc/results/t1
 ## 1. The pytest net
 `src/evogp/tests/test_fused_route.py` is the suite's net for this route: hermetic (it SKIPS without a device, `triton` or a writable `TRITON_CACHE_DIR`) and it lifts the session `EVOGP_EVOXC_BACKEND=numpy` pin per test, because `backend="numpy"` is a documented DECLINE of the route, not a fallback.
 Its `_served` helper asserts `fused_kernel_launches > 0` and `fused_declines == 0`, so a passing case proves a real Triton launch.
-## 2. The one remaining red case
-`test_fused_route.py::test_auto_never_selects_fused` (pop 16 / 64 / 256) still asserts the pre-policy claim that `auto` never picks the fused route, so it fails on a device box with Triton; the assertion has to follow the policy (fused at/above `EVOGP_FUSED_MIN_POP`, `specialized` below it).
-No other test in `src/evogp/tests` fails.
+## 2. The suite is green
+`pytest src/evogp/tests -q` reads 1 255 passed / 7 skipped / 0 failed (1 262 collected, ~122 s) on the device reference box, and `test_fused_route.py` contributes 39 of those passes.
+The policy net pins the route in both directions: `test_auto_selects_fused_above_the_floor` (pop 16 / 64 / 256 — `auto` resolves to `fused` from `EVOGP_FUSED_MIN_POP` up) and `test_auto_keeps_the_pre_fused_policy_below_the_floor_or_without_triton` (`specialized` below the floor and with the fused probe off).
+No test in `src/evogp/tests` is red.
 ## 3. Operational note
 Any process that launches the fused kernels needs a writable `TRITON_CACHE_DIR`: on this box `$HOME` is read-only and the first launch dies with `OSError: [Errno 30] Read-only file system: '/root/.triton'`.
 The first call of a fresh process pays the Triton JIT (~1.6 s for `batch_forward`, 0.94–0.99 s for `sr_fitness`, 0.32 s for `forward`); with a warm Triton disk cache it is ~2 ms.

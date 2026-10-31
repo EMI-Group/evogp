@@ -16,11 +16,11 @@ data set and the Ridge estimator comes from sklearn). ``Transformation`` impleme
 ``problem_dim`` nor ``solution_dim``, hence the hand-written ``input_len=10``/``output_len=1``
 in the descriptor.
 
-As shipped (pop 1000 x 100 steps, the original settings) the run takes roughly ten minutes
-with ``ETL_DISABLE_LOCATIONS=1`` -- ETL's tracing-only speed knob, it does not change the
-fitness (measured on an equivalent diabetes-sized workload: ~5.2 s per step at pop 1000,
-which is the per-tree compile cost of the engine -- a fresh random population is compiled
-tree by tree, so ``pop_size`` trades directly against wall time).
+As shipped (pop 1000 x 100 steps, the original settings) the run takes roughly nine minutes
+with ``EVOXC_DISABLE_LOCATIONS=1`` -- evoxc's tracing-only speed knob, it does not change the
+fitness. The manual loop here pays one full population evaluation per step on the shipped
+default route (``auto`` -> one fused Triton kernel launch per call on a device box), so
+``pop_size`` and the step count set the wall time.
 """
 
 import torch

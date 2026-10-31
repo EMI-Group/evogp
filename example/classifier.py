@@ -10,14 +10,15 @@ Run from the repository root (needs a CUDA-visible device)::
 
     PYTHONPATH=src python example/classifier.py
 
-As shipped (pop 1000 x 100 generations, the original settings) the run takes a few minutes
-with ``ETL_DISABLE_LOCATIONS=1`` (ETL's tracing-only speed knob; it does not change the
-fitness) and it writes ``./imgs/classifier_tree.png`` through the optional ``pygraphviz``
-package plus the graphviz ``dot`` binary -- comment that call out if either is missing,
-everything else only needs torch + scikit-learn. Note the per-tree cost of the ETL engine:
-a fresh random population is compiled tree by tree, so ``pop_size`` directly trades against
-wall time (measured: ~4 s for the first generation, ~2.5 s afterwards at pop 1000 on an
-iris-sized data set).
+As shipped (pop 1000 x 100 generations, the original settings) the run exceeds a 15-minute
+smoke budget on the reference box, so shrink ``pop_size`` / ``generation_limit`` while
+experimenting. Evaluation is one fused Triton kernel launch per generation on the shipped
+default route (``auto`` -> fused), so ``pop_size`` trades against wall time through the
+operator layer and the per-generation print/sync rather than through per-tree compilation.
+The run writes ``./imgs/classifier_tree.png`` through the optional ``pygraphviz`` package
+plus the graphviz ``dot`` binary -- comment that call out if either is missing, everything
+else only needs torch + scikit-learn. ``EVOXC_DISABLE_LOCATIONS=1`` is evoxc's tracing-only
+speed knob; it does not change the fitness.
 """
 
 import torch

@@ -9,12 +9,14 @@ Run from the repository root (needs a CUDA-visible device)::
 
     PYTHONPATH=src python example/basic.py
 
-As shipped (pop 50 x 100 generations) the run takes about a minute with
-``ETL_DISABLE_LOCATIONS=1`` (ETL's tracing-only speed knob -- it does not change the fitness
--- and the recommended setting for real runs); without it the ETL call-site capture makes
-the run several times longer. The run is unseeded, and it ends around a fitness of -0.23 to
--0.25 (MSE on the 8 table rows): with ``+ - * /`` and the constants -1/0/1 the parity
-function is only approximated, not solved exactly.
+As shipped (pop 50 x 100 generations) the run takes about 9.5 s on the reference box at the
+shipped default route (``auto`` -> the fused Triton route) with ``EVOXC_DISABLE_LOCATIONS=1``
+-- evoxc's tracing-only speed knob, it does not change the fitness, and it is the recommended
+setting for real runs; without it the evoxc call-site capture makes tracing several times
+slower. The first fused launch per process also pays a one-time Triton JIT of ~1.6 s unless
+``TRITON_CACHE_DIR`` points at a warm, writable cache. The run is unseeded, and it ends
+around a fitness of -0.25, occasionally -0.375 (MSE on the 8 table rows): with ``+ - * /``
+and the constants -1/0/1 the parity function is only approximated, not solved exactly.
 """
 
 import torch

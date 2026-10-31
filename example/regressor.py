@@ -9,15 +9,12 @@ Run from the repository root (needs a CUDA-visible device)::
 
     PYTHONPATH=src python example/regressor.py
 
-The GP settings below are right-sized for the ETL evaluation engine, which builds and runs
-one program per tree structure instead of a single CUDA batch op: the same run at the
-CUDA-scale settings (``pop_size=1000``, ``max_tree_len=128``, ``max_layer_cnt=7``, 300
-generations) measured 35-44 s *per generation*, i.e. hours. As shipped (pop 200 x 100
-generations, ``max_tree_len=64``) the run takes about five minutes with
-``ETL_DISABLE_LOCATIONS=1`` and several times that without it -- that variable is ETL's
-tracing-only speed knob and does not change the fitness (best fitness here: -2.61 at
-generation 0 to -0.08 at generation 100). Raise ``pop_size`` / ``generation_limit`` for a
-harder search.
+The shipped default evaluates the whole population in one fused Triton kernel launch per
+generation, so these settings are no longer sized around a per-tree compile. As shipped (pop
+200 x 100 generations, ``max_tree_len=64``) the run takes about 16 s with
+``EVOXC_DISABLE_LOCATIONS=1`` -- evoxc's tracing-only speed knob, it does not change the
+fitness -- and a few times that without it (best fitness here: -2.61 at generation 0 to
+-0.08 at generation 100). Raise ``pop_size`` / ``generation_limit`` for a harder search.
 """
 
 import torch

@@ -5,13 +5,14 @@ Ad-hoc, human-driven validation layer for the repo: one small public-API regress
 **legacy-CUDA numeric reference** (`goldens/`) plus the script that captured and compares it, an `evoxc`
 economics probe, the performance-benchmark harnesses under `benchmark/` (current: `benchmark/evoxc/`;
 historical: the legacy-engine rounds), and three scratch notebooks.
-Nothing here is imported by `evogp`, by the examples or by the pytest suite, and there is no CI (no pytest ini in the repo): every file is executed by hand from the repository root, except the harness's two torch-free pytest modules (`benchmark/evoxc/test_arm_registry.py`, `benchmark/evoxc/test_large_cells.py`), which the historical full gate `pytest test src/evogp/tests` does collect.
-The real regression gate is the pytest suite in `../src/evogp/tests/` (independent plain-torch oracle,
-randomized/adversarial equivalence, operator invariants, API compatibility, convergence smoke): treat
-this directory as the layer *around* it, i.e. legacy cross-checks, an `evoxc` tooling probe, the
+Nothing here is imported by `evogp`, by the examples or by the pytest suite, and there is no CI (no pytest ini in the repo): every file is executed by hand from the repository root, except the harness's two torch-free pytest modules (`benchmark/evoxc/test_arm_registry.py`, `benchmark/evoxc/test_large_cells.py`), which the full gate `pytest test src/evogp/tests src/evogp/gp/tests` does collect.
+The real regression gates are the library's two pytest suites, `../src/evogp/tests/` (independent plain-torch oracle,
+randomized/adversarial equivalence, operator invariants, API compatibility, convergence smoke) and the torch-free
+functional suite `../src/evogp/gp/tests/`: treat
+this directory as the layer *around* them, i.e. legacy cross-checks, an `evoxc` tooling probe, the
 benchmark harnesses and human-watched demos.
 Because there is no test framework of its own here, a green run only means "it ran and its checks held"; only
-`fix_bug.py` (explicit checks that raise `AssertionError`), the harness's two pytest modules and the pytest suite verify numbers at all.
+`fix_bug.py` (explicit checks that raise `AssertionError`), the harness's two pytest modules and those two pytest suites verify numbers at all.
 
 ## How to run (exact commands)
 Interpreter is the project venv — no `python`/`python3` on `PATH` has torch. Every evogp entry point below needs
@@ -26,12 +27,20 @@ export PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1
 # 1. small public-API regression check: Tree.forward / SR_fitness across all execute modes (~3 s)
 $PY test/fix_bug.py                     # exit 0 + three [ok] lines
 
-# 2. the canonical gate (~125 s; 1 262 cases, 1 252 passed / 7 skipped / 3 failed)
+# 2. the canonical gate (~122 s; 1 262 collected, 1 255 passed / 7 skipped / 0 failed)
 $PY -m pytest src/evogp/tests -q
 
-# 2b. install-validation smoke (~11 s on a device box — its default pop 200 rides `auto` onto the fused route; best fitness ≈ -0.2259)
+# 2b. install-validation smoke (~9.4 s on a device box — its default pop 200 rides `auto` onto the fused route; best fitness ≈ -0.2259)
 #     export TRITON_CACHE_DIR=$TMPDIR/triton-cache first, or the first Triton launch dies on a read-only $HOME
 $PY -m evogp.sr_test
+
+# 2c. torch-free functional-stack suite (~66 s on a device box; 291 passed / 36 skipped, the 36 device-gated)
+$PY -m pytest src/evogp/gp/tests -q
+
+# 2d. full gate over the harness's torch-free tests plus both library suites
+#     (1 295 passed / 7 skipped / 0 failed, ~121 s); the fused route's own net alone is
+#     `-m pytest src/evogp/tests/test_fused_route.py -q` → 39 passed (~14 s)
+$PY -m pytest test src/evogp/tests src/evogp/gp/tests -q
 
 # 3. legacy goldens: inventory, and compare the current engine against the frozen captures
 $PY test/golden_capture.py manifest
@@ -129,7 +138,7 @@ Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) 
   removed `formula=` / `share_input=` API is still called by `example/combined_sr.py` and
   `tutorial/combined_gp.ipynb` (both outside this node) and by `combined_test.ipynb` here.
 - No numeric assertions in the notebooks, no golden values for anything outside the four captures, no
-  coverage of the robotics/classification problems, and nothing in this directory is wired into CI (no CI exists; the harness's two `test_*.py` modules are collected only by the historical `pytest test src/evogp/tests` gate).
+  coverage of the robotics/classification problems, and nothing in this directory is wired into CI (no CI exists; the harness's two `test_*.py` modules are collected only by the full `pytest test src/evogp/tests src/evogp/gp/tests` gate).
 - The shipped default is the fused (Triton) route, so quoting or re-gating any `benchmark/evoxc/results/t1a1_*` number needs a CUDA/ROCm-visible device, `triton`, and a writable `TRITON_CACHE_DIR`; on a CPU box or without `triton`, `auto` resolves specialized+numpy and those columns are not reproducible.
 - `decompose.py`'s `ROUTES` table has no `fused` entry and `cold_start.py` hardcodes the `evoxc-auto` arm, so a per-phase or cold-start fused column needs an edit in the harness (both live under `benchmark/evoxc/`).
 - `evoxc_jit_probe.py` is bound to the `evoxc` package (read from the checkout named by its `EVOXC_TESTS`
@@ -149,13 +158,16 @@ Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) 
 
 ## Test Strategy
 - Manual smoke sequence for a post-rewrite change: `test/fix_bug.py` (public-API numerics, ~3 s) ->
-  `pytest src/evogp/tests -q` (the real gate; 1 262 cases — 1 252 passed / 7 skipped / 3 failed, ~125 s, with
+  `pytest src/evogp/tests -q` (the real gate; 1 255 passed / 7 skipped / 0 failed, 1 262 collected, ~122 s, with
   `PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1`; `--ignore=src/evogp/tests/test_equivalence.py`
-  for the fast subset, `-k golden` for the golden cross-checks; the 3 red cases are one stale `auto`-policy
-  assertion in `test_fused_route.py`, owned by the library node) -> `test/golden_capture.py verify --out
+  for the fast subset, `-k golden` for the golden cross-checks, `-k fused` for the 39-case fused-route net) ->
+  `pytest src/evogp/gp/tests -q` (the torch-free functional suite, 291 passed / 36 skipped) -> `test/golden_capture.py verify --out
   test/goldens` if you touched evaluation semantics and want the legacy-CUDA diff (expect the
   RNG-dependent arrays to differ). `python -m evogp.sr_test` is the install-validation smoke
-  (~11 s on a device box, best fitness ≈ -0.2259).
+  (~9.4 s on a device box, best fitness ≈ -0.2259).
+- The full gate over everything is `pytest test src/evogp/tests src/evogp/gp/tests -q` → 1 295 passed /
+  7 skipped / 0 failed in ~121 s (it adds the harness's torch-free `benchmark/evoxc/` modules); the whole library
+  suite is green, so there is no known red case.
 - `test/evoxc_jit_probe.py` is independent of evogp's engine and is not part of that sequence.
 - Engine-vs-plain-PyTorch performance questions go to `benchmark/evoxc/`: `validate.py` (numbers first) ->
   `campaign.py` (one process per config, idle device) -> `check.py` -> `summarize.py`; never run a timed
@@ -172,6 +184,7 @@ Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) 
 Sibling paths (read-only from this node — escalate any needed write to the parent `./`):
 `../src/evogp/` (library; `../src/evogp/tests/` is the canonical pytest suite, the golden-fixture
 loader, and the evoxc-pattern economics probe `../src/evogp/tests/perf_probe.py` — JSON-emitting, pop-200/1000
-extrapolation, never imports evogp), `../example/` and `../tutorial/` (maintained runnable examples /
+extrapolation, never imports evogp; `../src/evogp/gp/tests/` is the torch-free functional-stack suite),
+`../example/` and `../tutorial/` (maintained runnable examples /
 curated notebooks), `../src/evogp/tree/ENGINE_SPEC.md` (engine semantics of record, incl. the legacy op schemas).
 Foreign repo `evoxc` (`/root/evoxc`, the evaluation-engine dependency) via `evoxc_jit_probe.py` (read-only).

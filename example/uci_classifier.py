@@ -9,10 +9,11 @@ Run from the repository root (needs a CUDA-visible device)::
     PYTHONPATH=src python example/uci_classifier.py
 
 External requirements: ``ucimlrepo`` and ``pandas`` (``pip install ucimlrepo pandas``) plus
-network access at run time, and several minutes for the run (several times longer without
-``ETL_DISABLE_LOCATIONS=1`` -- ETL's tracing-only speed knob, it does not change the
-fitness). ``Classification`` expects 1-D contiguous class indices starting at 0, which the
-``.astype("category").cat.codes`` conversion above provides.
+network access at run time. The shipped setting is the paper's pop 100 x 100 generations
+with ``max_tree_len=512``, i.e. a multi-minute run; ``EVOXC_DISABLE_LOCATIONS=1`` (evoxc's
+tracing-only speed knob, it does not change the fitness) is the recommended setting, since
+without it tracing is several times slower. ``Classification`` expects 1-D contiguous class
+indices starting at 0, which the ``.astype("category").cat.codes`` conversion above provides.
 """
 
 import time

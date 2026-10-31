@@ -22,11 +22,12 @@ Run from the repository root (needs a CUDA-visible device)::
     PYTHONPATH=src python example/combined_sr.py
 
 As shipped (pop 100 x 3 sub-forests, 100 generations, ``max_tree_len=32``) the run takes
-about a minute on the reference box with ETL's ``"numpy"`` backend, and the reported best
-fitness (``-(A + B * C - target)**2``, so 0.0 is a perfect fit) goes from about -0.50 at
-generation 0 to about -0.22 at generation 100. ``ETL_DISABLE_LOCATIONS=1`` makes it several
-times faster (tracing-only knob, it does not change the fitness); ``EVOGP_ETL_BACKEND=iree``
-switches evaluation to the experimental IREE/CUDA backend.
+about 19 s on the reference box at the shipped default route (``auto`` -> the fused Triton
+route), and the reported best fitness (``-(A + B * C - target)**2``, so 0.0 is a perfect
+fit) goes from about -0.50 at generation 0 to about -0.22 at generation 100.
+``EVOXC_DISABLE_LOCATIONS=1`` makes the evoxc tracing several times faster (tracing-only
+knob, it does not change the fitness); ``EVOGP_EVOXC_BACKEND=iree`` switches evaluation to
+the compiled IREE backend.
 """
 
 import torch

@@ -9,9 +9,11 @@ Run from the repository root (needs a CUDA-visible device)::
     PYTHONPATH=src python example/uci_sr.py
 
 External requirements: ``ucimlrepo`` (``pip install ucimlrepo``) plus network access at run
-time, and several minutes for the paper's pop 100 x 100 generations with
-``max_tree_len=512`` (several times longer without ``ETL_DISABLE_LOCATIONS=1`` -- ETL's
-tracing-only speed knob, it does not change the fitness).
+time. On the reference box the paper's pop 100 x 100 generations with ``max_tree_len=512``
+take about 10.7 s at the shipped default route (``auto`` -> the fused Triton route) with
+``EVOXC_DISABLE_LOCATIONS=1`` -- evoxc's tracing-only speed knob, it does not change the
+fitness; without it tracing is several times slower. The measured best fitness there is
+-73.29.
 
 Only the paper's own ids are handled: id 1 (Abalone, ``Sex`` mapped to 0/1/2) and id 9
 (Auto MPG, rows with a NaN ``horsepower`` dropped); other ids that contain string columns

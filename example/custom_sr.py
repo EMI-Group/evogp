@@ -12,11 +12,12 @@ run from the repository root (both paths are CWD-relative)::
 
     PYTHONPATH=src python example/custom_sr.py
 
-External requirements: ``pandas`` (``pip install pandas``), a CUDA-visible device and, in
-practice, several minutes: pop 100 x 100 generations with ``max_tree_len=512`` and the
-three extra transcendental functions is the paper's setting and is several times slower
-without ``ETL_DISABLE_LOCATIONS=1`` (ETL's tracing-only speed knob; it does not change the
-fitness).
+External requirements: ``pandas`` (``pip install pandas``), a CUDA-visible device and the two
+``data/`` CSVs above. On the reference box the paper's pop 100 x 100 generations with
+``max_tree_len=512`` and the three extra transcendental functions take about 10.3 s at the
+shipped default route (``auto`` -> the fused Triton route) with ``EVOXC_DISABLE_LOCATIONS=1``
+-- evoxc's tracing-only speed knob, it does not change the fitness; without it tracing is
+several times slower. The measured best fitness there is -648.57.
 
 The printed ``MSE`` and node statistics come from the FINAL generation's population
 (``pipeline.fitness`` / ``algorithm.forest``), not from the best-ever individual
