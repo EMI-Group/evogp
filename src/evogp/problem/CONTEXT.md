@@ -72,7 +72,7 @@ Importable as `from evogp.problem import CustomLoss` (and via the deep path); it
 
 ## Module map / routing
 - `base.py` → `BaseProblem` abstract contract every class here inherits.
-- `symbolic_regression.py` → regression benchmark, the only problem that also accepts `CombinedForest`.
+- `symbolic_regression.py` → regression benchmark; accepts a plain `Forest` only (a `CombinedForest` raises `NotImplementedError` at `symbolic_regression.py:70-77`).
 - `classification.py` → accuracy benchmark over sklearn datasets.
 - `transformation.py` → feature-construction benchmark (correlation fitness + `new_feature`).
 - `brax_problem.py` → Brax locomotion control (torch↔jax loop inside `evaluate`).
