@@ -246,7 +246,8 @@ def stats_keys(*snapshots: Any) -> List[str]:
     return []
 
 
-#: The fused route's 15 counters (``fused_engine.fused_cache_stats()``); six are GAUGES.
+#: The 15 counters the fused window records out of ``fused_engine.fused_cache_stats()``
+#: (25 keys in all); six of them are GAUGES.
 FUSED_STATS_KEYS: Tuple[str, ...] = (
     "fused_calls", "fused_declines", "fused_xt_hits", "fused_xt_misses",
     "fused_xt_entries", "fused_xt_maxsize", "fused_kernel_launches",

@@ -61,7 +61,8 @@ WHAT IT CHECKS
    move), that ``resolve_route(pop, eval_mode="fused")`` names the fused engine on
    ``iree`` with a ``numpy`` fallback while ``pop_size == 1``, a population below
    ``EVOGP_FUSED_MIN_POP`` and a box without a device stay ``specialized``+``numpy``,
-   that ``auto`` never selects it and that a multi-output population is SERVED by
+   that ``auto`` selects it from ``EVOGP_FUSED_MIN_POP`` up on a device box and keeps the
+   pre-fused policy below the floor / without a device, and that a multi-output population is SERVED by
    the multi-output kernel (same numbers as the specialized reference, one
    ``fused_calls`` and no ``fused_declines``).  ``--stage timing --wired`` re-times
    the six cells through the same public calls.

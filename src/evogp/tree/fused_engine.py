@@ -162,14 +162,14 @@ The earlier six-cell sweep that preceded this campaign (kept for the record in
 **48.6x-167.6x** on the value path, 43.4x-156.4x on the loss path and 56x-150x
 per-tree, with the kernel 72-82 % of a warm call and a 375-378 ms (warm disk
 cache) / 1.36-1.38 s (cold cache) first call.
-Parity (``python -m evogp.tree.fused_check --stage parity``): 60/60 comparisons
+Parity (``python -m evogp.tree.fused_check --stage parity``): 56/56 comparisons
 against ``src/evogp/tests/reference_eval.py`` over five op sets (arithmetic,
 ternary, loose, rich and ``compare_unary`` -- the set that draws ``>`` / ``<=`` /
 ``neg`` / ``abs`` / ``sinh`` / ``cosh``) -- **bitwise** on the arithmetic and
 ``compare_unary`` value paths and on every handmade adversarial row that has no
 NaN/zero-sign case, ``<= 1.8e-07`` relative on the loose/rich transcendental
 sets' value paths and ``<= 1e-07`` on the loss paths (float32 reduction order),
-plus 10/10 golden fixtures inside 1e-4 (measured ``<= 1.9e-06``), 54/54
+plus 10/10 golden fixtures inside 1e-4 (measured ``<= 1.9e-06``), 57/57
 decline/contract checks and 32/32 wiring checks.  The ``OUT_NODE`` multi-output
 protocol has its own stage
 (``--stage multi``: 13 case x ``out_len`` populations, 4 surfaces, 65/65

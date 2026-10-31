@@ -440,7 +440,7 @@ Honest limits, from these campaigns:
 - **`EVOGP_FUSED_MIN_POP` = 16** keeps a single-tree call (`pop 1`) on the specialized engine so a one-shot
   `Tree.forward` never pays the JIT; `0` is refused. `EVOGP_EVOXC_BACKEND=numpy` still *reports* `engine="fused"` while
   every call declines onto specialized+`numpy`, so a served call must be proven by `fused_cache_stats()`
-  (`fused_kernel_launches`), never by the engine name.
+  (`fused_kernel_launches` / `fused_bound_launches`), never by the engine name.
 - **No per-stage timer surface** on this route: the kernel/host split was reconstructed by timing the kernel launch and
   the facade separately (`fused_check._stage_split`), which the fast path has since made ambiguous (above).
 - **Small rows at small trees are unmeasured** (`rows ≤ 64` with 8–32-node trees, pops 1–8), where the kernel's
@@ -511,7 +511,10 @@ EVOGP_EVAL_MODE=fused TRITON_CACHE_DIR=/tmp/triton python example/basic.py
 Backend, device and options are always passed to `evoxc.build_cached` explicitly, so ambient `EVOXC_BACKEND` /
 `EVOXC_DEVICE` / `EVOXC_TARGET_BACKENDS` cannot silently change what the engine does. `evogp.tree.evoxc_engine.cache_stats()`
 and `evogp.tree.evoxc_engine.clear_cache()` inspect and reset the shared cache; `evogp.tree.fused_engine.fused_cache_stats()`
-and `clear_fused_cache()` do the same for the fused route.
+and `clear_fused_cache()` do the same for the fused route (25 `fused_*` keys, `fused_bound_launches` / `fused_dispatch_declines`
+included), and `evogp.tree.fused_kernels.dispatch_stats()` reports the launch path itself (`bound_launches` / `jit_launches` /
+`declines`). The route decision is memoized: `evogp.tree.dense_engine.route_cache_stats()` reports
+`route_hits` / `route_misses` / `route_bypasses` / `route_entries` / `route_maxsize`, and `clear_route_memo()` drops every entry.
 
 The economics above can be reproduced with the standalone probes `test/evoxc_jit_probe.py` (evoxc's memoized-build
 sugar on a realistic GP step; `--sections a,b,f` for a subset), `src/evogp/tests/perf_probe.py --quick`

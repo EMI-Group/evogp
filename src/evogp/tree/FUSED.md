@@ -71,7 +71,7 @@ fresh population, and it would still look plausible). Two independent proofs are
 - **Policy**: `dense_engine.resolve_route(pop, rows=…)` returns `engine="fused"`, `use_fused=True`,
   `backend="iree"`, `fallback_backend="iree"` for all three call shapes (`sr_fitness`, `batch_forward`, `forward`) on
   all six cells — `route` block, `route_all_fused: true` in every probe record.
-- **Execution**: the 15-key `fused_engine.fused_cache_stats()` delta around each workload shows
+- **Execution**: the 25-key `fused_engine.fused_cache_stats()` delta around each workload shows
   `fused_kernel_launches == 1 + warmup + reps`, `fused_declines == 0`, `fused_scratch_allocs + fused_scratch_reuses
   == launches`, and `fused_xt_hits + fused_xt_misses == launches` on the two `per_row=False` surfaces
   (`served: true` on every workload of every cell). A fallback moves `fused_calls` but leaves `fused_kernel_launches`
@@ -342,15 +342,8 @@ trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
    reps is sensitive to GPU clock state, and this campaign's own `torch-batched` reference also ran 2–3 % slower than
    the baseline of record (4.0547 vs 4.0044 ms `bf` at `p256-L32`). Do not quote the loss path tighter than
    "32–131× in this campaign, up to ~147× measured previously".
-4. **Host glue is 22–49 % of a warm call** (0.031–0.062 ms) — route resolution, `_prepare`, the scratch lookup
-   and the `contiguous` epilogue. The `launch_value` CALL is another 0.060–0.135 ms, and the DEVICE kernel inside it
-   is only **16.5–86 µs** (§3's profiler column, §17.1), i.e. 22 % of a `p256` call, 51 % of `p4096` and 63 % of
-   `d7`. Further gains on the small cells need the LAUNCH PATH (Triton's Python `JITFunction.run`, not the kernel
-   body) — that is the largest single item left and nothing has been tried against it yet (§17.7).
-   **Closed by §18**: with `EVOGP_FUSED_DISPATCH` on its `bound` default (the shipped setting) the per-call
-   `JITFunction.run` is gone from the warm path and `batch_forward` reads 0.052–0.122 ms on the six cells
-   (−17 % to −38 % against the `jit` column of the same ABBA session), which lifts the device share of a
-   `p256` call from 22 % to ≈31 %.
+4. **The host-glue share no longer decomposes.** A warm call is a memoized prepared call (`fused_engine.PLAN_MEMO`), a pre-bound launch (`EVOGP_FUSED_DISPATCH=bound` serving Triton 3.7.1's `CompiledKernel.run`, with `jit` restoring `JITFunction.run`), a single-slot plan fast path for a repeated population and the memoized route decision (`dense_engine.route_cache_stats()`), so the whole call reads cheaper than one independently timed launch and only the totals are quotable: the shipped default is 0.0449–0.1152 ms `batch_forward` on the six cells (`test/benchmark/evoxc/results/t1a1_auto_r3/`).
+   The DEVICE kernel inside it is **16.5–86 µs** (§3's profiler column, §17.1), i.e. 22 % of a `p256` call, 51 % of `p4096` and 63 % of `d7` before the pre-bound launch, and ≈31 % at `p256` after it (§18); the remaining headroom on the small cells is the per-call Python of the facade, not the kernel body.
 5. **The multi-output loss path materializes the predictions.** `output_len >= 2` writes the `(pop, rows, out_len)`
    prediction buffer to device memory (zeroed, then read-modify-written at every tagged node — the accumulator is
    that buffer, see §11) and reduces it in the same kernel, where the single-output path folds in registers and moves
@@ -548,10 +541,10 @@ row (NaN/nonsense cells behind the tree).
 
 - `output_len > MAX_OUT_LEN` declines with a reason naming `MAX_OUT_LEN` (clean: no kernel compiled, no scratch
   allocated), and `output_len = 0` raises `ValueError` (a shape contract, not a route decline).
-- The battery's matrices read: decline/contract **54/54** (two-sided on `output_len`: 2 served, above `MAX_OUT_LEN`
-  declined; 24/24 before the hardening round of §16), wiring **32/32** (the public-API leg drives a multi-output
-  population and asserts one `fused_calls`, no `fused_declines` and the specialized reference's numbers), parity
-  **60/60** (the single-output set of §6; 56/56 before §16) and goldens **10/10**.
+- The battery's matrices read: decline/contract **DECLINES 57/57** (two-sided on `output_len`: 2 served, above
+  `MAX_OUT_LEN` declined), wiring **WIRED 32/32** (the public-API leg drives a multi-output population and asserts
+  one `fused_calls`, no `fused_declines` and the specialized reference's numbers), parity **PARITY 56/56** (the
+  single-output set of §6), multi-output **MULTI 65/65** and goldens **GOLDENS 10/10**.
 - `--stage goldens` still SKIPS `src/evogp/tests/goldens/06_multi_output.npz` — it is the single-output golden gate
   and serving the fixture would move its recorded count. `--stage multi` is the multi-output coverage; the fixture
   is not read by any fused stage.
@@ -964,12 +957,16 @@ function sets, loss `max_rel` ≤ 3.8e-07), **MULTI 65/65**, **GOLDENS 10/10** i
 Facade bookkeeping and route-shape facts that this campaign's sections above rely on (no number below replaces one
 stated above; where they overlap, the campaign's own tables win):
 
-- `fused_cache_stats()` returns 15 keys: `fused_calls` / `fused_declines` (facade attempts / declines),
+- `fused_cache_stats()` returns 25 keys: `fused_calls` / `fused_declines` (facade attempts / declines),
   `fused_xt_hits` / `fused_xt_misses` / `fused_xt_entries` / `fused_xt_maxsize` (the transpose table, touched ONLY
-  by `per_row=False` and the loss path), `fused_kernel_launches` / `fused_kernel_compiles` / `fused_scratch_allocs`
+  by `per_row=False` and the loss path), `fused_tag_hits` / `fused_tag_misses` / `fused_tag_entries` /
+  `fused_tag_maxsize` (the `OUT_NODE` verdict table), `fused_plan_hits` / `fused_plan_misses` / `fused_plan_entries` /
+  `fused_plan_maxsize` (the prepared-call table), `fused_kernel_launches` / `fused_kernel_compiles` / `fused_scratch_allocs`
   / `fused_scratch_reuses` / `fused_scratch_entries` / `fused_scratch_evictions` / `fused_scratch_bytes` (the launch
-  side, byte-bounded per §16.4), plus the informational `fused_block_rows` / `fused_num_warps` (which report `-1`
-  instead of raising when the ambient knob is unusable).
+  side, byte-bounded per §16.4), `fused_bound_launches` / `fused_dispatch_declines` (the launch PATH: pre-bound
+  `CompiledKernel.run` launches and the specializations that declined back to `JITFunction.run`, echoed from
+  `fused_kernels.dispatch_stats()` alongside its `jit_launches`), plus the informational `fused_block_rows` /
+  `fused_num_warps` (which report `-1` instead of raising when the ambient knob is unusable).
 - `fused_calls` counts ATTEMPTS (bumped before the try in `evaluate_fused` / `sr_fitness_fused`), so a decline moves BOTH
   counters and a shape-contract `ValueError` moves `fused_calls` alone: proving a call was served means
   `Δcalls − Δdeclines == n` AND `Δfused_kernel_launches == n`, while `fused_kernel_compiles` is "first launch of
@@ -1003,9 +1000,9 @@ stated above; where they overlap, the campaign's own tables win):
   fallback while `pop_size == 1` / a population below `EVOGP_FUSED_MIN_POP` / a box with no device stay
   `specialized`+`numpy`, that `auto` selects it from `EVOGP_FUSED_MIN_POP` up on a device box and never below it, and that a multi-output population (`output_len=2`) is SERVED
   by `_fused_multi_kernel` with the specialized reference's numbers, one `fused_calls` and no `fused_declines`;
-  `--stage timing --wired` re-times the six cells through the same public calls. Recorded: 60/60 oracle comparisons,
-  10/10 goldens at 1e-4, 54/54 decline/contract checks, 32/32 wiring checks (the `--stage multi` set of §11 adds
-  65/65 comparisons on top).
+  `--stage timing --wired` re-times the six cells through the same public calls. Recorded: PARITY 56/56 oracle comparisons,
+  GOLDENS 10/10 at 1e-4, DECLINES 57/57 decline/contract checks, WIRED 32/32 wiring checks (the `--stage multi` set of §11 adds
+  MULTI 65/65 comparisons on top).
 
 The earlier six-cell sweep that preceded this campaign (kept for the record; `BLOCK_R` 256 / 1 warp): **48.6x-167.6x**
 faster than the `torch-batched` arm on the value path, 43.4x-156.4x on the loss path, 56x-150x `per_row`; the kernel
@@ -1013,7 +1010,7 @@ was 72-82 % of a warm call (0.060-0.128 of 0.083-0.157 ms), the transpose 0.018-
 375 ms (warm Triton disk cache) to 1.38 s (cold) per specialization, ~1.9 ms for the next one.
 
 ### Facade surface and route wiring (relocated from tree/CONTEXT.md)
-`fused_engine` is the facade in the dense shape: `FusedUnsupported(reason, device_fallback=False)`, `evaluate_fused`, `sr_fitness_fused`, `fused_available`, `fused_cache_stats()` (15 all-`fused_*` keys), `clear_fused_cache` (registered with `evoxc_engine._register_cache_reset`) and the knob readers `resolve_block_rows` / `resolve_num_warps` / `resolve_max_scratch_mb` / `resolve_min_pop`.
+`fused_engine` is the facade in the dense shape: `FusedUnsupported(reason, device_fallback=False)`, `evaluate_fused`, `sr_fitness_fused`, `fused_available`, `fused_cache_stats()` (25 all-`fused_*` keys, `fused_bound_launches` / `fused_dispatch_declines` included), `clear_fused_cache` (registered with `evoxc_engine._register_cache_reset`) and the knob readers `resolve_block_rows` / `resolve_num_warps` / `resolve_max_scratch_mb` / `resolve_min_pop`.
 It declines (never guesses) on no triton, no device, a host tensor, `backend != "iree"`, `output_len > MAX_OUT_LEN`, `rows < 1`, `pop < 1` and the `EVOGP_FUSED_MAX_SCRATCH_MB` envelope, and it maps `fused_kernels.FusedUnavailable` onto that decline so an optional route never raises `ImportError`.
 Both entry points take an optional keyword-only `out=None` destination: `sr_fitness_fused(..., out=buf)` writes the `(pop_size,)` loss into `buf` (`torch.sum(partials, dim=1, out=buf)` then `div_(rows)`) and returns that same tensor, and `evaluate_fused(..., out=buf)` hands the kernel the `(pop, rows, out_len)` value buffer (`launch_value(..., out=...)`, reused as-is, `out.squeeze(1)` for `per_row=True`) instead of allocating one.
 `out` is validated before the launch (`_out_destination` / `_same_device`: a torch tensor, exactly the kernel's shape, float32, contiguous, `requires_grad=False`, on the input's device, and never together with a contradicting `out_device`) and a bad one raises `ValueError` naming `out`, so the destination is a caller contract rather than a silent reinterpretation.

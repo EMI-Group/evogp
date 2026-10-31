@@ -171,10 +171,11 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
     device box and ``numpy`` elsewhere, and its fallback is always
     specialized+``numpy`` (a per-tree iree compile can never amortize).
 ``fused``
-    always attempt the OPT-IN fused route
+    always attempt the fused (Triton) route
     (:func:`evogp.tree.fused_engine.evaluate_fused` /
     :func:`evogp.tree.fused_engine.sr_fitness_fused`, ONE Triton launch for the
-    whole population), falling back on
+    whole population) -- also ``auto``'s first choice on a device box --
+    falling back on
     :class:`evogp.tree.fused_engine.FusedUnsupported`.  It runs on the TORCH
     device rather than on an evoxc backend, so it uses the same ``iree`` backend
     SPELLING the other device routes use (the facade declines for any other name)
@@ -928,7 +929,7 @@ def resolve_eval_mode(value: Optional[str] = None) -> str:
             "always try the dense evaluator and fall back on DenseUnsupported, "
             "'batch' = always try the opt-in merged-graph (batch) evaluator and "
             "fall back on BatchUnsupported, "
-            "'fused' = always try the opt-in fused (Triton) evaluator and fall "
+            "'fused' = always try the fused (Triton) evaluator and fall "
             "back on FusedUnsupported, "
             "'specialized' = never use it, 'auto' = the measured policy"
         )
@@ -1613,7 +1614,8 @@ class Route:
 
     @property
     def use_fused(self) -> bool:
-        """Whether the call site should attempt the opt-in fused (Triton) route."""
+        """Whether the call site should attempt the fused (Triton) route (``auto``'s
+        first choice on a device box, or an explicit ``EVOGP_EVAL_MODE=fused``)."""
         return self.engine == "fused"
 
 
@@ -2063,7 +2065,7 @@ def resolve_route(
       ``numpy`` elsewhere, with a specialized+``numpy`` fallback either way.  No
       ``pop_size``/``rows`` gate here -- the batch engine declines a small
       population itself (``EVOGP_BATCH_MIN_POP``) with a ``BatchUnsupported``.
-    * ``fused`` -> always attempt the OPT-IN fused route
+    * ``fused`` -> always attempt the fused (Triton) route
       (:mod:`evogp.tree.fused_engine`, ONE Triton launch for the whole
       population): the explicitly named backend, else the device backend
       (``iree``, the spelling every device route uses) while a device is usable
