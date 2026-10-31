@@ -18,9 +18,14 @@ Three modes (``SELECTION_MODES``):
     probability ``1 - (1 - 1/pop) ** tournament_size``.
 ``rank``
     ``RankSelection``'s linear rank distribution
-    ``p(r) = (1 + sp (1 - 2r/(n-1))) / n`` over the *descending* fitness order
-    (``argsort``), sampled by inverse-CDF; the sampled rank is mapped back
-    through the sorted indices.
+    ``p(r) = (1 + sp (1 - 2r/(n-1))) / n`` over the *descending* fitness order,
+    sampled by inverse-CDF; the sampled rank is mapped back through the sorted
+    indices.  The order is ``np.argsort(-fitness, kind="stable")`` -- a STABLE
+    ascending sort of the negated vector -- so a tie keeps the LOWER row index,
+    the same first-index-wins rule ``argmax`` gives the tournament and
+    :mod:`evogp.gp.variation` gives the elite rows.  (``argsort(...,
+    descending=True)`` is implemented as a flip of the ascending indices and
+    would resolve ties the other way.)
 ``roulette``
     ``RouletteSelection``: probability proportional to the (shifted,
     non-negative) fitness, ``p_i = (f_i - min f) / sum_j (f_j - min f)``.
@@ -177,12 +182,34 @@ def _tournament(evoxc_module, fitness, key, pop_size: int, tournament_size: int)
     return evoxc_module.cast(winners, evoxc_module.int32)
 
 
+def _rank_order(evoxc_module, fitness):
+    """``[pop_size]`` int32 row indices of ``fitness``, best first, ties to the
+    LOWER row index -- the one tie rule of this stack.
+
+    Spelling: sort the negated vector ASCENDING with ``stable=True``, which is
+    ``np.argsort(-fitness, kind="stable")`` exactly (and what
+    :func:`evogp.gp.variation._argsort_order` uses for the elite search).
+    ``argsort(fitness, descending=True)`` must NOT be used for this: the backend
+    implements ``descending`` as a FLIP of the ascending indices, so ties would
+    resolve to the LAST index -- the opposite of ``argmax``'s first-maximal rule
+    and of the host/torch stack, which ranks with ``argsort(-fitness)``.
+    """
+    return evoxc_module.cast(
+        evoxc_module.argsort(
+            evoxc_module.multiply(fitness, _runtime.f32(evoxc_module, -1.0)),
+            descending=False,
+            stable=True,
+        ),
+        evoxc_module.int32,
+    )
+
+
 def _rank(evoxc_module, fitness, key, pop_size: int, selection_pressure: float):
     """Rank-proportional selection (sampled rank mapped back through the order)."""
     probs = evoxc_module.constant(
         evoxc_module.from_numpy(rank_probabilities(pop_size, selection_pressure))
     )
-    order = evoxc_module.argsort(fitness, descending=True)
+    order = _rank_order(evoxc_module, fitness)
     picked = _sample_cdf(evoxc_module, key, probs, pop_size, pop_size)
     return evoxc_module.cast(
         evoxc_module.gather(order, picked, axis=0), evoxc_module.int32

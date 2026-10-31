@@ -274,3 +274,30 @@ def test_bad_arguments_raise():
         S.select(fitness, 0, mode="rank", selection_pressure=1.5)
     with pytest.raises(ValueError, match="rank_probabilities|pop_size"):
         S.rank_probabilities(0, 0.5)
+
+def test_rank_mode_breaks_ties_towards_the_lower_row_index():
+    """One tie rule across the stack: the first maximal row index wins.
+
+    ``rank`` mode ranks with ``np.argsort(-fitness, kind="stable")`` -- the same
+    rule ``variation._argmax_order`` implements for the elite slots and the same
+    one the torch stack's ``argmax`` gives.  ``argsort(..., descending=True)``
+    would flip a tie group's order (the backend implements ``descending`` as a
+    reversal of the ascending indices), so a flat fitness vector would hand the
+    TOP rank to the LAST row instead of the first.  The measured frequency
+    vector therefore has to be the archive's probability vector in ROW order,
+    not merely some permutation of it (the existing flat-fitness test above
+    compares the sorted set, which cannot see the flip).
+    """
+    pop_size, draws = 8, 400
+    fitness = np.full(pop_size, 1.5, np.float32)
+    measured = _frequencies(
+        fitness, draws=draws, mode="rank", selection_pressure=1.0
+    )
+    expected = S.rank_probabilities(pop_size, 1.0)
+    assert expected[0] > 3 * expected[-1], "fixture invariant: rank 0 dominates"
+    _assert_close(measured, expected, draws * pop_size, context="rank tie order")
+    assert measured[0] == max(measured), (
+        "a tie must rank row 0 first, got the frequency vector "
+        f"{np.round(measured, 4).tolist()} (a descending sort would rank row "
+        f"{pop_size - 1} first)"
+    )

@@ -16,9 +16,12 @@ WHAT IT CHECKS
    ``sinh``/``cosh`` ``(exp(x) -+ exp(-x)) * 0.5`` compositions included — and a
    set of handmade adversarial rows covers the shapes a random generator does not
    produce: single-node leaves, a pure constant tree, a 40-deep left chain, a
-   40-deep right chain, full ternary ``if`` trees, a real tree followed by garbage
-   padding, and single-output rows carrying ``OUT_NODE``-tagged nodes (which fall
-   through to the ternary branch, exactly like the oracle's ``_kind_from_type``).
+   40-deep right chain, full ternary ``if`` trees and a real tree followed by
+   garbage padding.  A single-output row carrying ``OUT_NODE``-tagged nodes is NOT
+   a parity case: the oracle's ``_kind_from_type`` folds such a type into its
+   ternary branch, and serving it would return a plausible wrong number, so every
+   engine REFUSES it host-side (``multi_output.check_multi_output``) and
+   ``--stage declines`` pins that refusal (``out_node_tagged_row``).
    Each population is compared on all three surfaces: the batched value path
    (``per_row=False``), the per-tree value path (``per_row=True``) and the SR loss
    (MSE and MAE).
@@ -437,6 +440,33 @@ def _full_ternary(depth: int, input_len: int) -> Sequence[Any]:
     )
 
 
+def out_node_tagged_row() -> Any:
+    """One single-output row whose nodes carry the multi-output ``OUT_NODE`` tag.
+
+    The population a MIS-WIRED ``output_len`` produces: built for
+    ``output_len >= 2``, evaluated as single-output.  The oracle's
+    ``_kind_from_type`` folds every tagged type into its TERNARY branch (so the
+    kernel's own fall-through is defined and would return a number), which is
+    exactly why the facade must refuse it before any launch -- the shared
+    ``multi_output.check_multi_output`` rule, applied in
+    ``fused_engine._prepare``.  ``--stage declines`` is where the refusal is
+    pinned; every tagged type (``0x80|0 .. 0x80|4``) is covered, and each one
+    carries three children because the oracle would evaluate it as a ternary.
+    """
+    return (
+        "raw",
+        1.5e9,
+        0x82,
+        (
+            # a FINITE garbage value: the oracle casts a TFUNC node's value to int
+            # (``int(nan)`` raises), and the whole point is that the value is ignored
+            ("raw", 1234.5, 0x80, (("var", 0), ("var", 1), ("var", 2))),
+            ("raw", 0.0, 0x84, (("const", 0.5), ("const", 0.25), ("var", 3))),
+            ("raw", 3.0, 0x84, (("var", 0), ("var", 1), ("var", 2))),
+        ),
+    )
+
+
 def adversarial_cases() -> List[Dict[str, Any]]:
     """Handmade populations: the shapes a random generator never produces.
 
@@ -461,23 +491,6 @@ def adversarial_cases() -> List[Dict[str, Any]]:
         (
             (div, (("var", 0), (("const", 0.0)))),
             (mul, ((sqrt, (("var", 1),)), (log_op, (("var", 2),)))),
-        ),
-    )
-    # OUT_NODE-tagged nodes: every tagged type (0x80|0 .. 0x80|4) must follow the
-    # oracle's TFUNC fall-through, whatever its packed value means.
-    # Every OUT_NODE-tagged type falls through to TFUNC, i.e. it is a TERNARY node
-    # whatever its tag said -- so each one below carries three children, exactly as
-    # the oracle's `_kind_from_type` demands.
-    out_tagged = (
-        "raw",
-        1.5e9,
-        0x82,
-        (
-            # a FINITE garbage value: the oracle casts a TFUNC node's value to int
-            # (``int(nan)`` raises), and the whole point is that the value is ignored
-            ("raw", 1234.5, 0x80, (("var", 0), ("var", 1), ("var", 2))),
-            ("raw", 0.0, 0x84, (("const", 0.5), ("const", 0.25), ("var", 3))),
-            ("raw", 3.0, 0x84, (("var", 0), ("var", 1), ("var", 2))),
         ),
     )
     return [
@@ -533,13 +546,6 @@ def adversarial_cases() -> List[Dict[str, Any]]:
             note="5-node tree, NaN/nonsense padding behind it",
         ),
         dict(
-            name="out_node_tags",
-            rows=[out_tagged],
-            input_len=4,
-            bitwise=True,
-            note="OUT_NODE-tagged nodes -> TFUNC fall-through (out_len 1)",
-        ),
-        dict(
             name="mixed_deep",
             rows=[mixed],
             input_len=4,
@@ -559,7 +565,6 @@ def adversarial_cases() -> List[Dict[str, Any]]:
                 _chain(12, right=False, input_len=4),
                 _chain(12, right=True, input_len=4),
                 _full_ternary(2, 4),
-                out_tagged,
                 mixed,
             ],
             input_len=4,
@@ -567,7 +572,7 @@ def adversarial_cases() -> List[Dict[str, Any]]:
             garbage_tail=True,
             # MEASURED: the same rows as above, so the same NaN-payload split.
             bitwise=False,
-            note="all of the above in ONE population (pop 8); "
+            note="all of the above in ONE population (pop 7); "
             "NOT bitwise: the NaN payload of the DIV-by-zero row",
         ),
     ]
@@ -2015,6 +2020,7 @@ def stage_declines(args: argparse.Namespace) -> int:
 
     from evogp.tree import evoxc_engine
     from evogp.tree import fused_engine
+    from evogp.tree import multi_output
 
     checks: List[Tuple[str, bool, str]] = []
 
@@ -2076,6 +2082,34 @@ def stage_declines(args: argparse.Namespace) -> int:
         lambda: fused_engine.evaluate_fused(**{**call, "output_len": 0}, x=x, per_row=False),
         ValueError,
         needle="output_len",
+    )
+    # The single-output protocol refuses the multi-output (OUT_NODE) tag BEFORE any
+    # launch: the kernel's type dispatch would otherwise fold a tagged type into its
+    # TERNARY branch and return a plausible wrong number.  The refusal is the shared
+    # ``multi_output.check_multi_output`` rule -- the same message the dense and
+    # specialized decoders raise -- on BOTH entry points, and it costs no decline.
+    tagged_rows = pack_rows([out_node_tagged_row()], pad_to=8)
+    before_tag = fused_engine.fused_cache_stats()
+    for tag, refused in (
+        (
+            "raise: single-output value path over an OUT_NODE-tagged population",
+            lambda: fused_engine.evaluate_fused(*tagged_rows, 4, 1, x, per_row=False),
+        ),
+        (
+            "raise: single-output loss path over an OUT_NODE-tagged population",
+            lambda: fused_engine.sr_fitness_fused(*tagged_rows, 4, 1, x, labels),
+        ),
+    ):
+        expect(tag, refused, multi_output.MultiOutputError, needle="OUT_NODE")
+    after_tag = fused_engine.fused_cache_stats()
+    checks.append(
+        (
+            "raise: the OUT_NODE refusal is not a DECLINE and launches nothing",
+            after_tag["fused_declines"] == before_tag["fused_declines"]
+            and after_tag["fused_kernel_launches"] == before_tag["fused_kernel_launches"],
+            f"declines +{after_tag['fused_declines'] - before_tag['fused_declines']} "
+            f"launches +{after_tag['fused_kernel_launches'] - before_tag['fused_kernel_launches']}",
+        )
     )
     expect(
         "decline: pop_size=0",

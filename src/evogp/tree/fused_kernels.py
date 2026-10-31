@@ -92,9 +92,15 @@ Every iteration computes ONE node value for the whole row block::
 The lookahead load is the same load the next iteration needs, so the walk costs
 ONE ``node_type`` load and at most one ``node_value`` load per node.  The type
 mapping mirrors ``reference_eval._kind_from_type`` exactly: anything that is not
-0/1/2/3 -- including a type carrying the multi-output ``OUT_NODE`` bit in
-single-output mode -- is a ternary ``if`` node, and a ternary node ignores its
-function id.
+0/1/2/3 is a ternary ``if`` node, and a ternary node ignores its function id.
+That includes a type carrying the multi-output ``OUT_NODE`` bit -- so a
+SINGLE-OUTPUT launch must never see one, and it never does: the facade refuses a
+tagged population host-side before any launch
+(``fused_engine._prepare`` -> ``multi_output.check_multi_output``, the same rule
+the dense and specialized decoders apply), which makes this kernel's
+fall-through UNREACHABLE for a validated call.  The kernel body keeps the
+oracle's mapping verbatim on purpose: it is a device-side max, and a masked lane
+must still produce a defined number rather than a trap.
 
 Malformed rows (a tree that underflows the stack, an absurd ``subtree_size``, a
 VAR index out of range) never read out of bounds and never read a previous
@@ -606,12 +612,13 @@ def _fused_kernel(
         tl.store(out_ptr + t * rows + r, val, mask=rmask)
 
 
-#: ``NType.OUT_NODE`` -- the multi-output tag OR-ed into ``node_type`` (the kernel
-#: body spells both masks as literals: a Triton kernel may only read ``tl.constexpr``
-#: globals, and ``tl`` does not exist at this module's import time).
-OUT_NODE_BIT = 1 << 7
-#: ``NType.TYPE_MASK`` -- the base kind under that tag.
-TYPE_MASK_BITS = 0x7F
+# Both kernels spell ``NType.OUT_NODE`` (0x80) and ``NType.TYPE_MASK`` (0x7F) as
+# literals in their bodies: a Triton kernel may only read ``tl.constexpr`` module
+# globals, and ``tl`` does not exist at this module's import time, so the two
+# values cannot be name-bound here.  The host-side copies that used to live at
+# this spot read nothing; :mod:`evogp.tree.multi_output` is the one host source of
+# truth for the tag (``OUT_NODE`` / ``MAX_OUT_LEN``) and
+# ``fused_engine._refuse_out_node`` is what enforces it for a single-output call.
 
 
 def _fused_multi_kernel(

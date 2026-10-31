@@ -17,7 +17,8 @@ What this module pins, in order:
   one;
 * the in-graph elite ranking IS the host rule: ``np.argsort(-fitness,
   kind="stable")``, i.e. the lowest row index wins a tie (a ``descending`` sort
-  would flip that order), and a NaN is sanitized to ``-inf`` before it can win;
+  would flip that order), and a non-finite fitness (NaN, ``+inf``) is
+  sanitized to ``-inf`` before it can win;
 * one device ``step`` (``GraphEvaluator`` as ``evaluate``) produces the SAME
   population as the numpy ``step`` (int channels and float payloads bitwise),
   the elite rows the parent's own top-``elite_count`` rows, the offspring marked
@@ -365,22 +366,26 @@ def test_the_in_graph_elite_ranking_reproduces_the_host_tie_rule(
         )
 
 
-def test_a_nan_fitness_can_never_become_a_device_elite(
-    run_config, device_state, device
+@pytest.mark.parametrize("bad", [np.nan, np.inf])
+def test_a_non_finite_fitness_can_never_become_a_device_elite(
+    run_config, device_state, device, bad
 ):
-    """The in-graph sanitation: a NaN ranks last, exactly like ``-inf``.
+    """The in-graph sanitation: every non-finite value ranks last, like ``-inf``.
 
     A device generation has no host readback to clean the vector, so
-    ``variation`` maps a non-finite fitness to ``-inf`` INSIDE the graph.  Row 2
-    is the first elite of the fixture vector; with a NaN in it the elite must
-    come from the ``stable`` ranking of the sanitized vector instead.
+    ``variation`` maps a non-finite fitness to ``-inf`` INSIDE the graph -- the
+    repo-wide rule, which covers NaN, ``+inf`` and ``-inf`` alike (an ``inf``
+    outranks every real value, so it would otherwise keep winning selection on
+    this lane).  Row 2 is the first elite of the fixture vector; with a
+    non-finite value in it the elite must come from the ``stable`` ranking of
+    the sanitized vector instead.
     """
     fitness = _tied_fitness()
-    fitness[2] = np.nan
+    fitness[2] = bad
     sanitized = np.array(fitness, dtype=np.float32)
-    sanitized[np.isnan(sanitized)] = -np.inf
+    sanitized[~np.isfinite(sanitized)] = -np.inf
     expected = np.argsort(-sanitized, kind="stable")[:ELITE_COUNT]
-    assert 2 not in expected.tolist(), "fixture invariant: the NaN row loses"
+    assert 2 not in expected.tolist(), f"fixture invariant: the {bad!r} row loses"
 
     offspring, _key = V.variation(
         run_config,
@@ -393,7 +398,7 @@ def test_a_nan_fitness_can_never_become_a_device_elite(
     )
     recorded = to_host(offspring.fitness)
     assert np.all(np.isfinite(recorded[:ELITE_COUNT])), (
-        "a NaN must never reach the elite rows as a NaN"
+        f"a {bad!r} fitness must never reach the elite rows"
     )
     assert not np.any(np.isnan(recorded))
     np.testing.assert_array_equal(recorded[:ELITE_COUNT], sanitized[expected])
