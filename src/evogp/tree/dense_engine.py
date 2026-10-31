@@ -54,21 +54,36 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
 ``evoxc_engine._resolve_backend``), case-insensitive, default ``auto``:
 
 ``auto`` (default)
-    the measured policy, implemented once in :func:`resolve_route` (the rows half
-    in :func:`auto_rows_decline`), which also decides the BACKEND per call: with
-    no explicit backend (neither ``EVOGP_EVOXC_BACKEND`` nor ``backend=``) and a
-    GPU usable from torch, ``auto`` runs the DENSE route on ``iree`` from
-    ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP`` (default
-    :data:`DEFAULT_AUTO_MIN_POP` = 64) up and the SPECIALIZED route on ``numpy``
-    below it -- and on numpy for every dense decline/fallback
-    (:class:`DenseUnsupported` included), because a per-tree iree compile
-    (271-284 ms/tree) can never amortize.  On a box with no device, and with an
-    explicit backend, the historical rule is unchanged: dense iff the resolved
-    backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
-    *and*, on ``per_row=False`` calls, the data-row count fits the route's
-    MEMORY ENVELOPE (next paragraph).  The wired call sites pass ``pop_size``
-    only, so the rows half of the rule is enforced inside
-    :func:`evaluate_dense`, where the data-row count is known
+    the measured policy, implemented once in :func:`resolve_route` (the fused half
+    in :func:`auto_fused_decline`, the rows half in :func:`auto_rows_decline`),
+    which also decides the ENGINE and the BACKEND per call.  With no explicit
+    backend (neither ``EVOGP_EVOXC_BACKEND`` nor ``backend=``) and a GPU usable
+    from torch, ``auto`` runs, in this order:
+
+    1. the FUSED (Triton) route (:mod:`evogp.tree.fused_engine`) from
+       ``pop_size >= EVOGP_FUSED_MIN_POP`` (default 16,
+       :func:`resolve_fused_min_pop`) up, while ``triton`` is importable AND the
+       population fits that route's memory envelope.  It is the DEFAULT because it
+       is the fastest measured route -- ONE Triton launch for the whole
+       population, no evoxc graph, no host decode, no readback on the value path,
+       no per-shape compile: 8.6x-663x the dense route on the measured cells
+       (:mod:`evogp.tree.fused_engine`, ``FUSED.md``);
+    2. else the DENSE route on ``iree`` from ``pop_size >=
+       EVOGP_DENSE_AUTO_MIN_POP`` (default :data:`DEFAULT_AUTO_MIN_POP` = 64) up;
+    3. else the SPECIALIZED route on ``numpy`` -- and on numpy for every dense
+       decline/fallback (:class:`DenseUnsupported` included), because a per-tree
+       iree compile (271-284 ms/tree) can never amortize.
+
+    A ``FusedUnsupported`` from the engine at call time keeps the historical
+    fallback chain (the fused route's ``numpy`` fallback is the specialized
+    engine).  On a box with no device, and with an explicit backend, the
+    historical rule is unchanged: dense iff the resolved backend is not ``numpy``
+    *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP`` *and*, on ``per_row=False``
+    calls, the data-row count fits the route's MEMORY ENVELOPE (next paragraph);
+    an explicit backend never reaches the fused route (the policy does not
+    second-guess a named backend -- use ``EVOGP_EVAL_MODE=fused`` for that).  The
+    wired call sites pass ``pop_size`` only, so the rows half of the rule is
+    enforced inside :func:`evaluate_dense`, where the data-row count is known
     (:func:`sr_fitness_dense` goes through it too); ``per_row=True`` (one row per
     tree) and an explicit ``EVOGP_EVAL_MODE=dense`` are never gated, and a
     decline surfaces as the usual :class:`DenseUnsupported` fallback.
@@ -172,8 +187,10 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
     ``pop_size``, 0.088-0.103 ms from pop 1 to 128, so the threshold only keeps a
     one-shot ``Tree`` off a cold Triton JIT); below that threshold, or with no
     device, the route IS specialized+``numpy`` (the engine field stays
-    ``"specialized"``).  ``auto`` NEVER selects this engine, so the fused route is
-    reached only through an explicit ``EVOGP_EVAL_MODE=fused``.
+    ``"specialized"``).  ``auto`` also SELECTS this engine -- it is the default on
+    a device box (:func:`auto_fused_decline`), on the same two gates plus the
+    engine's memory envelope -- so an explicit ``EVOGP_EVAL_MODE=fused`` is only
+    needed to force it on a box ``auto`` would route elsewhere.
 
 Any other value raises ``ValueError`` naming the variable.  The dense-specific
 knobs below stay as they are.
@@ -1422,6 +1439,90 @@ def device_available() -> bool:
     return _DEVICE_AVAILABLE
 
 
+#: Memo of the route policy's FUSED probe -- ``triton`` importable AND a
+#: torch-visible CUDA/HIP device -- exactly like :data:`_DEVICE_AVAILABLE`.
+#: ``None`` = not probed yet, so the probe runs at most once per process, is
+#: monkeypatchable, and is never reached when an eval mode or a backend was named
+#: explicitly.  It imports NOTHING at module scope: the answer comes from
+#: :func:`evogp.tree.fused_engine.fused_available`, which reads torch's device
+#: flag and ``importlib.util.find_spec("triton")`` -- never ``import triton`` --
+#: so a CPU box and the hermetic numpy-backend suite pay one bool and nothing else.
+_FUSED_AVAILABLE: Optional[bool] = None
+
+
+def fused_route_available() -> bool:
+    """Whether ``auto`` may consider the fused (Triton) route (memoized probe).
+
+    The device half is :func:`device_available` (the pinned memo above), so a
+    caller that pins one probe pins the whole predicate and no extra torch call is
+    made; :func:`fused_available` adds the ``triton`` half.
+    """
+    global _FUSED_AVAILABLE
+    if _FUSED_AVAILABLE is None:
+        from . import fused_engine
+
+        _FUSED_AVAILABLE = bool(device_available() and fused_engine.fused_available())
+    return _FUSED_AVAILABLE
+
+
+def auto_fused_decline(
+    pop_size: Optional[int],
+    *,
+    eval_mode: Optional[str] = None,
+    rows: Optional[int] = None,
+    tree_len: Optional[int] = None,
+    output_len: int = 1,
+) -> Optional[str]:
+    """Why ``auto`` cannot reach the fused route for this call (``None`` = it can).
+
+    The fused half of :func:`resolve_route`'s default policy, in the same shape as
+    :func:`auto_rows_decline`: only ``auto`` is gated -- an explicit
+    ``EVOGP_EVAL_MODE`` owns its engine and is never second-guessed, so it answers
+    ``None``.  ``auto`` reaches the FUSED (Triton) route when, in this order,
+
+    1. ``triton`` is importable AND a CUDA/HIP device is usable from torch
+       (:func:`fused_route_available`, the memoized probe -- no ``triton`` import
+       anywhere here),
+    2. ``pop_size >= EVOGP_FUSED_MIN_POP`` (default 16, the measured flat-kernel
+       crossover; ONE parser, :func:`resolve_fused_min_pop`), and
+    3. the population fits the fused route's memory envelope -- the three-term
+       byte rule the engine itself enforces before a launch, through its
+       non-raising :func:`evogp.tree.fused_engine.envelope_decline`.
+
+    ``rows``/``tree_len``/``output_len`` describe the data plane and are OPTIONAL
+    (``output_len`` is the population's real output count, whose value buffer the
+    envelope counts): with an unknown shape the envelope cannot be applied here,
+    and ``evaluate_fused`` / ``sr_fitness_fused`` enforce it at call time, where a
+    ``FusedUnsupported`` continues on the route's ``numpy`` fallback.  The wired
+    call sites pass ``pop_size`` only, exactly as they do for the dense rows rule.
+    """
+    if resolve_eval_mode(eval_mode) != "auto":
+        return None
+    if not fused_route_available():
+        if not device_available():
+            return (
+                "auto policy: no CUDA/HIP device usable from torch -> the fused "
+                "(Triton) route needs one"
+            )
+        return (
+            "auto policy: triton is not importable -> the fused (Triton) route is "
+            "unavailable"
+        )
+    minimum = resolve_fused_min_pop()
+    if int(pop_size) < minimum:
+        return (
+            f"auto policy: pop_size={int(pop_size)} < {minimum} "
+            f"({FUSED_MIN_POP_ENV}) -> below the fused route's crossover"
+        )
+    if rows is None or tree_len is None:
+        return None
+    from . import fused_engine
+
+    return fused_engine.envelope_decline(
+        pop_size, tree_len, rows, out_len=output_len
+    )
+
+
 @dataclass(frozen=True)
 class Route:
     """The route policy's decision for one call: which ENGINE, on which backend.
@@ -1510,6 +1611,7 @@ def resolve_route(
     auto_max_rows: Optional[int] = None,
     tree_len: Optional[int] = None,
     auto_budget_mb: Optional[int] = None,
+    output_len: int = 1,
 ) -> Route:
     """The ONE route policy: which engine (dense / batch / specialized), and on which backend.
 
@@ -1546,14 +1648,22 @@ def resolve_route(
       and a per-tree iree compile can never amortize after a decline.
     * ``auto`` with an explicit backend -> the historical rule: dense iff that
       backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
-      *and* ``rows`` (when given) fits :func:`auto_row_allowance`.
-    * ``auto`` without an explicit backend -> the policy owns the backend: dense on
-      ``iree`` from ``EVOGP_DENSE_AUTO_MIN_POP`` (64) up when a device is
-      available, and ``numpy`` for the specialized route -- below the threshold,
-      with no device, and after a :class:`DenseUnsupported` (a per-tree iree
-      compile costs 271-284 ms/tree and can never amortize).
-    ``auto`` NEVER selects the batch or the fused engine: that half of the policy
-    is exactly the dense / specialized rule above.
+      *and* ``rows`` (when given) fits :func:`auto_row_allowance`.  An explicit
+      backend NEVER reaches the fused route (a named backend is the user's
+      choice; ``EVOGP_EVAL_MODE=fused`` is how to ask for it).
+    * ``auto`` without an explicit backend -> the policy owns the engine AND the
+      backend, in this order: the FUSED (Triton) route while
+      :func:`auto_fused_decline` allows it -- ``triton`` importable, a device
+      usable from torch, ``pop_size >= EVOGP_FUSED_MIN_POP`` (16) and the fused
+      route's memory envelope satisfied -- on the ``iree`` backend SPELLING with a
+      ``numpy`` fallback (that route runs on the torch device, and a per-tree iree
+      compile can never amortize after a decline); else dense on ``iree`` from
+      ``EVOGP_DENSE_AUTO_MIN_POP`` (64) up; else ``numpy`` for the specialized
+      route -- below the thresholds, with no device, and after a
+      :class:`DenseUnsupported` (a per-tree iree compile costs 271-284 ms/tree and
+      can never amortize).
+    ``auto`` NEVER selects the batch engine: that half of the policy is exactly
+    the fused / dense / specialized rule above.
 
     The rows half is a MEMORY rule (:func:`auto_rows_decline`): ``rows`` is inside
     the allowance only while ``pop_size * tree_len * rows * 4`` bytes fit
@@ -1563,7 +1673,10 @@ def resolve_route(
     so they pass ``pop_size`` only and :func:`evaluate_dense` /
     :func:`sr_fitness_dense` enforce the envelope where the shape IS known -- with
     an unknown ``tree_len`` this function can only apply the pin, never a
-    shape-derived decline.
+    shape-derived decline.  The fused half has the same limitation for the same
+    reason: ``output_len`` is the population's real output count (default ``1``)
+    and only enters that route's envelope, which is likewise applied here only
+    when the shape was passed in.
     """
     mode = resolve_eval_mode(eval_mode)
     explicit = str(backend).strip() if backend else os.environ.get(BACKEND_ENV, "").strip()
@@ -1678,7 +1791,7 @@ def resolve_route(
             f"auto policy: explicit {name!r} backend and pop_size={int(pop_size)} "
             f">= {minimum} ({AUTO_MIN_POP_ENV}) -> dense",
         )
-    # No explicit backend: the policy picks the backend too.
+    # No explicit backend: the policy owns the engine and the backend.
     if not device_available():
         return Route(
             False,
@@ -1686,6 +1799,33 @@ def resolve_route(
             "numpy",
             "auto policy: no CUDA/HIP device usable from torch -> specialized on numpy",
         )
+    # 1. the FUSED (Triton) route -- the DEFAULT on a device box: ONE launch for the
+    #    whole population, no evoxc graph and no per-shape compile.  Gated by the
+    #    memoized availability probe, the measured min-pop and the engine's own
+    #    memory envelope (:func:`auto_fused_decline`), so a triton-less box and a
+    #    population the launch could not hold both fall through to the historical
+    #    dense/specialized rule below unchanged.
+    if (
+        auto_fused_decline(
+            pop_size,
+            eval_mode=mode,
+            rows=rows,
+            tree_len=tree_len,
+            output_len=output_len,
+        )
+        is None
+    ):
+        fused_min = resolve_fused_min_pop()
+        return Route(
+            False,
+            "iree",
+            "numpy",
+            f"auto policy: device available, triton importable and "
+            f"pop_size={int(pop_size)} >= {fused_min} ({FUSED_MIN_POP_ENV}) -> fused "
+            "(Triton) on the torch device (specialized fallback on numpy)",
+            engine="fused",
+        )
+    # 2. the dense rule, exactly as before the fused route was the default.
     if decline:
         return Route(False, "numpy", "numpy", decline)
     if int(pop_size) >= minimum:
@@ -1717,6 +1857,7 @@ def should_use_dense(
     auto_max_rows: Optional[int] = None,
     tree_len: Optional[int] = None,
     auto_budget_mb: Optional[int] = None,
+    output_len: int = 1,
 ) -> bool:
     """The ONE policy decision: try the dense evaluator for this population?
 
@@ -1732,6 +1873,8 @@ def should_use_dense(
     without ``tree_len`` the rows rule can only apply the
     ``EVOGP_DENSE_AUTO_MAX_ROWS`` pin, and the memory envelope is enforced by
     :func:`evaluate_dense` / :func:`sr_fitness_dense`, which know the real shape.
+    ``output_len`` is the population's real output count and only enters the fused
+    route's envelope, so it moves nothing here.
     """
     return resolve_route(
         pop_size,
@@ -1743,6 +1886,7 @@ def should_use_dense(
         auto_max_rows=auto_max_rows,
         tree_len=tree_len,
         auto_budget_mb=auto_budget_mb,
+        output_len=output_len,
     ).use_dense
 
 

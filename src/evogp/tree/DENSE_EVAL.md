@@ -8,7 +8,8 @@ CompileCache, build_cached`); the per-structure engine beside this route is `evo
 
 **Status: integrated.** It is wired into the five public entry points (`Forest.forward`,
 `Forest.batch_forward`, `Forest.SR_fitness`, `Tree.forward`, `Tree.SR_fitness`) and selected per call
-by the `EVOGP_EVAL_MODE` master switch (`dense` / `specialized` / `auto`, default `auto`).
+by the `EVOGP_EVAL_MODE` master switch (`dense` / `specialized` / `batch` / `fused` / `auto`, default
+`auto`), where `auto` prefers the fused (Triton) route on a device box and falls back to this one.
 Semantics are unchanged: this document is about *where* the numbers are computed, never *what* they
 are — `ENGINE_SPEC.md` (§3 op table, §4 evaluation order, §5 SR fitness, §12 deviations) stays the
 semantics of record, and both paths share the same private op emitters by construction.
@@ -326,24 +327,28 @@ which is why only `O0`/`O1` are accepted and the set is not widened.
 
 ### The `auto` policy, exactly
 
-`resolve_route(pop_size, *, rows=None, backend=None, iree_device_index=None, eval_mode=None, auto_min_pop=None, auto_max_rows=None, tree_len=None, auto_budget_mb=None)` in `dense_engine.py` is the SINGLE route resolver, returning a frozen `Route(use_dense, backend, fallback_backend, reason)`.
-`should_use_dense` is `resolve_route(...).use_dense` and `auto_rows_decline` is the rows half of the same rule, so there is no second copy of the policy; the allowance itself is `auto_row_allowance(pop_size, tree_len, *, auto_max_rows=None, auto_budget_mb=None)` — `min(pin, floor(EVOGP_DENSE_AUTO_BUDGET_MB · 2^20 / (pop_size · tree_len · 4)))`, `0` meaning "unlimited" when the shape is unknown and no pin is set — with `resolve_auto_max_rows` / `resolve_auto_budget_mb` as the two knob resolvers (`0` = unpinned / `>= 1` MiB).
+`resolve_route(pop_size, *, rows=None, backend=None, iree_device_index=None, eval_mode=None, auto_min_pop=None, auto_max_rows=None, tree_len=None, auto_budget_mb=None, output_len=1)` in `dense_engine.py` is the SINGLE route resolver, returning a frozen `Route(use_dense, backend, fallback_backend, reason)`.
+`should_use_dense` is `resolve_route(...).use_dense`, `auto_rows_decline` is the rows half of the same rule and `auto_fused_decline` the FUSED half (the `auto` default on a device box, below), so there is no second copy of the policy; the allowance itself is `auto_row_allowance(pop_size, tree_len, *, auto_max_rows=None, auto_budget_mb=None)` — `min(pin, floor(EVOGP_DENSE_AUTO_BUDGET_MB · 2^20 / (pop_size · tree_len · 4)))`, `0` meaning "unlimited" when the shape is unknown and no pin is set — with `resolve_auto_max_rows` / `resolve_auto_budget_mb` as the two knob resolvers (`0` = unpinned / `>= 1` MiB).
 The five wired call sites (`Forest.forward`, `Forest.batch_forward`, `Forest.SR_fitness`, `Tree.forward`, `Tree.SR_fitness`) resolve the route once per call and pass the resolved `backend=` explicitly into the engine (`evaluate_dense` / `sr_fitness_dense` / `evoxc_engine.evaluate` / `evoxc_engine.sr_fitness`).
 `evoxc_engine._resolve_backend` keeps its `numpy` default, so raw engine callers see exactly the old behaviour; the device backend is chosen by the route policy and passed in, never inferred inside the engine.
 
 | situation | route | backend |
 | --- | --- | --- |
-| `auto` (default), no explicit backend, device usable, `pop_size >= EVOGP_DENSE_AUTO_MIN_POP` (64) | dense | `iree` |
-| `auto`, no explicit backend, device usable, `pop_size < 64` | specialized | `numpy` |
+| `auto` (default), no explicit backend, device usable, `triton` importable, `pop_size >= EVOGP_FUSED_MIN_POP` (16) and inside the fused envelope | fused (Triton) | `iree` |
+| `auto`, no explicit backend, device usable, fused declined, `pop_size >= EVOGP_DENSE_AUTO_MIN_POP` (64) | dense | `iree` |
+| `auto`, no explicit backend, device usable, `pop_size < 64` (or `triton` missing) | specialized | `numpy` |
 | `auto`, no explicit backend, no device (pure-CPU box) | specialized | `numpy` |
+| `auto` on a device box but the fused call says `FusedUnsupported` at run time | specialized | `numpy` (the route's `fallback_backend`) |
 | `auto` on a device box but dense says `DenseUnsupported` (multi-output, tree past the raised cap, outside the rows memory envelope, unsafe shape) | specialized | `numpy` (the route's `fallback_backend`), except the cap rule's own decline, which continues on `route.backend` — `iree` — via `decline_backend` (the cap-raise rule) |
-| `EVOGP_EVOXC_BACKEND=<name>` exported, or `backend=` passed | unchanged: dense iff `EVOGP_EVAL_MODE=dense`, else `auto` with `<name> != "numpy"` and `pop_size >= min_pop` | `<name>` |
+| `EVOGP_EVOXC_BACKEND=<name>` exported, or `backend=` passed | unchanged: dense iff `EVOGP_EVAL_MODE=dense`, else `auto` with `<name> != "numpy"` and `pop_size >= min_pop` — an explicit backend never reaches fused | `<name>` |
 | `EVOGP_EVAL_MODE=specialized` | never dense | the resolved backend (`numpy` unless named) |
 | `EVOGP_EVAL_MODE=dense` (`dynamic`), no explicit backend | dense | `iree` on a device box, `numpy` otherwise |
 
 Rules and consequences:
 
 * the device probe is `dense_engine.device_available()` — one module-level memo of `torch.cuda.is_available()` (`_DEVICE_AVAILABLE`, monkeypatchable in tests), so there is no per-call CUDA init; it is never called when a backend is named explicitly, i.e. `EVOGP_EVOXC_BACKEND=numpy` keeps the pure-CPU route with no probe side effects;
+* the FUSED half is `dense_engine.auto_fused_decline(pop_size, *, eval_mode=None, rows=None, tree_len=None, output_len=1)`, consulted FIRST in `auto`'s no-explicit-backend arm: it is `None` (the route is fused, `Route(engine="fused", backend="iree", fallback_backend="numpy")`) while the memoized `fused_route_available()` probe (a device AND `triton` importable, `_FUSED_AVAILABLE`, no `triton` import at module scope), `pop_size >= EVOGP_FUSED_MIN_POP` (16) and the fused envelope (`fused_engine.envelope_decline`, the non-raising twin of the engine's `_check_envelope`) all allow it; otherwise it returns the reason and the dense rule below decides exactly as before. A `FusedUnsupported` raised at call time keeps the historical chain (the fused route's `numpy` fallback is the specialized engine);
+* a box without `triton`, a pure-CPU box and every population below 16 therefore resolve exactly as they did before the fused route became the `auto` default, and so does every explicit `EVOGP_EVAL_MODE` / explicit backend — `auto` never overrides either;
 * `EVOGP_DENSE_AUTO_MIN_POP` is **64** (was 16), because the crossover is a call-count question: one dense compile costs 3.1–3.4 s at `L=32` / 6.1 s at `L=64` (default pruned chain) and then buys 0.5 ms per call at P=16 (**≈6300 calls** to amortize), 7 ms at P=64 (**≈460**), 34 ms at P=256 (**≈95**) and 141 ms at P=1000 (**≈23**);
 * a long training run at a small population can lower the knob to 16; a one-shot evaluation must not lower it below its own call count;
 * a single `Tree` (`pop_size == 1`) is below the threshold on every backend, so `Tree.forward` / `Tree.SR_fitness` stay specialized+numpy and never start a per-tree iree compile (271–284 ms per distinct tree, which a single-evaluation call site can never amortize);

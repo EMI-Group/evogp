@@ -2303,8 +2303,10 @@ def stage_wired(args: argparse.Namespace) -> int:
     2. **The decision.**  ``resolve_route(pop, eval_mode="fused")`` names the
        fused engine on ``iree`` with a ``numpy`` fallback on a device box, is
        ``specialized``+``numpy`` for ``pop_size == 1`` (a single ``Tree``) and for
-       any population below ``EVOGP_FUSED_MIN_POP``, is ``specialized``+``numpy``
-       when ``device_available()`` is False, and is NEVER produced by ``auto``;
+       any population below ``EVOGP_FUSED_MIN_POP``, and is ``specialized``+``numpy``
+       when ``device_available()`` is False.  ``auto`` -- the shipped default --
+       SELECTS it from ``EVOGP_FUSED_MIN_POP`` up when the box can run it (no
+       explicit backend), and an explicit backend keeps the historical rule;
        ``should_use_dense`` is False for it and the ``Route`` invariant refuses
        ``use_dense=True`` with ``engine="fused"``.
 
@@ -2396,20 +2398,53 @@ def stage_wired(args: argparse.Namespace) -> int:
             == ("specialized", "numpy", "numpy"),
             cpu_route.reason,
         )
-        engines = set()
+        engines = {}
         for pop in (1, 16, 63, 64, 256, 1024, 2048):
             for backend in (None, "numpy", "iree"):
                 for rows in (None, 1024):
-                    engines.add(
-                        dense_engine.resolve_route(
-                            pop, backend=backend, rows=rows, eval_mode="auto"
-                        ).engine
+                    route = dense_engine.resolve_route(
+                        pop, backend=backend, rows=rows, eval_mode="auto"
                     )
-        check(
-            "policy: auto NEVER selects fused",
-            "fused" not in engines,
-            "engines seen: " + ", ".join(sorted(engines)),
-        )
+                    engines[(pop, backend)] = route.engine
+        if fused_engine.fused_available():
+            # The fused route is the DEFAULT here: `auto` picks it from
+            # EVOGP_FUSED_MIN_POP up whenever it owns the backend, and an explicit
+            # backend keeps the historical dense/specialized rule.
+            served = sorted(
+                pop for (pop, backend), engine in engines.items()
+                if backend is None and engine == "fused"
+            )
+            check(
+                "policy: auto selects fused from EVOGP_FUSED_MIN_POP up",
+                served and min(served) >= minimum
+                and all(engines[(pop, None)] == "fused" for pop in served)
+                and engines[(1, None)] != "fused",
+                "fused at pop: " + ", ".join(str(pop) for pop in served),
+            )
+            check(
+                "policy: an explicit backend never reaches fused",
+                all(
+                    engine != "fused"
+                    for (pop, backend), engine in engines.items()
+                    if backend is not None
+                ),
+                "explicit-backend engines: "
+                + ", ".join(
+                    sorted(
+                        {
+                            engine
+                            for (pop, backend), engine in engines.items()
+                            if backend is not None
+                        }
+                    )
+                ),
+            )
+        else:
+            check(
+                "policy: auto never selects fused without triton/device",
+                all(engine != "fused" for engine in engines.values()),
+                "engines seen: " + ", ".join(sorted(set(engines.values()))),
+            )
         for pop in (1, minimum, 256):
             check(
                 f"policy: should_use_dense({pop}, fused) is False",

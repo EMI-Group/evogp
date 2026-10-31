@@ -17,7 +17,10 @@ branch (``EVOGP_EVAL_MODE=fused`` -> ``Route(engine="fused", ...)``, reported by
 :func:`resolve_min_pop`) gates the NO-EXPLICIT-BACKEND case only: an explicitly
 named backend always attempts the route, while the default policy needs a device
 usable from torch and ``pop_size >= EVOGP_FUSED_MIN_POP`` and otherwise resolves
-to specialized+``numpy``.  ``auto`` never selects this engine.
+to specialized+``numpy``.  ``auto`` selects this engine by default on such a box
+(the same two gates plus the memory envelope, through
+``dense_engine.auto_fused_decline``), so the fused route is the default device
+path and an explicit ``EVOGP_EVAL_MODE=fused`` only forces it elsewhere.
 
 Module scope (deliberate, do not split)
 ---------------------------------------
@@ -39,6 +42,7 @@ Public surface
 ============================== ==================================================
 :class:`FusedUnsupported`      per-call decline (route cannot take this call)
 :func:`fused_available`        ``triton`` importable AND a torch CUDA/HIP device
+:func:`envelope_decline`       the memory envelope's verdict for a shape (no raise)
 :func:`evaluate_fused`         value path, ``(pop, output_len)`` / ``(pop, N, output_len)``
 :func:`sr_fitness_fused`       SR loss path, ``(pop,)`` positive loss
 :func:`fused_cache_stats`      this route's own counters (all prefixed ``fused_``)
@@ -715,6 +719,42 @@ def _envelope_verdict(key: Tuple[int, int, int, int, bool, int, int, int]) -> Op
         f"{out_len} at {n_rb} row blocks of {block} lanes (raise it, or use the "
         "dense/batch route for this shape)"
     )
+
+
+def envelope_decline(
+    pop: int,
+    tree_len: int,
+    rows: int,
+    *,
+    out_len: int = 1,
+    holds_values: bool = True,
+    block_rows: Optional[int] = None,
+    num_warps: Optional[int] = None,
+    max_scratch_mb: Optional[int] = None,
+) -> Optional[str]:
+    """The memory envelope's verdict for a shape: the decline message, or ``None``.
+
+    The NON-RAISING twin of :func:`_check_envelope` -- the same three-term byte
+    rule through the same pure :func:`_envelope_verdict`, without the raise, the
+    memo write or the resolved budget -- for callers that must DECIDE instead of
+    call.  ``dense_engine.auto_fused_decline`` is that caller: the route policy
+    asks it before picking this engine, so ``auto`` never routes a population to a
+    launch that could not hold it.  Omitted knobs go through the same resolvers as
+    a real call, so the verdict matches what :func:`evaluate_fused` would do,
+    ``holds_values`` included (the single-output loss path allocates no value
+    buffer and no chart).
+    """
+    key = (
+        int(pop),
+        int(tree_len),
+        int(rows),
+        int(out_len),
+        bool(holds_values),
+        resolve_block_rows(block_rows),
+        resolve_num_warps(num_warps),
+        resolve_max_scratch_mb(max_scratch_mb),
+    )
+    return _envelope_verdict(key)
 
 
 # --------------------------------------------------------------------------- #
