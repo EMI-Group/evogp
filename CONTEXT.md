@@ -113,8 +113,8 @@ Details of the contracts live with the code that uses them (`src/evogp/gp/EVOXC_
 
 ### From `evoxc` (EvoX Compiler, `/root/evoxc`)
 - Required and present in the engine EvoGP evaluates on: `evoxc.build` / `evoxc.run` / `evoxc.build_cached` (the `specialized` route's memoized per-structure build), the `batch_functions` transform (the `batch` route's merged graph), the iree adapter's `--iree-dispatch-creation-enable-aggressive-fusion` option (feature-detected, `auto`'s merge-formation default) and the persistent artifact tier (`evoxc.Executable.save` / `load`, `evoxc.persist.compute_key`) behind `EVOGP_EVOXC_ARTIFACT_DIR` and the batch executable tier.
-- Contributed and STILL AWAITING MERGE: the native DLPack device export of `evoxc.core.Tensor` (`Tensor.__dlpack__` / `__dlpack_device__` on a DEVICE payload, `evoxc.from_dlpack` back, and `register_external_kernel(..., device_resident=True)`) — commit `474bf72`, reachable as the task's evoxc worktree checkout `/root/evoxc/.genesis/foreign_repos/evoxc`.
-- Against `/root/evoxc` HEAD `9f66fec`, whose `Tensor.__dlpack__` raises `DeviceError` for a device payload, `evogp.gp`'s `interop_available()` answers `False` and the fused objective declines onto the host hand-off — correct but slower (one upload and one readback per call).
+- Contributed and MERGED: the native DLPack device export of `evoxc.core.Tensor` (`Tensor.__dlpack__` / `__dlpack_device__` on a DEVICE payload, `evoxc.from_dlpack` back, and `register_external_kernel(..., device_resident=True)`) — commit `474bf72`, now the tip of `/root/evoxc` (`git log` reads it on top of `9f66fec`).
+- On an `evoxc` older than that, whose `Tensor.__dlpack__` raises `DeviceError` for a device payload, `evogp.gp`'s `interop_available()` answers `False` and the fused objective declines onto the host hand-off — correct but slower (one upload and one readback per call).
 - That export is the capability `src/evogp/gp/EVOXC_API.md` documents and `src/evogp/gp/fused_eval.py` depends on; it is the only device hand-off either stack needs, and no private bridge to torch exists in the repo.
 
 ### From `evox` (EvoX 2.0.0a1, `/root/evox`)
