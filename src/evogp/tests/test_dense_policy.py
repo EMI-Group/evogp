@@ -335,9 +335,12 @@ def test_eval_mode_tables_stay_canonical():
     alias value may point at it), listed before ``auto`` so the default stays the
     last entry, and named in ``ENGINES`` next to the two engines the policy had
     before it.
+    ``fused`` is the opt-in FOURTH engine: likewise a canonical mode listed before
+    ``auto``, never an alias (and no alias value points at it), and never selected by
+    ``auto``.
     """
-    assert tuple(dense.EVAL_MODES) == ("dense", "specialized", "batch", "auto")
-    assert tuple(dense.ENGINES) == ("specialized", "dense", "batch")
+    assert tuple(dense.EVAL_MODES) == ("dense", "specialized", "batch", "fused", "auto")
+    assert tuple(dense.ENGINES) == ("specialized", "dense", "batch", "fused")
     assert dense.DEFAULT_EVAL_MODE == "auto"
     assert dense.DEFAULT_EVAL_MODE == dense.EVAL_MODES[-1]
     assert dict(dense.EVAL_MODE_ALIASES) == {"dynamic": "dense"}
@@ -353,6 +356,10 @@ def test_eval_mode_tables_stay_canonical():
     assert "batch" in dense.EVAL_MODES and "batch" in dense.ENGINES
     assert "batch" not in dense.EVAL_MODE_ALIASES
     assert "batch" not in set(dense.EVAL_MODE_ALIASES.values())
+    # ... and the same for the opt-in fourth engine
+    assert "fused" in dense.EVAL_MODES and "fused" in dense.ENGINES
+    assert "fused" not in dense.EVAL_MODE_ALIASES
+    assert "fused" not in set(dense.EVAL_MODE_ALIASES.values())
 
 
 @pytest.mark.parametrize("unknown", ["dynamic2", "dens", "DINAMIC", "0"])
