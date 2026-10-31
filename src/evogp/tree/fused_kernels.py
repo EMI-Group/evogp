@@ -48,12 +48,14 @@ route:
   ``L = 64``, ``BLOCK_R = 256``, and only the live ``depth`` slots are touched),
   instead of ``O(L)`` full-population passes.
 
-Measured on the six benchmark cells the fused route is 48.6x-167.6x faster than
-the ``torch-batched`` arm on the value path (0.083-0.157 ms against 4.13-26.34 ms)
-and 43.4x-156.4x on the loss path, and the part that is left is the launch
-itself: the kernel is 72-82 % of a warm call and the host glue 0.023-0.033 ms
-(numbers of record, with the ``BLOCK_R``/warp sweep: the module docstring of
-:mod:`evogp.tree.fused_engine`, reproduced by ``fused_check.py``).
+Measured on the six benchmark cells the fused route is 41x-157x faster than the
+``torch-batched`` arm on the value path (0.0995-0.1673 ms against 4.05-26.25 ms),
+32x-131x on the loss path and 42x-127x per-tree (campaign of record ``FUSED.md``
+§0/§2), and the part that is left is the launch itself: the kernel is 51-78 % of a
+warm call and the host glue 0.031-0.062 ms (``FUSED.md`` §3; the six-cell sweep
+that preceded the campaign read 48.6x-167.6x on the value path and is kept for the
+record there).  The ``BLOCK_R``/warp sweep and the per-cell table are the module
+docstring of :mod:`evogp.tree.fused_engine`, reproduced by ``fused_check.py``.
 
 Geometry
 --------

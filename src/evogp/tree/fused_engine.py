@@ -94,24 +94,26 @@ misses are :func:`fused_cache_stats`'s ``fused_xt_hits`` / ``fused_xt_misses``;
 ``0`` disables it.  ``per_row=True`` needs no transpose: each tree reads its own
 scalar row element ``x[t * input_len + vi]``.
 
-Measured economics (six benchmark cells, warm medians of 2 warmup + 10
-sync-bracketed reps, one process per cell, MI300X, the shipped ``BLOCK_R`` 256 /
-1 warp; reproduce with ``python -m evogp.tree.fused_check --stage timing``)
+Measured economics -- the campaign of record (``FUSED.md`` §0/§2: six benchmark
+cells, warm medians of 2 warmup + 10 sync-bracketed reps, one process per cell,
+MI300X, the shipped ``BLOCK_R`` 256 / 1 warp; reproduce with ``python -m
+evogp.tree.fused_check --stage timing``)
 ------------------------------------------------------------------------------------------------------
-The value path is **48.6x-167.6x faster** than the ``torch-batched`` pure-torch
-arm (``test/benchmark/evoxc/arms_torch.py:BatchedEvaluator``), the loss path
-**43.4x-156.4x**, and the per-tree (``per_row=True``) path 56x-150x::
+Against the ``torch-batched`` pure-torch arm
+(``test/benchmark/evoxc/arms_torch.py:BatchedEvaluator``) that campaign reads
+**41x-157x on the value (``batch_forward``) surface**, **32x-131x on the loss
+(``SR_fitness``) surface** and **42x-127x on the per-tree (``per_row=True``)
+surface**, i.e. **32x-157x across the three surfaces**.  Its ``batch_forward``
+medians (the loss and per-row ratios follow in the same cell order)::
     cell                     torch-batched    fused     speedup   n_rb
-    p256-L32-i8-N1024            4.127 ms   0.084 ms    49.15x     4
-    p256-L64-i32-N1024           4.578 ms   0.083 ms    55.17x     4
-    p256-L64-i32-N4096           4.959 ms   0.102 ms    48.57x    16
-    p1000-L64-i32-N1024          4.856 ms   0.094 ms    51.93x     4
-    p4096-L64-i32-N1024         10.480 ms   0.131 ms    79.80x     4
-    p2048-L128-i32-N1024-d7     26.341 ms   0.157 ms   167.62x     4
-    loss (MSE): 4.173/0.096 (43.4x), 4.634/0.101 (45.7x), 4.974/0.110 (45.4x),
-    4.868/0.103 (47.4x), 10.502/0.135 (77.8x), 26.368/0.169 (156.4x)
-    per_row:    4.058/0.072 (56.3x), 4.535/0.073 (61.9x), 4.285/0.072 (59.3x),
-    4.560/0.072 (63.2x), 4.426/0.075 (59.0x), 15.807/0.106 (149.7x)
+    p256-L32-i8-N1024            4.055 ms  0.0995 ms    40.8x     4
+    p256-L64-i32-N1024           4.427 ms  0.1016 ms    43.6x     4
+    p256-L64-i32-N4096           4.918 ms  0.1095 ms    44.9x    16
+    p1000-L64-i32-N1024          4.887 ms  0.1053 ms    46.4x     4
+    p4096-L64-i32-N1024         10.640 ms  0.1460 ms    72.9x     4
+    p2048-L128-i32-N1024-d7     26.251 ms  0.1673 ms   156.9x     4
+    loss (sf):    32.1x / 32.6x / 38.6x / 34.2x / 59.7x / 130.9x
+    per_row (fw): 46.2x / 48.7x / 50.1x / 49.9x / 42.3x / 126.6x
 The reason is a traffic and a launch-count argument, not a vectorization trick:
 the arm materializes a ``(pop, L+1, N)`` value buffer and runs one eager-torch
 kernel per (node position, op) -- ~30 launches of a ``262 144``-element tensor at
@@ -120,37 +122,51 @@ ONE launch per (tree, row-block) pair (1 024 programs at p256/``N`` 1024 with
 ``BLOCK_R`` 256, i.e. four row blocks per tree) and keeps every operand in a
 register or in the shared-memory stack, so the population's node tables are read
 ``rows / BLOCK_R`` times at most, i.e. 4 times instead of ``L`` times.
-The ratio therefore grows with the TREE axis (167.6x on the 123-node ``-d7``
-cell at pop 2 048, where the arm has ~120 positions to stream, and 79.8x at pop
+The ratio therefore grows with the TREE axis (156.9x on the 123-node ``-d7``
+cell at pop 2 048, where the arm has ~120 positions to stream, and 72.9x at pop
 4 096, where the arm's 262 144-element launches finally saturate the device while
-the fused call is 4096 short programs) and is lowest on ``p256-L64-i32-N4096``
-(48.6x): 16 row blocks per tree re-walk each tree 16 times, which is the one
-direction where this scheme pays a real cost.
-Where a warm call goes (the battery's stage split, ms): the launch itself is
-**72-82 %** of it (0.060-0.128) and the host glue the rest (0.023-0.033:
-validation, the transpose-memo lookup, the one ``contiguous()`` and the
-``(pop, rows, 1)`` output write); the transpose a COLD dataset pays is
-0.018-0.020 ms and is memoized afterwards, and the loss path adds 0.033-0.039 ms
-of host glue for the ``(pop, n_rb)`` chart reduction.  Cross-checked on exactly
-these populations, the value path is bitwise against the arm on 2 of the 6 cells
-and differs only in the sign of a zero on the other 4 (``max_abs = 0.0``), while
-the loss agrees to ``<= 3.8e-07`` relative -- the numbers above are not fast
-wrong answers, they are the same numbers.
-Cold (first call of a fresh process): **375-378 ms** with a warm Triton on-disk
-cache (Triton import ~57 ms + the first JIT compile of the module), ~1.36-1.38 s
-from a cold cache (a new ``(BLOCK_R, warps, flags)`` key has to be compiled), and
-**1.85-1.89 ms** for the specialization that follows it in the same process.  That
-is ~4 500x the warm call, so this route needs a loop that evaluates many
-generations per process (a GP run does, and the compile is paid once per
-``(PER_ROW, REDUCE, USE_MSE, block, warps)`` combination, not per generation) and
-is a bad fit for a one-shot script.
-Parity (``python -m evogp.tree.fused_check --stage parity``): 56/56 comparisons
-against ``src/evogp/tests/reference_eval.py`` -- **bitwise** on the arithmetic
-set's value paths and on every handmade adversarial row that has no NaN/zero-sign
-case, ``<= 1.8e-07`` relative on the loose/rich transcendental sets' value paths
-and ``<= 1e-07`` on the loss paths (float32 reduction order), plus 10/10 golden
-fixtures inside 1e-4 (measured ``<= 1.9e-06``), 24/24 decline/contract checks and
-31/31 wiring checks.  The ``OUT_NODE`` multi-output protocol has its own stage
+the fused call is 4096 short programs) and is lowest on the smallest cell (40.8x
+at ``p256-L32-i8-N1024``).  The ROW axis is nearly free -- 0.1016 -> 0.1095 ms for
+4x the rows, still 44.9x -- while the POP axis is what the tree walk costs:
+0.1016 -> 0.1460 ms from pop 256 to 4 096 at ``L=64``, because the walk repeats
+once per row block and the per-program work scales with pop.
+Where a warm call goes (the campaign's stage split, ``FUSED.md`` §3, ms): the
+launch itself is **51-78 %** of it (0.060-0.131) and the host glue the rest
+(0.031-0.062: validation, the transpose-memo lookup, the one ``contiguous()`` and
+the ``(pop, rows, 1)`` output write); the transpose a COLD dataset pays is
+0.019 ms and is memoized afterwards, and the loss path adds 0.046-0.062 ms of
+host glue for the ``(pop, n_rb)`` chart reduction.  Cross-checked on exactly
+these populations (``FUSED.md`` §6), the value paths are **bit-identical** to
+both the arm and the oracle on every finite point (the only differing bits are
+NaN payloads / signed zeros, ``max_abs = 0.0``) and the loss agrees to
+``<= 3.8e-07`` relative -- the numbers above are not fast wrong answers, they are
+the same numbers.  An ``arith``-set ``sr_fitness`` digest therefore differs from
+the other routes (float32 block-reduction order), so a harness gate over a fused
+column needs ``--allow-digest-mismatch``.
+Cold (first call of a fresh process, ``FUSED.md`` §5): **1.64-1.67 s** for the
+value kernel from an EMPTY ``TRITON_CACHE_DIR``, plus 0.94-0.99 s for the loss
+surface and 0.32 s for the per-row one (~2.9 s of one-time JIT for all three),
+against **2.1 ms** for the same call on a warm Triton **disk** hit (Triton's cache
+is process-independent); within one process the next surface pays ~0.47 s (loss)
+or ~1.7 ms (per-row).  That is ~1.6e4x the warm value call, so this route needs a
+loop that evaluates many generations per process (a GP run does, and the compile
+is paid once per ``(PER_ROW, REDUCE, USE_MSE, block, warps)`` combination, not
+per generation) and is a bad fit for a one-shot script.
+The earlier six-cell sweep that preceded this campaign (kept for the record in
+``FUSED.md``'s closing section, superseded by the numbers above) read
+**48.6x-167.6x** on the value path, 43.4x-156.4x on the loss path and 56x-150x
+per-tree, with the kernel 72-82 % of a warm call and a 375-378 ms (warm disk
+cache) / 1.36-1.38 s (cold cache) first call.
+Parity (``python -m evogp.tree.fused_check --stage parity``): 60/60 comparisons
+against ``src/evogp/tests/reference_eval.py`` over five op sets (arithmetic,
+ternary, loose, rich and ``compare_unary`` -- the set that draws ``>`` / ``<=`` /
+``neg`` / ``abs`` / ``sinh`` / ``cosh``) -- **bitwise** on the arithmetic and
+``compare_unary`` value paths and on every handmade adversarial row that has no
+NaN/zero-sign case, ``<= 1.8e-07`` relative on the loose/rich transcendental
+sets' value paths and ``<= 1e-07`` on the loss paths (float32 reduction order),
+plus 10/10 golden fixtures inside 1e-4 (measured ``<= 1.9e-06``), 54/54
+decline/contract checks and 31/31 wiring checks.  The ``OUT_NODE`` multi-output
+protocol has its own stage
 (``--stage multi``: 13 case x ``out_len`` populations, 4 surfaces, 65/65
 comparisons, value path BITWISE, loss ``<= 1.2e-07`` relative).
 The only rows that are not bitwise are those whose result is a NaN payload or a
