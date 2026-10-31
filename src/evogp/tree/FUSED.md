@@ -48,8 +48,10 @@ dense compile and 25–500× cheaper than a `batch` merged compile. The one thin
 Scope and envelope, re-measured (§11–§15): the route serves `output_len` 1 up to `fused_engine.MAX_OUT_LEN` (8) with a
 **bitwise** multi-output value path, and over the 12-cell envelope it is **35.8×–206×** the `torch-batched` arm,
 **32.2×–155 847×** `specialized` and **16.3×–495×** the shipped `dense` default, i.e. it loses no measured cell on any
-axis. Its device cost is the `pop_size * tree_len * rows * 4` scratch block (2 GiB at the largest measured cell, which
-allocates it and does not OOM, 4× inside the 8192 MiB default), and `EVOGP_FUSED_MIN_POP` is 16 because the kernel is
+axis. Its device cost is the envelope `fused_engine._check_envelope` charges — the scratch block `pop * n_rb * tree_len *
+block * 4` (row axis rounded UP to the block) plus the `(pop, rows, out_len)` value buffer and the loss chart, 2 GiB of
+scratch at the largest measured cell, which allocates it and does not OOM, 4× inside the 8192 MiB default — and
+`EVOGP_FUSED_MIN_POP` is 16 because the kernel is
 **flat in `pop_size`** (0.088–0.103 ms from pop 1 to 128) while the specialized fallback scales with the tree count.
 
 ---
@@ -63,7 +65,7 @@ fresh population, and it would still look plausible). Two independent proofs are
 - **Policy**: `dense_engine.resolve_route(pop, rows=…)` returns `engine="fused"`, `use_fused=True`,
   `backend="iree"`, `fallback_backend="iree"` for all three call shapes (`sr_fitness`, `batch_forward`, `forward`) on
   all six cells — `route` block, `route_all_fused: true` in every probe record.
-- **Execution**: the 13-key `fused_engine.fused_cache_stats()` delta around each workload shows
+- **Execution**: the 15-key `fused_engine.fused_cache_stats()` delta around each workload shows
   `fused_kernel_launches == 1 + warmup + reps`, `fused_declines == 0`, `fused_scratch_allocs + fused_scratch_reuses
   == launches`, and `fused_xt_hits + fused_xt_misses == launches` on the two `per_row=False` surfaces
   (`served: true` on every workload of every cell). A fallback moves `fused_calls` but leaves `fused_kernel_launches`
@@ -408,6 +410,7 @@ $PY -m evogp.tree.fused_check --stage wired      # the public-API wiring gate
 for s in headline envelope minpop sweep degenerate; do
   $PY -m evogp.tree.fused_envelope --stage $s
 done
+$PY -m evogp.tree.fused_envelope --stage records    # read-only: stored envelope_ok vs today's rule
 
 # 7. end-to-end and the hermetic suite (run the suite AFTER all timing — parts of it touch the GPU)
 EVOGP_EVAL_MODE=fused EVOGP_EVOXC_BACKEND=iree $PY -m evogp.sr_test     # best fitness -0.2259 in ~10.4 s
@@ -447,7 +450,7 @@ scope**; the parent agent should move (or copy) the directory there and add the 
 | `fused_results/sweep/sweep.json` | the 12-config block/warp geometry sweep of §14 (four cells per config) |
 | `fused_results/degenerate.json` | the degenerate shapes (rows 1 / rows 1000 / `input_len` 1 / all-constant population / single-node population) |
 | `fused_results/ENVELOPE.md` | the table set of that campaign: protocol, headline, envelope, min-pop, sweep, degenerate shapes, reader notes |
-| `fused_envelope.py` | the driver behind §12–§15 (`--stage headline\|envelope\|minpop\|sweep\|degenerate`, plus the `*-one` single-process legs the drivers spawn) |
+| `fused_envelope.py` | the driver behind §12–§15 (`--stage headline\|envelope\|minpop\|sweep\|degenerate`, plus the `*-one` single-process legs the drivers spawn) and the read-only `--stage records` audit of the committed files against the engine's envelope rule |
 | `fused_sibling_patches.md` | the exact cross-node edits (test pin, harness arm registry, route reporting, worker counters, doc drift) |
 
 ---
@@ -504,10 +507,10 @@ row (NaN/nonsense cells behind the tree).
 
 - `output_len > MAX_OUT_LEN` declines with a reason naming `MAX_OUT_LEN` (clean: no kernel compiled, no scratch
   allocated), and `output_len = 0` raises `ValueError` (a shape contract, not a route decline).
-- The battery's matrices read: decline/contract **24/24** (two-sided on `output_len`: 2 served, above `MAX_OUT_LEN`
-  declined), wiring **31/31** (the public-API leg drives a multi-output population and asserts one `fused_calls`, no
-  `fused_declines` and the specialized reference's numbers), parity **56/56** (the single-output set of §6) and
-  goldens **10/10**.
+- The battery's matrices read: decline/contract **54/54** (two-sided on `output_len`: 2 served, above `MAX_OUT_LEN`
+  declined; 24/24 before the hardening round of §16), wiring **31/31** (the public-API leg drives a multi-output
+  population and asserts one `fused_calls`, no `fused_declines` and the specialized reference's numbers), parity
+  **60/60** (the single-output set of §6; 56/56 before §16) and goldens **10/10**.
 - `--stage goldens` still SKIPS `src/evogp/tests/goldens/06_multi_output.npz` — it is the single-output golden gate
   and serving the fixture would move its recorded count. `--stage multi` is the multi-output coverage; the fixture
   is not read by any fused stage.
@@ -541,8 +544,13 @@ falls back to per-structure `specialized` and timing it would only report that f
 
 - Value parity against the arm is **bitwise on every cell**; loss agreement is **1.6e-07 … 4.1e-07** relative
   (in-graph reduction order).
-- `scratch_bytes = pop_size * tree_len * rows * 4` is the envelope formula and the default
-  `EVOGP_FUSED_MAX_SCRATCH_MB` (8192) is 4× clear of the largest measured cell.
+- The recorded `scratch B` column is the scratch term `pop * n_rb * tree_len * block * 4`; it equals
+  `pop_size * tree_len * rows * 4` on every cell here only because `rows` is a multiple of the 256-lane block.
+  The shipped envelope (`fused_engine._check_envelope`, §16.4) charges that term with the row axis ROUNDED UP to the
+  block PLUS the `(pop, rows, out_len)` value buffer (8–32 MiB on these cells at `out_len` 1) and, on the loss path,
+  the `(pop, n_rb)` chart; the default `EVOGP_FUSED_MAX_SCRATCH_MB` (8192) is 4× clear of the largest measured cell
+  under either rule, and `fused_envelope.py --stage records` re-checks every stored `envelope_ok` read-only (79
+  stored records, 0 disagreements).
 - The node-count cell really allocates its 2 GiB stack scratch — device peak over the fused window Δ 2064 MiB
   allocated / 2048 MiB reserved — and does **not** OOM.
 - No cell loses: the narrowest margin over `specialized` is 32.2× (`p16`), over `dense` 16.3× (`p64`, whose cost is
@@ -796,10 +804,12 @@ was arm-order drift, which is why §15's protocol keeps the order alternation.
 - `EVOGP_FUSED_BLOCK_ROWS` values between two powers of two silently become the lower one (reported in the
   stats, not refused).
 - `MAX_OUT_LEN` is 8: a wider multi-output population declines by name.
-- `fused_envelope.py`'s `envelope_ok` still uses the pre-S2 `cell_tensor_bytes` rule; it is a dev CLI outside the
-  gate and its records predate §16.4.
-- Module sizes are deliberate single units: `fused_engine.py` 1 072 lines and `fused_kernels.py` 1 215 lines
-  (a compilation unit each, like `evoxc_engine.py`); `fused_check.py` 3 151 lines (one self-contained battery).
+- The records under `fused_results/` predate §16.4, so their `geometry.scratch_bytes` is the older round figure and
+  their geometric keys carry no value-buffer/chart terms. Their `envelope_ok` is unaffected: all 79 stored records
+  still pass today's rule, which `fused_envelope.py --stage records` re-checks read-only (it never rewrites them).
+- Module sizes are deliberate single units: `fused_engine.py` ~1.1 k lines and `fused_kernels.py` ~1.2 k lines
+  (a compilation unit each, like `evoxc_engine.py`, and each says so at the top of the file); `fused_check.py`
+  3 151 lines (one self-contained battery).
 
 ---
 
@@ -814,13 +824,13 @@ stated above; where they overlap, the campaign's own tables win):
   / `fused_scratch_reuses` / `fused_scratch_entries` / `fused_scratch_evictions` / `fused_scratch_bytes` (the launch
   side, byte-bounded per §16.4), plus the informational `fused_block_rows` / `fused_num_warps` (which report `-1`
   instead of raising when the ambient knob is unusable).
-- `fused_calls` counts ATTEMPTS (bumped before the try, `fused_engine.py:608` / `:747`), so a decline moves BOTH
+- `fused_calls` counts ATTEMPTS (bumped before the try in `evaluate_fused` / `sr_fitness_fused`), so a decline moves BOTH
   counters and a shape-contract `ValueError` moves `fused_calls` alone: proving a call was served means
   `Δcalls − Δdeclines == n` AND `Δfused_kernel_launches == n`, while `fused_kernel_compiles` is "first launch of
   this `(per_row, reduce, use_mse, block, warps)` key" — the key set lives in `fused_kernels._KERNELS` and is NOT
   reset by `clear_caches()`, so a counter reset can under-report it.
 - `EVOGP_FUSED_HOST_MEMO` has NO per-call reader: `_default_host_memo` reads it once at import to size `XT_MEMO`
-  (`fused_engine.py:296-305`), so a change needs a fresh process.
+  (`fused_engine._default_host_memo`, called once when `XT_MEMO` is built), so a change needs a fresh process.
 - There is NO per-stage timer surface on this route (unlike `batch_stages.py`): the split must be reconstructed by
   timing `_prepare` / `_transposed` / `fused_kernels.launch_value` / `launch_loss` separately, which is what
   `fused_check._stage_split` does for the value/loss kernel-vs-host columns; the route has no host readback, so a
@@ -857,11 +867,11 @@ was 72-82 % of a warm call (0.060-0.128 of 0.083-0.157 ms), the transpose 0.018-
 375 ms (warm Triton disk cache) to 1.38 s (cold) per specialization, ~1.9 ms for the next one.
 
 ### Facade surface and route wiring (relocated from tree/CONTEXT.md)
-`fused_engine` is the facade in the dense shape: `FusedUnsupported(reason, device_fallback=False)`, `evaluate_fused`, `sr_fitness_fused`, `fused_available`, `fused_cache_stats()` (13 all-`fused_*` keys), `clear_fused_cache` (registered with `evoxc_engine._register_cache_reset`) and the knob readers `resolve_block_rows` / `resolve_num_warps` / `resolve_max_scratch_mb` / `resolve_min_pop`.
+`fused_engine` is the facade in the dense shape: `FusedUnsupported(reason, device_fallback=False)`, `evaluate_fused`, `sr_fitness_fused`, `fused_available`, `fused_cache_stats()` (15 all-`fused_*` keys), `clear_fused_cache` (registered with `evoxc_engine._register_cache_reset`) and the knob readers `resolve_block_rows` / `resolve_num_warps` / `resolve_max_scratch_mb` / `resolve_min_pop`.
 It declines (never guesses) on no triton, no device, a host tensor, `backend != "iree"`, `output_len > MAX_OUT_LEN`, `rows < 1`, `pop < 1` and the `EVOGP_FUSED_MAX_SCRATCH_MB` envelope, and it maps `fused_kernels.FusedUnavailable` onto that decline so an optional route never raises `ImportError`.
 Prep is device-side only: `per_row=False` transposes `x` once into the identity-memoized `XT_MEMO` (a `DenseMemo`, `EVOGP_FUSED_HOST_MEMO` 16 entries), `per_row=True` needs nothing.
 Route wiring: `EVOGP_EVAL_MODE=fused` is named by `EVAL_MODES` and `ENGINES`, `Route.use_fused` reports it and `resolve_route`'s `fused` branch decides — on an explicitly named backend, or with a device usable from torch AND `pop_size >= EVOGP_FUSED_MIN_POP` (16); otherwise (and on a CPU box) the route IS specialized+`numpy` with `engine="specialized"`.
-Its backend SPELLING is `iree` and its fallback is always specialized+`numpy`; an explicit `EVOGP_EVOXC_BACKEND` changes the shape (`iree` makes the fallback `iree` too, `numpy` still reports `engine='fused'` while every call declines — the engine name is never a served-call proof).
+Its backend SPELLING is `iree` and its fallback is ALWAYS specialized+`numpy`, on every arm: an explicit `EVOGP_EVOXC_BACKEND=iree` builds `Route(False, 'iree', 'numpy', engine='fused')`, so a decline lands on specialized+`numpy`, never on a per-tree iree compile, while `EVOGP_EVOXC_BACKEND=numpy` still reports `engine='fused'` and declines on every call — the engine name is never a served-call proof.
 `Route.__post_init__` refuses `use_dense=True` with `engine="fused"`; `should_use_dense` is `False` for it; `resolve_fused_min_pop` is the single parser of `EVOGP_FUSED_MIN_POP` and delegates to `fused_engine.resolve_min_pop` through a LOCAL import so the module DAG stays one-way.
 All five call sites carry the fused attempt between the dense one and the specialized tail, catching exactly `fused_engine.FusedUnsupported` and continuing on `route.fallback_backend`.
 There is NO per-stage timer surface on this route (the split must be reconstructed by timing `_prepare` / `_transposed` / `fused_kernels.launch_value` / `launch_loss` separately, which is what `fused_check._stage_split` does), and there is no readback stage at all.

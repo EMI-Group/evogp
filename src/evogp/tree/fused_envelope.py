@@ -10,11 +10,17 @@ STAGES (every stage writes a JSON record; ``--json PATH`` overrides the file)
 ``envelope``    one record per cell of :data:`ENVELOPE_CELLS`: fused value/loss medians vs
                 the harness's ``torch-batched`` arm (the ratio denominator), the
                 ``specialized`` fallback cost, the ``dense`` cost, and what makes a fused
-                number believable -- ``scratch_bytes`` (``pop * tree_len * rows * 4``)
-                against ``EVOGP_FUSED_MAX_SCRATCH_MB``, the resolved ``n_rb``, the peak
-                device memory of the fused window, the ``fused_*`` counter delta (one
-                launch per call, so the kernel ran instead of falling back) and the
-                deviation of the output that was just timed.
+                number believable -- the bytes one launch allocates against
+                ``EVOGP_FUSED_MAX_SCRATCH_MB`` (``scratch`` ``pop * n_rb * tree_len *
+                block * 4`` with the row axis rounded UP to the block, plus the
+                ``(pop, rows, out_len)`` value buffer and the loss chart), the resolved
+                ``n_rb``, the peak device memory of the fused window, the ``fused_*``
+                counter delta (one launch per call, so the kernel ran instead of falling
+                back) and the deviation of the output that was just timed.
+``records``     the READ-ONLY audit of the committed records under ``fused_results/``
+                against today's envelope rule.  The records are the measurement of record
+                and are never re-written here; a record whose stored ``envelope_ok``
+                disagrees with the engine's current verdict gets a ``NOTE`` line.
 ``degenerate``  the same over hand-built shapes a generator does not produce: ``rows_1``, a
                 row count that is not a multiple of ``BLOCK_R``, ``input_len 1``, an
                 all-constant population and a single-node population; parity against
@@ -53,6 +59,12 @@ PROTOCOL (the contract a reader can rely on)
   own answer under ``fused.policy``).
 * Every record republishes the resolved geometry (``EVOGP_FUSED_*``, ``EVOGP_EVAL_MODE``,
   backend) so a reader can prove which configuration produced the number.
+* ``envelope_ok`` is NOT this CLI's arithmetic: :func:`_envelope` asks
+  ``fused_engine._check_envelope`` -- the engine's shipped pre-flight -- and reports the
+  verdict it returns, next to the same three byte terms for a reader
+  (``scratch_bytes`` / ``value_bytes`` / ``chart_bytes`` -> ``envelope_bytes``).  The
+  engine is the single source of truth for the memory envelope; the local byte mirror
+  exists only for the report and raises if it ever stops agreeing with the verdict.
 
 HOW TO RUN -- from the repository root, with ``TRITON_CACHE_DIR`` writable (the default
 ``~/.triton`` is not, in the sandbox)::
@@ -60,7 +72,7 @@ HOW TO RUN -- from the repository root, with ``TRITON_CACHE_DIR`` writable (the 
     TRITON_CACHE_DIR=$TMPDIR/fused/tc \\
     PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1 \\
     /tmp/rocvenv/bin/python -m evogp.tree.fused_envelope --stage envelope
-    ... --stage degenerate | minpop | sweep | headline
+    ... --stage degenerate | minpop | sweep | headline | records
 
 ``--help`` imports nothing heavy: torch, ``evogp`` and the harness are imported inside the
 worker functions, so the CLI is inspectable on a box with no device at all.
@@ -370,17 +382,173 @@ def _launches(delta: Dict[str, int]) -> Tuple[int, str]:
     return 0, "missing"
 
 
-def _geometry(common, fused_kernels, fused_engine, cell: Dict[str, Any]) -> Dict[str, Any]:
-    """Scratch envelope, resolved launch geometry and the memory rule of one cell."""
-    cell_bytes = int(common.cell_tensor_bytes(cell))
-    budget_mb = int(fused_engine.resolve_max_scratch_mb())
-    launch = fused_kernels.plan(int(cell["rows"]), per_row=False,
-                                block_rows=int(fused_engine.resolve_block_rows()),
-                                num_warps=int(fused_engine.resolve_num_warps()))
-    return {"scratch_bytes": cell_bytes, "scratch_mib": cell_bytes / 2**20,
-            "max_scratch_mb": budget_mb, "envelope_ok": cell_bytes <= budget_mb * 2**20,
-            "block_rows_resolved": int(launch["block_rows"]),
-            "num_warps_resolved": int(launch["num_warps"]), "n_rb": int(launch["n_rb"])}
+def _envelope(fused_engine, fused_kernels, *, pop: int, tree_len: int, rows: int,
+              out_len: int = 1, holds_values: bool = True,
+              block_rows: Optional[int] = None, num_warps: Optional[int] = None,
+              max_scratch_mb: Optional[int] = None) -> Dict[str, Any]:
+    """The ENGINE's envelope verdict for one call shape, plus the bytes it charges.
+    The decision is ``fused_engine._check_envelope`` -- the pre-flight the route itself
+    runs -- so a record's ``envelope_ok`` can never drift from the shipped rule: that
+    helper charges ``pop * n_rb * tree_len * block * 4`` (scratch, row axis ROUNDED UP
+    to the block) + ``pop * rows * out_len * 4`` (value buffer) + ``pop * n_rb * 4``
+    (loss chart) and returns the resolved budget.  The three terms are recomputed here
+    only to REPORT them; ``fits`` is cross-checked against the engine's verdict and a
+    disagreement raises, which is what keeps the mirror honest.
+    ``holds_values=True`` is the conservative arm (a value call pays the value buffer,
+    the loss call trades it for the much smaller chart); every cell is ``out_len`` 1.
+    ``block_rows`` / ``num_warps`` / ``max_scratch_mb`` default to the ambient knobs; a
+    re-audit of a stored record passes the geometry THAT record was taken under, so only
+    the RULE changes under it.
+    """
+    block_cap = int(fused_engine.resolve_block_rows(block_rows))
+    warps = int(fused_engine.resolve_num_warps(num_warps))
+    budget_mb = int(fused_engine.resolve_max_scratch_mb(max_scratch_mb))
+    launch = fused_kernels.plan(int(rows), per_row=False, block_rows=block_cap,
+                                num_warps=warps)
+    n_rb, block = int(launch["n_rb"]), int(launch["block_rows"])
+    scratch = int(pop) * n_rb * int(tree_len) * block * 4
+    values = (int(pop) * int(rows) * int(out_len) * 4
+              if (holds_values or int(out_len) > 1) else 0)
+    chart = 0 if holds_values else int(pop) * n_rb * 4
+    total = scratch + values + chart
+    try:
+        budget = fused_engine._check_envelope(
+            int(pop), int(tree_len), int(rows), budget_mb, block_rows=block_cap,
+            num_warps=warps, out_len=int(out_len), holds_values=holds_values)
+        ok, decline = True, None
+    except fused_engine.FusedUnsupported as exc:
+        budget, ok, decline = budget_mb, False, str(exc)
+    fits = total <= int(budget) * 2**20
+    if fits != ok:
+        raise RuntimeError(
+            f"the CLI's envelope byte mirror drifted from "
+            f"fused_engine._check_envelope: {total} B "
+            f"{'fits' if fits else 'exceeds'} {int(budget)} MiB, but the engine "
+            f"{'serves' if ok else 'declines'} pop {pop} * tree_len {tree_len} * rows "
+            f"{rows} * out_len {out_len} at {n_rb} row blocks of {block} lanes")
+    return {"envelope_engine": "fused_engine._check_envelope",
+            "scratch_bytes": scratch, "scratch_mib": scratch / 2**20,
+            "value_bytes": values, "chart_bytes": chart,
+            "envelope_bytes": total, "envelope_mib": total / 2**20,
+            "max_scratch_mb": int(budget), "envelope_ok": ok,
+            "envelope_decline": decline, "out_len": int(out_len),
+            "holds_values": bool(holds_values),
+            "block_rows_resolved": block, "num_warps_resolved": int(launch["num_warps"]),
+            "n_rb": n_rb}
+def _geometry(fused_kernels, fused_engine, cell: Dict[str, Any]) -> Dict[str, Any]:
+    """The engine's envelope decision, the three byte terms and the launch geometry."""
+    return _envelope(fused_engine, fused_kernels, pop=int(cell["pop"]),
+                     tree_len=int(cell["tree_len"]), rows=int(cell["rows"]))
+
+
+def _record_files(root: str) -> List[str]:
+    """Every ``*.json`` file under ``root`` (recursive), sorted."""
+    found: List[str] = []
+    for base, _dirs, names in os.walk(root):
+        found.extend(os.path.join(base, name) for name in names if name.endswith(".json"))
+    return sorted(found)
+def _stored_envelope(record: Dict[str, Any], fused_engine,
+                     fused_kernels) -> Optional[Dict[str, Any]]:
+    """TODAY's envelope verdict for one STORED record, under that record's own geometry.
+    Only the RULE is re-applied: the block/warp/budget knobs come from the record's own
+    ``env.resolved`` block (falling back to the geometry it republished), so a sweep
+    record taken at ``BLOCK_R`` 1024 is judged at 1024 lanes, not at today's default.
+    ``None`` when the record carries no envelope (the campaign's non-envelope records).
+    """
+    geometry = record.get("geometry") or {}
+    if "envelope_ok" not in geometry:
+        return None
+    try:
+        pop = int(record["pop"])
+        tree_len = int(record["tree_len"])
+        rows = int(record["rows"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    resolved = (record.get("env") or {}).get("resolved") or {}
+    block_rows = resolved.get("block_rows_cap", geometry.get("block_rows_resolved"))
+    num_warps = resolved.get("num_warps", geometry.get("num_warps_resolved"))
+    budget_mb = resolved.get("max_scratch_mb", geometry.get("max_scratch_mb"))
+    return _envelope(
+        fused_engine, fused_kernels, pop=pop, tree_len=tree_len, rows=rows,
+        out_len=int(geometry.get("out_len", 1)),
+        holds_values=bool(geometry.get("holds_values", True)),
+        block_rows=None if block_rows is None else int(block_rows),
+        num_warps=None if num_warps is None else int(num_warps),
+        max_scratch_mb=None if budget_mb is None else int(budget_mb))
+def _audit_records(records_root: str) -> List[Dict[str, Any]]:
+    """One audit row per stored record: its recorded verdict next to today's rule."""
+    from evogp.tree import fused_engine, fused_kernels
+    rows: List[Dict[str, Any]] = []
+    for path in _record_files(records_root):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError) as exc:
+            rows.append({"path": path, "error": f"{type(exc).__name__}: {exc}"})
+            continue
+        records = payload.get("records") if isinstance(payload, dict) else payload
+        if not isinstance(records, list):
+            records = [payload]
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            today = _stored_envelope(record, fused_engine, fused_kernels)
+            if today is None:
+                continue
+            geometry = record.get("geometry") or {}
+            rows.append({"path": path, "cell": record.get("cell"),
+                         "recorded_ok": bool(geometry.get("envelope_ok")),
+                         "today_ok": bool(today["envelope_ok"]),
+                         "recorded_bytes": int(geometry.get("scratch_bytes", 0)),
+                         "today_bytes": int(today["envelope_bytes"]),
+                         "today_budget_mb": int(today["max_scratch_mb"]),
+                         "n_rb": int(today["n_rb"]),
+                         "block_rows": int(today["block_rows_resolved"]),
+                         "agree": bool(geometry.get("envelope_ok")) == bool(today["envelope_ok"])})
+    return rows
+def _envelope_notes(rows: Sequence[Dict[str, Any]], root: str) -> List[str]:
+    """The short NOTE lines a disagreeing stored record earns (empty when clean)."""
+    notes: List[str] = []
+    for row in rows:
+        if row.get("error") is None and not row.get("agree", True):
+            notes.append(
+                f"NOTE: {os.path.relpath(row['path'], root)} records envelope_ok="
+                f"{row['recorded_ok']} for {row['cell']}, but today's rule charges "
+                f"{row['today_bytes'] / 2**20:.1f} MiB against {row['today_budget_mb']} "
+                f"MiB ({row['n_rb']} row blocks of {row['block_rows']} lanes) and answers "
+                f"{row['today_ok']} -- the file is the measurement of record and was NOT "
+                "rewritten; `--stage records` shows the whole audit.")
+    return notes
+def stage_records(args: argparse.Namespace) -> int:
+    """Read-only audit: the committed records vs the ENGINE's current envelope rule.
+    Nothing is measured, nothing is re-recorded and no file is touched -- the stored
+    ``envelope_ok`` of every record that carries one is compared against
+    ``fused_engine._check_envelope`` re-run under that record's own geometry, and a
+    disagreement prints a NOTE.  Exit 0 either way: a stale stored verdict is expected
+    (the files are the measurement of record), not a failure of the CLI.
+    """
+    root = os.path.abspath(args.records_dir)
+    if not os.path.isdir(root):
+        raise SystemExit(f"--records-dir {root} is not a directory")
+    rows = _audit_records(root)
+    print("=" * 116)
+    print(f"RECORDS: {len(rows)} stored record(s) under {root} against today's envelope rule")
+    print("=" * 116)
+    _table(["file", "cell", "recorded ok", "today ok", "recorded B", "today B"],
+           [[os.path.relpath(row["path"], root)[:52],
+             (row.get("cell") or "unreadable")[:27],
+             "-" if row.get("error") else str(row["recorded_ok"])[:5],
+             "-" if row.get("error") else str(row["today_ok"])[:5],
+             "-" if row.get("error") else str(row["recorded_bytes"]),
+             "-" if row.get("error") else str(row["today_bytes"])]
+            for row in rows])
+    notes = _envelope_notes(rows, root)
+    for note in notes:
+        print(note)
+    unreadable = sum(1 for row in rows if row.get("error"))
+    print(f"  {len(rows)} record(s) audited, {len(notes)} disagreement(s), "
+          f"{unreadable} unreadable; the committed files were not modified.")
+    return 0
 
 
 def _header(kind: str, cell: Dict[str, Any], fused_engine, dense_engine, *,
@@ -679,7 +847,7 @@ def _public_worker(args: argparse.Namespace, kind: str, cells: Sequence[Tuple[in
     workload = common.build_workload(cell)
     forest = (forest_of(workload, cell) if forest_of else workload["forest"])
     record = _header(kind, cell, fused_engine, dense_engine, eval_mode="fused", note=note)
-    record["geometry"] = _geometry(common, fused_kernels, fused_engine, cell)
+    record["geometry"] = _geometry(fused_kernels, fused_engine, cell)
     record["route"] = _routes(dense_engine, cell)
     block, outputs = _measure_public(
         common, torch, fused_engine, dense_engine, forest, workload["x"],
@@ -702,7 +870,7 @@ def _direct_worker(args: argparse.Namespace, kind: str, cells: Sequence[Tuple[in
     workload = common.build_workload(cell)
     forest, x, labels = workload["forest"], workload["x"], workload["labels"]
     record = _header(kind, cell, fused_engine, dense_engine, eval_mode="fused", note=note)
-    record["geometry"] = _geometry(common, fused_kernels, fused_engine, cell)
+    record["geometry"] = _geometry(fused_kernels, fused_engine, cell)
     record["route"] = _routes(dense_engine, cell)
     record["fused_direct"], direct_out = _fused_direct(
         common, fused_engine, forest, x, labels, int(cell["input_len"]), torch=torch)
@@ -730,7 +898,7 @@ def stage_envelope_one(args: argparse.Namespace) -> int:
           f"loss={_ms(_surface_ms(record, 'fused', 'loss'))} "
           f"torch={_ms(_surface_ms(record, 'torch_batched'))} "
           f"({record['ratios'].get('value_vs_torch_batched') or float('nan'):.2f}x) "
-          f"scratch={geometry['scratch_mib']:.1f}MiB ok={geometry['envelope_ok']} "
+          f"env={geometry['envelope_mib']:.1f}MiB ok={geometry['envelope_ok']} "
           f"n_rb={geometry['n_rb']} served={record['fused']['served']} "
           f"via={record['fused'].get('served_via')}", flush=True)
     _json_line(record)
@@ -744,15 +912,15 @@ def stage_envelope(args: argparse.Namespace) -> int:
         args, "envelope-one",
         [(cell_id, ["--cell", cell_id, *passthrough])
          for cell_id in _select(args, ENVELOPE_CELLS)],
-        ["cell", "fused", "loss", "torch", "ratio", "spec", "dense", "scr", "ok", "n_rb",
-         "via", "served"],
+        ["cell", "fused", "loss", "torch", "ratio", "spec", "dense", "env MiB", "ok",
+         "n_rb", "via", "served"],
         lambda rec: [rec.get("kind", "?"), f"ERROR: {rec['error'][:70]}"]
         if rec.get("status") == "error" else [
             f"{rec['cell']:<26}", _ms(_surface_ms(rec, "fused")),
             _ms(_surface_ms(rec, "fused", "loss")), _ms(_surface_ms(rec, "torch_batched")),
             f"{rec['ratios'].get('value_vs_torch_batched') or float('nan'):>6.2f}",
             _ms(_surface_ms(rec, "specialized")), _ms(_surface_ms(rec, "dense")),
-            f"{rec['geometry']['scratch_mib']:>5.0f}MiB",
+            f"{rec['geometry']['envelope_mib']:>7.0f}",
             f"{str(rec['geometry']['envelope_ok'])[:5]:>5}",
             f"{rec['geometry']['n_rb']:>4}",
             f"{str(rec['fused'].get('served_via'))[:9]:>9}",
@@ -762,8 +930,13 @@ def stage_envelope(args: argparse.Namespace) -> int:
               f"(warm medians, {WARMUP} warmup + {REPS} reps, one process per cell)",
         notes=["'spec'/'dense' n/a = skipped (see the record: dense_expected_decline / "
                "--skip-fallback).",
-               "'ok' = the cell's scratch (pop*tree_len*rows*4) fits "
-               "EVOGP_FUSED_MAX_SCRATCH_MB; 'served' = one kernel launch per call.",
+               "'env MiB'/'ok' are fused_engine._check_envelope's own decision: the bytes "
+               "one launch allocates (scratch with the row axis rounded up to the block + "
+               "the value buffer + the loss chart) against EVOGP_FUSED_MAX_SCRATCH_MB; "
+               "'served' = one kernel launch per call.",
+               "the committed records under fused_results/ are the measurement of record "
+               "and are not re-written here; --stage records re-checks their envelope_ok "
+               "against today's rule.",
                "'via' = public_api when the route policy serves fused, direct when "
                "pop_size < EVOGP_FUSED_MIN_POP (the policy answers specialized, so the "
                "kernel is asked through evaluate_fused instead)."])
@@ -1042,7 +1215,8 @@ def stage_headline(args: argparse.Namespace) -> int:
 _ONE_STAGES = ("envelope-one", "degenerate-one", "minpop-one", "sweep-one", "headline-one")
 
 _DRIVERS = {"envelope": stage_envelope, "degenerate": stage_degenerate,
-            "minpop": stage_minpop, "sweep": stage_sweep, "headline": stage_headline}
+            "minpop": stage_minpop, "sweep": stage_sweep, "headline": stage_headline,
+            "records": stage_records}
 _WORKERS = {"envelope-one": stage_envelope_one, "degenerate-one": stage_degenerate_one,
             "minpop-one": stage_minpop_one, "sweep-one": stage_sweep_one,
             "headline-one": stage_headline_one}
@@ -1053,10 +1227,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m evogp.tree.fused_envelope",
         description="Envelope / degenerate / min-pop / geometry measurements of the "
-                    "fused (Triton) evaluation route.")
+                    "fused (Triton) evaluation route. An envelope verdict is ALWAYS "
+                    "fused_engine._check_envelope's (the engine is the single source of "
+                    "truth for the memory envelope), and --stage records audits the "
+                    "committed records read-only instead of re-recording them.")
     parser.add_argument("--stage", default="envelope", choices=STAGES,
                         help="which leg to run (default: envelope; the -one spellings "
-                             "are the single-process workers the drivers spawn)")
+                             "are the single-process workers the drivers spawn, and "
+                             "records is the read-only audit of the committed files)")
     parser.add_argument("--cell", default=None,
                         help="cell id of a single-process stage (e.g. "
                              "p256-L64-i32-N1024, or a degenerate label such as "
@@ -1076,6 +1254,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="directory of the envelope/degenerate/minpop record files "
                              f"(default: {DEFAULT_OUT_DIR})")
     parser.add_argument("--json", default=None, help="write the stage's records here")
+    parser.add_argument("--records-dir", default=_RESULTS_ROOT,
+                        help="root of the committed records --stage records audits "
+                             f"(default: {_RESULTS_ROOT}; read-only, never written)")
     return parser
 
 
@@ -1097,6 +1278,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         status |= _DRIVERS[args.stage](args)
     else:
         status |= _WORKERS[args.stage](args)
+    if args.stage not in _ONE_STAGES and args.stage != "records":
+        # The committed records are the measurement of record and are never re-written;
+        # a stored envelope_ok that no longer matches the engine's rule is worth a line.
+        for note in _envelope_notes(_audit_records(os.path.abspath(args.records_dir)),
+                                    os.path.abspath(args.records_dir)):
+            print(note)
     print(f"\nfused_envelope: exit {status}")
     return status
 

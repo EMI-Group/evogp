@@ -19,6 +19,21 @@ named backend always attempts the route, while the default policy needs a device
 usable from torch and ``pop_size >= EVOGP_FUSED_MIN_POP`` and otherwise resolves
 to specialized+``numpy``.  ``auto`` never selects this engine.
 
+Module scope (deliberate, do not split)
+---------------------------------------
+This file is ONE deliberately single compilation unit and sits above the
+repository's ~1000-line baseline on purpose.  The facade's pieces constrain each
+other: the pre-flight (``_require_available`` / ``_decline_if_numpy`` /
+``_population_shape`` / ``_as_device_tensor``), the three-term envelope
+(``_check_envelope`` + ``_ENVELOPE_MEMO``), the ``XT_MEMO`` transpose preparation,
+the byte-bounded scratch table and the counters are all checked TOGETHER by
+``fused_check.py`` against the kernel geometry that ``fused_kernels.plan``
+returns, and the compile-time constants (``MAX_OUT_LEN``, the
+``stack_cap = tree_len`` scratch geometry, the ``BLOCK_R``/warp resolution) are
+read at the same place the kernel call is made.
+A split would move those constants away from the call that constrains them.
+Split it only with failing-test evidence.
+
 Public surface
 --------------
 ============================== ==================================================

@@ -7,6 +7,18 @@ The policy layer (declines, knobs, counters, the transposed-input memo) lives in
 :mod:`evogp.tree.fused_engine`; the dev battery lives in
 :mod:`evogp.tree.fused_check`.
 
+Module scope (deliberate, do not split)
+---------------------------------------
+This file is ONE deliberately single compilation unit and sits above the
+repository's ~1000-line baseline on purpose.  The two kernels
+(``_fused_kernel`` for ``output_len == 1`` and ``_fused_multi_kernel`` for the
+``OUT_NODE`` protocol) share the same op table, the same reverse prefix walk and
+the same explicit stack, and every op they emit must stay bit-identical to the
+other, so a split along the op surface would duplicate the numerics contract and
+invite drift.  It is also the hot-reload unit of the Triton JIT (``kernels()``
+compiles the specializations of exactly this module's globals).  Split it only
+with failing-test evidence, and keep the op table single-sourced while doing so.
+
 Why a fused kernel at all
 -------------------------
 The dense route (``dense_engine.py``) evaluates a population with ONE evoxc graph
