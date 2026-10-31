@@ -1,6 +1,7 @@
 # The device-resident `evogp.gp` generation loop — measurement report
 
 Report of record for `python -m evogp.gp.measure_generation` (harness `measure_generation.py`, raw numbers in `evidence/device_loop.json`).
+See also `POPSCALE.md` — the population-scaling report of record for the SAME driver: eight populations 64 → 8 192 at one fixed shape, the shared-population per-call column (`measure_popscale.py`) and the generation column (`measure_generation.py --cells popscale`).
 One "generation" below is exactly what a GP loop pays: evaluation + selection/crossover/mutation (+ the elite splice), i.e. `workflow.step` on the `evogp.gp` sides and `StandardPipeline.step` on the torch sides.
 All numbers are warm medians of 15 timed repetitions after a 5-repetition warmup, one process per (side, cell), a device-wide sync around every timed repetition, behind an `rocm-smi` idle-device guard, on an AMD Instinct MI300X VF (ROCm 7.1, torch 2.13.0+rocm7.1, triton 3.7.1).
 The workload is the acceptance config: `max_nodes=32, input_len=8, using_funcs=("+","-","*","/"), max_layer_cnt=4, const_prob=0.5, layer_leaf_prob=0.2, const_range=(-5,5), sample_cnt=8`, `GPConfig(elite_count=2, tournament_size=4, crossover_prob=0.9, mutation_prob=0.2)`, `N` rows of `measure_fused.make_data`, seed 0, over FIVE cells: pop 64 / 256 / 1000 / 4096 at `N=1024` rows plus pop 256 at `N=4096` rows.

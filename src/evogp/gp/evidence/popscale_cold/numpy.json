@@ -1,0 +1,1474 @@
+{
+  "children": [
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "64",
+        "--rows",
+        "1024",
+        "--lanes",
+        "numpy",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3440718/64-numpy.json"
+      ],
+      "lanes": [
+        "numpy"
+      ],
+      "pop": 64,
+      "rows": 1024,
+      "wall_s": 7.35
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "128",
+        "--rows",
+        "1024",
+        "--lanes",
+        "numpy",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3440718/128-numpy.json"
+      ],
+      "lanes": [
+        "numpy"
+      ],
+      "pop": 128,
+      "rows": 1024,
+      "wall_s": 7.51
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "256",
+        "--rows",
+        "1024",
+        "--lanes",
+        "numpy",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3440718/256-numpy.json"
+      ],
+      "lanes": [
+        "numpy"
+      ],
+      "pop": 256,
+      "rows": 1024,
+      "wall_s": 7.47
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "512",
+        "--rows",
+        "1024",
+        "--lanes",
+        "numpy",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3440718/512-numpy.json"
+      ],
+      "lanes": [
+        "numpy"
+      ],
+      "pop": 512,
+      "rows": 1024,
+      "wall_s": 7.62
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "1024",
+        "--rows",
+        "1024",
+        "--lanes",
+        "numpy",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3440718/1024-numpy.json"
+      ],
+      "lanes": [
+        "numpy"
+      ],
+      "pop": 1024,
+      "rows": 1024,
+      "wall_s": 8.11
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "2048",
+        "--rows",
+        "1024",
+        "--lanes",
+        "numpy",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3440718/2048-numpy.json"
+      ],
+      "lanes": [
+        "numpy"
+      ],
+      "pop": 2048,
+      "rows": 1024,
+      "wall_s": 8.73
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "4096",
+        "--rows",
+        "1024",
+        "--lanes",
+        "numpy",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3440718/4096-numpy.json"
+      ],
+      "lanes": [
+        "numpy"
+      ],
+      "pop": 4096,
+      "rows": 1024,
+      "wall_s": 10.25
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "8192",
+        "--rows",
+        "1024",
+        "--lanes",
+        "numpy",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3440718/8192-numpy.json"
+      ],
+      "lanes": [
+        "numpy"
+      ],
+      "pop": 8192,
+      "rows": 1024,
+      "wall_s": 13.99
+    }
+  ],
+  "command": "/tmp/rocvenv/bin/python -m evogp.gp.measure_popscale --pops 64,128,256,512,1024,2048,4096,8192 --lanes numpy --reps 3 --warmup 1 --skip-fused-control --json src/evogp/gp/evidence/popscale_cold/numpy.json",
+  "config": {
+    "fused_control_pop": 8192,
+    "gp_knobs": {
+      "crossover_prob": 0.9,
+      "elite_count": 2,
+      "mutation_prob": 0.2,
+      "tournament_size": 4
+    },
+    "lane_surfaces": {
+      "forest-auto": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        },
+        {
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness"
+        }
+      ],
+      "forest-fused": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        },
+        {
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness"
+        }
+      ],
+      "gp": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        }
+      ],
+      "gp-fused": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        }
+      ],
+      "numpy": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        },
+        {
+          "kind": "value",
+          "surface": "predict"
+        }
+      ],
+      "torch-batched": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        }
+      ],
+      "torch-per-tree": [
+        {
+          "kind": "value",
+          "surface": "forward"
+        }
+      ]
+    },
+    "lanes": [
+      "numpy"
+    ],
+    "pops": [
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096,
+      8192
+    ],
+    "protocol": "one process per population; ONE gp population per pop feeds every lane; cold = the first call (1 sample), warm = the median of --reps timed calls after --warmup discarded ones, torch.cuda.synchronize() around every timed repetition; idle-device guard per child; forest-fused runs in its own child with EVOGP_EVAL_MODE=fused set before evogp.tree is imported",
+    "reps": 3,
+    "rows": 1024,
+    "seed": 0,
+    "side_max_pop": {
+      "torch-per-tree": 1024
+    },
+    "skip_fused_control": true,
+    "warmup": 1,
+    "workload": {
+      "const_prob": 0.5,
+      "const_range": [
+        -5.0,
+        5.0
+      ],
+      "input_len": 8,
+      "layer_leaf_prob": 0.2,
+      "max_layer_cnt": 4,
+      "max_nodes": 32,
+      "sample_cnt": 8,
+      "using_funcs": [
+        "+",
+        "-",
+        "*",
+        "/"
+      ]
+    }
+  },
+  "git_head": "0e4f8d37bfea7a51ca4e1d6884e345327cb2742c",
+  "guard": {
+    "all_ok": true,
+    "children": 8,
+    "skipped": false
+  },
+  "guards": [
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 64,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 128,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 512,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 1024,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 2048,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 4096,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 8192,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    }
+  ],
+  "interop_available": true,
+  "pops": [
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "numpy.evaluate": {
+            "comparable": 64,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 4183212.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {
+          "numpy.predict": {
+            "comparable": 65536,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 63733.96875,
+            "surface": "predict"
+          }
+        }
+      },
+      "pop": 64,
+      "records": [
+        {
+          "facts": {
+            "backend": "numpy",
+            "device": "cpu",
+            "reference": "this lane is the fitness AND the value reference"
+          },
+          "lane": "numpy",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 3.0799,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 3.0724,
+                "mean_ms": 3.0213,
+                "median_ms": 3.0383,
+                "min_ms": 2.9531,
+                "reps": 3,
+                "samples_ms": [
+                  3.0724,
+                  3.0383,
+                  2.9531
+                ]
+              }
+            },
+            "predict": {
+              "cold_ms": 2.891,
+              "kind": "value",
+              "negate": false,
+              "surface": "predict",
+              "timing": {
+                "max_ms": 3.4591,
+                "mean_ms": 3.1291,
+                "median_ms": 3.0683,
+                "min_ms": 2.8597,
+                "reps": 3,
+                "samples_ms": [
+                  3.0683,
+                  3.4591,
+                  2.8597
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "numpy.evaluate": {
+            "comparable": 127,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 13392475.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {
+          "numpy.predict": {
+            "comparable": 130048,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 116525.03125,
+            "surface": "predict"
+          }
+        }
+      },
+      "pop": 128,
+      "records": [
+        {
+          "facts": {
+            "backend": "numpy",
+            "device": "cpu",
+            "reference": "this lane is the fitness AND the value reference"
+          },
+          "lane": "numpy",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 5.2447,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 4.8388,
+                "mean_ms": 4.8218,
+                "median_ms": 4.8172,
+                "min_ms": 4.8095,
+                "reps": 3,
+                "samples_ms": [
+                  4.8388,
+                  4.8095,
+                  4.8172
+                ]
+              }
+            },
+            "predict": {
+              "cold_ms": 4.6492,
+              "kind": "value",
+              "negate": false,
+              "surface": "predict",
+              "timing": {
+                "max_ms": 6.3306,
+                "mean_ms": 5.7264,
+                "median_ms": 5.5662,
+                "min_ms": 5.2825,
+                "reps": 3,
+                "samples_ms": [
+                  5.5662,
+                  6.3306,
+                  5.2825
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "numpy.evaluate": {
+            "comparable": 255,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 2827219712.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {
+          "numpy.predict": {
+            "comparable": 261120,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 1026102.25,
+            "surface": "predict"
+          }
+        }
+      },
+      "pop": 256,
+      "records": [
+        {
+          "facts": {
+            "backend": "numpy",
+            "device": "cpu",
+            "reference": "this lane is the fitness AND the value reference"
+          },
+          "lane": "numpy",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 9.4794,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 9.4114,
+                "mean_ms": 9.3061,
+                "median_ms": 9.4072,
+                "min_ms": 9.0996,
+                "reps": 3,
+                "samples_ms": [
+                  9.4114,
+                  9.4072,
+                  9.0996
+                ]
+              }
+            },
+            "predict": {
+              "cold_ms": 8.8539,
+              "kind": "value",
+              "negate": false,
+              "surface": "predict",
+              "timing": {
+                "max_ms": 10.9746,
+                "mean_ms": 9.5549,
+                "median_ms": 9.3404,
+                "min_ms": 8.3497,
+                "reps": 3,
+                "samples_ms": [
+                  9.3404,
+                  10.9746,
+                  8.3497
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "numpy.evaluate": {
+            "comparable": 511,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 87259930624.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {
+          "numpy.predict": {
+            "comparable": 523264,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 9452154.0,
+            "surface": "predict"
+          }
+        }
+      },
+      "pop": 512,
+      "records": [
+        {
+          "facts": {
+            "backend": "numpy",
+            "device": "cpu",
+            "reference": "this lane is the fitness AND the value reference"
+          },
+          "lane": "numpy",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 17.7819,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 17.3495,
+                "mean_ms": 16.9985,
+                "median_ms": 16.8234,
+                "min_ms": 16.8227,
+                "reps": 3,
+                "samples_ms": [
+                  17.3495,
+                  16.8227,
+                  16.8234
+                ]
+              }
+            },
+            "predict": {
+              "cold_ms": 17.8872,
+              "kind": "value",
+              "negate": false,
+              "surface": "predict",
+              "timing": {
+                "max_ms": 26.6288,
+                "mean_ms": 22.973,
+                "median_ms": 22.8113,
+                "min_ms": 19.4789,
+                "reps": 3,
+                "samples_ms": [
+                  22.8113,
+                  26.6288,
+                  19.4789
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "numpy.evaluate": {
+            "comparable": 1021,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 1.5429159425167852e+18,
+            "surface": "evaluate"
+          }
+        },
+        "value": {
+          "numpy.predict": {
+            "comparable": 1045504,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 39747072000.0,
+            "surface": "predict"
+          }
+        }
+      },
+      "pop": 1024,
+      "records": [
+        {
+          "facts": {
+            "backend": "numpy",
+            "device": "cpu",
+            "reference": "this lane is the fitness AND the value reference"
+          },
+          "lane": "numpy",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 41.4142,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 39.687,
+                "mean_ms": 39.2539,
+                "median_ms": 39.5903,
+                "min_ms": 38.4845,
+                "reps": 3,
+                "samples_ms": [
+                  39.687,
+                  38.4845,
+                  39.5903
+                ]
+              }
+            },
+            "predict": {
+              "cold_ms": 35.8651,
+              "kind": "value",
+              "negate": false,
+              "surface": "predict",
+              "timing": {
+                "max_ms": 53.7015,
+                "mean_ms": 47.434,
+                "median_ms": 45.5758,
+                "min_ms": 43.0248,
+                "reps": 3,
+                "samples_ms": [
+                  45.5758,
+                  53.7015,
+                  43.0248
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "numpy.evaluate": {
+            "comparable": 2041,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 1.5429159425167852e+18,
+            "surface": "evaluate"
+          }
+        },
+        "value": {
+          "numpy.predict": {
+            "comparable": 2089984,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 39747072000.0,
+            "surface": "predict"
+          }
+        }
+      },
+      "pop": 2048,
+      "records": [
+        {
+          "facts": {
+            "backend": "numpy",
+            "device": "cpu",
+            "reference": "this lane is the fitness AND the value reference"
+          },
+          "lane": "numpy",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 97.1169,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 90.6128,
+                "mean_ms": 89.9355,
+                "median_ms": 89.7183,
+                "min_ms": 89.4753,
+                "reps": 3,
+                "samples_ms": [
+                  90.6128,
+                  89.7183,
+                  89.4753
+                ]
+              }
+            },
+            "predict": {
+              "cold_ms": 87.3075,
+              "kind": "value",
+              "negate": false,
+              "surface": "predict",
+              "timing": {
+                "max_ms": 116.3279,
+                "mean_ms": 105.9736,
+                "median_ms": 102.2474,
+                "min_ms": 99.3455,
+                "reps": 3,
+                "samples_ms": [
+                  99.3455,
+                  116.3279,
+                  102.2474
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "numpy.evaluate": {
+            "comparable": 4082,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 2.3960873995548396e+23,
+            "surface": "evaluate"
+          }
+        },
+        "value": {
+          "numpy.predict": {
+            "comparable": 4179968,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 15663780331520.0,
+            "surface": "predict"
+          }
+        }
+      },
+      "pop": 4096,
+      "records": [
+        {
+          "facts": {
+            "backend": "numpy",
+            "device": "cpu",
+            "reference": "this lane is the fitness AND the value reference"
+          },
+          "lane": "numpy",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 242.1354,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 254.3744,
+                "mean_ms": 248.2,
+                "median_ms": 248.0501,
+                "min_ms": 242.1754,
+                "reps": 3,
+                "samples_ms": [
+                  254.3744,
+                  248.0501,
+                  242.1754
+                ]
+              }
+            },
+            "predict": {
+              "cold_ms": 231.802,
+              "kind": "value",
+              "negate": false,
+              "surface": "predict",
+              "timing": {
+                "max_ms": 217.0142,
+                "mean_ms": 216.1068,
+                "median_ms": 216.0148,
+                "min_ms": 215.2916,
+                "reps": 3,
+                "samples_ms": [
+                  215.2916,
+                  217.0142,
+                  216.0148
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "numpy.evaluate": {
+            "comparable": 8152,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 2.3960873995548396e+23,
+            "surface": "evaluate"
+          }
+        },
+        "value": {
+          "numpy.predict": {
+            "comparable": 8347648,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "numpy",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 15663780331520.0,
+            "surface": "predict"
+          }
+        }
+      },
+      "pop": 8192,
+      "records": [
+        {
+          "facts": {
+            "backend": "numpy",
+            "device": "cpu",
+            "reference": "this lane is the fitness AND the value reference"
+          },
+          "lane": "numpy",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 528.5238,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 532.7722,
+                "mean_ms": 528.8587,
+                "median_ms": 529.918,
+                "min_ms": 523.886,
+                "reps": 3,
+                "samples_ms": [
+                  529.918,
+                  523.886,
+                  532.7722
+                ]
+              }
+            },
+            "predict": {
+              "cold_ms": 531.2453,
+              "kind": "value",
+              "negate": false,
+              "surface": "predict",
+              "timing": {
+                "max_ms": 522.7132,
+                "mean_ms": 513.605,
+                "median_ms": 512.0357,
+                "min_ms": 506.0663,
+                "reps": 3,
+                "samples_ms": [
+                  506.0663,
+                  522.7132,
+                  512.0357
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    }
+  ],
+  "records": [
+    {
+      "facts": {
+        "backend": "numpy",
+        "device": "cpu",
+        "reference": "this lane is the fitness AND the value reference"
+      },
+      "lane": "numpy",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 3.0799,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 3.0724,
+            "mean_ms": 3.0213,
+            "median_ms": 3.0383,
+            "min_ms": 2.9531,
+            "reps": 3,
+            "samples_ms": [
+              3.0724,
+              3.0383,
+              2.9531
+            ]
+          }
+        },
+        "predict": {
+          "cold_ms": 2.891,
+          "kind": "value",
+          "negate": false,
+          "surface": "predict",
+          "timing": {
+            "max_ms": 3.4591,
+            "mean_ms": 3.1291,
+            "median_ms": 3.0683,
+            "min_ms": 2.8597,
+            "reps": 3,
+            "samples_ms": [
+              3.0683,
+              3.4591,
+              2.8597
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "numpy",
+        "device": "cpu",
+        "reference": "this lane is the fitness AND the value reference"
+      },
+      "lane": "numpy",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 5.2447,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 4.8388,
+            "mean_ms": 4.8218,
+            "median_ms": 4.8172,
+            "min_ms": 4.8095,
+            "reps": 3,
+            "samples_ms": [
+              4.8388,
+              4.8095,
+              4.8172
+            ]
+          }
+        },
+        "predict": {
+          "cold_ms": 4.6492,
+          "kind": "value",
+          "negate": false,
+          "surface": "predict",
+          "timing": {
+            "max_ms": 6.3306,
+            "mean_ms": 5.7264,
+            "median_ms": 5.5662,
+            "min_ms": 5.2825,
+            "reps": 3,
+            "samples_ms": [
+              5.5662,
+              6.3306,
+              5.2825
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "numpy",
+        "device": "cpu",
+        "reference": "this lane is the fitness AND the value reference"
+      },
+      "lane": "numpy",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 9.4794,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 9.4114,
+            "mean_ms": 9.3061,
+            "median_ms": 9.4072,
+            "min_ms": 9.0996,
+            "reps": 3,
+            "samples_ms": [
+              9.4114,
+              9.4072,
+              9.0996
+            ]
+          }
+        },
+        "predict": {
+          "cold_ms": 8.8539,
+          "kind": "value",
+          "negate": false,
+          "surface": "predict",
+          "timing": {
+            "max_ms": 10.9746,
+            "mean_ms": 9.5549,
+            "median_ms": 9.3404,
+            "min_ms": 8.3497,
+            "reps": 3,
+            "samples_ms": [
+              9.3404,
+              10.9746,
+              8.3497
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "numpy",
+        "device": "cpu",
+        "reference": "this lane is the fitness AND the value reference"
+      },
+      "lane": "numpy",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 17.7819,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 17.3495,
+            "mean_ms": 16.9985,
+            "median_ms": 16.8234,
+            "min_ms": 16.8227,
+            "reps": 3,
+            "samples_ms": [
+              17.3495,
+              16.8227,
+              16.8234
+            ]
+          }
+        },
+        "predict": {
+          "cold_ms": 17.8872,
+          "kind": "value",
+          "negate": false,
+          "surface": "predict",
+          "timing": {
+            "max_ms": 26.6288,
+            "mean_ms": 22.973,
+            "median_ms": 22.8113,
+            "min_ms": 19.4789,
+            "reps": 3,
+            "samples_ms": [
+              22.8113,
+              26.6288,
+              19.4789
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "numpy",
+        "device": "cpu",
+        "reference": "this lane is the fitness AND the value reference"
+      },
+      "lane": "numpy",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 41.4142,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 39.687,
+            "mean_ms": 39.2539,
+            "median_ms": 39.5903,
+            "min_ms": 38.4845,
+            "reps": 3,
+            "samples_ms": [
+              39.687,
+              38.4845,
+              39.5903
+            ]
+          }
+        },
+        "predict": {
+          "cold_ms": 35.8651,
+          "kind": "value",
+          "negate": false,
+          "surface": "predict",
+          "timing": {
+            "max_ms": 53.7015,
+            "mean_ms": 47.434,
+            "median_ms": 45.5758,
+            "min_ms": 43.0248,
+            "reps": 3,
+            "samples_ms": [
+              45.5758,
+              53.7015,
+              43.0248
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "numpy",
+        "device": "cpu",
+        "reference": "this lane is the fitness AND the value reference"
+      },
+      "lane": "numpy",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 97.1169,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 90.6128,
+            "mean_ms": 89.9355,
+            "median_ms": 89.7183,
+            "min_ms": 89.4753,
+            "reps": 3,
+            "samples_ms": [
+              90.6128,
+              89.7183,
+              89.4753
+            ]
+          }
+        },
+        "predict": {
+          "cold_ms": 87.3075,
+          "kind": "value",
+          "negate": false,
+          "surface": "predict",
+          "timing": {
+            "max_ms": 116.3279,
+            "mean_ms": 105.9736,
+            "median_ms": 102.2474,
+            "min_ms": 99.3455,
+            "reps": 3,
+            "samples_ms": [
+              99.3455,
+              116.3279,
+              102.2474
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "numpy",
+        "device": "cpu",
+        "reference": "this lane is the fitness AND the value reference"
+      },
+      "lane": "numpy",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 242.1354,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 254.3744,
+            "mean_ms": 248.2,
+            "median_ms": 248.0501,
+            "min_ms": 242.1754,
+            "reps": 3,
+            "samples_ms": [
+              254.3744,
+              248.0501,
+              242.1754
+            ]
+          }
+        },
+        "predict": {
+          "cold_ms": 231.802,
+          "kind": "value",
+          "negate": false,
+          "surface": "predict",
+          "timing": {
+            "max_ms": 217.0142,
+            "mean_ms": 216.1068,
+            "median_ms": 216.0148,
+            "min_ms": 215.2916,
+            "reps": 3,
+            "samples_ms": [
+              215.2916,
+              217.0142,
+              216.0148
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "numpy",
+        "device": "cpu",
+        "reference": "this lane is the fitness AND the value reference"
+      },
+      "lane": "numpy",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 528.5238,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 532.7722,
+            "mean_ms": 528.8587,
+            "median_ms": 529.918,
+            "min_ms": 523.886,
+            "reps": 3,
+            "samples_ms": [
+              529.918,
+              523.886,
+              532.7722
+            ]
+          }
+        },
+        "predict": {
+          "cold_ms": 531.2453,
+          "kind": "value",
+          "negate": false,
+          "surface": "predict",
+          "timing": {
+            "max_ms": 522.7132,
+            "mean_ms": 513.605,
+            "median_ms": 512.0357,
+            "min_ms": 506.0663,
+            "reps": 3,
+            "samples_ms": [
+              506.0663,
+              522.7132,
+              512.0357
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "scoped_out": [],
+  "versions": {
+    "created_utc": "2026-10-31T17:43:12Z",
+    "cuda": null,
+    "evogp_sha": "0e4f8d37bfea7a51ca4e1d6884e345327cb2742c",
+    "evoxc_file": "/root/evoxc/evoxc/__init__.py",
+    "evoxc_sha": "474bf727cf8b70eb07b85411dddb76d810648672",
+    "evoxc_version": "0.0.0+unknown",
+    "gpu": "AMD Instinct MI300X VF",
+    "hip": "7.1.52802",
+    "iree_base_compiler": "3.11.0",
+    "iree_base_runtime": "3.11.0",
+    "knobs": {
+      "EVOXC_DISABLE_LOCATIONS": "1"
+    },
+    "numpy": "2.5.4",
+    "python": "3.12.3",
+    "python_executable": "/tmp/rocvenv/bin/python",
+    "torch": "2.13.0+rocm7.1",
+    "triton": "3.7.1"
+  }
+}
