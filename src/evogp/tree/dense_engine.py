@@ -498,6 +498,7 @@ import evoxc
 
 from .utils import NType
 from . import artifact_cache, dense_memo
+from .multi_output import check_multi_output
 from .evoxc_engine import (  # private but deliberately reused: parity by construction
     BACKEND_ENV,
     CACHE,
@@ -2127,6 +2128,13 @@ def prepare_dense(
             f"({MAX_TREE_LEN_ENV}={cap}, row length {row_len}); raise the cap or "
             "fall back to the specialized engine"
         )
+    # The OUT_NODE rule (``multi_output.check_multi_output``): the same one the
+    # specialized decoder enforces node by node, applied here to the whole table
+    # at once -- over the LIVE cells only (``tree_len``), because padding behind a
+    # tree may hold garbage types.  ``DenseUnsupported`` (not the shared
+    # ``MultiOutputError``) so ``auto``/``dense`` DECLINE into the fallback chain,
+    # which then raises the specialized decoder's ``ValueError`` for this population.
+    check_multi_output(types, output_len, row_lengths=tree_len, error=DenseUnsupported)
     columns = _decode_columns(
         np.ascontiguousarray(values[:, :L].T),
         np.ascontiguousarray(types[:, :L].T),
@@ -2177,16 +2185,16 @@ def _decode_columns(
     node's own subtree, and the subtree must stay inside the declared tree.  A
     valid prefix encoding is then exactly the stack order the specialized
     engine evaluates, so the child positions computed here are the real ones.
+
+    The OUT_NODE (multi-output) rule is NOT checked here: it is a property of the
+    population + ``output_len``, so :func:`prepare_dense` applies the shared
+    ``multi_output.check_multi_output`` rule to the whole table before this
+    decode (one rule, one message, both routes).
     """
     raw = type_t.astype(np.int32)
     base = raw & int(NType.TYPE_MASK)
     rows = np.arange(L, dtype=np.int32)[:, None]
     real = rows < tree_len[None, :]
-    if ((raw & int(NType.OUT_NODE)) != 0)[real].any():
-        raise DenseUnsupported(
-            "an OUT_NODE-tagged node in a single-output tree (the specialized "
-            "decoder raises ValueError here)"
-        )
     # 0 VAR, 1 CONST, 2 UFUNC, 3 BFUNC, 4 TFUNC/unknown base (arity 3)
     op = np.where(
         base <= 1, base, np.where(base == 2, 2, np.where(base == 3, 3, OP_TFUNC))

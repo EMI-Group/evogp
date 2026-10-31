@@ -256,6 +256,9 @@ import torch
 from . import evoxc_engine
 from . import fused_kernels
 from .dense_memo import DenseMemo, pin, token
+from .multi_output import MAX_OUT_LEN as _MAX_OUT_LEN
+from .multi_output import MultiOutputError, out_node_message
+from .multi_output import OUT_NODE as _OUT_NODE_BIT
 
 __all__ = [
     "BLOCK_ROWS_ENV",
@@ -302,8 +305,9 @@ DEFAULT_MIN_POP = 16
 #: and bounds the extra traffic; the library's multi-output trees use 2-3
 #: (``Classification`` at ``output_len`` classes, multi-task policies) and a call
 #: above this declines into the specialized fallback with a reason naming the
-#: constant.
-MAX_OUT_LEN = 8
+#: constant.  Single-sourced in :mod:`evogp.tree.multi_output` (the module that
+#: owns the ``OUT_NODE`` rule) and re-exported here for its own importers.
+MAX_OUT_LEN = _MAX_OUT_LEN
 
 #: Bytes per MiB (the envelope's unit).
 _MIB = 2**20
@@ -419,6 +423,15 @@ def _default_host_memo() -> int:
 
 #: Transposed-input front table: identity key -> ``(xt, pins)``.
 XT_MEMO = DenseMemo("fused_xt", _default_host_memo())
+
+#: The ``OUT_NODE`` VERDICT table: the identity tokens of the population's two
+#: table tensors -> the first tagged live node (or :data:`_SERVED`, "clean").
+#: The verdict costs one device reduction plus its sync, so it is memoized on
+#: ``(data_ptr, shape, dtype, device, _version)`` of both tables -- the dense front
+#: tables' ABA-guarded identity key, which an in-place write invalidates -- and a
+#: warm loop over one population pays it ONCE instead of per call.  Bounded like
+#: the input table (``EVOGP_FUSED_HOST_MEMO``).
+TAG_MEMO = DenseMemo("fused_tag", _default_host_memo())
 
 #: This route's own counters (never folded into ``cache_stats()``).
 _STATS: Dict[str, int] = {"fused_calls": 0, "fused_declines": 0}
@@ -566,6 +579,64 @@ def _require_available() -> None:
             "is False), so a Triton kernel cannot be launched"
         )
     raise FusedUnsupported("triton is not importable in this interpreter")
+
+
+def _first_tagged_node(node_type: torch.Tensor, subtree_size: torch.Tensor) -> Any:
+    """The first LIVE ``OUT_NODE``-tagged node, or :data:`_SERVED` when there is none.
+
+    The device half of the single-output ``OUT_NODE`` rule: the single-output
+    Triton kernel maps any type other than 0/1/2/3 onto its TERNARY branch (the
+    oracle's fall-through), so a population built for ``output_len >= 2`` and
+    launched as single-output would produce a plausible wrong number.  The rule
+    itself (:func:`evogp.tree.multi_output.check_multi_output`) is applied
+    host-side from this answer, before any launch.
+
+    Only the cells inside each row's own tree (``subtree_size[:, 0]``) are read:
+    the padding behind a tree may hold whatever the generator left there, which is
+    exactly what the kernel's ``n`` clamp ignores too.
+
+    Returns:
+        ``(row, node, raw_type)`` of the first tagged live node in prefix order, or
+        :data:`_SERVED` (a negative answer is memoizable, ``None`` is not).
+    """
+    tree_len = int(node_type.shape[1])
+    lengths = subtree_size[:, 0]
+    live = torch.arange(tree_len, device=node_type.device)[None, :] < lengths[:, None]
+    tagged = live & ((node_type & _OUT_NODE_BIT) != 0)
+    if not bool(tagged.any()):
+        return _SERVED
+    row, node = (int(value) for value in tagged.nonzero()[0])
+    return row, node, int(node_type[row, node])
+
+
+def _refuse_out_node(
+    node_type: torch.Tensor, subtree_size: torch.Tensor, output_len: int
+) -> None:
+    """Refuse a single-output call over a multi-output (``OUT_NODE``-tagged) population.
+
+    Cheap in the steady state: the verdict is memoized on the identity tokens of
+    the two population tables (:data:`TAG_MEMO`), so a warm loop over one
+    population pays one device reduction instead of one per call, and a tagged
+    population raises here -- before any allocation or launch -- instead of being
+    silently evaluated as if every tagged node were a ternary ``if``.
+
+    Raises:
+        MultiOutputError: (a ``ValueError``) naming the row, the node and the raw
+            type, for ``output_len == 1`` over a tagged population.
+    """
+    if int(output_len) != 1:
+        return
+    key = (token(node_type), token(subtree_size))
+    if key[0] is None or key[1] is None:  # pragma: no cover - _prepare ensures tensors
+        verdict = _first_tagged_node(node_type, subtree_size)
+    else:
+        verdict = TAG_MEMO.lookup(key)
+        if verdict is None:
+            verdict = _first_tagged_node(node_type, subtree_size)
+            TAG_MEMO.store(key, verdict)
+    if verdict is _SERVED:
+        return
+    raise MultiOutputError(out_node_message(*verdict))
 
 
 def _population_shape(batch_subtree_size: Any) -> Tuple[int, int]:
@@ -848,8 +919,10 @@ def _prepare(
     the CHEAP SHAPE PROBES (:func:`_population_shape`, ``output_len``, ``tree_len``,
     ``pop_size``), then the BACKEND decline (:func:`_decline_if_numpy`: a Triton
     kernel has no numpy twin, so ``backend="numpy"`` is a decline, not an error),
-    then the ENVIRONMENT (:func:`_require_available`).  A malformed population
-    therefore gets the ``ValueError`` it deserves instead of a decline.
+    then the ENVIRONMENT (:func:`_require_available`), then the population's tensor
+    checks and the multi-output (``OUT_NODE``) refusal (:func:`_refuse_out_node`).
+    A malformed population therefore gets the ``ValueError`` it deserves instead of
+    a decline.
     """
     pop, tree_len = _population_shape(batch_subtree_size)
     if int(output_len) < 1:
@@ -887,6 +960,14 @@ def _prepare(
                 f"{name} must be (pop_size, max_tree_len) = {(pop, tree_len)}, got "
                 f"{tuple(tensor.shape)}"
             )
+    # The single-output protocol forbids the multi-output (``OUT_NODE``) tag, and
+    # the kernel cannot say so: its type dispatch folds every type that is not
+    # 0/1/2/3 into the TERNARY branch, so a population built for ``output_len >= 2``
+    # would be evaluated as if each tagged node were an ``if`` -- a plausible wrong
+    # number, no exception.  The shared rule (``multi_output.check_multi_output``,
+    # the one the dense and specialized decoders apply) therefore runs HERE, on the
+    # host, before any launch.
+    _refuse_out_node(node_type, subtree_size, output_len)
     return _Prepared(
         node_value=node_value,
         node_type=node_type,

@@ -275,6 +275,7 @@ import evoxc
 from evoxc.build_cache import CompileCache, build_cached
 
 from . import artifact_cache
+from .multi_output import check_multi_output
 from .utils import Func, NType
 
 __all__ = [
@@ -1362,6 +1363,13 @@ def _decode_row(
             f"length {row_len}"
         )
     multi = output_len > 1
+    if not multi:
+        # The single-output protocol forbids the OUT_NODE tag, and ONE shared rule
+        # owns that decision (``multi_output.check_multi_output``): the node-level
+        # spelling here, the whole-table one in the dense/fused routes.  Refusing
+        # before the walk keeps every decode error a ``ValueError`` naming the row
+        # and the node, and it cannot shadow a structural error of this row.
+        check_multi_output(types[:size0], output_len, row=row)
 
     kinds = [0] * size0
     funcs = [0] * size0
@@ -1376,14 +1384,8 @@ def _decode_row(
         if multi:
             tagged = bool(raw & _NT_OUT_NODE)
             base = raw & _NT_TYPE_MASK
-        elif raw & _NT_OUT_NODE:
-            raise ValueError(
-                f"row {row}: node {i}: node_type={raw} carries the OUT_NODE "
-                "flag but output_len == 1 -- tagged nodes are only defined "
-                "for multi-output trees (the old kernel corrupted its "
-                "operand stack here; see the module docstring)"
-            )
         else:
+            # the single-output tag case was refused above (``check_multi_output``)
             tagged = False
             base = raw
         if base == _NT_VAR:

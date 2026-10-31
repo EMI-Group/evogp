@@ -65,6 +65,25 @@ exactly as it is for the offspring the driver does not re-validate.  The
 non-finite -> ``-inf`` mapping of ``problem._fitness_from_loss`` IS applied, in
 graph (``isnan`` plus ``|fitness| == inf``), so the returned device vector has
 the repo-wide fitness contract without a readback.
+
+**One rule IS enforced here: the multi-output refusal.**  A population whose
+opcodes carry ``NType.OUT_NODE`` (bit 7) was built for ``output_len >= 2``; this
+stack implements the single-output protocol only, so evaluating it here would
+read a tagged leaf's packed payload as a variable index and a tagged function
+node as an ordinary one -- a plausible wrong fitness with no error.  Every
+sibling already refuses it (``encoding.to_legacy_triple`` /
+``from_legacy_triple``, ``evaluator._prepare_channels``,
+``FusedDeviceEvaluator``), and :func:`_refuse_out_node` makes these two entry
+points refuse it too, before the graph is built or run.  The rule itself lives
+in :mod:`evogp.tree.multi_output` (the tree engines' single source of truth);
+this module MIRRORS it instead of importing it, because importing anything below
+``evogp.tree`` executes that package's ``__init__``, which imports torch, and
+this subtree is torch-free by contract (``tests/test_gp_stack_purity.py``).  The
+check needs the opcode channel on the HOST: for a device payload the tag is only
+visible after a readback, which this route never pays (see above), so a
+device-resident call relies on the constructors -- ``init_population`` raises for
+``output_len > 1`` and the legacy bridge raises for a tagged opcode, so a tagged
+population cannot be built inside this stack.
 """
 
 from __future__ import annotations
@@ -80,6 +99,7 @@ from .problem import _graph_sr_fitness
 
 __all__ = [
     "ALL_FUNC_IDS",
+    "MultiOutputError",
     "resolve_used_ids",
     "sr_fitness_channels",
     "sr_fitness_channels_numpy",
@@ -96,6 +116,74 @@ ALL_FUNC_IDS: Tuple[int, ...] = tuple(range(Func.END))
 #: ``(width, pop_size, n_rows, input_len, used_ids, use_mse, sanitize,
 #: backend, device)`` -> ``(graph_fn, executable)``.
 _DEVICE_MEMO: dict = {}
+
+
+class MultiOutputError(ValueError, NotImplementedError):
+    """A single-output evaluation met a multi-output (``OUT_NODE``-tagged) opcode.
+
+    Derives from ``ValueError`` (the tree engines' contract for an undecodable
+    population: ``tree/multi_output.MultiOutputError`` has the same bases) and from
+    ``NotImplementedError`` (what this stack's other guards -- ``encoding``,
+    ``evaluator``, ``fused_eval`` -- raise for the protocol they do not
+    implement), so a caller catching either spelling keeps working.
+    """
+
+
+def _host_opcode(opcode) -> Optional[np.ndarray]:
+    """``opcode`` as a numpy array when it is ALREADY on the host, else ``None``.
+
+    A device payload (an ``evoxc`` tensor whose ``device.kind`` is not ``"cpu"``)
+    answers ``None``: reading it would be the readback this route exists to avoid
+    (see the module docstring), so the caller skips the check rather than pay it.
+    """
+    if isinstance(opcode, np.ndarray):
+        return opcode
+    device = getattr(opcode, "device", None)
+    if device is not None and getattr(device, "kind", "cpu") != "cpu":
+        return None
+    numpy_method = getattr(opcode, "numpy", None)
+    if numpy_method is None:  # pragma: no cover - channels are tensors/arrays
+        return None
+    return np.asarray(numpy_method())
+
+
+def _refuse_out_node(opcode) -> None:
+    """Refuse a multi-output (``OUT_NODE``-tagged) population on this single-output path.
+
+    The gp mirror of ``tree.multi_output.check_multi_output`` (see the module
+    docstring for why it is a mirror): the same predicate, the same wording, and
+    the same "name the row and the node" contract, applied to the opcode channel
+    before the graph is built.
+
+    Args:
+        opcode: the population's ``[pop_size, max_nodes]`` int opcode channel (or a
+            1-D row of it).
+
+    Raises:
+        MultiOutputError: naming the first tagged row and node, when the channel is
+            host-readable and carries the tag.
+    """
+    host = _host_opcode(opcode)
+    if host is None:
+        return
+    array = np.asarray(host)
+    if array.dtype.kind not in "iu":
+        # not an opcode channel at all; the graph's own dtype contract rejects it
+        return
+    hits = np.flatnonzero((array & int(NType.OUT_NODE)) != 0)
+    if hits.size == 0:
+        return
+    index = int(hits[0])
+    if array.ndim == 2:
+        row, node = divmod(index, int(array.shape[1]))
+    else:
+        row, node = 0, index
+    raise MultiOutputError(
+        f"evogp.gp.graph_eval: row {row}: node {node}: opcode={int(array[row, node] if array.ndim == 2 else array[node])} "
+        "carries the OUT_NODE flag, i.e. the population was built for "
+        "output_len >= 2, but this stack implements the single-output protocol "
+        "only (encode the population with output_len=1)"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -489,6 +577,9 @@ def _channel_triple(channels):
                 "the three channels must share one shape, got opcode "
                 f"{shape} and {name} {tuple(int(v) for v in leaf.shape)}"
             )
+    # The multi-output refusal: both public entry points build their graph from
+    # here, so the rule is applied exactly once per call (see the module docstring).
+    _refuse_out_node(opcode)
     return opcode, payload, size, shape[0], shape[1]
 
 
