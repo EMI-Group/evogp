@@ -75,8 +75,8 @@ the next generation never pay the compile cost twice.
 No in-graph dispatch, no recursion — the tree *is* the graph.
 
 Four evaluation routes are selectable with `EVOGP_EVAL_MODE`: **`fused`** (one fused Triton kernel launch for the whole
-population — the fastest route we have measured, 38–142× the plain-torch batched evaluator on the shipped default and
-41–157× with the route forced), **`dense`** (one all-ops
+population — the fastest route we have measured, 46–182× the plain-torch batched evaluator on the shipped default,
+a band that now sits above the earlier forced-route column's 41–157× because that column predates the host-glue round), **`dense`** (one all-ops
 compiled graph per population shape), **`specialized`** (one compiled graph per tree structure) and **`batch`** (one
 merged graph per population structure multiset, opt-in). `auto` — the default — takes **`fused` first** on a device box
 (from `EVOGP_FUSED_MIN_POP` = 16 up, while Triton is importable and the call fits the fused memory envelope), then
@@ -107,8 +107,8 @@ tree/GP/symbolic-regression component, so that part is EvoGP's contribution to t
 
 - **A fused Triton route that removes the dispatch bound**:
 
-    - `EVOGP_EVAL_MODE=fused` launches **one fused kernel for the whole population**, reading the tree channels directly, with no per-node dispatch, no graph and no readback: **0.10–0.19 ms against 4.0–26.6 ms** for the plain-torch batched evaluator across the six benchmark cells on the shipped default (**38×–142×**; **41×–157×** with `EVOGP_EVAL_MODE=fused`).
-    - Value outputs are bit-identical to the plain-torch oracle on every measured cell; evaluation is 8.8–10.0 % of a GP generation, so the operator layer becomes the bottleneck. It is `auto`'s first choice on a device box, and `EVOGP_EVAL_MODE=fused` forces it anywhere.
+    - `EVOGP_EVAL_MODE=fused` launches **one fused kernel for the whole population**, reading the tree channels directly, with no per-node dispatch, no graph and no readback: **0.078–0.146 ms against 4.0–26.5 ms** for the plain-torch batched evaluator across the six benchmark cells on the shipped default (**46×–182×**, 34×–153× on the loss surface).
+    - Value outputs are bit-identical to the plain-torch oracle on every measured cell; evaluation is 13.9–15.4 % of a GP generation, so the operator layer is the bottleneck. It is `auto`'s first choice on a device box, and `EVOGP_EVAL_MODE=fused` forces it anywhere.
 
 - **Two stacks, one engine**:
 
@@ -314,8 +314,8 @@ create their tensors on `"cuda"` (the same string also selects AMD GPUs under RO
 use, so an end-to-end run of that stack expects a CUDA-visible device — even though the default evaluation backend
 computes on the CPU. The evoxc engine itself is device-agnostic (it accepts population/input tensors from any device
 and returns results on the input's device), and on a device box the `fused` route is what turns that device into
-speed: one kernel launch per population, 38×–142× the plain-torch batched evaluator on the shipped default
-(8.6×–663× the `dense` route with `EVOGP_EVAL_MODE=fused`). The functional stack (`evogp.gp`) needs no
+speed: one kernel launch per population, 46×–182× the plain-torch batched evaluator on the shipped default
+(8.6×–663× the `dense` route of its own earlier window). The functional stack (`evogp.gp`) needs no
 device at all.
 
 ## Evaluation Routes & Performance
@@ -346,33 +346,40 @@ harness. The column of record is `evoxc-auto` of
 and no `EVOGP_EVOXC_BACKEND` exported, i.e. exactly what a plain install does (design and route semantics in
 [`src/evogp/tree/FUSED.md`](src/evogp/tree/FUSED.md)):
 
-| cell (pop × tree length × inputs × rows) | `auto` (shipped default) | `torch-batched` | speed-up | `dense` (same window) | speed-up |
-|---|---|---|---|---|---|
-| `p256-L32-i8-N1024` | **0.1023 ms** | 3.989 ms | **39.0×** | 1.8084 ms | 17.7× |
-| `p256-L64-i32-N1024` | **0.1169 ms** | 4.584 ms | **39.2×** | 2.9494 ms | 25.2× |
-| `p256-L64-i32-N4096` | **0.1307 ms** | 5.024 ms | **38.4×** | 7.6783 ms | 58.7× |
-| `p1000-L64-i32-N1024` | **0.1145 ms** | 4.857 ms | **42.4×** | 7.7009 ms | 67.3× |
-| `p4096-L64-i32-N1024` | **0.1532 ms** | 10.323 ms | **67.4×** | 47.0181 ms | 307× |
-| `p2048-L128-i32-N1024-d7` (123-node trees) | **0.1879 ms** | 26.627 ms | **141.7×** | not scheduled (plain `dense` OOM-kills here) | — |
+| cell (pop × tree length × inputs × rows) | `auto` (shipped default) | `torch-batched` | speed-up | PRE-host-glue-round `auto` |
+|---|---|---|---|---|
+| `p256-L32-i8-N1024` | **0.0861 ms** | 3.996 ms | **46.4×** | 0.1023 ms |
+| `p256-L64-i32-N1024` | **0.0780 ms** | 4.460 ms | **57.2×** | 0.1169 ms |
+| `p256-L64-i32-N4096` | **0.0849 ms** | 4.967 ms | **58.5×** | 0.1307 ms |
+| `p1000-L64-i32-N1024` | **0.0947 ms** | 4.851 ms | **51.2×** | 0.1145 ms |
+| `p4096-L64-i32-N1024` | **0.1257 ms** | 10.545 ms | **83.9×** | 0.1532 ms |
+| `p2048-L128-i32-N1024-d7` (123-node trees) | **0.1460 ms** | 26.497 ms | **181.5×** | 0.1879 ms |
 
-On the loss surface (`Forest.SR_fitness`) the shipped default reads 0.1244–0.2155 ms, i.e. **29.2×–123.7×** the batched
-arm, and 0.0983–0.1289 ms on `forward`. Read the headline as **38×–142× the plain-PyTorch batched evaluator on
-`batch_forward`** (0.10–0.19 ms against 4.0–26.6 ms; 29×–124× on the loss surface) **and 6.9×–307× the `dense` route of
-the same window**, with a one-time ~1.6 s Triton JIT and no per-shape compile.
+On the loss surface (`Forest.SR_fitness`) the shipped default reads 0.1000–0.1728 ms, i.e. **33.6×–153.4×** the batched
+arm, and 0.0716–0.1110 ms on `forward` (47.1×–145.3×). Read the headline as **46×–182× the plain-PyTorch batched
+evaluator on `batch_forward`** (0.078–0.146 ms against 4.0–26.5 ms; 34×–153× on the loss surface), with a one-time
+~1.6 s Triton JIT and no per-shape compile.
+The last column is the same column measured BEFORE the per-call plan-memoization round; a same-session `--tree-root` A/B
+against that tree cuts `batch_forward` by 22.6–37.9 %, `SR_fitness` by 18.9–29.6 % and `forward` by 23.0–41.8 %
+([`test/benchmark/evoxc/results/t1a1_auto_r2/README.md`](test/benchmark/evoxc/results/t1a1_auto_r2/README.md) §5), and a
+warm call is now 88–96 % kernel time.
 
-**Ceiling: the same route forced.** With `EVOGP_EVAL_MODE=fused` the route is stated instead of resolved per call, and
-that column — measured in its own session
-([`test/benchmark/evoxc/results/t1a1_fused/`](test/benchmark/evoxc/results/t1a1_fused/README.md)) — is the fastest we
-have: 0.0995–0.1673 ms on `batch_forward` (**40.8×–156.9×** the batched arm), 0.1299–0.2005 ms on `sr_fitness`
-(32.1×–130.9×), and **8.6×–663× the `dense` default** on the wider grid (16.3×–495× at the 12-cell envelope). Neither
-column loses a measured cell on any axis.
+**The same route forced.** With `EVOGP_EVAL_MODE=fused` the route is stated instead of resolved per call; that column —
+measured in its own session, BEFORE the host-glue round
+([`test/benchmark/evoxc/results/t1a1_fused/`](test/benchmark/evoxc/results/t1a1_fused/README.md)) — reads
+0.0995–0.1673 ms on `batch_forward` (**40.8×–156.9×** the batched arm), 0.1299–0.2005 ms on `sr_fitness`
+(32.1×–130.9×), and **8.6×–663× the `dense` default** on the wider grid (16.3×–495× at the 12-cell envelope).
+It is no longer the ceiling: the shipped default postdates it and is faster at every cell (0.0780–0.1460 ms against
+0.0995–0.1673 ms), because the route spelling never changed the warm cost — only the policy decides which route runs.
+Neither column loses a measured cell on any axis.
 
 What that does to a GP loop (one `step()` per sample, population replaced every generation): a generation on the
-shipped default is **2.583–2.840 ms**, of which evaluation is only **0.236–0.269 ms (8.8–10.0 %)** — 7.6×–108.1× faster
-per generation than the batched torch arm (6.2×–74.1× than a per-tree torch loop) and 2.1×–20.1× faster than `dense` —
-with **0 compiles and 0 re-preps** (`gp_step.compile_misses_total` is 0 on every shipped-default record): a changed
-population changes only the node tensors the kernel reads. Evaluation stops being the bottleneck; the operator layer
-is.
+shipped default is **2.80–3.09 ms**, of which evaluation is **0.39–0.43 ms (13.9–15.4 %)** — 7.8×–104.0× faster per
+generation than the batched torch arm — with **0 compiles and 0 re-preps** (`gp_step.compile_misses_total` is 0 on
+every shipped-default record): a changed population changes only the node tensors the kernel reads.
+The operator layer is therefore the loop's bottleneck, and the round cut the repeated-population call rather than the
+loop: a fresh population misses the plan memo every generation, so the loop's evaluation bracket is unchanged
+(−0.5 % to +9.0 %, inside this box's noise).
 
 Honest limits, from these campaigns:
 

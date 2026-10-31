@@ -328,25 +328,22 @@ The cap-5 cells are the stock generation with only the row stride made long, and
 
 ## Shipped-default campaign (auto -> fused)
 
-The shipped default is the fused route now, and this harness re-measured it: the report
-of record is [`results/t1a1_auto/README.md`](results/t1a1_auto/README.md) (its
-`RENDERED.md` is the machine rendering of the same records), read against
-[`results/t1a1_fused/README.md`](results/t1a1_fused/README.md) as the explicit
-`EVOGP_EVAL_MODE=fused` column and `results/t1a1_baseline/` as the pre-fused default.
+The shipped default is the fused route now, and this harness re-measures it: the report of record is [`results/t1a1_auto/README.md`](results/t1a1_auto/README.md) — the verdict, quoting the CURRENT numbers from [`results/t1a1_auto_r2/`](results/t1a1_auto_r2/README.md), whose `RENDERED.md` is the machine rendering of those records — read against [`results/t1a1_fused/README.md`](results/t1a1_fused/README.md) as the explicit `EVOGP_EVAL_MODE=fused` column of its own earlier session and `results/t1a1_baseline/` as the pre-fused default.
+`results/t1a1_auto/`'s own per-cell JSON are the PRE-host-glue-round evidence and were left untouched; `results/t1a1_auto_r2/` is the re-run after that round.
 
-* **What was measured**: six cells × `evoxc-auto` / `torch-batched` / `torch-per-tree` /
-  `evoxc-dense-iree` over `sr_fitness` + `batch_forward` + `forward` + `gp_step`
+* **What was measured**: six cells x `evoxc-auto` / `torch-batched` over `sr_fitness` + `batch_forward` + `forward` + `gp_step`
   (`p256-L32-i8-N1024`, `p256-L64-i32-N1024`, `p256-L64-i32-N4096`,
   `p1000-L64-i32-N1024`, `p4096-L64-i32-N1024`, `p2048-L128-i32-N1024-d7`), with
-  `--warmup 2 --reps 5 --gp-warmup 1 --gp-reps 3 --seed 0` — 23 records, gated at
-  **23 records / 640 checks / 0 failures**.
+  `--warmup 2 --reps 5 --gp-warmup 1 --gp-reps 3 --seed 0` — 12 records, gated at
+  **12 records / 356 checks / 0 failures** (6 declared digest WARN).
+  The earlier four-arm round in `results/t1a1_auto/` (23 records, 640 checks) adds the same-window `evoxc-dense-iree` and `torch-per-tree` controls.
 * **Route proof**: every `evoxc-auto` record resolves `eval_mode auto` / `engine fused` /
-  `backend iree` with `served_every_workload true`, 24 `fused_kernel_launches` and 0
-  declines, so the column is the kernel rather than a silent fallback.
-* **Headline**: **38.4×–141.7× faster than `torch-batched` per `batch_forward` call**
-  (29.2×–123.7× on `sr_fitness`) and **7.6×–108.1× per whole GP generation**.
-* **Where a generation's cost sits**: evaluation is **8.8–10.0 %** of the step
-  (0.24–0.27 ms of 2.58–2.84 ms), so the operator layer is the loop's bottleneck now.
+  `backend iree` with `served_every_workload true`, 24 `fused_kernel_launches`, 0 declines and
+  21 `PLAN_MEMO` hits against 3 misses, so the column is the kernel rather than a silent fallback.
+* **Headline**: **46.4×–181.5× faster than `torch-batched` per `batch_forward` call**
+  (33.6×–153.4× on `sr_fitness`, 47.1×–145.3× on `forward`) and **7.8×–104.0× per whole GP generation**, on warm medians of 0.0780–0.1460 ms `batch_forward` against 4.0–26.5 ms.
+* **What the host-glue round did**: a same-session `--tree-root` A/B against commit `9cc601d` cuts `batch_forward` by 22.6–37.9 %, `SR_fitness` by 18.9–29.6 % and `forward` by 23.0–41.8 %; the warm call is now 88–96 % kernel, and the GP loop is unchanged because a fresh population misses the plan memo every generation (`results/t1a1_auto_r2/README.md` §5–§7).
+* **Where a generation's cost sits**: evaluation is 13.9–15.4 % of the step (0.39–0.43 ms of 2.80–3.09 ms), so the operator layer is the loop's bottleneck.
 * **One excluded control**: `campaign.CELL_EXCLUSIONS` drops `evoxc-dense-iree` on
   `p2048-L128-i32-N1024-d7` — explicit dense past `EVOGP_DENSE_MAX_TREE_LEN` declines into
   per-structure specialized+iree with unbounded artifact growth and OOM-kills the job
@@ -354,8 +351,8 @@ of record is [`results/t1a1_auto/README.md`](results/t1a1_auto/README.md) (its
   recorded in `campaign.json`'s `protocol.scope_dropped`).
 
 ```bash
-$PY campaign.py --out results/t1a1_auto --cells <the six ids above> --arms evoxc-auto,torch-batched,torch-per-tree,evoxc-dense-iree
-python3 test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/t1a1_auto --allow-snapshot --allow-missing --allow-digest-mismatch
+$PY campaign.py --out results/t1a1_auto_r2 --cells <the six ids above> --arms evoxc-auto,torch-batched --workloads sr_fitness,batch_forward,forward,gp_step
+python3 test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/t1a1_auto_r2 --allow-snapshot --allow-missing --allow-digest-mismatch
 ```
 
 ## Final campaign: what was measured

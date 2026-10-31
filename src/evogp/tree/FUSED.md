@@ -53,7 +53,7 @@ axis. Its device cost is the envelope `fused_engine._check_envelope` charges —
 block * 4` (row axis rounded UP to the block) plus the `(pop, rows, out_len)` value buffer and the loss chart, 2 GiB of
 scratch at the largest measured cell, which allocates it and does not OOM, 4× inside the 8192 MiB default — and
 `EVOGP_FUSED_MIN_POP` is 16 because the kernel is
-**flat in `pop_size`** (0.088–0.103 ms from pop 1 to 128) while the specialized fallback scales with the tree count.
+**flat in `pop_size`** (0.088–0.103 ms from pop 1 to 128 as measured for §13; the current tree, with the per-call plan memo, reads 0.0651–0.0684 ms over pop 16–128) while the specialized fallback scales with the tree count.
 
 ---
 
@@ -571,7 +571,7 @@ falls back to per-structure `specialized` and timing it would only report that f
 
 ## 13. `EVOGP_FUSED_MIN_POP` is 16
 
-The kernel is FLAT in `pop_size` at `L=64` / `i32` / `N=1024` (0.088–0.103 ms from pop 1 to 128) because its cost is
+The kernel is FLAT in `pop_size` at `L=64` / `i32` / `N=1024` (0.088–0.103 ms from pop 1 to 128 in this campaign; 0.0651–0.0684 ms over pop 16–128 on the current tree) because its cost is
 the row-block sweep, not the trees, while `specialized` scales linearly with the tree count:
 
 | pop | fused (`fused_direct`) ms | specialized ms | torch-batched ms | policy engine |
