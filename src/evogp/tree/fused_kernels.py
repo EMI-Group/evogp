@@ -197,7 +197,7 @@ import inspect
 import textwrap
 import threading
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import torch
 
@@ -921,8 +921,14 @@ def _pow2_floor(value: int) -> int:
     return 1 << (value.bit_length() - 1)
 
 
+#: Memo of :func:`plan`'s verdict, keyed on its four RESOLVED inputs (a pure
+#: function of them), so a warm call does not redo the loop and the dict build.
+_PLAN_MEMO: "OrderedDict[Tuple[int, bool, int, int], Dict[str, int]]" = OrderedDict()
+_PLAN_MEMO_MAX = 64
+
+
 def plan(rows: int, *, per_row: bool, block_rows: int, num_warps: int) -> Dict[str, int]:
-    """Resolve the launch geometry of one call.
+    """Resolve the launch geometry of one call (memoized: a pure function of its inputs).
 
     ``rows`` is the DATA-row count of the call (``1`` for ``per_row``: tree ``t``
     sees its own row).  The block cap is ``pow2_floor(block_rows)`` and the block
@@ -930,10 +936,20 @@ def plan(rows: int, *, per_row: bool, block_rows: int, num_warps: int) -> Dict[s
     not launch a 256-lane block over 8 live lanes, and ``num_warps`` is capped so the
     block holds at least one element per warp lane (a wider block than the row count
     wastes lanes; a block narrower than 64*warps is legal but pointless).
+
+    Memoized in :data:`_PLAN_MEMO` on the four resolved inputs: a warm call resolves
+    its geometry with one dict lookup instead of the halving loops and the dict
+    build.  The returned dict is SHARED, so callers must treat it as read-only
+    (every caller in this package only reads ``n_rb`` / ``block_rows`` /
+    ``num_warps``).
     """
     rows = int(rows)
     if rows < 1:
         raise ValueError(f"rows must be >= 1, got {rows}")
+    key = (rows, bool(per_row), int(block_rows), int(num_warps))
+    cached = _PLAN_MEMO.get(key)
+    if cached is not None:
+        return cached
     cap = _pow2_floor(block_rows)
     block = 1
     while block < rows and block < cap:
@@ -942,12 +958,17 @@ def plan(rows: int, *, per_row: bool, block_rows: int, num_warps: int) -> Dict[s
     warps = max(1, int(num_warps))
     while warps > 1 and warps * 32 > block:
         warps //= 2
-    return {
+    geometry = {
         "block_rows": block,
         "num_warps": warps,
         "n_rb": (rows + block - 1) // block,
         "rows": rows,
     }
+    with _LOCK:
+        if len(_PLAN_MEMO) >= _PLAN_MEMO_MAX:
+            _PLAN_MEMO.popitem(last=False)
+        _PLAN_MEMO[key] = geometry
+    return geometry
 
 
 def _scratch_for(
@@ -991,10 +1012,11 @@ def _scratch_for(
 
 
 def clear_caches() -> None:
-    """Drop the scratch blocks and reset the launch counters (memory only)."""
+    """Drop the scratch/geometry tables and reset the launch counters (memory only)."""
     global _SCRATCH_BYTES
     with _LOCK:
         _SCRATCH.clear()
+        _PLAN_MEMO.clear()
         _SCRATCH_BYTES = 0
         for name in _STATS:
             _STATS[name] = 0
@@ -1022,7 +1044,7 @@ def _device_index(device: Any) -> int:
     return int(index)
 
 
-def _launch(
+def _bind_launch(
     *,
     node_value: torch.Tensor,
     node_type: torch.Tensor,
@@ -1039,12 +1061,16 @@ def _launch(
     num_warps: int,
     out_len: int = 1,
     max_scratch_mb: Optional[int] = None,
-    out_values: Optional[torch.Tensor] = None,
-) -> Tuple[torch.Tensor, Dict[str, int]]:
-    """Shared launch: geometry, scratch, dispatch on the (device, flags) key.
+) -> Tuple[Callable[[Optional[torch.Tensor]], torch.Tensor], Dict[str, int]]:
+    """Bind one launch SHAPE: geometry, scratch, kernel and the option dict.
 
-    Returns ``(out, geometry)`` where ``out`` is the value buffer
-    (``PER_ROW``/``REDUCE`` decide what it means; the caller owns its meaning).
+    Returns ``(run, geometry)`` where ``run(out_values=None)`` performs ONE call and
+    returns the value buffer (``PER_ROW``/``REDUCE`` decide what it means; the
+    caller owns its meaning).  The split is what the facade's prepared-call table
+    memoizes: everything above ``run`` is per SHAPE (geometry, kernel
+    specialization, scratch block, option dict, the resolved ``int`` scalars), so
+    the only per-CALL work left in ``run`` is the output allocation, the argument
+    tuple and the dispatch -- no keyword marshalling, no geometry, no dict build.
     The whole call is dispatched on the tensors'
     device index (a Triton launch compiles/streams against the CURRENT device, so
     the launch is wrapped in ``torch.cuda.device(...)``).
@@ -1071,62 +1097,20 @@ def _launch(
     if out_len < 1:
         raise ValueError(f"out_len must be >= 1, got {out_len}")
     multi = out_len > 1
-    if out_values is not None and tuple(int(size) for size in out_values.shape) != (
-        pop,
-        int(rows),
-        out_len,
-    ):
-        raise ValueError(
-            f"out_values must have shape {(pop, int(rows), out_len)}, got "
-            f"{tuple(int(size) for size in out_values.shape)}"
-        )
+    value_shape = (pop, int(rows), out_len)
     geom = plan(rows, per_row=per_row, block_rows=block_rows, num_warps=num_warps)
     device_index = _device_index(node_value.device)
-    n_prog = pop * geom["n_rb"]
+    tree_len = int(tree_len)
+    rows = int(rows)
+    n_rb = int(geom["n_rb"])
+    n_prog = pop * n_rb
     stack_cap = max(1, int(tree_len))
     budget_bytes = None if max_scratch_mb is None else int(max_scratch_mb) * 2**20
     scratch = _scratch_for(
         device_index, n_prog, stack_cap, geom["block_rows"], budget_bytes
     )
-
-    if multi:
-        # The multi-output kernel accumulates INTO the prediction buffer, so the
-        # loss path needs it materialized even though only the chart is returned.
-        values = (
-            out_values
-            if out_values is not None
-            else torch.empty(
-                (pop, rows, out_len), dtype=torch.float32, device=node_value.device
-            )
-        )
-        if reduce:
-            out = torch.empty(
-                (pop, geom["n_rb"]), dtype=torch.float32, device=node_value.device
-            )
-            label_ptr, partial_ptr = labels, out
-        else:
-            out = values
-            label_ptr = partial_ptr = values
-        value_ptr = values
-    elif reduce:
-        # One partial per (tree, row-block); the facade sums the chart.
-        out = torch.empty((pop, geom["n_rb"]), dtype=torch.float32, device=node_value.device)
-        label_ptr = labels
-        value_ptr = partial_ptr = out
-    else:
-        out = (
-            out_values
-            if out_values is not None
-            else torch.empty(
-                (pop, rows, out_len), dtype=torch.float32, device=node_value.device
-            )
-        )
-        # ``labels`` and the partial chart are behind the REDUCE constexpr, i.e.
-        # never traced on this path; the value buffer stands in for both so the
-        # signature stays single.
-        label_ptr = out
-        value_ptr = partial_ptr = out
-    kernel = kernels()["eval_multi" if multi else "eval"]
+    table = kernels()
+    kernel = table["eval_multi" if multi else "eval"]
     key = (
         "multi" if multi else "single",
         int(out_len),
@@ -1136,15 +1120,69 @@ def _launch(
         int(geom["block_rows"]),
         int(geom["num_warps"]),
     )
-    specializations = kernels()["specializations"]
+    specializations = table["specializations"]
     with _LOCK:
-        _STATS["kernels"] += 1
         if key not in specializations:
             specializations.add(key)
             _STATS["specializations"] += 1
     extra = {"OUT_LEN": out_len} if multi else {}
-    with torch.cuda.device(device_index):
-        kernel[(pop, geom["n_rb"])](
+    launch = kernel[(pop, n_rb)]
+    options = dict(
+        BLOCK_R=int(geom["block_rows"]),
+        PER_ROW=bool(per_row),
+        REDUCE=bool(reduce),
+        USE_MSE=bool(use_mse),
+        # SEE THE MODULE DOCSTRING: without this, LLVM fuses `a*b` into the
+        # parent `+`/`-` and the arithmetic path stops being bitwise.
+        enable_fp_fusion=False,
+        num_warps=int(geom["num_warps"]),
+        **extra,
+    )
+    device = node_value.device
+
+    # ------------------------------------------------------------------ run --
+    # Per CALL and nothing else: pick (or allocate) the buffers the kernel writes,
+    # hand them over positionally and bump the served-launch counter.
+    def run(out_values: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if out_values is not None and tuple(int(size) for size in out_values.shape) != (
+            value_shape
+        ):
+            raise ValueError(
+                f"out_values must have shape {value_shape}, got "
+                f"{tuple(int(size) for size in out_values.shape)}"
+            )
+        if multi:
+            # The multi-output kernel accumulates INTO the prediction buffer, so the
+            # loss path needs it materialized even though only the chart is returned.
+            values = (
+                out_values
+                if out_values is not None
+                else torch.empty(value_shape, dtype=torch.float32, device=device)
+            )
+            if reduce:
+                out = torch.empty((pop, n_rb), dtype=torch.float32, device=device)
+                label_ptr, partial_ptr = labels, out
+            else:
+                out = values
+                label_ptr = partial_ptr = values
+            value_ptr = values
+        elif reduce:
+            # One partial per (tree, row-block); the facade sums the chart.
+            out = torch.empty((pop, n_rb), dtype=torch.float32, device=device)
+            label_ptr = labels
+            value_ptr = partial_ptr = out
+        else:
+            out = (
+                out_values
+                if out_values is not None
+                else torch.empty(value_shape, dtype=torch.float32, device=device)
+            )
+            # ``labels`` and the partial chart are behind the REDUCE constexpr, i.e.
+            # never traced on this path; the value buffer stands in for both so the
+            # signature stays single.
+            label_ptr = out
+            value_ptr = partial_ptr = out
+        args = (
             node_value,
             node_type,
             subtree_size,
@@ -1153,23 +1191,63 @@ def _launch(
             label_ptr,
             partial_ptr,
             scratch,
-            int(input_len),
-            int(tree_len),
-            int(rows),
-            int(stack_cap),
-            BLOCK_R=int(geom["block_rows"]),
-            PER_ROW=bool(per_row),
-            REDUCE=bool(reduce),
-            USE_MSE=bool(use_mse),
-            # SEE THE MODULE DOCSTRING: without this, LLVM fuses `a*b` into the
-            # parent `+`/`-` and the arithmetic path stops being bitwise.
-            enable_fp_fusion=False,
-            num_warps=int(geom["num_warps"]),
-            **extra,
+            input_len,
+            tree_len,
+            rows,
+            stack_cap,
         )
-    return out, geom
+        # ``torch.cuda.device`` is a ``cudaSetDevice`` round trip: it is needed only
+        # when the population's device is NOT the current one (a Triton launch
+        # compiles/streams against the CURRENT device), and that test is 0.2 us
+        # against the context's 0.6 us.
+        if device_index == int(torch.cuda.current_device()):
+            launch(*args, **options)
+        else:
+            with torch.cuda.device(device_index):
+                launch(*args, **options)
+        with _LOCK:
+            _STATS["kernels"] += 1
+        return out
 
-
+    return run, geom
+def bind_value(
+    node_value: torch.Tensor,
+    node_type: torch.Tensor,
+    subtree_size: torch.Tensor,
+    x: torch.Tensor,
+    *,
+    input_len: int,
+    tree_len: int,
+    rows: int,
+    per_row: bool,
+    block_rows: int = DEFAULT_BLOCK_ROWS,
+    num_warps: int = DEFAULT_NUM_WARPS,
+    out_len: int = 1,
+    max_scratch_mb: Optional[int] = None,
+) -> Callable[[Optional[torch.Tensor]], torch.Tensor]:
+    """Bind the VALUE launch of one shape: the result is ``run(out=None)``.
+    :func:`launch_value` is this function called once, i.e. the two cannot
+    disagree; the facade keeps ``run`` in its prepared-call table so a warm call
+    reuses one kernel specialization, one option dict and one scratch block.
+    """
+    run, _geom = _bind_launch(
+        node_value=node_value,
+        node_type=node_type,
+        subtree_size=subtree_size,
+        x=x,
+        labels=None,
+        rows=int(rows),
+        input_len=int(input_len),
+        tree_len=int(tree_len),
+        per_row=bool(per_row),
+        reduce=False,
+        use_mse=True,
+        block_rows=block_rows,
+        num_warps=num_warps,
+        out_len=int(out_len),
+        max_scratch_mb=max_scratch_mb,
+    )
+    return run
 def launch_value(
     node_value: torch.Tensor,
     node_type: torch.Tensor,
@@ -1196,27 +1274,61 @@ def launch_value(
     caller-supplied ``(pop, rows, out_len)`` float32 buffer that is written
     instead of a fresh one (the caller validates device/dtype/contiguity).
     """
-    values, _geom = _launch(
+    return bind_value(
+        node_value,
+        node_type,
+        subtree_size,
+        x,
+        input_len=input_len,
+        tree_len=tree_len,
+        rows=rows,
+        per_row=per_row,
+        block_rows=block_rows,
+        num_warps=num_warps,
+        out_len=out_len,
+        max_scratch_mb=max_scratch_mb,
+    )(out)
+
+
+def bind_loss(
+    node_value: torch.Tensor,
+    node_type: torch.Tensor,
+    subtree_size: torch.Tensor,
+    xt: torch.Tensor,
+    labels: torch.Tensor,
+    *,
+    input_len: int,
+    tree_len: int,
+    rows: int,
+    use_mse: bool,
+    block_rows: int = DEFAULT_BLOCK_ROWS,
+    num_warps: int = DEFAULT_NUM_WARPS,
+    out_len: int = 1,
+    max_scratch_mb: Optional[int] = None,
+) -> Callable[[], torch.Tensor]:
+    """Bind the LOSS launch of one shape: the result is ``run()`` -> the chart.
+    The loss path allocates its ``(pop, n_rb)`` chart per call (its shape is the
+    launch geometry, and the facade reduces it immediately), so ``run`` takes no
+    buffer.  :func:`launch_loss` is this function called once.
+    """
+    run, _geom = _bind_launch(
         node_value=node_value,
         node_type=node_type,
         subtree_size=subtree_size,
-        x=x,
-        labels=None,
+        x=xt,
+        labels=labels,
         rows=int(rows),
         input_len=int(input_len),
         tree_len=int(tree_len),
-        per_row=bool(per_row),
-        reduce=False,
-        use_mse=True,
+        per_row=False,
+        reduce=True,
+        use_mse=bool(use_mse),
         block_rows=block_rows,
         num_warps=num_warps,
         out_len=int(out_len),
         max_scratch_mb=max_scratch_mb,
-        out_values=out,
     )
-    return values
-
-
+    return run
 def launch_loss(
     node_value: torch.Tensor,
     node_type: torch.Tensor,
@@ -1241,24 +1353,21 @@ def launch_loss(
     and summing the chart is the facade's one-line epilogue; ``out_len >= 2``
     sums the per-output errors in-kernel and still divides by ``rows`` only.
     """
-    partial, _geom = _launch(
-        node_value=node_value,
-        node_type=node_type,
-        subtree_size=subtree_size,
-        x=xt,
-        labels=labels,
-        rows=int(rows),
-        input_len=int(input_len),
-        tree_len=int(tree_len),
-        per_row=False,
-        reduce=True,
-        use_mse=bool(use_mse),
+    return bind_loss(
+        node_value,
+        node_type,
+        subtree_size,
+        xt,
+        labels,
+        input_len=input_len,
+        tree_len=tree_len,
+        rows=rows,
+        use_mse=use_mse,
         block_rows=block_rows,
         num_warps=num_warps,
-        out_len=int(out_len),
+        out_len=out_len,
         max_scratch_mb=max_scratch_mb,
-    )
-    return partial
+    )()
 
 
 # The operator table is verified at IMPORT time (no triton needed): a function id

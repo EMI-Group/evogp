@@ -249,7 +249,7 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import torch
 
@@ -414,15 +414,18 @@ def resolve_min_pop(value: Optional[int] = None) -> int:
 
 
 def _default_host_memo() -> int:
-    """``EVOGP_FUSED_HOST_MEMO`` read ONCE at import time (0 disables the table)."""
+    """``EVOGP_FUSED_HOST_MEMO`` read ONCE at import time (0 disables the tables)."""
     entries = _env_int(HOST_MEMO_ENV, DEFAULT_HOST_MEMO)
     if entries < 0:
         raise ValueError(f"{HOST_MEMO_ENV}={entries} must be >= 0 (0 disables it)")
     return entries
 
 
+#: Entries of every front table of this route (one ``EVOGP_FUSED_HOST_MEMO`` read).
+_HOST_MEMO_ENTRIES = _default_host_memo()
+
 #: Transposed-input front table: identity key -> ``(xt, pins)``.
-XT_MEMO = DenseMemo("fused_xt", _default_host_memo())
+XT_MEMO = DenseMemo("fused_xt", _HOST_MEMO_ENTRIES)
 
 #: The ``OUT_NODE`` VERDICT table: the identity tokens of the population's two
 #: table tensors -> the first tagged live node (or :data:`_SERVED`, "clean").
@@ -431,7 +434,21 @@ XT_MEMO = DenseMemo("fused_xt", _default_host_memo())
 #: tables' ABA-guarded identity key, which an in-place write invalidates -- and a
 #: warm loop over one population pays it ONCE instead of per call.  Bounded like
 #: the input table (``EVOGP_FUSED_HOST_MEMO``).
-TAG_MEMO = DenseMemo("fused_tag", _default_host_memo())
+TAG_MEMO = DenseMemo("fused_tag", _HOST_MEMO_ENTRIES)
+
+#: The PREPARED-CALL table: the identity of every operand a call reads (the three
+#: population tables and the data operand) plus the call's resolved geometry ->
+#: one :class:`_Call`.  This is the one that makes a warm call a launch and
+#: nothing else: the population's validation, the ``OUT_NODE`` verdict, the
+#: envelope verdict, the resolved budget, the transposed data block and the loss
+#: path's label view are all computed ONCE per (population, data, geometry) and
+#: handed back on every later call.  A training loop re-evaluates one population
+#: many times (elites, a fitness archive, ``Forest.batch_forward`` twice in a
+#: generation) and every benchmark loop does exactly that; a FRESH population is
+#: one miss, which is the way the prepare is paid anyway.  Each entry holds strong
+#: references to the tensors it keyed on (:func:`_identity`), so an entry can never
+#: outlive the identity it recorded.  Bounded like the other tables.
+PLAN_MEMO = DenseMemo("fused_plan", _HOST_MEMO_ENTRIES)
 
 #: This route's own counters (never folded into ``cache_stats()``).
 _STATS: Dict[str, int] = {"fused_calls": 0, "fused_declines": 0}
@@ -474,11 +491,13 @@ def fused_cache_stats() -> Dict[str, int]:
     facade, ``fused_kernel_compiles`` the Triton specializations this process had
     to build (one per ``PER_ROW`` x ``REDUCE`` x ``USE_MSE`` x block x warps
     combination -- the JIT cost), ``fused_xt_hits`` / ``fused_xt_misses`` the
-    transposed-input table, ``fused_scratch_*`` the byte-budgeted table of cached
-    stack buffers (allocs / reuses / evictions / entries / bytes), and
-    ``fused_block_rows`` / ``fused_num_warps`` the geometry a call would resolve
-    RIGHT NOW (INFORMATIONAL: ``-1`` when the ambient knob is unusable, because a
-    stats call never raises -- :func:`_reported_knob`; the readers do).
+    transposed-input table, ``fused_plan_hits`` / ``fused_plan_misses`` the
+    prepared-call table (a hit is a warm call that skipped the whole prepare),
+    ``fused_scratch_*`` the byte-budgeted table of cached stack buffers (allocs /
+    reuses / evictions / entries / bytes), and ``fused_block_rows`` /
+    ``fused_num_warps`` the geometry a call would resolve RIGHT NOW
+    (INFORMATIONAL: ``-1`` when the ambient knob is unusable, because a stats call
+    never raises -- :func:`_reported_knob`; the readers do).
 
     Deliberately separate from ``evoxc_engine.cache_stats()`` (pinned at exactly
     8 keys) and from ``dense_cache_stats()`` / ``batch_cache_stats()``.
@@ -486,6 +505,8 @@ def fused_cache_stats() -> Dict[str, int]:
     with _STATS_LOCK:
         merged: Dict[str, int] = dict(_STATS)
     merged.update(XT_MEMO.stats())
+    merged.update(TAG_MEMO.stats())
+    merged.update(PLAN_MEMO.stats())
     merged.update(fused_kernels.scratch_stats())
     merged["fused_block_rows"] = _reported_knob(resolve_block_rows)
     merged["fused_num_warps"] = _reported_knob(resolve_num_warps)
@@ -493,19 +514,24 @@ def fused_cache_stats() -> Dict[str, int]:
 
 
 def clear_fused_cache() -> None:
-    """Reset every counter and drop the transpose/stack/envelope tables (memory only).
+    """Reset every counter and drop the transpose/verdict/plan/stack tables (memory only).
 
     Registered with :func:`evoxc_engine._register_cache_reset` at import time, so
     ``evoxc_engine.clear_cache()`` -- the single in-memory invalidation point of
     the engine -- flushes this route too.  Nothing here touches the disk.  Dropping
     :data:`_ENVELOPE_MEMO` is hygiene, not correctness: its keys carry every input of
-    the verdict, so no entry can go stale.
+    the verdict, so no entry can go stale.  Dropping :data:`PLAN_MEMO` is the route
+    out of the one case its identity key does not see: a write into a population or
+    data tensor that bypasses torch's version counter (a numpy view of the same
+    memory, a foreign kernel), which no torch-level identity can detect.
     """
     with _STATS_LOCK:
         for name in list(_STATS):
             _STATS[name] = 0
         _ENVELOPE_MEMO.clear()
     XT_MEMO.reset()
+    TAG_MEMO.reset()
+    PLAN_MEMO.reset()
     fused_kernels.clear_caches()
 
 
@@ -980,6 +1006,421 @@ def _prepare(
     )
 
 
+# --------------------------------------------------------------------------- #
+# the prepared-call table
+# --------------------------------------------------------------------------- #
+class _Call:
+    """One fully prepared call, memoized in :data:`PLAN_MEMO`.
+
+    Everything a warm call needs besides the launch itself: the population's three
+    normalized tables and their geometry (from :func:`_prepare`), the data operand
+    the kernel reads (the transposed ``x``, or ``x`` itself on the ``per_row``
+    path), the loss path's label operand and data-row count, the resolved memory
+    budget, the shape a caller-supplied ``out`` must have, the strong references
+    that make the identity key of :func:`_identity` ABA-proof, and
+    :attr:`run` -- the launch BOUND to all of it (``fused_kernels.bind_value`` /
+    ``bind_loss``: one kernel specialization, one option dict, one scratch block),
+    so a warm call is ``call.run(destination)`` and nothing else.
+    """
+
+    __slots__ = (
+        "node_value",
+        "node_type",
+        "subtree_size",
+        "pop",
+        "tree_len",
+        "device",
+        "block_rows",
+        "num_warps",
+        "rows",
+        "per_row",
+        "data",
+        "labels",
+        "budget_mb",
+        "out_shape",
+        "pins",
+        "run",
+    )
+
+    def __init__(
+        self,
+        prepared: _Prepared,
+        *,
+        rows: int,
+        per_row: bool,
+        data: torch.Tensor,
+        labels: Optional[torch.Tensor],
+        budget_mb: int,
+        out_shape: Tuple[int, ...],
+        pins: Tuple[Any, ...],
+        run: Callable[..., Any],
+        block_rows: int,
+        num_warps: int,
+    ) -> None:
+        self.node_value = prepared.node_value
+        self.node_type = prepared.node_type
+        self.subtree_size = prepared.subtree_size
+        self.pop = prepared.pop
+        self.tree_len = prepared.tree_len
+        self.device = prepared.device
+        self.block_rows = int(block_rows)
+        self.num_warps = int(num_warps)
+        self.rows = int(rows)
+        self.per_row = bool(per_row)
+        self.data = data
+        self.labels = labels
+        self.budget_mb = int(budget_mb)
+        self.out_shape = out_shape
+        self.pins = pins
+        self.run = run
+
+
+def _identity(tensor: Any) -> Optional[Tuple[int, int]]:
+    """``(id, _version)`` of one operand, or ``None`` when it cannot be memoized.
+
+    The identity a :data:`PLAN_MEMO` entry is keyed on.  ``id`` is the tensor
+    OBJECT, not its ``data_ptr``: every entry keeps a strong reference to the
+    tensors it keyed on (:attr:`_Call.pins`), so the object (and therefore its
+    storage and its ``id``) cannot be recycled by a different tensor while the
+    entry lives -- the ABA argument ``dense_memo.pin`` makes for ``data_ptr``, one
+    step stronger, and 0.15 us instead of the 1.1 us the full
+    ``(data_ptr, shape, dtype, device, _version)`` token costs (this key is built
+    on every warm call).  ``_version`` is bumped by every in-place torch write, so
+    a mutated population or dataset can never be served from a stale entry.
+
+    Not detected by design (exactly like the dense front tables): a write that
+    bypasses torch's version counter, e.g. through a ``numpy`` view of the same
+    memory or a foreign kernel.  Call :func:`clear_fused_cache` (or use torch ops)
+    after such a write.  ``None`` for anything that is not a ``torch.Tensor``, so
+    a caller can always fall back to doing the whole prepare.
+    """
+    if not isinstance(tensor, torch.Tensor):
+        return None
+    try:
+        return (id(tensor), int(tensor._version))
+    except Exception:  # pragma: no cover - exotic tensor subclasses only
+        return None
+
+
+def _operand_key(tensors: Tuple[Any, ...]) -> Optional[Tuple[Any, ...]]:
+    """The identity half of a plan key, or ``None`` when an operand is not memoizable."""
+    parts: list = []
+    for tensor in tensors:
+        identity = _identity(tensor)
+        if identity is None:
+            return None
+        parts.append(identity)
+    return tuple(parts)
+
+
+def _value_key(
+    batch_node_value: Any,
+    batch_node_type: Any,
+    batch_subtree_size: Any,
+    x: Any,
+    input_len: int,
+    output_len: int,
+    per_row: bool,
+    backend: Optional[str],
+    block_rows: Optional[int],
+    num_warps: Optional[int],
+    max_scratch_mb: Optional[int],
+) -> Optional[Tuple[Any, ...]]:
+    """Key of the value path's :data:`PLAN_MEMO` entry, or ``None`` (never memoized).
+
+    The operand identities plus EVERY input the prepare and the envelope verdict
+    read, resolved (never a raw ambient string), so an entry cannot go stale:
+
+    * ``input_len`` / ``output_len`` / ``per_row`` -- the shape contract;
+    * the evoxc ``backend`` SPELLING as passed (an explicit ``numpy`` declines, so
+      it must be part of the key rather than re-checked per call; the raw spelling
+      is enough -- two spellings of one backend get two entries, which is harmless
+      -- and resolving the name costs 3.4 us, more than the entry saves);
+    * ``EVOGP_FUSED_BLOCK_ROWS`` / ``EVOGP_FUSED_NUM_WARPS`` /
+      ``EVOGP_FUSED_MAX_SCRATCH_MB`` as resolved, so flipping a knob between two
+      calls is a MISS and can never inherit an old verdict or an old geometry.
+
+    An argument the key cannot normalise (a non-string ``backend``, a non-integer
+    ``input_len``, an unusable knob) answers ``None``: the caller then takes the
+    full path, which raises the error it always raised, with the message it always
+    had.
+    """
+    operands = _operand_key(
+        (batch_node_value, batch_node_type, batch_subtree_size, x)
+    )
+    if operands is None:
+        return None
+    if backend is not None and not isinstance(backend, str):
+        return None
+    try:
+        geometry = (
+            "value",
+            bool(per_row),
+            int(input_len),
+            int(output_len),
+            backend,
+            resolve_block_rows(block_rows),
+            resolve_num_warps(num_warps),
+            resolve_max_scratch_mb(max_scratch_mb),
+        )
+    except (TypeError, ValueError):
+        return None
+    return operands + geometry
+
+
+def _loss_key(
+    batch_node_value: Any,
+    batch_node_type: Any,
+    batch_subtree_size: Any,
+    inputs: Any,
+    labels: Any,
+    input_len: int,
+    output_len: int,
+    use_MSE: bool,
+    backend: Optional[str],
+    block_rows: Optional[int],
+    num_warps: Optional[int],
+    max_scratch_mb: Optional[int],
+) -> Optional[Tuple[Any, ...]]:
+    """:data:`PLAN_MEMO` key of the loss path (:func:`_value_key` plus the labels).
+
+    ``use_MSE`` is in the key because it is a kernel constexpr (a different loss,
+    not a different launch of the same one), and the label operand is keyed like
+    every other input.  The backend is keyed as the raw SPELLING, for the reason
+    :func:`_value_key` gives.
+    """
+    operands = _operand_key(
+        (
+            batch_node_value,
+            batch_node_type,
+            batch_subtree_size,
+            inputs,
+            labels,
+        )
+    )
+    if operands is None:
+        return None
+    if backend is not None and not isinstance(backend, str):
+        return None
+    try:
+        geometry = (
+            "loss",
+            int(input_len),
+            int(output_len),
+            bool(use_MSE),
+            backend,
+            resolve_block_rows(block_rows),
+            resolve_num_warps(num_warps),
+            resolve_max_scratch_mb(max_scratch_mb),
+        )
+    except (TypeError, ValueError):
+        return None
+    return operands + geometry
+
+
+def _value_call(
+    batch_node_value: Any,
+    batch_node_type: Any,
+    batch_subtree_size: Any,
+    input_len: int,
+    output_len: int,
+    x: Any,
+    per_row: bool,
+    backend: Optional[str],
+    block_rows: Optional[int],
+    num_warps: Optional[int],
+    max_scratch_mb: Optional[int],
+) -> _Call:
+    """Build (and validate) the value path's prepared call -- a :data:`PLAN_MEMO` miss.
+
+    The body of the value path up to the launch, exactly as it was before the
+    table existed: :func:`_prepare`, then ``x``'s contract, then the envelope, then
+    the one prep step (:func:`_transposed`).  Raises exactly what it always raised.
+    """
+    raw_x = x
+    prepared = _prepare(
+        batch_node_value,
+        batch_node_type,
+        batch_subtree_size,
+        input_len,
+        output_len,
+        backend,
+        block_rows,
+        num_warps,
+    )
+    if not isinstance(x, torch.Tensor):
+        raise FusedUnsupported(
+            f"x must be a device tensor, got {type(x).__name__} (the fused route "
+            "never stages host memory)"
+        )
+    if x.dim() != 2:
+        raise ValueError(
+            f"x must be 2-D (rows, {int(input_len)}), got shape {tuple(x.shape)}"
+        )
+    if int(x.shape[1]) != int(input_len):
+        raise ValueError(
+            f"x has {int(x.shape[1])} columns but input_len is {int(input_len)}"
+        )
+    if per_row and int(x.shape[0]) != prepared.pop:
+        raise ValueError(
+            f"per_row=True needs one input row per tree: x has {int(x.shape[0])} rows "
+            f"but pop_size is {prepared.pop}"
+        )
+    rows = 1 if per_row else int(x.shape[0])
+    if rows < 1:
+        raise FusedUnsupported("rows must be >= 1, got 0")
+    x = _as_device_tensor(x, torch.float32, prepared.device, "x")
+    # Both kernels materialize the ``(pop, rows, out_len)`` buffer here, hence
+    # ``holds_values=True``.
+    budget_mb = _check_envelope(
+        prepared.pop, prepared.tree_len, rows, max_scratch_mb,
+        block_rows=prepared.block_rows, num_warps=prepared.num_warps,
+        out_len=int(output_len), holds_values=True,
+    )
+    data = x if per_row else _transposed(x)
+    return _Call(
+        prepared,
+        rows=rows,
+        per_row=per_row,
+        data=data,
+        labels=None,
+        budget_mb=budget_mb,
+        out_shape=(prepared.pop, rows, int(output_len)),
+        pins=(batch_node_value, batch_node_type, batch_subtree_size, raw_x, x),
+        run=_launch(
+            fused_kernels.bind_value,
+            prepared.node_value,
+            prepared.node_type,
+            prepared.subtree_size,
+            data,
+            input_len=int(input_len),
+            tree_len=prepared.tree_len,
+            rows=rows,
+            per_row=bool(per_row),
+            block_rows=prepared.block_rows,
+            num_warps=prepared.num_warps,
+            out_len=int(output_len),
+            max_scratch_mb=budget_mb,
+        ),
+        block_rows=prepared.block_rows,
+        num_warps=prepared.num_warps,
+    )
+
+
+def _loss_call(
+    batch_node_value: Any,
+    batch_node_type: Any,
+    batch_subtree_size: Any,
+    input_len: int,
+    output_len: int,
+    inputs: Any,
+    labels: Any,
+    use_MSE: bool,
+    backend: Optional[str],
+    block_rows: Optional[int],
+    num_warps: Optional[int],
+    max_scratch_mb: Optional[int],
+) -> _Call:
+    """Build (and validate) the loss path's prepared call -- a :data:`PLAN_MEMO` miss.
+
+    The body of the loss path up to the launch, exactly as it was before the table
+    existed: :func:`_prepare`, then ``inputs``/``labels``' contract, then the
+    envelope (no value buffer on the single-output path, hence
+    ``holds_values=False``), then the one prep step and the flat label view.
+    """
+    raw_inputs, raw_labels = inputs, labels
+    prepared = _prepare(
+        batch_node_value,
+        batch_node_type,
+        batch_subtree_size,
+        input_len,
+        output_len,
+        backend,
+        block_rows,
+        num_warps,
+    )
+    if not isinstance(inputs, torch.Tensor):
+        raise FusedUnsupported(
+            f"inputs must be a device tensor, got {type(inputs).__name__}"
+        )
+    if not isinstance(labels, torch.Tensor):
+        raise FusedUnsupported(
+            f"labels must be a device tensor, got {type(labels).__name__}"
+        )
+    if inputs.dim() != 2:
+        raise ValueError(
+            f"inputs must be 2-D (data_points, input_len), got {tuple(inputs.shape)}"
+        )
+    if int(inputs.shape[1]) != int(input_len):
+        raise ValueError(
+            f"inputs has {int(inputs.shape[1])} columns but input_len is {int(input_len)}"
+        )
+    if labels.dim() != 2:
+        raise ValueError(
+            f"labels must be 2-D (data_points, output_len), got {tuple(labels.shape)}"
+        )
+    if int(labels.shape[0]) != int(inputs.shape[0]):
+        raise ValueError(
+            f"labels has {int(labels.shape[0])} rows but inputs has {int(inputs.shape[0])}"
+        )
+    if int(labels.shape[1]) != int(output_len):
+        raise ValueError(
+            f"labels has {int(labels.shape[1])} columns but output_len is {int(output_len)}"
+        )
+    rows = int(inputs.shape[0])
+    if rows < 1:
+        raise FusedUnsupported("sr_fitness needs at least one data point, got 0 rows")
+    inputs = _as_device_tensor(inputs, torch.float32, prepared.device, "inputs")
+    label_column = _as_device_tensor(labels, torch.float32, prepared.device, "labels")
+    # The single-output kernel's only output is the ``(pop, n_rb)`` chart (no value
+    # buffer); ``out_len >= 2`` still materializes the accumulator.
+    budget_mb = _check_envelope(
+        prepared.pop, prepared.tree_len, rows, max_scratch_mb,
+        block_rows=prepared.block_rows, num_warps=prepared.num_warps,
+        out_len=int(output_len), holds_values=False,
+    )
+    data = _transposed(inputs)
+    # ``out_len == 1`` wants the flat ``(N,)`` view (a free reshape of the now
+    # contiguous label column); the multi-output kernel indexes ``(N, out_len)``.
+    label_view = label_column.reshape(-1) if int(output_len) == 1 else label_column
+    return _Call(
+        prepared,
+        rows=rows,
+        per_row=False,
+        data=data,
+        labels=label_view,
+        budget_mb=budget_mb,
+        out_shape=(prepared.pop,),
+        # The pins are the tensors the KEY was built from (the raw operands), not
+        # the normalized copies ``_Call.data``/``_Call.labels`` already hold.
+        pins=(
+            batch_node_value,
+            batch_node_type,
+            batch_subtree_size,
+            raw_inputs,
+            raw_labels,
+        ),
+        run=_launch(
+            fused_kernels.bind_loss,
+            prepared.node_value,
+            prepared.node_type,
+            prepared.subtree_size,
+            data,
+            label_view,
+            input_len=int(input_len),
+            tree_len=prepared.tree_len,
+            rows=rows,
+            use_mse=bool(use_MSE),
+            block_rows=prepared.block_rows,
+            num_warps=prepared.num_warps,
+            out_len=int(output_len),
+            max_scratch_mb=budget_mb,
+        ),
+        block_rows=prepared.block_rows,
+        num_warps=prepared.num_warps,
+    )
+
+
 def evaluate_fused(
     batch_node_value: Any,
     batch_node_type: Any,
@@ -1060,99 +1501,60 @@ def _evaluate_fused(
     num_warps: Optional[int],
     max_scratch_mb: Optional[int],
 ) -> torch.Tensor:
-    """Body of :func:`evaluate_fused` (the decline bookkeeping is in the wrapper)."""
-    prepared = _prepare(
+    """Body of :func:`evaluate_fused` (the decline bookkeeping is in the wrapper).
+
+    Two layers: the prepared-call TABLE (:data:`PLAN_MEMO`, keyed by
+    :func:`_value_key`) and the launch.  A warm call -- the same population and the
+    same dataset again, which is what a training loop, an elite re-evaluation and
+    every benchmark loop do -- is one key build, one dict lookup and the launch;
+    everything the prepare used to redo per call happens on a miss only.
+    """
+    key = _value_key(
         batch_node_value,
         batch_node_type,
         batch_subtree_size,
+        x,
         input_len,
         output_len,
+        per_row,
         backend,
         block_rows,
         num_warps,
+        max_scratch_mb,
     )
-    if not isinstance(x, torch.Tensor):
-        raise FusedUnsupported(
-            f"x must be a device tensor, got {type(x).__name__} (the fused route "
-            "never stages host memory)"
+    call = PLAN_MEMO.lookup(key) if key is not None else None
+    if call is None:
+        call = _value_call(
+            batch_node_value,
+            batch_node_type,
+            batch_subtree_size,
+            input_len,
+            output_len,
+            x,
+            per_row,
+            backend,
+            block_rows,
+            num_warps,
+            max_scratch_mb,
         )
-    if x.dim() != 2:
-        raise ValueError(
-            f"x must be 2-D (rows, {int(input_len)}), got shape {tuple(x.shape)}"
-        )
-    if int(x.shape[1]) != int(input_len):
-        raise ValueError(
-            f"x has {int(x.shape[1])} columns but input_len is {int(input_len)}"
-        )
-    if per_row and int(x.shape[0]) != prepared.pop:
-        raise ValueError(
-            f"per_row=True needs one input row per tree: x has {int(x.shape[0])} rows "
-            f"but pop_size is {prepared.pop}"
-        )
-    rows = 1 if per_row else int(x.shape[0])
-    if rows < 1:
-        raise FusedUnsupported("rows must be >= 1, got 0")
-    x = _as_device_tensor(x, torch.float32, prepared.device, "x")
-    # Both kernels materialize the ``(pop, rows, out_len)`` buffer here, hence
-    # ``holds_values=True``.
-    budget_mb = _check_envelope(
-        prepared.pop, prepared.tree_len, rows, max_scratch_mb,
-        block_rows=prepared.block_rows, num_warps=prepared.num_warps,
-        out_len=int(output_len), holds_values=True,
-    )
+        if key is not None:
+            PLAN_MEMO.store(key, call)
+    # A caller-supplied destination is validated BEFORE the launch (fail fast,
+    # never after the kernel has run) and is per CALL, so it is never memoized.
     destination = None
     if out is not None:
         if out_device is not None and torch.device(out_device) != torch.device(
-            prepared.device
+            call.device
         ):
             raise ValueError(
-                f"out lives on {prepared.device} but out_device={out_device!r} asks "
+                f"out lives on {call.device} but out_device={out_device!r} asks "
                 "for the result elsewhere; pass one or the other"
             )
-        destination = _out_destination(
-            out,
-            (prepared.pop, rows, int(output_len)),
-            prepared.device,
-            "out",
-        )
-
-    if per_row:
-        # Tree t reads x[t]; no transpose is needed (a scalar load per VAR node).
-        values = _launch(
-            fused_kernels.launch_value,
-            prepared.node_value,
-            prepared.node_type,
-            prepared.subtree_size,
-            x,
-            input_len=int(input_len),
-            tree_len=prepared.tree_len,
-            rows=1,
-            per_row=True,
-            block_rows=prepared.block_rows,
-            num_warps=prepared.num_warps,
-            out_len=int(output_len),
-            max_scratch_mb=budget_mb,
-            out=destination,
-        )
+        destination = _out_destination(out, call.out_shape, call.device, "out")
+    result = call.run(destination)
+    if call.per_row:
         # (pop, 1, out_len) -> (pop, out_len) view of the value buffer
-        result = values.squeeze(1)
-    else:
-        result = _launch(
-            fused_kernels.launch_value,
-            prepared.node_value,
-            prepared.node_type,
-            prepared.subtree_size,
-            _transposed(x),  # (input_len, rows), memoized by identity
-            input_len=int(input_len),
-            tree_len=prepared.tree_len,
-            rows=rows,
-            per_row=False,
-            block_rows=prepared.block_rows,
-            num_warps=prepared.num_warps,
-            out_len=int(output_len),
-            max_scratch_mb=budget_mb,
-            out=destination,
-        )
+        result = result.squeeze(1)
     if out_device is not None and torch.device(out_device) != result.device:
         result = result.to(out_device)
     return result.contiguous()
@@ -1241,97 +1643,66 @@ def _sr_fitness_fused(
     num_warps: Optional[int],
     max_scratch_mb: Optional[int],
 ) -> torch.Tensor:
-    """Body of :func:`sr_fitness_fused` (the decline bookkeeping is in the wrapper)."""
-    prepared = _prepare(
+    """Body of :func:`sr_fitness_fused` (the decline bookkeeping is in the wrapper).
+
+    Same two layers as the value path: the prepared-call table
+    (:data:`PLAN_MEMO`, keyed by :func:`_loss_key`, so the label view and the
+    transposed input block are part of the entry) and the launch.
+    """
+    key = _loss_key(
         batch_node_value,
         batch_node_type,
         batch_subtree_size,
+        inputs,
+        labels,
         input_len,
         output_len,
+        use_MSE,
         backend,
         block_rows,
         num_warps,
+        max_scratch_mb,
     )
-    if not isinstance(inputs, torch.Tensor):
-        raise FusedUnsupported(
-            f"inputs must be a device tensor, got {type(inputs).__name__}"
+    call = PLAN_MEMO.lookup(key) if key is not None else None
+    if call is None:
+        call = _loss_call(
+            batch_node_value,
+            batch_node_type,
+            batch_subtree_size,
+            input_len,
+            output_len,
+            inputs,
+            labels,
+            use_MSE,
+            backend,
+            block_rows,
+            num_warps,
+            max_scratch_mb,
         )
-    if not isinstance(labels, torch.Tensor):
-        raise FusedUnsupported(
-            f"labels must be a device tensor, got {type(labels).__name__}"
-        )
-    if inputs.dim() != 2:
-        raise ValueError(
-            f"inputs must be 2-D (data_points, input_len), got {tuple(inputs.shape)}"
-        )
-    if int(inputs.shape[1]) != int(input_len):
-        raise ValueError(
-            f"inputs has {int(inputs.shape[1])} columns but input_len is {int(input_len)}"
-        )
-    if labels.dim() != 2:
-        raise ValueError(
-            f"labels must be 2-D (data_points, output_len), got {tuple(labels.shape)}"
-        )
-    if int(labels.shape[0]) != int(inputs.shape[0]):
-        raise ValueError(
-            f"labels has {int(labels.shape[0])} rows but inputs has {int(inputs.shape[0])}"
-        )
-    if int(labels.shape[1]) != int(output_len):
-        raise ValueError(
-            f"labels has {int(labels.shape[1])} columns but output_len is {int(output_len)}"
-        )
-    rows = int(inputs.shape[0])
-    if rows < 1:
-        raise FusedUnsupported("sr_fitness needs at least one data point, got 0 rows")
-    inputs = _as_device_tensor(inputs, torch.float32, prepared.device, "inputs")
-    label_column = _as_device_tensor(labels, torch.float32, prepared.device, "labels")
-    # The single-output kernel's only output is the ``(pop, n_rb)`` chart (no value
-    # buffer); ``out_len >= 2`` still materializes the accumulator.
-    budget_mb = _check_envelope(
-        prepared.pop, prepared.tree_len, rows, max_scratch_mb,
-        block_rows=prepared.block_rows, num_warps=prepared.num_warps,
-        out_len=int(output_len), holds_values=False,
-    )
-    # ``out_len == 1`` wants the flat ``(N,)`` view (a free reshape of the now
-    # contiguous label column); the multi-output kernel indexes ``(N, out_len)``.
-    label_ptr = label_column.reshape(-1) if int(output_len) == 1 else label_column
+        if key is not None:
+            PLAN_MEMO.store(key, call)
     # A caller-supplied destination is validated BEFORE the launch (fail fast,
-    # never after the kernel has run).
+    # never after the kernel has run) and is per CALL, so it is never memoized.
     destination = None
     if out is not None:
         if out_device is not None and torch.device(out_device) != torch.device(
-            prepared.device
+            call.device
         ):
             raise ValueError(
-                f"out lives on {prepared.device} but out_device={out_device!r} asks "
+                f"out lives on {call.device} but out_device={out_device!r} asks "
                 "for the result elsewhere; pass one or the other"
             )
-        destination = _out_destination(out, (prepared.pop,), prepared.device, "out")
-    partials = _launch(
-        fused_kernels.launch_loss,
-        prepared.node_value,
-        prepared.node_type,
-        prepared.subtree_size,
-        _transposed(inputs),
-        label_ptr,
-        input_len=int(input_len),
-        tree_len=prepared.tree_len,
-        rows=rows,
-        use_mse=bool(use_MSE),
-        block_rows=prepared.block_rows,
-        num_warps=prepared.num_warps,
-        out_len=int(output_len),
-        max_scratch_mb=budget_mb,
-    )
+        destination = _out_destination(out, (call.pop,), call.device, "out")
+    partials = call.run()
     # ``sum_points sum_outputs err / N`` -- outputs are already summed (there is
     # exactly one), the divisor is the data-point count only.  A caller-supplied
     # destination gets both steps IN PLACE, so the finished loss is written
     # straight into the buffer another runtime reads (no allocation, no copy).
     if destination is None:
-        loss = partials.sum(dim=1) / float(rows)
+        loss = partials.sum(dim=1) / float(call.rows)
         if out_device is not None and torch.device(out_device) != loss.device:
             loss = loss.to(out_device)
         return loss.contiguous()
     torch.sum(partials, dim=1, out=destination)
-    destination.div_(float(rows))
+    destination.div_(float(call.rows))
     return destination
