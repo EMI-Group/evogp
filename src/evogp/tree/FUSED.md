@@ -87,7 +87,7 @@ compile), so a fused record's `cache.compile_misses_first_call = 0` must **not**
 | arm | bf ms | vs torch | sf ms | vs torch | fw ms | vs torch |
 |---|---|---|---|---|---|---|
 | `torch-batched` | 4.0547 | 1.00× | 4.1639 | 1.00× | 4.0248 | 1.00× |
-| **`fused`** | **0.0995** | **40.8×** | **0.1299** | **32.1×** | **0.0871** | **46.2×** |
+| **`fused`** | **0.0762** | **53.8×** | **0.0858** | **48.4×** | **0.0680** | **59.8×** |
 | `dense` (iree) | 1.9857 | 2.04× | 1.1185 | 3.72× | 0.6651 | 6.05× |
 | `batch` (iree) | 3.3566 | 1.21× | 3.4803 | 1.20× | 2.0029 | 2.01× |
 
@@ -159,7 +159,14 @@ buffer and the `(pop, n_rb)` loss chart stay device-resident, so the honest spli
 | `p4096-L64` (1024) | 0.1078 | 0.0314 | 77.5 % | 0.1039 | 0.0469 | 68.9 % | 0.0191 | 4 |
 | `p2048-L128-d7` (1024) | 0.1314 | 0.0365 | 78.3 % | 0.1322 | 0.0477 | 73.5 % | 0.0191 | 4 |
 
-The kernel is 51–78 % of a warm call and the host glue **22–49 %** — a much healthier ratio than the dense route
+A host-glue round cut the per-call prep out of the warm path (see §7): the whole prepared call — the normalized
+population tables, the transposed data operand, the envelope verdict, the geometry and the **bound launch** — is
+memoized in `fused_engine.PLAN_MEMO` on `(id, _version)` of the operand tensors plus the resolved knobs, so a warm
+call is one key build, one dict lookup and `call.run(destination)`.  Same-session A/B on the six harness cells
+(`fused_check --stage timing --wired`): **0.108/0.108/0.122/0.117/0.154/0.181 → 0.076/0.075/0.089/0.082/0.124/0.149 ms**
+(−17.7 % to −30.6 %; −19.5 % on `p4096`, whose call is 54 % kernel).  Host-only (fake-kernel) per call:
+`batch_forward` 19.5 → 14.3 µs, `SR_fitness` 37.6 → 30.0 µs.  The kernel is now the larger half again and the
+host glue is **≈12 %** of a warm `batch_forward` at ``p256`` (14 µs of 76 µs) — a much healthier ratio than the dense route
 (host glue ≈ 15 %, but on a 1–7 ms call). Absolute host glue is flat at 0.031–0.062 ms across three orders of
 population size, i.e. it is Python-level per-call overhead, not data movement; the remaining headroom in the route
 is host-side. `transpose(cold)` 0.019 ms is what the identity memo removes from every warm call.

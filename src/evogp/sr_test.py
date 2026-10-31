@@ -11,22 +11,22 @@ JIT-built once per *(structure, shape)* and then interpreted per data batch, so 
 with ``pop_size`` x tree size while the population bloats as it improves. The original
 CUDA-scale validation (``pop_size=1000``, ``max_tree_len=128``, 100 generations) therefore
 needs hours here. As shipped (``pop_size=200`` x 100 generations, ``max_tree_len=64``) the
-run takes roughly 30 s on the reference box (RTX A6000 host, evoxc ``"numpy"`` backend, seed
-0) and still converges: the best fitness goes from about -0.2511 at generation 0 to about
--0.1720 at generation 100, with the first improvement around generation 43.
+run takes roughly 9.4 s on the reference box (MI300X, the shipped default route = the fused
+Triton route on a device box, seed 0) and still converges: the best fitness reaches about
+-0.2259 within the 100-generation budget.
 
 Most of that cost is *tracing*, not evaluating: evoxc attaches a call-site ``Location`` to
 every op unless ``EVOXC_DISABLE_LOCATIONS=1`` is set, which is its documented speed knob for
 tracing-heavy runs (locations are debug metadata -- they do not change the computed
 fitness; the trajectory above is identical either way). This script sets the knob by
-default; export ``EVOXC_DISABLE_LOCATIONS=0`` to keep the capture enabled (~380 s per run).
+default; export ``EVOXC_DISABLE_LOCATIONS=0`` to keep the capture enabled (a few times slower).
 
 Scale the validation up (or down) by editing ``pop_size`` / ``generation_limit`` /
 ``max_tree_len`` below, or with the ``EVOGP_SR_POP`` / ``EVOGP_SR_GENS`` /
 ``EVOGP_SR_MAX_TREE_LEN`` environment variables. Bigger settings search harder but trade
 directly against wall time. Do not drop ``generation_limit`` much below 100: the run is
 elitist, so the reported best fitness never decreases, but with seed 0 this population
-only starts improving around generation 43.
+reaches its best value near generation 60.
 """
 
 import os
