@@ -1,0 +1,1514 @@
+{
+  "children": [
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "64",
+        "--rows",
+        "1024",
+        "--lanes",
+        "forest-auto",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3441840/64-forest-auto.json"
+      ],
+      "lanes": [
+        "forest-auto"
+      ],
+      "pop": 64,
+      "rows": 1024,
+      "wall_s": 8.28
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "128",
+        "--rows",
+        "1024",
+        "--lanes",
+        "forest-auto",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3441840/128-forest-auto.json"
+      ],
+      "lanes": [
+        "forest-auto"
+      ],
+      "pop": 128,
+      "rows": 1024,
+      "wall_s": 8.32
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "256",
+        "--rows",
+        "1024",
+        "--lanes",
+        "forest-auto",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3441840/256-forest-auto.json"
+      ],
+      "lanes": [
+        "forest-auto"
+      ],
+      "pop": 256,
+      "rows": 1024,
+      "wall_s": 8.22
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "512",
+        "--rows",
+        "1024",
+        "--lanes",
+        "forest-auto",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3441840/512-forest-auto.json"
+      ],
+      "lanes": [
+        "forest-auto"
+      ],
+      "pop": 512,
+      "rows": 1024,
+      "wall_s": 8.44
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "1024",
+        "--rows",
+        "1024",
+        "--lanes",
+        "forest-auto",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3441840/1024-forest-auto.json"
+      ],
+      "lanes": [
+        "forest-auto"
+      ],
+      "pop": 1024,
+      "rows": 1024,
+      "wall_s": 8.6
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "2048",
+        "--rows",
+        "1024",
+        "--lanes",
+        "forest-auto",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3441840/2048-forest-auto.json"
+      ],
+      "lanes": [
+        "forest-auto"
+      ],
+      "pop": 2048,
+      "rows": 1024,
+      "wall_s": 8.68
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "4096",
+        "--rows",
+        "1024",
+        "--lanes",
+        "forest-auto",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3441840/4096-forest-auto.json"
+      ],
+      "lanes": [
+        "forest-auto"
+      ],
+      "pop": 4096,
+      "rows": 1024,
+      "wall_s": 8.84
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "8192",
+        "--rows",
+        "1024",
+        "--lanes",
+        "forest-auto",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3441840/8192-forest-auto.json"
+      ],
+      "lanes": [
+        "forest-auto"
+      ],
+      "pop": 8192,
+      "rows": 1024,
+      "wall_s": 9.68
+    }
+  ],
+  "command": "/tmp/rocvenv/bin/python -m evogp.gp.measure_popscale --pops 64,128,256,512,1024,2048,4096,8192 --lanes forest-auto --reps 3 --warmup 1 --skip-fused-control --json src/evogp/gp/evidence/popscale_cold/forest-auto.json",
+  "config": {
+    "fused_control_pop": 8192,
+    "gp_knobs": {
+      "crossover_prob": 0.9,
+      "elite_count": 2,
+      "mutation_prob": 0.2,
+      "tournament_size": 4
+    },
+    "lane_surfaces": {
+      "forest-auto": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        },
+        {
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness"
+        }
+      ],
+      "forest-fused": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        },
+        {
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness"
+        }
+      ],
+      "gp": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        }
+      ],
+      "gp-fused": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        }
+      ],
+      "numpy": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        },
+        {
+          "kind": "value",
+          "surface": "predict"
+        }
+      ],
+      "torch-batched": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        }
+      ],
+      "torch-per-tree": [
+        {
+          "kind": "value",
+          "surface": "forward"
+        }
+      ]
+    },
+    "lanes": [
+      "forest-auto"
+    ],
+    "pops": [
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096,
+      8192
+    ],
+    "protocol": "one process per population; ONE gp population per pop feeds every lane; cold = the first call (1 sample), warm = the median of --reps timed calls after --warmup discarded ones, torch.cuda.synchronize() around every timed repetition; idle-device guard per child; forest-fused runs in its own child with EVOGP_EVAL_MODE=fused set before evogp.tree is imported",
+    "reps": 3,
+    "rows": 1024,
+    "seed": 0,
+    "side_max_pop": {
+      "torch-per-tree": 1024
+    },
+    "skip_fused_control": true,
+    "warmup": 1,
+    "workload": {
+      "const_prob": 0.5,
+      "const_range": [
+        -5.0,
+        5.0
+      ],
+      "input_len": 8,
+      "layer_leaf_prob": 0.2,
+      "max_layer_cnt": 4,
+      "max_nodes": 32,
+      "sample_cnt": 8,
+      "using_funcs": [
+        "+",
+        "-",
+        "*",
+        "/"
+      ]
+    }
+  },
+  "git_head": "0e4f8d37bfea7a51ca4e1d6884e345327cb2742c",
+  "guard": {
+    "all_ok": true,
+    "children": 8,
+    "skipped": false
+  },
+  "guards": [
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 64,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        3.0
+      ],
+      "ok": true,
+      "pop": 128,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        3.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        3.0
+      ],
+      "ok": true,
+      "pop": 512,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        3.0
+      ],
+      "ok": true,
+      "pop": 1024,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        3.0
+      ],
+      "ok": true,
+      "pop": 2048,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        3.0
+      ],
+      "ok": true,
+      "pop": 4096,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        3.0
+      ],
+      "ok": true,
+      "pop": 8192,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    }
+  ],
+  "interop_available": true,
+  "pops": [
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "forest-auto.sr_fitness": {
+            "comparable": 64,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "forest-auto",
+            "max_rel": 1.8959120495765092e-07,
+            "max_rel_scaled": 1.195253815922115e-07,
+            "note": "the measured loss was negated before the comparison",
+            "scale": 4183212.0,
+            "surface": "sr_fitness"
+          }
+        },
+        "value": {
+          "forest-auto.batch_forward": {
+            "comparable": 65536,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "forest-auto",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 63733.96875,
+            "surface": "batch_forward"
+          }
+        }
+      },
+      "pop": 64,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "eval_mode": "auto",
+            "fallback_backend": "numpy",
+            "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+            "route": "fused"
+          },
+          "lane": "forest-auto",
+          "surfaces": {
+            "batch_forward": {
+              "cold_ms": 509.538,
+              "kind": "value",
+              "negate": false,
+              "surface": "batch_forward",
+              "timing": {
+                "max_ms": 0.0469,
+                "mean_ms": 0.0439,
+                "median_ms": 0.0469,
+                "min_ms": 0.0379,
+                "reps": 3,
+                "samples_ms": [
+                  0.0469,
+                  0.0379,
+                  0.0469
+                ]
+              }
+            },
+            "sr_fitness": {
+              "cold_ms": 27.2664,
+              "kind": "fitness",
+              "negate": true,
+              "surface": "sr_fitness",
+              "timing": {
+                "max_ms": 0.0697,
+                "mean_ms": 0.0611,
+                "median_ms": 0.0572,
+                "min_ms": 0.0564,
+                "reps": 3,
+                "samples_ms": [
+                  0.0697,
+                  0.0572,
+                  0.0564
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "forest-auto.sr_fitness": {
+            "comparable": 127,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "forest-auto",
+            "max_rel": 2.3000235671588598e-07,
+            "max_rel_scaled": 7.466879736739429e-08,
+            "note": "the measured loss was negated before the comparison",
+            "scale": 13392475.0,
+            "surface": "sr_fitness"
+          }
+        },
+        "value": {
+          "forest-auto.batch_forward": {
+            "comparable": 130048,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "forest-auto",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 116525.03125,
+            "surface": "batch_forward"
+          }
+        }
+      },
+      "pop": 128,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "eval_mode": "auto",
+            "fallback_backend": "numpy",
+            "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+            "route": "fused"
+          },
+          "lane": "forest-auto",
+          "surfaces": {
+            "batch_forward": {
+              "cold_ms": 535.0037,
+              "kind": "value",
+              "negate": false,
+              "surface": "batch_forward",
+              "timing": {
+                "max_ms": 0.0709,
+                "mean_ms": 0.0541,
+                "median_ms": 0.0479,
+                "min_ms": 0.0434,
+                "reps": 3,
+                "samples_ms": [
+                  0.0709,
+                  0.0479,
+                  0.0434
+                ]
+              }
+            },
+            "sr_fitness": {
+              "cold_ms": 30.3739,
+              "kind": "fitness",
+              "negate": true,
+              "surface": "sr_fitness",
+              "timing": {
+                "max_ms": 0.0706,
+                "mean_ms": 0.0638,
+                "median_ms": 0.0611,
+                "min_ms": 0.0597,
+                "reps": 3,
+                "samples_ms": [
+                  0.0706,
+                  0.0611,
+                  0.0597
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "forest-auto.sr_fitness": {
+            "comparable": 255,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "forest-auto",
+            "max_rel": 2.4749292037995474e-07,
+            "max_rel_scaled": 3.5370437134751853e-10,
+            "note": "the measured loss was negated before the comparison",
+            "scale": 2827219712.0,
+            "surface": "sr_fitness"
+          }
+        },
+        "value": {
+          "forest-auto.batch_forward": {
+            "comparable": 261120,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "forest-auto",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 1026102.25,
+            "surface": "batch_forward"
+          }
+        }
+      },
+      "pop": 256,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "eval_mode": "auto",
+            "fallback_backend": "numpy",
+            "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+            "route": "fused"
+          },
+          "lane": "forest-auto",
+          "surfaces": {
+            "batch_forward": {
+              "cold_ms": 494.5075,
+              "kind": "value",
+              "negate": false,
+              "surface": "batch_forward",
+              "timing": {
+                "max_ms": 0.0512,
+                "mean_ms": 0.043,
+                "median_ms": 0.04,
+                "min_ms": 0.0379,
+                "reps": 3,
+                "samples_ms": [
+                  0.0512,
+                  0.04,
+                  0.0379
+                ]
+              }
+            },
+            "sr_fitness": {
+              "cold_ms": 30.8565,
+              "kind": "fitness",
+              "negate": true,
+              "surface": "sr_fitness",
+              "timing": {
+                "max_ms": 0.1099,
+                "mean_ms": 0.0804,
+                "median_ms": 0.0707,
+                "min_ms": 0.0606,
+                "reps": 3,
+                "samples_ms": [
+                  0.0707,
+                  0.1099,
+                  0.0606
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "forest-auto.sr_fitness": {
+            "comparable": 511,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "forest-auto",
+            "max_rel": 2.9064094064779056e-07,
+            "max_rel_scaled": 9.388043054059381e-08,
+            "note": "the measured loss was negated before the comparison",
+            "scale": 87259930624.0,
+            "surface": "sr_fitness"
+          }
+        },
+        "value": {
+          "forest-auto.batch_forward": {
+            "comparable": 523264,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "forest-auto",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 9452154.0,
+            "surface": "batch_forward"
+          }
+        }
+      },
+      "pop": 512,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "eval_mode": "auto",
+            "fallback_backend": "numpy",
+            "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+            "route": "fused"
+          },
+          "lane": "forest-auto",
+          "surfaces": {
+            "batch_forward": {
+              "cold_ms": 521.9918,
+              "kind": "value",
+              "negate": false,
+              "surface": "batch_forward",
+              "timing": {
+                "max_ms": 0.0576,
+                "mean_ms": 0.0528,
+                "median_ms": 0.0545,
+                "min_ms": 0.0463,
+                "reps": 3,
+                "samples_ms": [
+                  0.0545,
+                  0.0576,
+                  0.0463
+                ]
+              }
+            },
+            "sr_fitness": {
+              "cold_ms": 30.3429,
+              "kind": "fitness",
+              "negate": true,
+              "surface": "sr_fitness",
+              "timing": {
+                "max_ms": 0.0742,
+                "mean_ms": 0.0661,
+                "median_ms": 0.0672,
+                "min_ms": 0.0568,
+                "reps": 3,
+                "samples_ms": [
+                  0.0672,
+                  0.0568,
+                  0.0742
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "forest-auto.sr_fitness": {
+            "comparable": 1021,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "forest-auto",
+            "max_rel": 4.5733324327557057e-07,
+            "max_rel_scaled": 5.3094274006374505e-15,
+            "note": "the measured loss was negated before the comparison",
+            "scale": 1.5429159425167852e+18,
+            "surface": "sr_fitness"
+          }
+        },
+        "value": {
+          "forest-auto.batch_forward": {
+            "comparable": 1045504,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "forest-auto",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 39747072000.0,
+            "surface": "batch_forward"
+          }
+        }
+      },
+      "pop": 1024,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "eval_mode": "auto",
+            "fallback_backend": "numpy",
+            "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+            "route": "fused"
+          },
+          "lane": "forest-auto",
+          "surfaces": {
+            "batch_forward": {
+              "cold_ms": 512.4448,
+              "kind": "value",
+              "negate": false,
+              "surface": "batch_forward",
+              "timing": {
+                "max_ms": 0.0591,
+                "mean_ms": 0.0502,
+                "median_ms": 0.0463,
+                "min_ms": 0.045,
+                "reps": 3,
+                "samples_ms": [
+                  0.0591,
+                  0.0463,
+                  0.045
+                ]
+              }
+            },
+            "sr_fitness": {
+              "cold_ms": 33.8325,
+              "kind": "fitness",
+              "negate": true,
+              "surface": "sr_fitness",
+              "timing": {
+                "max_ms": 0.0869,
+                "mean_ms": 0.07,
+                "median_ms": 0.0654,
+                "min_ms": 0.0577,
+                "reps": 3,
+                "samples_ms": [
+                  0.0869,
+                  0.0654,
+                  0.0577
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "forest-auto.sr_fitness": {
+            "comparable": 2041,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "forest-auto",
+            "max_rel": 4.5733324327557057e-07,
+            "max_rel_scaled": 5.436853658252749e-12,
+            "note": "the measured loss was negated before the comparison",
+            "scale": 1.5429159425167852e+18,
+            "surface": "sr_fitness"
+          }
+        },
+        "value": {
+          "forest-auto.batch_forward": {
+            "comparable": 2089984,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "forest-auto",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 39747072000.0,
+            "surface": "batch_forward"
+          }
+        }
+      },
+      "pop": 2048,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "eval_mode": "auto",
+            "fallback_backend": "numpy",
+            "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+            "route": "fused"
+          },
+          "lane": "forest-auto",
+          "surfaces": {
+            "batch_forward": {
+              "cold_ms": 506.8888,
+              "kind": "value",
+              "negate": false,
+              "surface": "batch_forward",
+              "timing": {
+                "max_ms": 0.1229,
+                "mean_ms": 0.0795,
+                "median_ms": 0.0622,
+                "min_ms": 0.0536,
+                "reps": 3,
+                "samples_ms": [
+                  0.0622,
+                  0.1229,
+                  0.0536
+                ]
+              }
+            },
+            "sr_fitness": {
+              "cold_ms": 38.2516,
+              "kind": "fitness",
+              "negate": true,
+              "surface": "sr_fitness",
+              "timing": {
+                "max_ms": 0.0713,
+                "mean_ms": 0.0613,
+                "median_ms": 0.057,
+                "min_ms": 0.0556,
+                "reps": 3,
+                "samples_ms": [
+                  0.0713,
+                  0.057,
+                  0.0556
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "forest-auto.sr_fitness": {
+            "comparable": 4082,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "forest-auto",
+            "max_rel": 4.5733324327557057e-07,
+            "max_rel_scaled": 3.5009608789306594e-17,
+            "note": "the measured loss was negated before the comparison",
+            "scale": 2.3960873995548396e+23,
+            "surface": "sr_fitness"
+          }
+        },
+        "value": {
+          "forest-auto.batch_forward": {
+            "comparable": 4179968,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "forest-auto",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 15663780331520.0,
+            "surface": "batch_forward"
+          }
+        }
+      },
+      "pop": 4096,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "eval_mode": "auto",
+            "fallback_backend": "numpy",
+            "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+            "route": "fused"
+          },
+          "lane": "forest-auto",
+          "surfaces": {
+            "batch_forward": {
+              "cold_ms": 514.4518,
+              "kind": "value",
+              "negate": false,
+              "surface": "batch_forward",
+              "timing": {
+                "max_ms": 0.0942,
+                "mean_ms": 0.0773,
+                "median_ms": 0.0741,
+                "min_ms": 0.0635,
+                "reps": 3,
+                "samples_ms": [
+                  0.0741,
+                  0.0942,
+                  0.0635
+                ]
+              }
+            },
+            "sr_fitness": {
+              "cold_ms": 34.3911,
+              "kind": "fitness",
+              "negate": true,
+              "surface": "sr_fitness",
+              "timing": {
+                "max_ms": 0.0763,
+                "mean_ms": 0.0699,
+                "median_ms": 0.0671,
+                "min_ms": 0.0664,
+                "reps": 3,
+                "samples_ms": [
+                  0.0763,
+                  0.0671,
+                  0.0664
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "forest-auto.sr_fitness": {
+            "comparable": 8152,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "forest-auto",
+            "max_rel": 4.5733324327557057e-07,
+            "max_rel_scaled": 1.4003843515722638e-16,
+            "note": "the measured loss was negated before the comparison",
+            "scale": 2.3960873995548396e+23,
+            "surface": "sr_fitness"
+          }
+        },
+        "value": {
+          "forest-auto.batch_forward": {
+            "comparable": 8347648,
+            "finiteness_mismatch": 0,
+            "kind": "value",
+            "lane": "forest-auto",
+            "max_rel": 0.0,
+            "max_rel_scaled": 0.0,
+            "scale": 15663780331520.0,
+            "surface": "batch_forward"
+          }
+        }
+      },
+      "pop": 8192,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "eval_mode": "auto",
+            "fallback_backend": "numpy",
+            "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+            "route": "fused"
+          },
+          "lane": "forest-auto",
+          "surfaces": {
+            "batch_forward": {
+              "cold_ms": 520.8065,
+              "kind": "value",
+              "negate": false,
+              "surface": "batch_forward",
+              "timing": {
+                "max_ms": 0.131,
+                "mean_ms": 0.1107,
+                "median_ms": 0.1106,
+                "min_ms": 0.0906,
+                "reps": 3,
+                "samples_ms": [
+                  0.1106,
+                  0.131,
+                  0.0906
+                ]
+              }
+            },
+            "sr_fitness": {
+              "cold_ms": 38.7677,
+              "kind": "fitness",
+              "negate": true,
+              "surface": "sr_fitness",
+              "timing": {
+                "max_ms": 0.1033,
+                "mean_ms": 0.0978,
+                "median_ms": 0.0957,
+                "min_ms": 0.0944,
+                "reps": 3,
+                "samples_ms": [
+                  0.1033,
+                  0.0957,
+                  0.0944
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": null
+    }
+  ],
+  "records": [
+    {
+      "facts": {
+        "backend": "iree",
+        "eval_mode": "auto",
+        "fallback_backend": "numpy",
+        "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+        "route": "fused"
+      },
+      "lane": "forest-auto",
+      "surfaces": {
+        "batch_forward": {
+          "cold_ms": 509.538,
+          "kind": "value",
+          "negate": false,
+          "surface": "batch_forward",
+          "timing": {
+            "max_ms": 0.0469,
+            "mean_ms": 0.0439,
+            "median_ms": 0.0469,
+            "min_ms": 0.0379,
+            "reps": 3,
+            "samples_ms": [
+              0.0469,
+              0.0379,
+              0.0469
+            ]
+          }
+        },
+        "sr_fitness": {
+          "cold_ms": 27.2664,
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness",
+          "timing": {
+            "max_ms": 0.0697,
+            "mean_ms": 0.0611,
+            "median_ms": 0.0572,
+            "min_ms": 0.0564,
+            "reps": 3,
+            "samples_ms": [
+              0.0697,
+              0.0572,
+              0.0564
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "eval_mode": "auto",
+        "fallback_backend": "numpy",
+        "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+        "route": "fused"
+      },
+      "lane": "forest-auto",
+      "surfaces": {
+        "batch_forward": {
+          "cold_ms": 535.0037,
+          "kind": "value",
+          "negate": false,
+          "surface": "batch_forward",
+          "timing": {
+            "max_ms": 0.0709,
+            "mean_ms": 0.0541,
+            "median_ms": 0.0479,
+            "min_ms": 0.0434,
+            "reps": 3,
+            "samples_ms": [
+              0.0709,
+              0.0479,
+              0.0434
+            ]
+          }
+        },
+        "sr_fitness": {
+          "cold_ms": 30.3739,
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness",
+          "timing": {
+            "max_ms": 0.0706,
+            "mean_ms": 0.0638,
+            "median_ms": 0.0611,
+            "min_ms": 0.0597,
+            "reps": 3,
+            "samples_ms": [
+              0.0706,
+              0.0611,
+              0.0597
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "eval_mode": "auto",
+        "fallback_backend": "numpy",
+        "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+        "route": "fused"
+      },
+      "lane": "forest-auto",
+      "surfaces": {
+        "batch_forward": {
+          "cold_ms": 494.5075,
+          "kind": "value",
+          "negate": false,
+          "surface": "batch_forward",
+          "timing": {
+            "max_ms": 0.0512,
+            "mean_ms": 0.043,
+            "median_ms": 0.04,
+            "min_ms": 0.0379,
+            "reps": 3,
+            "samples_ms": [
+              0.0512,
+              0.04,
+              0.0379
+            ]
+          }
+        },
+        "sr_fitness": {
+          "cold_ms": 30.8565,
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness",
+          "timing": {
+            "max_ms": 0.1099,
+            "mean_ms": 0.0804,
+            "median_ms": 0.0707,
+            "min_ms": 0.0606,
+            "reps": 3,
+            "samples_ms": [
+              0.0707,
+              0.1099,
+              0.0606
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "eval_mode": "auto",
+        "fallback_backend": "numpy",
+        "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+        "route": "fused"
+      },
+      "lane": "forest-auto",
+      "surfaces": {
+        "batch_forward": {
+          "cold_ms": 521.9918,
+          "kind": "value",
+          "negate": false,
+          "surface": "batch_forward",
+          "timing": {
+            "max_ms": 0.0576,
+            "mean_ms": 0.0528,
+            "median_ms": 0.0545,
+            "min_ms": 0.0463,
+            "reps": 3,
+            "samples_ms": [
+              0.0545,
+              0.0576,
+              0.0463
+            ]
+          }
+        },
+        "sr_fitness": {
+          "cold_ms": 30.3429,
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness",
+          "timing": {
+            "max_ms": 0.0742,
+            "mean_ms": 0.0661,
+            "median_ms": 0.0672,
+            "min_ms": 0.0568,
+            "reps": 3,
+            "samples_ms": [
+              0.0672,
+              0.0568,
+              0.0742
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "eval_mode": "auto",
+        "fallback_backend": "numpy",
+        "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+        "route": "fused"
+      },
+      "lane": "forest-auto",
+      "surfaces": {
+        "batch_forward": {
+          "cold_ms": 512.4448,
+          "kind": "value",
+          "negate": false,
+          "surface": "batch_forward",
+          "timing": {
+            "max_ms": 0.0591,
+            "mean_ms": 0.0502,
+            "median_ms": 0.0463,
+            "min_ms": 0.045,
+            "reps": 3,
+            "samples_ms": [
+              0.0591,
+              0.0463,
+              0.045
+            ]
+          }
+        },
+        "sr_fitness": {
+          "cold_ms": 33.8325,
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness",
+          "timing": {
+            "max_ms": 0.0869,
+            "mean_ms": 0.07,
+            "median_ms": 0.0654,
+            "min_ms": 0.0577,
+            "reps": 3,
+            "samples_ms": [
+              0.0869,
+              0.0654,
+              0.0577
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "eval_mode": "auto",
+        "fallback_backend": "numpy",
+        "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+        "route": "fused"
+      },
+      "lane": "forest-auto",
+      "surfaces": {
+        "batch_forward": {
+          "cold_ms": 506.8888,
+          "kind": "value",
+          "negate": false,
+          "surface": "batch_forward",
+          "timing": {
+            "max_ms": 0.1229,
+            "mean_ms": 0.0795,
+            "median_ms": 0.0622,
+            "min_ms": 0.0536,
+            "reps": 3,
+            "samples_ms": [
+              0.0622,
+              0.1229,
+              0.0536
+            ]
+          }
+        },
+        "sr_fitness": {
+          "cold_ms": 38.2516,
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness",
+          "timing": {
+            "max_ms": 0.0713,
+            "mean_ms": 0.0613,
+            "median_ms": 0.057,
+            "min_ms": 0.0556,
+            "reps": 3,
+            "samples_ms": [
+              0.0713,
+              0.057,
+              0.0556
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "eval_mode": "auto",
+        "fallback_backend": "numpy",
+        "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+        "route": "fused"
+      },
+      "lane": "forest-auto",
+      "surfaces": {
+        "batch_forward": {
+          "cold_ms": 514.4518,
+          "kind": "value",
+          "negate": false,
+          "surface": "batch_forward",
+          "timing": {
+            "max_ms": 0.0942,
+            "mean_ms": 0.0773,
+            "median_ms": 0.0741,
+            "min_ms": 0.0635,
+            "reps": 3,
+            "samples_ms": [
+              0.0741,
+              0.0942,
+              0.0635
+            ]
+          }
+        },
+        "sr_fitness": {
+          "cold_ms": 34.3911,
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness",
+          "timing": {
+            "max_ms": 0.0763,
+            "mean_ms": 0.0699,
+            "median_ms": 0.0671,
+            "min_ms": 0.0664,
+            "reps": 3,
+            "samples_ms": [
+              0.0763,
+              0.0671,
+              0.0664
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "eval_mode": "auto",
+        "fallback_backend": "numpy",
+        "note": "route is what dense_engine.resolve_route answered in this process; 'fused' means the shipped default served the call",
+        "route": "fused"
+      },
+      "lane": "forest-auto",
+      "surfaces": {
+        "batch_forward": {
+          "cold_ms": 520.8065,
+          "kind": "value",
+          "negate": false,
+          "surface": "batch_forward",
+          "timing": {
+            "max_ms": 0.131,
+            "mean_ms": 0.1107,
+            "median_ms": 0.1106,
+            "min_ms": 0.0906,
+            "reps": 3,
+            "samples_ms": [
+              0.1106,
+              0.131,
+              0.0906
+            ]
+          }
+        },
+        "sr_fitness": {
+          "cold_ms": 38.7677,
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness",
+          "timing": {
+            "max_ms": 0.1033,
+            "mean_ms": 0.0978,
+            "median_ms": 0.0957,
+            "min_ms": 0.0944,
+            "reps": 3,
+            "samples_ms": [
+              0.1033,
+              0.0957,
+              0.0944
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "scoped_out": [],
+  "versions": {
+    "created_utc": "2026-10-31T17:44:30Z",
+    "cuda": null,
+    "evogp_sha": "0e4f8d37bfea7a51ca4e1d6884e345327cb2742c",
+    "evoxc_file": "/root/evoxc/evoxc/__init__.py",
+    "evoxc_sha": "474bf727cf8b70eb07b85411dddb76d810648672",
+    "evoxc_version": "0.0.0+unknown",
+    "gpu": "AMD Instinct MI300X VF",
+    "hip": "7.1.52802",
+    "iree_base_compiler": "3.11.0",
+    "iree_base_runtime": "3.11.0",
+    "knobs": {
+      "EVOXC_DISABLE_LOCATIONS": "1"
+    },
+    "numpy": "2.5.4",
+    "python": "3.12.3",
+    "python_executable": "/tmp/rocvenv/bin/python",
+    "torch": "2.13.0+rocm7.1",
+    "triton": "3.7.1"
+  }
+}

@@ -1,0 +1,1274 @@
+{
+  "children": [
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "64",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp-fused",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3439556/64-gp-fused.json"
+      ],
+      "lanes": [
+        "gp-fused"
+      ],
+      "pop": 64,
+      "rows": 1024,
+      "wall_s": 8.57
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "128",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp-fused",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3439556/128-gp-fused.json"
+      ],
+      "lanes": [
+        "gp-fused"
+      ],
+      "pop": 128,
+      "rows": 1024,
+      "wall_s": 8.53
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "256",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp-fused",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3439556/256-gp-fused.json"
+      ],
+      "lanes": [
+        "gp-fused"
+      ],
+      "pop": 256,
+      "rows": 1024,
+      "wall_s": 8.58
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "512",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp-fused",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3439556/512-gp-fused.json"
+      ],
+      "lanes": [
+        "gp-fused"
+      ],
+      "pop": 512,
+      "rows": 1024,
+      "wall_s": 8.68
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "1024",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp-fused",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3439556/1024-gp-fused.json"
+      ],
+      "lanes": [
+        "gp-fused"
+      ],
+      "pop": 1024,
+      "rows": 1024,
+      "wall_s": 8.71
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "2048",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp-fused",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3439556/2048-gp-fused.json"
+      ],
+      "lanes": [
+        "gp-fused"
+      ],
+      "pop": 2048,
+      "rows": 1024,
+      "wall_s": 8.87
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "4096",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp-fused",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3439556/4096-gp-fused.json"
+      ],
+      "lanes": [
+        "gp-fused"
+      ],
+      "pop": 4096,
+      "rows": 1024,
+      "wall_s": 9.11
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "8192",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp-fused",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3439556/8192-gp-fused.json"
+      ],
+      "lanes": [
+        "gp-fused"
+      ],
+      "pop": 8192,
+      "rows": 1024,
+      "wall_s": 9.94
+    }
+  ],
+  "command": "/tmp/rocvenv/bin/python -m evogp.gp.measure_popscale --pops 64,128,256,512,1024,2048,4096,8192 --lanes gp-fused --reps 3 --warmup 1 --skip-fused-control --json src/evogp/gp/evidence/popscale_cold/gp-fused.json",
+  "config": {
+    "fused_control_pop": 8192,
+    "gp_knobs": {
+      "crossover_prob": 0.9,
+      "elite_count": 2,
+      "mutation_prob": 0.2,
+      "tournament_size": 4
+    },
+    "lane_surfaces": {
+      "forest-auto": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        },
+        {
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness"
+        }
+      ],
+      "forest-fused": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        },
+        {
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness"
+        }
+      ],
+      "gp": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        }
+      ],
+      "gp-fused": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        }
+      ],
+      "numpy": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        },
+        {
+          "kind": "value",
+          "surface": "predict"
+        }
+      ],
+      "torch-batched": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        }
+      ],
+      "torch-per-tree": [
+        {
+          "kind": "value",
+          "surface": "forward"
+        }
+      ]
+    },
+    "lanes": [
+      "gp-fused"
+    ],
+    "pops": [
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096,
+      8192
+    ],
+    "protocol": "one process per population; ONE gp population per pop feeds every lane; cold = the first call (1 sample), warm = the median of --reps timed calls after --warmup discarded ones, torch.cuda.synchronize() around every timed repetition; idle-device guard per child; forest-fused runs in its own child with EVOGP_EVAL_MODE=fused set before evogp.tree is imported",
+    "reps": 3,
+    "rows": 1024,
+    "seed": 0,
+    "side_max_pop": {
+      "torch-per-tree": 1024
+    },
+    "skip_fused_control": true,
+    "warmup": 1,
+    "workload": {
+      "const_prob": 0.5,
+      "const_range": [
+        -5.0,
+        5.0
+      ],
+      "input_len": 8,
+      "layer_leaf_prob": 0.2,
+      "max_layer_cnt": 4,
+      "max_nodes": 32,
+      "sample_cnt": 8,
+      "using_funcs": [
+        "+",
+        "-",
+        "*",
+        "/"
+      ]
+    }
+  },
+  "git_head": "0e4f8d37bfea7a51ca4e1d6884e345327cb2742c",
+  "guard": {
+    "all_ok": true,
+    "children": 8,
+    "skipped": false
+  },
+  "guards": [
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 64,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 128,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 512,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 1024,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 2048,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 4096,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 8192,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    }
+  ],
+  "interop_available": true,
+  "pops": [
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp-fused.evaluate": {
+            "comparable": 64,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp-fused",
+            "max_rel": 1.8959120495765092e-07,
+            "max_rel_scaled": 1.195253815922115e-07,
+            "scale": 4183212.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 64,
+      "records": [
+        {
+          "facts": {
+            "available": true,
+            "device_available": true,
+            "interop_available": true,
+            "last_fallback": null,
+            "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+            "route": "device",
+            "route_counts": {
+              "device": 5,
+              "host": 0
+            },
+            "triton_cache_dir": "/tmp/triton_cache"
+          },
+          "lane": "gp-fused",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 872.9988,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.8094,
+                "mean_ms": 0.7333,
+                "median_ms": 0.7255,
+                "min_ms": 0.6651,
+                "reps": 3,
+                "samples_ms": [
+                  0.8094,
+                  0.7255,
+                  0.6651
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 64
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp-fused.evaluate": {
+            "comparable": 127,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp-fused",
+            "max_rel": 2.3000235671588598e-07,
+            "max_rel_scaled": 7.466879736739429e-08,
+            "scale": 13392475.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 128,
+      "records": [
+        {
+          "facts": {
+            "available": true,
+            "device_available": true,
+            "interop_available": true,
+            "last_fallback": null,
+            "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+            "route": "device",
+            "route_counts": {
+              "device": 5,
+              "host": 0
+            },
+            "triton_cache_dir": "/tmp/triton_cache"
+          },
+          "lane": "gp-fused",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 876.4274,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.6379,
+                "mean_ms": 0.6196,
+                "median_ms": 0.6205,
+                "min_ms": 0.6005,
+                "reps": 3,
+                "samples_ms": [
+                  0.6379,
+                  0.6205,
+                  0.6005
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 128
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp-fused.evaluate": {
+            "comparable": 255,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp-fused",
+            "max_rel": 2.4749292037995474e-07,
+            "max_rel_scaled": 3.5370437134751853e-10,
+            "scale": 2827219712.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 256,
+      "records": [
+        {
+          "facts": {
+            "available": true,
+            "device_available": true,
+            "interop_available": true,
+            "last_fallback": null,
+            "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+            "route": "device",
+            "route_counts": {
+              "device": 5,
+              "host": 0
+            },
+            "triton_cache_dir": "/tmp/triton_cache"
+          },
+          "lane": "gp-fused",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 867.405,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.694,
+                "mean_ms": 0.6466,
+                "median_ms": 0.6441,
+                "min_ms": 0.6017,
+                "reps": 3,
+                "samples_ms": [
+                  0.694,
+                  0.6441,
+                  0.6017
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 256
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp-fused.evaluate": {
+            "comparable": 511,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp-fused",
+            "max_rel": 2.9064094064779056e-07,
+            "max_rel_scaled": 9.388043054059381e-08,
+            "scale": 87259930624.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 512,
+      "records": [
+        {
+          "facts": {
+            "available": true,
+            "device_available": true,
+            "interop_available": true,
+            "last_fallback": null,
+            "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+            "route": "device",
+            "route_counts": {
+              "device": 5,
+              "host": 0
+            },
+            "triton_cache_dir": "/tmp/triton_cache"
+          },
+          "lane": "gp-fused",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 878.5905,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.6814,
+                "mean_ms": 0.6578,
+                "median_ms": 0.6579,
+                "min_ms": 0.6341,
+                "reps": 3,
+                "samples_ms": [
+                  0.6814,
+                  0.6579,
+                  0.6341
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 512
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp-fused.evaluate": {
+            "comparable": 1021,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp-fused",
+            "max_rel": 4.5733324327557057e-07,
+            "max_rel_scaled": 5.3094274006374505e-15,
+            "scale": 1.5429159425167852e+18,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 1024,
+      "records": [
+        {
+          "facts": {
+            "available": true,
+            "device_available": true,
+            "interop_available": true,
+            "last_fallback": null,
+            "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+            "route": "device",
+            "route_counts": {
+              "device": 5,
+              "host": 0
+            },
+            "triton_cache_dir": "/tmp/triton_cache"
+          },
+          "lane": "gp-fused",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 906.5602,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.688,
+                "mean_ms": 0.6637,
+                "median_ms": 0.6571,
+                "min_ms": 0.646,
+                "reps": 3,
+                "samples_ms": [
+                  0.6571,
+                  0.646,
+                  0.688
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 1024
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp-fused.evaluate": {
+            "comparable": 2041,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp-fused",
+            "max_rel": 4.5733324327557057e-07,
+            "max_rel_scaled": 5.436853658252749e-12,
+            "scale": 1.5429159425167852e+18,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 2048,
+      "records": [
+        {
+          "facts": {
+            "available": true,
+            "device_available": true,
+            "interop_available": true,
+            "last_fallback": null,
+            "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+            "route": "device",
+            "route_counts": {
+              "device": 5,
+              "host": 0
+            },
+            "triton_cache_dir": "/tmp/triton_cache"
+          },
+          "lane": "gp-fused",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 904.3661,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.7555,
+                "mean_ms": 0.6984,
+                "median_ms": 0.6747,
+                "min_ms": 0.6652,
+                "reps": 3,
+                "samples_ms": [
+                  0.7555,
+                  0.6652,
+                  0.6747
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 2048
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp-fused.evaluate": {
+            "comparable": 4082,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp-fused",
+            "max_rel": 4.5733324327557057e-07,
+            "max_rel_scaled": 3.5009608789306594e-17,
+            "scale": 2.3960873995548396e+23,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 4096,
+      "records": [
+        {
+          "facts": {
+            "available": true,
+            "device_available": true,
+            "interop_available": true,
+            "last_fallback": null,
+            "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+            "route": "device",
+            "route_counts": {
+              "device": 5,
+              "host": 0
+            },
+            "triton_cache_dir": "/tmp/triton_cache"
+          },
+          "lane": "gp-fused",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 875.7546,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.7895,
+                "mean_ms": 0.748,
+                "median_ms": 0.777,
+                "min_ms": 0.6776,
+                "reps": 3,
+                "samples_ms": [
+                  0.777,
+                  0.7895,
+                  0.6776
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 4096
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp-fused.evaluate": {
+            "comparable": 8152,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp-fused",
+            "max_rel": 4.5733324327557057e-07,
+            "max_rel_scaled": 1.4003843515722638e-16,
+            "scale": 2.3960873995548396e+23,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 8192,
+      "records": [
+        {
+          "facts": {
+            "available": true,
+            "device_available": true,
+            "interop_available": true,
+            "last_fallback": null,
+            "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+            "route": "device",
+            "route_counts": {
+              "device": 5,
+              "host": 0
+            },
+            "triton_cache_dir": "/tmp/triton_cache"
+          },
+          "lane": "gp-fused",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 912.9066,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.8613,
+                "mean_ms": 0.7815,
+                "median_ms": 0.7541,
+                "min_ms": 0.7291,
+                "reps": 3,
+                "samples_ms": [
+                  0.8613,
+                  0.7291,
+                  0.7541
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 8192
+      }
+    }
+  ],
+  "records": [
+    {
+      "facts": {
+        "available": true,
+        "device_available": true,
+        "interop_available": true,
+        "last_fallback": null,
+        "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+        "route": "device",
+        "route_counts": {
+          "device": 5,
+          "host": 0
+        },
+        "triton_cache_dir": "/tmp/triton_cache"
+      },
+      "lane": "gp-fused",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 872.9988,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.8094,
+            "mean_ms": 0.7333,
+            "median_ms": 0.7255,
+            "min_ms": 0.6651,
+            "reps": 3,
+            "samples_ms": [
+              0.8094,
+              0.7255,
+              0.6651
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "available": true,
+        "device_available": true,
+        "interop_available": true,
+        "last_fallback": null,
+        "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+        "route": "device",
+        "route_counts": {
+          "device": 5,
+          "host": 0
+        },
+        "triton_cache_dir": "/tmp/triton_cache"
+      },
+      "lane": "gp-fused",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 876.4274,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.6379,
+            "mean_ms": 0.6196,
+            "median_ms": 0.6205,
+            "min_ms": 0.6005,
+            "reps": 3,
+            "samples_ms": [
+              0.6379,
+              0.6205,
+              0.6005
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "available": true,
+        "device_available": true,
+        "interop_available": true,
+        "last_fallback": null,
+        "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+        "route": "device",
+        "route_counts": {
+          "device": 5,
+          "host": 0
+        },
+        "triton_cache_dir": "/tmp/triton_cache"
+      },
+      "lane": "gp-fused",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 867.405,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.694,
+            "mean_ms": 0.6466,
+            "median_ms": 0.6441,
+            "min_ms": 0.6017,
+            "reps": 3,
+            "samples_ms": [
+              0.694,
+              0.6441,
+              0.6017
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "available": true,
+        "device_available": true,
+        "interop_available": true,
+        "last_fallback": null,
+        "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+        "route": "device",
+        "route_counts": {
+          "device": 5,
+          "host": 0
+        },
+        "triton_cache_dir": "/tmp/triton_cache"
+      },
+      "lane": "gp-fused",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 878.5905,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.6814,
+            "mean_ms": 0.6578,
+            "median_ms": 0.6579,
+            "min_ms": 0.6341,
+            "reps": 3,
+            "samples_ms": [
+              0.6814,
+              0.6579,
+              0.6341
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "available": true,
+        "device_available": true,
+        "interop_available": true,
+        "last_fallback": null,
+        "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+        "route": "device",
+        "route_counts": {
+          "device": 5,
+          "host": 0
+        },
+        "triton_cache_dir": "/tmp/triton_cache"
+      },
+      "lane": "gp-fused",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 906.5602,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.688,
+            "mean_ms": 0.6637,
+            "median_ms": 0.6571,
+            "min_ms": 0.646,
+            "reps": 3,
+            "samples_ms": [
+              0.6571,
+              0.646,
+              0.688
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "available": true,
+        "device_available": true,
+        "interop_available": true,
+        "last_fallback": null,
+        "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+        "route": "device",
+        "route_counts": {
+          "device": 5,
+          "host": 0
+        },
+        "triton_cache_dir": "/tmp/triton_cache"
+      },
+      "lane": "gp-fused",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 904.3661,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.7555,
+            "mean_ms": 0.6984,
+            "median_ms": 0.6747,
+            "min_ms": 0.6652,
+            "reps": 3,
+            "samples_ms": [
+              0.7555,
+              0.6652,
+              0.6747
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "available": true,
+        "device_available": true,
+        "interop_available": true,
+        "last_fallback": null,
+        "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+        "route": "device",
+        "route_counts": {
+          "device": 5,
+          "host": 0
+        },
+        "triton_cache_dir": "/tmp/triton_cache"
+      },
+      "lane": "gp-fused",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 875.7546,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.7895,
+            "mean_ms": 0.748,
+            "median_ms": 0.777,
+            "min_ms": 0.6776,
+            "reps": 3,
+            "samples_ms": [
+              0.777,
+              0.7895,
+              0.6776
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "available": true,
+        "device_available": true,
+        "interop_available": true,
+        "last_fallback": null,
+        "note": "route=='device' means the call was served by the kernel on exported evoxc device buffers, not by the host hand-off",
+        "route": "device",
+        "route_counts": {
+          "device": 5,
+          "host": 0
+        },
+        "triton_cache_dir": "/tmp/triton_cache"
+      },
+      "lane": "gp-fused",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 912.9066,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.8613,
+            "mean_ms": 0.7815,
+            "median_ms": 0.7541,
+            "min_ms": 0.7291,
+            "reps": 3,
+            "samples_ms": [
+              0.8613,
+              0.7291,
+              0.7541
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "scoped_out": [],
+  "versions": {
+    "created_utc": "2026-10-31T17:41:52Z",
+    "cuda": null,
+    "evogp_sha": "0e4f8d37bfea7a51ca4e1d6884e345327cb2742c",
+    "evoxc_file": "/root/evoxc/evoxc/__init__.py",
+    "evoxc_sha": "474bf727cf8b70eb07b85411dddb76d810648672",
+    "evoxc_version": "0.0.0+unknown",
+    "gpu": "AMD Instinct MI300X VF",
+    "hip": "7.1.52802",
+    "iree_base_compiler": "3.11.0",
+    "iree_base_runtime": "3.11.0",
+    "knobs": {
+      "EVOXC_DISABLE_LOCATIONS": "1"
+    },
+    "numpy": "2.5.4",
+    "python": "3.12.3",
+    "python_executable": "/tmp/rocvenv/bin/python",
+    "torch": "2.13.0+rocm7.1",
+    "triton": "3.7.1"
+  }
+}

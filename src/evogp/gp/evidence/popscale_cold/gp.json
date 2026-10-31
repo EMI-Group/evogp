@@ -1,0 +1,1162 @@
+{
+  "children": [
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "64",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3437836/64-gp.json"
+      ],
+      "lanes": [
+        "gp"
+      ],
+      "pop": 64,
+      "rows": 1024,
+      "wall_s": 10.21
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "128",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3437836/128-gp.json"
+      ],
+      "lanes": [
+        "gp"
+      ],
+      "pop": 128,
+      "rows": 1024,
+      "wall_s": 10.32
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "256",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3437836/256-gp.json"
+      ],
+      "lanes": [
+        "gp"
+      ],
+      "pop": 256,
+      "rows": 1024,
+      "wall_s": 10.16
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "512",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3437836/512-gp.json"
+      ],
+      "lanes": [
+        "gp"
+      ],
+      "pop": 512,
+      "rows": 1024,
+      "wall_s": 10.29
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "1024",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3437836/1024-gp.json"
+      ],
+      "lanes": [
+        "gp"
+      ],
+      "pop": 1024,
+      "rows": 1024,
+      "wall_s": 10.32
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "2048",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3437836/2048-gp.json"
+      ],
+      "lanes": [
+        "gp"
+      ],
+      "pop": 2048,
+      "rows": 1024,
+      "wall_s": 10.55
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "4096",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3437836/4096-gp.json"
+      ],
+      "lanes": [
+        "gp"
+      ],
+      "pop": 4096,
+      "rows": 1024,
+      "wall_s": 10.94
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_popscale",
+        "--pop",
+        "8192",
+        "--rows",
+        "1024",
+        "--lanes",
+        "gp",
+        "--warmup",
+        "1",
+        "--reps",
+        "3",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-popscale-3437836/8192-gp.json"
+      ],
+      "lanes": [
+        "gp"
+      ],
+      "pop": 8192,
+      "rows": 1024,
+      "wall_s": 11.58
+    }
+  ],
+  "command": "/tmp/rocvenv/bin/python -m evogp.gp.measure_popscale --pops 64,128,256,512,1024,2048,4096,8192 --lanes gp --reps 3 --warmup 1 --skip-fused-control --json src/evogp/gp/evidence/popscale_cold/gp.json",
+  "config": {
+    "fused_control_pop": 8192,
+    "gp_knobs": {
+      "crossover_prob": 0.9,
+      "elite_count": 2,
+      "mutation_prob": 0.2,
+      "tournament_size": 4
+    },
+    "lane_surfaces": {
+      "forest-auto": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        },
+        {
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness"
+        }
+      ],
+      "forest-fused": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        },
+        {
+          "kind": "fitness",
+          "negate": true,
+          "surface": "sr_fitness"
+        }
+      ],
+      "gp": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        }
+      ],
+      "gp-fused": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        }
+      ],
+      "numpy": [
+        {
+          "kind": "fitness",
+          "surface": "evaluate"
+        },
+        {
+          "kind": "value",
+          "surface": "predict"
+        }
+      ],
+      "torch-batched": [
+        {
+          "kind": "value",
+          "surface": "batch_forward"
+        }
+      ],
+      "torch-per-tree": [
+        {
+          "kind": "value",
+          "surface": "forward"
+        }
+      ]
+    },
+    "lanes": [
+      "gp"
+    ],
+    "pops": [
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096,
+      8192
+    ],
+    "protocol": "one process per population; ONE gp population per pop feeds every lane; cold = the first call (1 sample), warm = the median of --reps timed calls after --warmup discarded ones, torch.cuda.synchronize() around every timed repetition; idle-device guard per child; forest-fused runs in its own child with EVOGP_EVAL_MODE=fused set before evogp.tree is imported",
+    "reps": 3,
+    "rows": 1024,
+    "seed": 0,
+    "side_max_pop": {
+      "torch-per-tree": 1024
+    },
+    "skip_fused_control": true,
+    "warmup": 1,
+    "workload": {
+      "const_prob": 0.5,
+      "const_range": [
+        -5.0,
+        5.0
+      ],
+      "input_len": 8,
+      "layer_leaf_prob": 0.2,
+      "max_layer_cnt": 4,
+      "max_nodes": 32,
+      "sample_cnt": 8,
+      "using_funcs": [
+        "+",
+        "-",
+        "*",
+        "/"
+      ]
+    }
+  },
+  "git_head": "0e4f8d37bfea7a51ca4e1d6884e345327cb2742c",
+  "guard": {
+    "all_ok": true,
+    "children": 8,
+    "skipped": false
+  },
+  "guards": [
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 64,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 128,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 512,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 1024,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 2048,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 4096,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        2.0
+      ],
+      "ok": true,
+      "pop": 8192,
+      "resident_processes": [],
+      "rows": 1024,
+      "waited_s": 0.2
+    }
+  ],
+  "interop_available": true,
+  "pops": [
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp.evaluate": {
+            "comparable": 64,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp",
+            "max_rel": 1.6012009496080282e-07,
+            "max_rel_scaled": 1.195253815922115e-07,
+            "scale": 4183212.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 64,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "device": "rocm",
+            "readback": "one explicit D2H AFTER the timed block, for parity only",
+            "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+          },
+          "lane": "gp",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 2491.7774,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.6551,
+                "mean_ms": 0.6038,
+                "median_ms": 0.5829,
+                "min_ms": 0.5734,
+                "reps": 3,
+                "samples_ms": [
+                  0.5829,
+                  0.5734,
+                  0.6551
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 64
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp.evaluate": {
+            "comparable": 127,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp",
+            "max_rel": 2.638022635892412e-07,
+            "max_rel_scaled": 7.466879736739429e-08,
+            "scale": 13392475.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 128,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "device": "rocm",
+            "readback": "one explicit D2H AFTER the timed block, for parity only",
+            "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+          },
+          "lane": "gp",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 2516.3773,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.6615,
+                "mean_ms": 0.6541,
+                "median_ms": 0.6553,
+                "min_ms": 0.6455,
+                "reps": 3,
+                "samples_ms": [
+                  0.6615,
+                  0.6455,
+                  0.6553
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 128
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp.evaluate": {
+            "comparable": 255,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp",
+            "max_rel": 2.638022635892412e-07,
+            "max_rel_scaled": 9.054831906496474e-08,
+            "scale": 2827219712.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 256,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "device": "rocm",
+            "readback": "one explicit D2H AFTER the timed block, for parity only",
+            "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+          },
+          "lane": "gp",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 2481.2493,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 0.8994,
+                "mean_ms": 0.7918,
+                "median_ms": 0.7464,
+                "min_ms": 0.7297,
+                "reps": 3,
+                "samples_ms": [
+                  0.7297,
+                  0.8994,
+                  0.7464
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 256
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp.evaluate": {
+            "comparable": 511,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp",
+            "max_rel": 3.5173636092622473e-07,
+            "max_rel_scaled": 1.1735053817574226e-08,
+            "scale": 87259930624.0,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 512,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "device": "rocm",
+            "readback": "one explicit D2H AFTER the timed block, for parity only",
+            "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+          },
+          "lane": "gp",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 2511.4931,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 1.0006,
+                "mean_ms": 0.9953,
+                "median_ms": 0.9937,
+                "min_ms": 0.9917,
+                "reps": 3,
+                "samples_ms": [
+                  1.0006,
+                  0.9917,
+                  0.9937
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 512
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp.evaluate": {
+            "comparable": 1021,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp",
+            "max_rel": 4.396704582632083e-07,
+            "max_rel_scaled": 1.3273568501593626e-15,
+            "scale": 1.5429159425167852e+18,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 1024,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "device": "rocm",
+            "readback": "one explicit D2H AFTER the timed block, for parity only",
+            "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+          },
+          "lane": "gp",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 2423.9358,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 1.5855,
+                "mean_ms": 1.5674,
+                "median_ms": 1.5603,
+                "min_ms": 1.5564,
+                "reps": 3,
+                "samples_ms": [
+                  1.5603,
+                  1.5855,
+                  1.5564
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 1024
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp.evaluate": {
+            "comparable": 2041,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp",
+            "max_rel": 4.396704582632083e-07,
+            "max_rel_scaled": 1.0873707316505499e-11,
+            "scale": 1.5429159425167852e+18,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 2048,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "device": "rocm",
+            "readback": "one explicit D2H AFTER the timed block, for parity only",
+            "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+          },
+          "lane": "gp",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 2535.8296,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 2.9211,
+                "mean_ms": 2.9102,
+                "median_ms": 2.91,
+                "min_ms": 2.8996,
+                "reps": 3,
+                "samples_ms": [
+                  2.91,
+                  2.9211,
+                  2.8996
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 2048
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp.evaluate": {
+            "comparable": 4082,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp",
+            "max_rel": 5.001147087568825e-07,
+            "max_rel_scaled": 7.518256239791299e-08,
+            "scale": 2.3960873995548396e+23,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 4096,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "device": "rocm",
+            "readback": "one explicit D2H AFTER the timed block, for parity only",
+            "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+          },
+          "lane": "gp",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 2533.0852,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 5.5921,
+                "mean_ms": 5.5421,
+                "median_ms": 5.5454,
+                "min_ms": 5.4887,
+                "reps": 3,
+                "samples_ms": [
+                  5.5921,
+                  5.5454,
+                  5.4887
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 4096
+      }
+    },
+    {
+      "device": "rocm",
+      "parity": {
+        "fitness": {
+          "gp.evaluate": {
+            "comparable": 8152,
+            "finiteness_mismatch": 0,
+            "kind": "fitness",
+            "lane": "gp",
+            "max_rel": 5.505224294211075e-07,
+            "max_rel_scaled": 7.518256239791299e-08,
+            "scale": 2.3960873995548396e+23,
+            "surface": "evaluate"
+          }
+        },
+        "value": {}
+      },
+      "pop": 8192,
+      "records": [
+        {
+          "facts": {
+            "backend": "iree",
+            "device": "rocm",
+            "readback": "one explicit D2H AFTER the timed block, for parity only",
+            "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+          },
+          "lane": "gp",
+          "surfaces": {
+            "evaluate": {
+              "cold_ms": 2458.1846,
+              "kind": "fitness",
+              "negate": false,
+              "surface": "evaluate",
+              "timing": {
+                "max_ms": 11.0211,
+                "mean_ms": 10.8791,
+                "median_ms": 10.8087,
+                "min_ms": 10.8074,
+                "reps": 3,
+                "samples_ms": [
+                  10.8087,
+                  10.8074,
+                  11.0211
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "rows": 1024,
+      "scoped_out": [],
+      "seed": 0,
+      "upload": {
+        "channels": 3,
+        "identical": true,
+        "max_nodes": 32,
+        "note": "device channels read back and compared to the numpy rows",
+        "pop": 8192
+      }
+    }
+  ],
+  "records": [
+    {
+      "facts": {
+        "backend": "iree",
+        "device": "rocm",
+        "readback": "one explicit D2H AFTER the timed block, for parity only",
+        "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+      },
+      "lane": "gp",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 2491.7774,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.6551,
+            "mean_ms": 0.6038,
+            "median_ms": 0.5829,
+            "min_ms": 0.5734,
+            "reps": 3,
+            "samples_ms": [
+              0.5829,
+              0.5734,
+              0.6551
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "device": "rocm",
+        "readback": "one explicit D2H AFTER the timed block, for parity only",
+        "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+      },
+      "lane": "gp",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 2516.3773,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.6615,
+            "mean_ms": 0.6541,
+            "median_ms": 0.6553,
+            "min_ms": 0.6455,
+            "reps": 3,
+            "samples_ms": [
+              0.6615,
+              0.6455,
+              0.6553
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "device": "rocm",
+        "readback": "one explicit D2H AFTER the timed block, for parity only",
+        "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+      },
+      "lane": "gp",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 2481.2493,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 0.8994,
+            "mean_ms": 0.7918,
+            "median_ms": 0.7464,
+            "min_ms": 0.7297,
+            "reps": 3,
+            "samples_ms": [
+              0.7297,
+              0.8994,
+              0.7464
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "device": "rocm",
+        "readback": "one explicit D2H AFTER the timed block, for parity only",
+        "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+      },
+      "lane": "gp",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 2511.4931,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 1.0006,
+            "mean_ms": 0.9953,
+            "median_ms": 0.9937,
+            "min_ms": 0.9917,
+            "reps": 3,
+            "samples_ms": [
+              1.0006,
+              0.9917,
+              0.9937
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "device": "rocm",
+        "readback": "one explicit D2H AFTER the timed block, for parity only",
+        "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+      },
+      "lane": "gp",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 2423.9358,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 1.5855,
+            "mean_ms": 1.5674,
+            "median_ms": 1.5603,
+            "min_ms": 1.5564,
+            "reps": 3,
+            "samples_ms": [
+              1.5603,
+              1.5855,
+              1.5564
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "device": "rocm",
+        "readback": "one explicit D2H AFTER the timed block, for parity only",
+        "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+      },
+      "lane": "gp",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 2535.8296,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 2.9211,
+            "mean_ms": 2.9102,
+            "median_ms": 2.91,
+            "min_ms": 2.8996,
+            "reps": 3,
+            "samples_ms": [
+              2.91,
+              2.9211,
+              2.8996
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "device": "rocm",
+        "readback": "one explicit D2H AFTER the timed block, for parity only",
+        "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+      },
+      "lane": "gp",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 2533.0852,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 5.5921,
+            "mean_ms": 5.5421,
+            "median_ms": 5.5454,
+            "min_ms": 5.4887,
+            "reps": 3,
+            "samples_ms": [
+              5.5921,
+              5.5454,
+              5.4887
+            ]
+          }
+        }
+      }
+    },
+    {
+      "facts": {
+        "backend": "iree",
+        "device": "rocm",
+        "readback": "one explicit D2H AFTER the timed block, for parity only",
+        "used_ids": "the run's GPTreeConfig (the narrow dispatch chain)"
+      },
+      "lane": "gp",
+      "surfaces": {
+        "evaluate": {
+          "cold_ms": 2458.1846,
+          "kind": "fitness",
+          "negate": false,
+          "surface": "evaluate",
+          "timing": {
+            "max_ms": 11.0211,
+            "mean_ms": 10.8791,
+            "median_ms": 10.8087,
+            "min_ms": 10.8074,
+            "reps": 3,
+            "samples_ms": [
+              10.8087,
+              10.8074,
+              11.0211
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "scoped_out": [],
+  "versions": {
+    "created_utc": "2026-10-31T17:40:32Z",
+    "cuda": null,
+    "evogp_sha": "0e4f8d37bfea7a51ca4e1d6884e345327cb2742c",
+    "evoxc_file": "/root/evoxc/evoxc/__init__.py",
+    "evoxc_sha": "474bf727cf8b70eb07b85411dddb76d810648672",
+    "evoxc_version": "0.0.0+unknown",
+    "gpu": "AMD Instinct MI300X VF",
+    "hip": "7.1.52802",
+    "iree_base_compiler": "3.11.0",
+    "iree_base_runtime": "3.11.0",
+    "knobs": {
+      "EVOXC_DISABLE_LOCATIONS": "1"
+    },
+    "numpy": "2.5.4",
+    "python": "3.12.3",
+    "python_executable": "/tmp/rocvenv/bin/python",
+    "torch": "2.13.0+rocm7.1",
+    "triton": "3.7.1"
+  }
+}
