@@ -1,9 +1,9 @@
 {
  "env": {
   "schema": "evogp-bench-evoxc-v1",
-  "created_utc": "2026-10-31T06:15:09Z",
+  "created_utc": "2026-10-31T06:27:52Z",
   "tree_root": "/root/evogp/.genesis/workers/worker_T1_A109/src",
-  "tree_root_sha": "ea67218bddf1d30ead8a78d471888488cff9f28f",
+  "tree_root_sha": "576832c68fee4e992251a62961c5f71f83669835",
   "cwd": "/root/evogp/.genesis/workers/worker_T1_A109",
   "arm": "torch-batched",
   "python": "3.12.3",
@@ -101,20 +101,20 @@
  },
  "workloads": {
   "sr_fitness": {
-   "first_call_ms": 65.7481,
+   "first_call_ms": 66.7099,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    4.0214,
-    4.0249,
-    4.0612,
-    4.0698,
-    4.022
+    4.0915,
+    4.0422,
+    4.0309,
+    4.0237,
+    4.0195
    ],
-   "median_ms": 4.0249,
-   "min_ms": 4.0214,
-   "max_ms": 4.0698,
-   "mean_ms": 4.0399,
+   "median_ms": 4.0309,
+   "min_ms": 4.0195,
+   "max_ms": 4.0915,
+   "mean_ms": 4.0416,
    "cache": {
     "before": {
      "hits": 0,
@@ -162,20 +162,20 @@
    }
   },
   "batch_forward": {
-   "first_call_ms": 4.0528,
+   "first_call_ms": 4.0297,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    4.0565,
-    4.057,
-    4.071,
-    4.3446,
-    4.3544
+    3.971,
+    3.9898,
+    3.9892,
+    3.951,
+    4.1443
    ],
-   "median_ms": 4.071,
-   "min_ms": 4.0565,
-   "max_ms": 4.3544,
-   "mean_ms": 4.1767,
+   "median_ms": 3.9892,
+   "min_ms": 3.951,
+   "max_ms": 4.1443,
+   "mean_ms": 4.0091,
    "cache": {
     "before": {
      "hits": 0,
@@ -225,20 +225,20 @@
    }
   },
   "forward": {
-   "first_call_ms": 4.1108,
+   "first_call_ms": 4.0816,
    "warmup": 2,
    "reps": 5,
    "samples_ms": [
-    4.0755,
-    3.9272,
-    3.906,
-    3.9188,
-    3.9927
+    3.9698,
+    3.9812,
+    3.9605,
+    3.9608,
+    4.0022
    ],
-   "median_ms": 3.9272,
-   "min_ms": 3.906,
-   "max_ms": 4.0755,
-   "mean_ms": 3.9641,
+   "median_ms": 3.9698,
+   "min_ms": 3.9605,
+   "max_ms": 4.0022,
+   "mean_ms": 3.9749,
    "cache": {
     "before": {
      "hits": 0,
@@ -292,41 +292,41 @@
   "reps": 3,
   "steps": [
    {
-    "total_ms": 26.9445,
-    "eval_ms": 24.213,
-    "ops_ms": 2.7315,
-    "torch_setup_ms": 19.812,
+    "total_ms": 26.0376,
+    "eval_ms": 23.456,
+    "ops_ms": 2.5816,
+    "torch_setup_ms": 19.1442,
     "compile_misses": 0,
     "memo_hits": 0
    },
    {
-    "total_ms": 24.1169,
-    "eval_ms": 21.4003,
-    "ops_ms": 2.7166,
-    "torch_setup_ms": 17.8231,
+    "total_ms": 23.7219,
+    "eval_ms": 21.1939,
+    "ops_ms": 2.528,
+    "torch_setup_ms": 17.6314,
     "compile_misses": 0,
     "memo_hits": 0
    },
    {
-    "total_ms": 23.5353,
-    "eval_ms": 20.876,
-    "ops_ms": 2.6594,
-    "torch_setup_ms": 17.5287,
+    "total_ms": 22.6162,
+    "eval_ms": 20.1338,
+    "ops_ms": 2.4823,
+    "torch_setup_ms": 17.0433,
     "compile_misses": 0,
     "memo_hits": 0
    }
   ],
-  "median_total_ms": 24.1169,
-  "min_total_ms": 23.5353,
-  "max_total_ms": 26.9445,
-  "median_eval_ms": 21.4003,
-  "median_ops_ms": 2.7166,
+  "median_total_ms": 23.7219,
+  "min_total_ms": 22.6162,
+  "max_total_ms": 26.0376,
+  "median_eval_ms": 21.1939,
+  "median_ops_ms": 2.528,
   "compile_misses_total": 0,
   "final_pop_size": 256,
   "best_fitness": -0.0844300240278244
  },
  "notes": [
-  "shipped-default column: auto now resolves to the fused Triton route on this device box; read against results/t1a1_fused (explicit fused) and results/t1a1_baseline (pre-fused default)",
+  "shipped-default column: auto now resolves to the fused Triton route on this device box; read against results/t1a1_fused (explicit fused) and results/t1a1_baseline (pre-fused default); every config waited for an idle device (shared box)",
   "torch arm: the tree decode / batched plan is built once, outside the timed region (setup_ms); per-call cost is torch ops only"
  ],
  "auto_trace_cap": {
@@ -351,7 +351,7 @@
    }
   }
  },
- "setup_ms": 22.9399,
+ "setup_ms": 20.1763,
  "engine_cache_final": {
   "hits": 0,
   "misses": 0,
