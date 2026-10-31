@@ -1,7 +1,7 @@
 # Cross-node edits for the fused route (`EVOGP_EVAL_MODE=fused`) — all applied
 `FUSED_HANDOFF.md` is the one-page summary of the edits the fused route needed OUTSIDE `src/evogp/tree/`; this file is their record.
 Every item below has landed in the tree, verified against the current code, so nothing here is a paste-ready instruction any more.
-Re-verified on the device reference box: `pytest src/evogp/tests -q` → 1 252 passed / 7 skipped / 3 failed (the 3 are §7), `pytest src/evogp/gp/tests -q` → 318 passed, `pytest test/benchmark/evoxc -q` → 33 passed, `fused_cache_stats()` has 15 keys, `EVOGP_FUSED_MIN_POP` is 16 and `MAX_OUT_LEN` is 8.
+Re-verified on the device reference box: `pytest src/evogp/tests -q` → 1 255 passed / 7 skipped / 0 failed (both stale assertions, §1's table pin and §7's `auto` pin, have since been fixed), `pytest src/evogp/gp/tests -q` → 291 passed / 36 skipped (the 36 are the device-gated `test_gp_stack_device_fused.py` cases, which skip while the native device hand-off is unavailable), `pytest test/benchmark/evoxc -q` → 33 passed, `fused_cache_stats()` has 15 keys, `EVOGP_FUSED_MIN_POP` is 16 and `MAX_OUT_LEN` is 8.
 ## 1. The route tables (`src/evogp/tree/dense_engine.py`, pinned by `src/evogp/tests/test_dense_policy.py`)
 `EVAL_MODES` is `("dense", "specialized", "batch", "fused", "auto")` and `ENGINES` is `("specialized", "dense", "batch", "fused")`, with `fused` before `auto`, never an alias.
 `test_eval_mode_tables_stay_canonical` pins both plus the membership/alias rules, so the table cannot drift.
@@ -18,8 +18,9 @@ Re-verified on the device reference box: `pytest src/evogp/tests -q` → 1 252 p
 ## 6. The existence proof (`test/benchmark/evoxc/worker.py`)
 `FUSED_STATS_KEYS` (the 15 `fused_cache_stats()` counters) and `FUSED_GAUGE_KEYS` (the 6 gauges, recorded as an AFTER snapshot rather than a delta) feed `fused_served()` (`attempts - declines == calls` and `launches >= calls`), and the per-workload block lands as `record["fused_cache"]` beside `record["engine_cache_final"]`.
 An engine name is not proof a call was served; `fused_kernel_launches` is (`fused_calls` counts ATTEMPTS), so a `compile_misses_first_call` of 0 proves nothing on this route — it compiles no evoxc graph.
-## 7. The one remaining red case
-`src/evogp/tests/test_fused_route.py::test_auto_never_selects_fused` (pop 16 / 64 / 256) still asserts the pre-policy claim that `auto` never selects the fused route, so it fails on any device box with Triton where `auto` resolves to `fused` from `EVOGP_FUSED_MIN_POP` up; the assertion must be inverted, not the policy.
+## 7. The one remaining red case (fixed)
+`src/evogp/tests/test_fused_route.py::test_auto_never_selects_fused` (pop 16 / 64 / 256) used to assert the pre-policy claim that `auto` never selects the fused route, which contradicted the shipped policy from `EVOGP_FUSED_MIN_POP` up.
+The assertion has been inverted rather than the policy (`test_auto_selects_fused_above_the_floor`, 3 cases) and the below-the-floor / no-triton arm kept as `test_auto_keeps_the_pre_fused_policy_below_the_floor_or_without_triton`, so the file is 39 passing cases.
 ## 8. The campaign's gate
 `test/benchmark/evoxc/results/t1a1_fused/` is the campaign of record (the `test/` tree, beside `results/t1a1_baseline/`), and its gate is `check.py --results test/benchmark/evoxc/results/t1a1_fused --allow-snapshot --allow-missing --allow-digest-mismatch` → 20 records / 580 checks / 0 failures.
 The two allowances stay: a fused `arith`-set `sr_fitness` digest differs by float32 reduction order, and this round never scheduled every arm on every cell.
