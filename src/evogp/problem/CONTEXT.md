@@ -22,6 +22,7 @@ Absolute scale is irrelevant, only monotonicity matters — `StandardPipeline(fi
 Plain class, no ABC/metaclass; declares `evaluate(self, forest)`, `problem_dim` (property) and `solution_dim` (property), all raising `NotImplementedError`.
 `problem_dim`/`solution_dim` are the numbers fed into `GenerateDescriptor(input_len=..., output_len=...)` in every example, so they must be `int`s that match the forest the user builds.
 `BaseProblem` is used only as a type hint in `StandardPipeline.__init__`; the dimension cross-checks in the pipeline are commented out (`standard.py:22-23`), so a mismatch surfaces later inside `Forest.batch_forward`/`SR_fitness` asserts.
+`evaluate(forest)` is the whole surface here: there is no `__call__`, `predict` or `loss` method (unlike `evogp.gp`'s problem layer, which exposes `predict`/`loss`/`evaluate`/`__call__` over numpy channels), and `BaseProblem` is a plain class with no ABC/metaclass, so the contract is duck-typed only.
 
 ### `symbolic_regression.py` — `SymbolicRegression`
 `__init__(datapoints=None, labels=None, func=None, num_inputs=None, num_data=100, lower_bounds=-1, upper_bounds=1, execute_mode="auto")`.
