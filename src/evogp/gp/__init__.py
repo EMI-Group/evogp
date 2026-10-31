@@ -22,8 +22,10 @@ The stack, bottom up:
 ``selection`` / ``crossover`` / ``mutation`` / ``variation``
     the operator layer: fitness-vector selection, splice crossover, the point /
     subtree / hoist mutation operators, and :func:`apply_variation` -- one whole
-    generation of offspring in one traced graph.  They return **offspring
-    only**; elitism belongs to the driver.
+    generation in one traced graph, including the elite splice when
+    ``elite_count`` is given (``0``, the operator-layer default, is
+    offspring-only).  The driver passes ``GPConfig.elite_count``, which is why
+    a device generation needs no readback.
 ``evaluator`` / ``problem``
     the numpy tree evaluator (:func:`predict`) and the problem layer
     (:class:`SymbolicRegression`, :class:`CustomLoss`, plus the in-graph
@@ -62,9 +64,11 @@ Two names are spelled differently at this level than in their modules:
 names are the submodules themselves (``evogp.gp.variation`` must stay importable
 as a module).
 
-Nothing here imports torch (``tests/test_gp_stack_purity.py`` pins that), and
-nothing imports ``evoxc`` at module scope either, so ``import evogp.gp`` works on
-a plain checkout; the graphs themselves need evoxc at call time.
+No module of this subtree carries a torch import statement
+(``tests/test_gp_stack_purity.py`` pins that; the optional fused backend resolves
+torch through ``importlib`` inside its functions, at call time only), and nothing
+imports ``evoxc`` at module scope either, so ``import evogp.gp`` works on a plain
+checkout; the graphs themselves need evoxc at call time.
 """
 
 from .config import GPConfig, GPTreeConfig, MUTATION_KINDS, SELECTION_MODES
