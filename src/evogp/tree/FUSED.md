@@ -1103,3 +1103,62 @@ pre-bound path (≈5.1 µs) and it would need a stale-buffer invalidation protoc
 `batch_forward` surface also cannot repay more per-call work: `gp_step` is unchanged (2.84–3.24 ms against
 2.86–3.39 ms on the `jit` column) because a generation is 91 % operators (§4), which is why this round is priced
 per call and not per loop.
+
+## 19. The route-resolution memo — a host-glue win of 6–17 %, not 30 %
+
+`dense_engine.resolve_route` used to re-read `EVOGP_EVAL_MODE`, `EVOGP_EVOXC_BACKEND` and the whole
+`EVOGP_DENSE_*` / `EVOGP_FUSED_*` knob family and re-derive the policy on **every** call, which cost
+5.85 µs per call (11.88 µs on the envelope arm that passes `rows`/`tree_len`). Since a warm fused
+call is only 38–90 µs end to end, that is a measurable fraction of its host glue.
+
+The memo (`_ROUTE_MEMO`, 32 entries, `clear_route_memo()`, `route_cache_stats()` →
+`route_hits` / `route_misses` / `route_bypasses` / `route_entries` / `route_maxsize`) keys on the raw
+arguments, the resolved mode and backend spelling, the **values of the availability probes that were
+already known**, and every environment name the arm can read. It takes the fast reader of
+`os.environ._data` (bounds-checked: a non-`dict` falls back to `os.environ.get`) and decodes exactly
+what `os.environ.get` answers.
+
+The laziness law is what makes it sound (the previous attempt broke 36 cases by *resolving* a probe
+to build its key): `_route_probe_needs(mode, explicit)` says which of `_DEVICE_AVAILABLE` /
+`_FUSED_AVAILABLE` the requested pair consults, and **a needed probe that is still `None` is a
+bypass** — derived fresh, nothing stored, counter `route_bypasses` — so an explicit mode or backend
+still probes nothing (`test_route_policy`'s isolation cases) and keeps its memo entry. A raise is
+never stored; a `DenseUnsupported`/`FusedUnsupported` decline is an ordinary `Route` and is served
+identically from the memo. `test_route_memo.py` pins all of it (21 cases), including a per-knob A/B
+table that proves every knob moves or re-keys the answer.
+
+`resolve_route(256)` **5.845 → 1.273 µs**, the `rows`/`tree_len` arm **11.884 → 1.558 µs**,
+`should_use_dense(256)` **5.750 → 1.378 µs**.
+
+### Warm medians, same-session ABBA (A = pre-round tree `091a6a8`, B = this tree, 10 reps)
+
+`torch-batched` ratio is B against the harness's own whole-population torch arm; digests are
+bitwise-identical between A and B on every cell.
+
+| cell | surface | A (ms) | B (ms) | Δ | null A / B |
+|---|---|---|---|---|---|
+| `p256-L32-i8-N1024` | `batch_forward` | 0.0495 | 0.0420 | **−15.0 %** | −1.0 / +3.7 % |
+| | `sr_fitness` | 0.0598 | 0.0516 | **−13.6 %** | −12.7 / +2.6 % |
+| | `forward` | 0.0444 | 0.0386 | **−13.0 %** | −5.1 / +1.8 % |
+| `p256-L64-i32-N1024` | `batch_forward` | 0.0476 | 0.0425 | **−10.7 %** | −1.8 / −0.9 % |
+| | `sr_fitness` | 0.0580 | 0.0524 | **−9.7 %** | −4.2 / +17.4 % |
+| | `forward` | 0.0445 | 0.0396 | **−11.0 %** | +5.2 / +9.3 % |
+| `p256-L64-i32-N4096` | `batch_forward` | 0.0599 | 0.0522 | **−12.9 %** | −4.5 / +2.6 % |
+| | `sr_fitness` | 0.0694 | 0.0601 | **−13.4 %** | −10.2 / +4.4 % |
+| | `forward` | 0.0444 | 0.0369 | **−16.9 %** | −1.6 / +1.0 % |
+| `p1000-L64-i32-N1024` | `batch_forward` | 0.0557 | 0.0500 | **−10.3 %** | +1.1 / −2.1 % |
+| | `sr_fitness` | 0.0644 | 0.0582 | **−9.6 %** | −4.5 / +1.7 % |
+| | `forward` | 0.0468 | 0.0390 | **−16.7 %** | +3.2 / −4.9 % |
+| `p4096-L64-i32-N1024` | `batch_forward` | 0.0856 | 0.0805 | **−5.9 %** | −1.3 / −2.6 % |
+| | `sr_fitness` | 0.0903 | 0.0844 | **−6.5 %** | −3.4 / −3.4 % |
+| | `forward` | 0.0471 | 0.0425 | **−9.8 %** | −7.5 / −1.4 % |
+
+**Honest verdict: 6–17 % off, not the 30 %/15 % target.** The memo is the biggest single host-glue
+item that was left, and it is now gone, but 1.3 µs of a 1.5–3 µs glue budget cannot be worth a third
+of a 38–90 µs call: the kernel is 88–96 % of it (§3). The remaining glue is the plan-memo lookup,
+the `_version`/`_geometry` checks and the launch dispatch, none of which is a policy re-derivation —
+so a further ≥15 % needs the two items §18 lists (a wider plan-table hit rate on a *fresh*
+population, and the pre-bound dispatch), not another host-side table.
+The p4096 cell gains least (−6 %) because its 81 µs call is dominated by the per-program walk, which
+the memo never touched. The `d7` cell did not finish inside this round's budget and is **not
+measured** — the pre-round column there was 0.1460 ms `batch_forward` and no claim is made about it.
