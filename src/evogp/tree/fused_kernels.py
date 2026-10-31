@@ -294,6 +294,45 @@ _EMITTED_UNARY_IDS: Tuple[int, ...] = (
 #: globals.  Before the first :func:`kernels` call this is the plain float.
 _DELTA = float(DELTA)
 
+#: How many of the walk's TOP stack slots live in REGISTERS instead of the memory
+#: stack (``0`` = the original all-memory stack).  A plain Python constant of the
+#: trace, not a launch parameter, so it adds no specialization key.
+#:
+#: Why: the memory stack round-trips ``BLOCK_R`` floats per push (store) and per pop
+#: (load) through ``scratch``, and on this route those are the largest single item of
+#: the kernel's work -- measured as an ablation on the six cells of ``FUSED.md`` §17.1,
+#: dropping BOTH stack ops took the kernel from 16.6/56.7/85.8 us to 10.6/28.1/49.5 us
+#: (``p256-L64-i32-N1024`` / ``p4096-L64-i32-N1024`` / ``p2048-L128-i32-N1024-d7``,
+#: torch-profiler kernel durations).  The live depth of the walk's stack is the tree
+#: DEPTH, not ``tree_len`` (a left-leaning tree never goes above depth 1, a
+#: right-nested one at most to the depth of its right spine), so three register slots
+#: cover the generated populations and the memory stack keeps only the deep tail.
+#:
+#: ``3`` is the measured optimum of the sweep (K = 1/2/3/4/6/8 at pop 256 / 1 000 /
+#: 4 096 and the 123-node cell): K = 3 takes the kernel to 15.6/45.3/81.0 us -- 3.5 %,
+#: 20 % and 7 % off -- while K >= 4 starts paying more in select instructions than it
+#: saves in traffic and K <= 2 leaves depth on the memory path.  Correctness does not
+#: depend on the window covering the depth: a slot >= K still goes through the memory
+#: stack exactly as before, and the two halves use the SAME clamped slot index, so a
+#: population that exceeds the window is served bit-identically (that is the
+#: 123-node ``d7`` cell, whose depth histogram reaches past the window).
+#:
+#: The window is gated on the block width (``BLOCK_R >= _WINDOW_MIN_BLOCK``): it only
+#: pays when a lane carries a VECTOR of rows.  At ``BLOCK_R == 1`` -- the per-row
+#: surface, where tree ``t`` reads its own single data point -- three extra register
+#: tiles and three selects per push buy nothing, and A/B measured them at
+#: +7 %/+8 %/+7 %/+11 % on ``forward`` (p256-L32 / p256-L64-N4096 / p4096 / the
+#: 123-node cell, torch-profiler kernel durations), so that geometry keeps the
+#: all-memory stack verbatim (``FUSED.md`` §17.4 is the before/after on both).
+#:
+#: Only ``_fused_kernel`` (``output_len == 1``, the measured surface) uses the window;
+#: ``_fused_multi_kernel`` keeps the all-memory stack because its cost is dominated by
+#: the ``(pop, rows, out_len)`` prediction accumulator it materializes, and the
+#: multi-output path is not on the benchmark surface (``FUSED.md`` §7).
+STACK_WINDOW = 3
+#: Narrowest block that keeps the register window (see ``STACK_WINDOW``).
+_WINDOW_MIN_BLOCK = 32
+
 
 def emitted_function_ids() -> Dict[str, Tuple[int, ...]]:
     """The function ids the kernels implement, split by arity (``binary``/``unary``).
@@ -549,6 +588,12 @@ def _fused_kernel(
     sp = 0
     prev = tl.zeros([BLOCK_R], tl.float32)
     val = tl.zeros([BLOCK_R], tl.float32)
+    # The top W slots of the walk, in registers (see STACK_WINDOW).  W is 0 on a
+    # narrow block (the per-row surface), where the window costs more than it saves.
+    W = STACK_WINDOW if BLOCK_R >= _WINDOW_MIN_BLOCK else 0
+    w0 = tl.zeros([BLOCK_R], tl.float32)
+    w1 = tl.zeros([BLOCK_R], tl.float32)
+    w2 = tl.zeros([BLOCK_R], tl.float32)
     j = n - 1
     tt = tl.load(node_type_ptr + row_base + tl.maximum(j, 0))
     for _k in range(0, n):
@@ -568,23 +613,63 @@ def _fused_kernel(
         elif tt == 3:  # BFUNC
             func_id = tl.load(node_value_ptr + row_base + j).to(tl.int32)
             slot = tl.minimum(tl.maximum(sp - 1, 0), stack_cap - 1)
+            # Slots < W come out of the registers; the rest off the stack.
             # An UNDERFLOW (sp < 1, i.e. a malformed tree popping an empty stack)
             # reads NOTHING: `other=0.0` makes the operand a defined 0.0 instead of
-            # whatever the shared scratch block holds from an earlier call.
-            second = tl.load(
-                stack + slot * BLOCK_R + off, mask=rmask & (sp >= 1), other=0.0
-            )
+            # whatever the shared scratch block holds from an earlier call.  On the
+            # windowed path that `other` is not enough (a window slot answers its own
+            # last push, a value no well-formed tree can pop here), so the masked load
+            # is followed by an explicit `sp >= 1` select -- and the whole windowed
+            # form is compiled away at W == 0, where the old code stands verbatim.
+            if W > 0:
+                second = tl.where(slot == 0, w0, tl.where(slot == 1, w1, w2))
+                second = tl.where(
+                    slot < W,
+                    second,
+                    tl.load(
+                        stack + slot * BLOCK_R + off, mask=rmask & (sp >= 1), other=0.0
+                    ),
+                )
+                second = tl.where(sp >= 1, second, 0.0)
+            else:
+                second = tl.load(
+                    stack + slot * BLOCK_R + off, mask=rmask & (sp >= 1), other=0.0
+                )
             sp = sp - 1
             val = _binary(func_id, prev, second)
         else:  # TFUNC -- every other type, and the function id is ignored
             slot_b = tl.minimum(tl.maximum(sp - 1, 0), stack_cap - 1)
             slot_c = tl.minimum(tl.maximum(sp - 2, 0), stack_cap - 1)
-            then_value = tl.load(
-                stack + slot_b * BLOCK_R + off, mask=rmask & (sp >= 1), other=0.0
-            )
-            else_value = tl.load(
-                stack + slot_c * BLOCK_R + off, mask=rmask & (sp >= 2), other=0.0
-            )
+            if W > 0:
+                then_value = tl.where(slot_b == 0, w0, tl.where(slot_b == 1, w1, w2))
+                then_value = tl.where(
+                    slot_b < W,
+                    then_value,
+                    tl.load(
+                        stack + slot_b * BLOCK_R + off,
+                        mask=rmask & (sp >= 1),
+                        other=0.0,
+                    ),
+                )
+                then_value = tl.where(sp >= 1, then_value, 0.0)
+                else_value = tl.where(slot_c == 0, w0, tl.where(slot_c == 1, w1, w2))
+                else_value = tl.where(
+                    slot_c < W,
+                    else_value,
+                    tl.load(
+                        stack + slot_c * BLOCK_R + off,
+                        mask=rmask & (sp >= 2),
+                        other=0.0,
+                    ),
+                )
+                else_value = tl.where(sp >= 2, else_value, 0.0)
+            else:
+                then_value = tl.load(
+                    stack + slot_b * BLOCK_R + off, mask=rmask & (sp >= 1), other=0.0
+                )
+                else_value = tl.load(
+                    stack + slot_c * BLOCK_R + off, mask=rmask & (sp >= 2), other=0.0
+                )
             sp = sp - 2
             val = tl.where(prev > 0.0, then_value, else_value)
         j = j - 1
@@ -594,7 +679,20 @@ def _fused_kernel(
         tt = tl.load(node_type_ptr + row_base + tl.maximum(j, 0))
         if (tt == 0) | (tt == 1):
             slot_next = tl.minimum(tl.maximum(sp, 0), stack_cap - 1)
-            tl.store(stack + slot_next * BLOCK_R + off, val, mask=rmask)
+            if W > 0:
+                # A push lands in exactly one of the window slots or on the memory
+                # stack; the store is masked off entirely while the slot is a window
+                # one, so the common shallow push costs no traffic at all.
+                w0 = tl.where(slot_next == 0, val, w0)
+                w1 = tl.where(slot_next == 1, val, w1)
+                w2 = tl.where(slot_next == 2, val, w2)
+                tl.store(
+                    stack + slot_next * BLOCK_R + off,
+                    val,
+                    mask=rmask & (slot_next >= W),
+                )
+            else:
+                tl.store(stack + slot_next * BLOCK_R + off, val, mask=rmask)
             sp = sp + 1
         else:
             prev = val
@@ -802,19 +900,21 @@ def triton_available() -> bool:
 
 
 def _install_globals(triton_module: Any, language: Any, libd: Any) -> None:
-    """Publish ``triton`` / ``tl`` / ``libdevice`` / ``_DELTA`` into module globals.
+    """Publish ``triton`` / ``tl`` / ``libdevice`` / ``_DELTA`` / ``STACK_WINDOW``.
 
     Separate from :func:`kernels` on purpose: the names must not become locals of
     the builder, or the kernel bodies would reference them as closure cells while
     triton's code generator resolves free names through ``fn.__globals__``.
-    ``_DELTA`` is ``utils.DELTA`` as a ``tl.constexpr`` -- the only form a kernel
-    body may read a global in.
+    ``_DELTA`` is ``utils.DELTA`` and ``STACK_WINDOW`` is the register-window depth,
+    both as ``tl.constexpr`` -- the only form a kernel body may read a global in.
     """
     g = globals()
     g["triton"] = triton_module
     g["tl"] = language
     g["libdevice"] = libd
     g["_DELTA"] = language.constexpr(float(DELTA))
+    g["STACK_WINDOW"] = language.constexpr(int(STACK_WINDOW))
+    g["_WINDOW_MIN_BLOCK"] = language.constexpr(int(_WINDOW_MIN_BLOCK))
 
 
 def kernels() -> Dict[str, Any]:
