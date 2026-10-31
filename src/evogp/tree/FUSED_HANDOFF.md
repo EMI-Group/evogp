@@ -6,7 +6,7 @@ Measurements and verdicts: `FUSED.md`; records: `test/benchmark/evoxc/results/t1
 | edit | landed in |
 |---|---|
 | the `EVAL_MODES` / `ENGINES` tuple pin | `src/evogp/tests/test_dense_policy.py` (`fused` listed before `auto`, never an alias) |
-| the route's pytest net | `src/evogp/tests/test_fused_route.py` (39 cases) |
+| the route's pytest net | `src/evogp/tests/test_fused_route.py` (42 cases) |
 | the harness arm registry | `test/benchmark/evoxc/common.py` (`evoxc-fused-iree`, `evoxc-fused`, appended after the last batch entry) |
 | the five route knobs | `common.FUSED_ENV_VARS`, folded into `ROUTE_ENV_VARS` |
 | route reporting | `common.route_decision` stamps `engine` / `would_use_fused`, and `summarize.route_text` annotates a decline |
@@ -16,7 +16,7 @@ Measurements and verdicts: `FUSED.md`; records: `test/benchmark/evoxc/results/t1
 `src/evogp/tests/test_fused_route.py` is the suite's net for this route: hermetic (it SKIPS without a device, `triton` or a writable `TRITON_CACHE_DIR`) and it lifts the session `EVOGP_EVOXC_BACKEND=numpy` pin per test, because `backend="numpy"` is a documented DECLINE of the route, not a fallback.
 Its `_served` helper asserts `fused_kernel_launches > 0` and `fused_declines == 0`, so a passing case proves a real Triton launch.
 ## 2. The suite is green
-`pytest src/evogp/tests -q` reads 1 255 passed / 7 skipped / 0 failed (1 262 collected, ~122 s) on the device reference box, and `test_fused_route.py` contributes 39 of those passes.
+`pytest src/evogp/tests -q` reads 1 276 passed / 7 skipped / 0 failed (1 283 collected, ~118 s) on the device reference box, and `test_fused_route.py` contributes 42 of those passes.
 The policy net pins the route in both directions: `test_auto_selects_fused_above_the_floor` (pop 16 / 64 / 256 — `auto` resolves to `fused` from `EVOGP_FUSED_MIN_POP` up) and `test_auto_keeps_the_pre_fused_policy_below_the_floor_or_without_triton` (`specialized` below the floor and with the fused probe off).
 No test in `src/evogp/tests` is red.
 ## 3. Operational note

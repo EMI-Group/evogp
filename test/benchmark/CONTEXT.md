@@ -85,5 +85,5 @@ An explicitly named backend never reaches the fused route under `auto` (`EVOGP_E
 ## See Also
 - `../../src/evogp/tests/reference_eval.py` → the independent plain-torch oracle every arm is validated against.
 - `../../src/evogp/tree/ENGINE_SPEC.md` → engine semantics of record, incl. the legacy fitness convention; `../../src/evogp/tree/RUNNER_HOOKS.md` → the frozen build-once/run-many runner contract the R4 records are labeled against.
-- `../../src/evogp/tree/FUSED.md` → the fused engine's own design/report document (route, kernel geometry, the memory/population envelope, its limits), whose evidence lives here in `results/t1a1_fused/`; `../../src/evogp/gp/DEVICE_LOOP.md` → the torch-free functional stack's device-resident loop, 1.16–1.40 ms per device-resident generation.
+- `../../src/evogp/tree/FUSED.md` → the fused engine's own design/report document (route, kernel geometry, the memory/population envelope, its limits), whose evidence lives here in `results/t1a1_fused/`; `../../src/evogp/gp/DEVICE_LOOP.md` → the torch-free functional stack's device-resident loop, 1.117–1.353 ms per device-resident generation (its round-2 table).
 - `../goldens/` → frozen legacy-CUDA numeric captures (provenance and tolerances in `goldens/README.md`), consumed by `../../src/evogp/tests/test_equivalence.py`.

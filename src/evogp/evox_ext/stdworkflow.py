@@ -14,6 +14,7 @@ Typical use::
     workflow = make_stdworkflow(
         make_gp_algorithm(tree_config, gp_config),
         make_sr_problem(x, y, used_ids=tree_config),
+        cache_dir="~/.cache/evogp/evox_steps",   # opt-in: reuse the step artifact
     )
     state = workflow.init(seed=0)
     for _ in range(generations):
@@ -27,6 +28,8 @@ helpers are host-side glue (``evox`` is imported inside the functions so that
 
 from __future__ import annotations
 
+import inspect
+import warnings
 from typing import Any, Optional
 
 import numpy as np
@@ -37,6 +40,7 @@ from evogp.gp.state import GPState
 
 __all__ = [
     "make_stdworkflow",
+    "accepts_cache_dir",
     "host_channels",
     "generation_fitness",
     "best_so_far",
@@ -46,6 +50,25 @@ __all__ = [
 
 #: The orientation the EvoGP components are built for (fitness is MAXIMIZED).
 OPT_DIRECTION = "max"
+
+#: The opt-in step-artifact cache keyword of ``evox.core.StdWorkflow``.
+CACHE_DIR_KWARG = "cache_dir"
+
+
+def accepts_cache_dir(workflow_cls: Any) -> bool:
+    """Whether ``workflow_cls.__init__`` declares a ``cache_dir`` keyword.
+
+    The step-artifact cache (``StdWorkflow(cache_dir=...)``) is an opt-in
+    ``evox`` feature, so the forward in :func:`make_stdworkflow` is
+    FEATURE-DETECTED rather than pinned: an ``evox`` whose workflow builds the
+    step graph every time takes no such keyword. A signature that cannot be
+    introspected (a builtin type) answers ``False``, i.e. "do not pass it".
+    """
+    try:
+        parameters = inspect.signature(workflow_cls.__init__).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtin/C-extension class
+        return False
+    return CACHE_DIR_KWARG in parameters
 
 
 def make_stdworkflow(
@@ -57,6 +80,7 @@ def make_stdworkflow(
     num_generations: Optional[int] = None,
     monitor: Any = None,
     compile_options: Optional[dict] = None,
+    cache_dir: Any = None,
     opt_direction: str = OPT_DIRECTION,
 ) -> Any:
     """Build an :class:`evox.core.StdWorkflow` for the EvoGP components.
@@ -75,6 +99,14 @@ def make_stdworkflow(
             would record channels it cannot interpret -- read the trajectory
             with :func:`best_so_far` instead.
         compile_options: extra keyword options forwarded to ``evoxc.build``.
+        cache_dir: opt-in step-artifact cache directory (``str`` or
+            ``os.PathLike``), forwarded to ``StdWorkflow(cache_dir=...)``: one
+            content-addressed ``evoxc`` artifact per state signature, so a
+            later process reloads the compiled step graph instead of
+            recompiling it. ``None`` (the default) keeps the historical
+            build-every-time behaviour. An ``evox`` that declares no
+            ``cache_dir`` keyword cannot honour it: the workflow is built
+            without the argument and a ``RuntimeWarning`` names the drop.
         opt_direction: must stay ``"max"`` (the components' contract).
 
     Returns:
@@ -83,6 +115,10 @@ def make_stdworkflow(
     Raises:
         ValueError: for an ``opt_direction`` other than ``"max"``.
         ImportError: when ``evox`` is not importable.
+
+    Warns:
+        RuntimeWarning: when ``cache_dir`` is given but the installed ``evox``
+        declares no such keyword (the request is dropped, not fatal).
     """
     if opt_direction != OPT_DIRECTION:
         raise ValueError(
@@ -92,16 +128,27 @@ def make_stdworkflow(
         )
     from evox.core import StdWorkflow  # noqa: PLC0415 - optional dependency
 
-    return StdWorkflow(
-        algorithm,
-        problem,
-        monitor=monitor,
-        opt_direction=opt_direction,
-        num_generations=num_generations,
-        backend=backend,
-        device=device,
-        compile_options=compile_options,
-    )
+    kwargs = {
+        "monitor": monitor,
+        "opt_direction": opt_direction,
+        "num_generations": num_generations,
+        "backend": backend,
+        "device": device,
+        "compile_options": compile_options,
+    }
+    if accepts_cache_dir(StdWorkflow):
+        kwargs[CACHE_DIR_KWARG] = cache_dir
+    elif cache_dir is not None:
+        warnings.warn(
+            "the installed evox's StdWorkflow declares no cache_dir keyword "
+            "(it predates the opt-in step-artifact cache), so "
+            f"cache_dir={cache_dir!r} is ignored and every process recompiles "
+            "the step graph; an evox carrying StdWorkflow(cache_dir=...) "
+            "honours it",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return StdWorkflow(algorithm, problem, **kwargs)
 
 
 def _algorithm_state(state: Any) -> Any:

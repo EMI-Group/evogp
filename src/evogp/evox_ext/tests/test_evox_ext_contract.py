@@ -31,6 +31,7 @@ import pytest
 pytest.importorskip("evox", reason="the Evox 2.0 integration needs evox")
 evoxc = pytest.importorskip("evoxc", reason="evogp.evox_ext runs on evoxc")
 
+import evox.core  # noqa: E402
 from evox.core import StdWorkflow  # noqa: E402
 
 from evogp.evox_ext import (  # noqa: E402
@@ -39,6 +40,7 @@ from evogp.evox_ext import (  # noqa: E402
     GPAlgorithmConfig,
     SRProblemConfig,
     SRProblemState,
+    accepts_cache_dir,
     best_so_far,
     generation_fitness,
     host_channels,
@@ -334,3 +336,151 @@ def test_make_stdworkflow_enforces_the_maximization_orientation():
     assert _signature(state.algorithm_state) == _signature(
         make_stdworkflow(algorithm, problem).init(seed=0).algorithm_state
     )
+
+
+# --------------------------------------------------------------------------- #
+# the step-artifact cache (evox's opt-in `StdWorkflow(cache_dir=...)`)
+# --------------------------------------------------------------------------- #
+class _RecordingWorkflow:
+    """A stand-in for `evox.core.StdWorkflow` that records what it was handed.
+
+    The two subclasses below are the two worlds the adapter has to serve: an
+    `evox` that carries the opt-in step-artifact cache (`cache_dir=` among its
+    keywords) and one that predates it (no such keyword at all, so an
+    unexpected argument would raise ``TypeError``).
+    """
+
+    def __init__(self, algorithm, problem, **kwargs):
+        self.algorithm = algorithm
+        self.problem = problem
+        self.kwargs = dict(kwargs)
+        self.cache_dir = kwargs.get("cache_dir")
+
+
+class _RecordingWorkflowWithCache(_RecordingWorkflow):
+    """The workflow of an `evox` that declares ``cache_dir``."""
+
+    def __init__(
+        self,
+        algorithm,
+        problem,
+        monitor=None,
+        opt_direction="min",
+        num_generations=None,
+        backend="numpy",
+        device=None,
+        compile_options=None,
+        cache_dir=None,
+    ):
+        super().__init__(
+            algorithm,
+            problem,
+            monitor=monitor,
+            opt_direction=opt_direction,
+            num_generations=num_generations,
+            backend=backend,
+            device=device,
+            compile_options=compile_options,
+            cache_dir=cache_dir,
+        )
+
+
+class _RecordingWorkflowWithoutCache(_RecordingWorkflow):
+    """The workflow of an `evox` that declares no ``cache_dir``."""
+
+    def __init__(
+        self,
+        algorithm,
+        problem,
+        monitor=None,
+        opt_direction="min",
+        num_generations=None,
+        backend="numpy",
+        device=None,
+        compile_options=None,
+    ):
+        super().__init__(
+            algorithm,
+            problem,
+            monitor=monitor,
+            opt_direction=opt_direction,
+            num_generations=num_generations,
+            backend=backend,
+            device=device,
+            compile_options=compile_options,
+        )
+
+
+def _pair():
+    """The two configs of the test problem, without building a workflow."""
+    tree = _tree_config()
+    algorithm = make_gp_algorithm(tree, _gp_config())
+    return algorithm, make_sr_problem(*_data(), used_ids=tree)
+
+
+def test_accepts_cache_dir_is_a_signature_probe():
+    """The forward is feature-detected, never pinned to one `evox` release."""
+    assert accepts_cache_dir(_RecordingWorkflowWithCache) is True
+    assert accepts_cache_dir(_RecordingWorkflowWithoutCache) is False
+    # Nothing introspectable: answer "do not pass it" instead of raising.
+    assert accepts_cache_dir(object) is False
+
+
+def test_make_stdworkflow_forwards_cache_dir_when_evox_declares_it(monkeypatch, tmp_path):
+    """The opt-in step-artifact cache is reachable through the adapter."""
+    monkeypatch.setattr(evox.core, "StdWorkflow", _RecordingWorkflowWithCache)
+    algorithm, problem = _pair()
+    workflow = make_stdworkflow(
+        algorithm,
+        problem,
+        backend="iree",
+        device="rocm:0",
+        num_generations=7,
+        cache_dir=tmp_path,
+    )
+
+    # The cache directory arrives verbatim, and nothing else is lost on the way.
+    assert workflow.cache_dir == tmp_path
+    assert workflow.kwargs == {
+        "monitor": None,
+        "opt_direction": OPT_DIRECTION,
+        "num_generations": 7,
+        "backend": "iree",
+        "device": "rocm:0",
+        "compile_options": None,
+        "cache_dir": tmp_path,
+    }
+    # `None` is the historical build-every-time default, forwarded as well.
+    assert make_stdworkflow(algorithm, problem).cache_dir is None
+
+
+def test_make_stdworkflow_without_the_cache_dir_kwarg_degrades(monkeypatch, tmp_path):
+    """An `evox` that declares no `cache_dir` still builds a workflow."""
+    monkeypatch.setattr(evox.core, "StdWorkflow", _RecordingWorkflowWithoutCache)
+    algorithm, problem = _pair()
+
+    with pytest.warns(RuntimeWarning, match="cache_dir"):
+        workflow = make_stdworkflow(algorithm, problem, cache_dir=tmp_path)
+    # Degraded, not raised: a workflow comes back without the keyword, and
+    # everything else was forwarded unchanged.
+    assert "cache_dir" not in workflow.kwargs
+    assert workflow.kwargs["opt_direction"] == OPT_DIRECTION
+    assert workflow.kwargs["backend"] == "numpy"
+
+    # Without a request there is nothing to drop, so nothing is warned about.
+    workflow = make_stdworkflow(algorithm, problem)
+    assert "cache_dir" not in workflow.kwargs
+
+
+def test_the_installed_evox_decides_whether_the_cache_dir_is_forwarded(tmp_path):
+    """Against the real `evox`: forwarded when declared, degraded (not raised) else."""
+    algorithm, problem = _pair()
+    if accepts_cache_dir(StdWorkflow):
+        workflow = make_stdworkflow(algorithm, problem, cache_dir=str(tmp_path))
+        assert workflow.cache_dir == str(tmp_path)
+    else:
+        with pytest.warns(RuntimeWarning, match="cache_dir"):
+            workflow = make_stdworkflow(algorithm, problem, cache_dir=str(tmp_path))
+        assert not hasattr(workflow, "cache_dir")
+    # Either way the workflow is a real one over the pair.
+    assert workflow.algorithm is algorithm and workflow.problem is problem

@@ -27,19 +27,21 @@ export PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1
 # 1. small public-API regression check: Tree.forward / SR_fitness across all execute modes (~3 s)
 $PY test/fix_bug.py                     # exit 0 + three [ok] lines
 
-# 2. the canonical gate (~122 s; 1 262 collected, 1 255 passed / 7 skipped / 0 failed)
+# 2. the canonical gate (~118 s; 1 283 collected, 1 276 passed / 7 skipped / 0 failed)
 $PY -m pytest src/evogp/tests -q
 
 # 2b. install-validation smoke (~9.4 s on a device box — its default pop 200 rides `auto` onto the fused route; best fitness ≈ -0.2259)
 #     export TRITON_CACHE_DIR=$TMPDIR/triton-cache first, or the first Triton launch dies on a read-only $HOME
 $PY -m evogp.sr_test
 
-# 2c. torch-free functional-stack suite (~66 s on a device box; 291 passed / 36 skipped, the 36 device-gated)
+# 2c. torch-free functional-stack suite (~43 s on a device box; 345 collected, 309 passed / 36 skipped,
+#     the 36 device-gated)
 $PY -m pytest src/evogp/gp/tests -q
 
-# 2d. full gate over the harness's torch-free tests plus both library suites
-#     (1 295 passed / 7 skipped / 0 failed, ~121 s); the fused route's own net alone is
-#     `-m pytest src/evogp/tests/test_fused_route.py -q` → 39 passed (~14 s)
+# 2d. the harness's torch-free tests plus both library suites in one session, quoted per path
+#     (the library halves read as in 2 and 2c, the harness half 40 passed; their sum is not the gate);
+#     the fused route's own net alone is
+#     `-m pytest src/evogp/tests/test_fused_route.py -q` → 42 passed (~14 s)
 $PY -m pytest test src/evogp/tests src/evogp/gp/tests -q
 
 # 3. legacy goldens: inventory, and compare the current engine against the frozen captures
@@ -78,7 +80,7 @@ such as `./imgs/...` are cwd-dependent).
   Methodology and commands: `benchmark/evoxc/README.md`; routing: `benchmark/evoxc/CONTEXT.md`; validation: `benchmark/evoxc/VALIDATION.md`.
   Reports of record: `benchmark/evoxc/FINAL.md` (the shipped `specialized`/`dense` routes against both torch baselines, `SUMMARY.md` renders the earlier baseline round), `benchmark/evoxc/BATCH.md` (the opt-in `batch` route, evidence in `benchmark/evoxc/results/batch/` plus the optimization rounds `benchmark/evoxc/results/batch_opt_round1/`, `benchmark/evoxc/results/batch_opt_round2/` and `benchmark/evoxc/results/batch_opt_round3/`, each with its own `SUMMARY.md`, §15 being the round-3 closing section), and the large-scale column's two rounds `benchmark/evoxc/LARGE_SCALE.md` (over `benchmark/evoxc/results/largescale/`) and `benchmark/evoxc/LARGE_SCALE_ROUND2.md` (over `benchmark/evoxc/results/largescale2/`, the current report for that column).
   The three `t1a1` evidence directories are their own reports: `benchmark/evoxc/results/t1a1_auto/README.md` is the SHIPPED-DEFAULT column (`auto` → fused), where a `batch_forward` call is 38.4×–141.7× `torch-batched` and a whole generation is 2.58–2.84 ms with evaluation only 8.8–10.0 % of it and no per-generation compile; `benchmark/evoxc/results/t1a1_fused/README.md` is the EXPLICIT `EVOGP_EVAL_MODE=fused` column, 41×–157× over `torch-batched` on `batch_forward` (32×–131× on `sr_fitness`) with bitwise value paths; `benchmark/evoxc/results/t1a1_baseline/BASELINE.md` is the PRE-FUSED default (where `auto` resolved dense+iree), the reference those two are read against.
-  The fused engine's own design/report document is `../src/evogp/tree/FUSED.md`, and the torch-free functional stack's device-resident loop is `../src/evogp/gp/DEVICE_LOOP.md` (1.16–1.40 ms per generation).
+  The fused engine's own design/report document is `../src/evogp/tree/FUSED.md`, and the torch-free functional stack's device-resident loop is `../src/evogp/gp/DEVICE_LOOP.md` (1.117–1.353 ms per generation, its round-2 table).
   Gate of record, the same form for every side: `python3 test/benchmark/evoxc/check.py --results <dir> --allow-snapshot --allow-missing --allow-digest-mismatch` — `results/final/after`, `results/batch/{warm-r5,small-r5,flat-r5,flat1000-3w-r5}`, `results/t1a1_auto` (23 records / 640 checks / 0 failures), `results/t1a1_fused` (20 records / 580 checks / 0 failures) and `results/t1a1_baseline/main` (29 records / 538 checks / 6 declared scoped-schedule failures).
 - Batch route verdict (settled — do not re-litigate without new evidence): `batch` stays opt-in (`auto` never selects it) and is dominated in any GP loop, losing to dense — the control it was priced against — by 64.9× / 71.5× / 17.8× over 8 generations at `p256-L32-i8-N1024` / `p256-L64-i32-N1024` / `p64-L64-i32-N64` (eval-only 868× / 680× / 229×) with `generation_hit_rate` 0.125, while the shipped fused default wins the same turnover loop because it re-plans and recompiles nothing per generation (`benchmark/evoxc/results/t1a1_auto/README.md`).
   Its one warm win is a fixed population over few data rows (`p64-L64-i32-N64`: 1.1141 ms against dense 1.4378 ms, i.e. 1.29× faster; cold 2 274.46 ms against 6 554.88 ms), and on the static large-scale column it leads dense on 7 of 8 cells (`benchmark/evoxc/LARGE_SCALE_ROUND2.md`).
@@ -158,16 +160,16 @@ Files matching neither schema (e.g. foreign fixtures dropped into a golden dir) 
 
 ## Test Strategy
 - Manual smoke sequence for a post-rewrite change: `test/fix_bug.py` (public-API numerics, ~3 s) ->
-  `pytest src/evogp/tests -q` (the real gate; 1 255 passed / 7 skipped / 0 failed, 1 262 collected, ~122 s, with
+  `pytest src/evogp/tests -q` (the real gate; 1 276 passed / 7 skipped / 0 failed, 1 283 collected, ~118 s, with
   `PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1`; `--ignore=src/evogp/tests/test_equivalence.py`
-  for the fast subset, `-k golden` for the golden cross-checks, `-k fused` for the 39-case fused-route net) ->
-  `pytest src/evogp/gp/tests -q` (the torch-free functional suite, 291 passed / 36 skipped) -> `test/golden_capture.py verify --out
+  for the fast subset, `-k golden` for the golden cross-checks, `-k fused` for the 42-case fused-route net) ->
+  `pytest src/evogp/gp/tests -q` (the torch-free functional suite, 345 collected: 309 passed / 36 skipped, ~43 s) -> `test/golden_capture.py verify --out
   test/goldens` if you touched evaluation semantics and want the legacy-CUDA diff (expect the
   RNG-dependent arrays to differ). `python -m evogp.sr_test` is the install-validation smoke
   (~9.4 s on a device box, best fitness ≈ -0.2259).
-- The full gate over everything is `pytest test src/evogp/tests src/evogp/gp/tests -q` → 1 295 passed /
-  7 skipped / 0 failed in ~121 s (it adds the harness's torch-free `benchmark/evoxc/` modules); the whole library
-  suite is green, so there is no known red case.
+- The full gate over everything is `pytest test src/evogp/tests src/evogp/gp/tests -q`, quoted per path rather than as
+  a sum: the torch stack 1 276 passed / 7 skipped (~118 s), the functional stack 309 passed / 36 skipped (~43 s) and the
+  harness's torch-free `benchmark/evoxc/` modules 40 passed; the whole library suite is green, so there is no known red case.
 - `test/evoxc_jit_probe.py` is independent of evogp's engine and is not part of that sequence.
 - Engine-vs-plain-PyTorch performance questions go to `benchmark/evoxc/`: `validate.py` (numbers first) ->
   `campaign.py` (one process per config, idle device) -> `check.py` -> `summarize.py`; never run a timed

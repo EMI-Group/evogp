@@ -561,9 +561,10 @@ selection operator, so they are never expected to agree bit-for-bit.
 device-gated modules run instead of skipping; on a box without a device those modules skip), and a
 whole generation loop runs **device-resident**: `graph_eval.GraphEvaluator` (two `evoxc.run` calls per generation) or
 `fused_eval.FusedDeviceEvaluator` (one, over the sibling Triton kernel) on `backend="iree"`, with **zero readbacks and
-zero transfers**, at **1.16–1.40 ms per generation** (variation + fused evaluation) — **4.1×–16.9× faster than the torch
-stack's `StandardPipeline.step`** and **1.9×–2.2× faster than the torch stack on its own `fused` route** (report of
-record [`src/evogp/gp/DEVICE_LOOP.md`](src/evogp/gp/DEVICE_LOOP.md)). It is still **not yet the default stack**:
+zero transfers**, at **1.117–1.353 ms per generation** (variation + fused evaluation) — **4.18×–17.12× faster than the
+torch stack's `StandardPipeline.step`** and **1.96×–2.24× faster than the torch stack on its own `fused` route**
+(report of record [`src/evogp/gp/DEVICE_LOOP.md`](src/evogp/gp/DEVICE_LOOP.md), its per-generation and ratio tables;
+the numbers above are its figures, not a second-hand pair). It is still **not yet the default stack**:
 
 - **multi-output is not implemented** (`output_len == 1` only; `init_population` raises `NotImplementedError`, and
   `CustomLoss` is the escape hatch) — the torch stack serves multi-output trees;
@@ -782,8 +783,9 @@ python -m pytest src/evogp/tests -q                                             
 # ~43 s on a device box, where the three device-gated modules run instead of skipping)
 python -m pytest src/evogp/gp/tests -q
 
-# the repo gate: all three paths in one run (1 585 passed / 43 skipped / 0 failed, ~163 s;
-# the benchmark harness half reads 40 passed on its own)
+# the repo gate: all three paths in one run — quote them per path, not as a sum
+# (torch stack 1 276 passed / 7 skipped; functional stack 309 passed / 36 skipped;
+#  benchmark harness 40 passed)
 python -m pytest src/evogp/tests src/evogp/gp/tests test/benchmark/evoxc -q
 ```
 

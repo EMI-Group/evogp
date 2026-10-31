@@ -44,7 +44,7 @@ compile and no re-prep** (5/5 transforms hit, 5/5 scratch reuses, 0 compiles, 0 
 dense compile and 25–500× cheaper than a `batch` merged compile. The one thing to fix is cross-node bookkeeping:
 `src/evogp/tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` used to pin the pre-fused
 `EVAL_MODES`/`ENGINES` tuples; it has since been updated to `("dense","specialized","batch","fused","auto")` /
-`("specialized","dense","batch","fused")` and the suite is green (1 255 passed / 7 skipped / 0 failed).
+`("specialized","dense","batch","fused")` and the suite is green (1 276 passed / 7 skipped / 0 failed).
 
 Kernel round (§17): the walk now keeps its top three stack slots in registers (`STACK_WINDOW` 3, gated to
 `BLOCK_R >= 32`), which takes the DEVICE kernel **−10.9 % on `p4096-L64` / −12.4 % on its loss path and −3.8…−4.5 % on
@@ -321,13 +321,13 @@ trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
 
 1. **The suite is green** (the two stale assertions the campaign opened with have since been fixed, in
    `tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` and in `tests/test_fused_route.py`).
-   `pytest src/evogp/tests -q` → **1 255 passed, 7 skipped, 0 failed in ~122 s** on the device reference box (39 of
+   `pytest src/evogp/tests -q` → **1 276 passed, 7 skipped, 0 failed in ~118 s** on the device reference box (42 of
    them in `test_fused_route.py`, which compiles and launches the real kernel).
    `CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= python -c "import evogp.tree"` works with
    `torch.cuda.is_available() == False`, `fused_available() == False` and
    `resolve_route(256, eval_mode="fused").engine == "specialized"` — the route degrades to the policy's CPU answer
    and the import needs no GPU.
-2. **The pytest net is `tests/test_fused_route.py`** (39 cases: value/loss parity against `reference_eval` on the
+2. **The pytest net is `tests/test_fused_route.py`** (42 cases: value/loss parity against `reference_eval` on the
    three function sets, single-node and constant populations, a deep chain, protected div and NaN/Inf placement,
    multi-output value + loss, the route policy above and below `EVOGP_FUSED_MIN_POP`, `fused_kernel_launches` as the
    served-call proof, the decline matrix including `output_len > MAX_OUT_LEN`, non-contiguous inputs and the
@@ -452,7 +452,7 @@ $PY -m evogp.tree.fused_envelope --stage records    # read-only: stored envelope
 # 7. end-to-end and the hermetic suite (run the suite AFTER all timing — parts of it touch the GPU)
 EVOGP_EVAL_MODE=fused EVOGP_EVOXC_BACKEND=iree $PY -m evogp.sr_test     # best fitness -0.2259 in ~10.4 s
 $PY -m evogp.sr_test                                                    # default auto: -0.2259 in ~16.1 s
-PYTHONPATH=src:/root/evoxc $PY -m pytest src/evogp/tests -q             # 1 255 passed / 7 skipped / 0 failed
+PYTHONPATH=src:/root/evoxc $PY -m pytest src/evogp/tests -q             # 1 276 passed / 7 skipped / 0 failed
 CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= PYTHONPATH=src:/root/evoxc $PY -c "import evogp.tree"
 ```
 

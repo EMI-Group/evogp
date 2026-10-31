@@ -18,6 +18,12 @@ Usage (a device box, the ``iree`` backend compiling for the local GPU)::
     PYTHONPATH=src:/root/evoxc:/root/evox/src \\
         python -m evogp.evox_ext.demo_stdworkflow --backend iree --device rocm:0
 
+Add ``--cache-dir <dir>`` to reach ``evox``'s opt-in step-artifact cache: the
+compiled step graph is persisted there and a second run of the same cell
+reloads it instead of paying that compile inside ``init()`` again (an ``evox``
+whose ``StdWorkflow`` declares no ``cache_dir`` keyword drops the request with a
+``RuntimeWarning`` and builds as before).
+
 Everything is small on purpose: the numpy backend interprets the composed step
 graph, so the shipped defaults (100 trees, 32-node trees, 256 data rows,
 25 generations) run in a couple of seconds and the fitness improves visibly all
@@ -119,6 +125,7 @@ def run_demo(
     backend: str = "numpy",
     device: Optional[str] = None,
     verbose: bool = True,
+    cache_dir: Optional[str] = None,
 ) -> dict:
     """Build the workflow, run ``generations`` steps and report the trajectory.
 
@@ -132,6 +139,13 @@ def run_demo(
         device: ``evoxc`` device spelling (``None`` = the CPU); ``"rocm:0"`` /
             ``"cuda:0"`` on a device box.
         verbose: print the per-generation trajectory.
+        cache_dir: opt-in step-artifact cache directory, forwarded to
+            ``StdWorkflow(cache_dir=...)`` (keyword-only in effect: it sits
+            after ``verbose`` so an existing positional call keeps its meaning).
+            A second run of the same cell then reloads the compiled step graph
+            instead of recompiling it; ``None`` (the default) builds it every
+            time. An ``evox`` that declares no such keyword drops it with a
+            ``RuntimeWarning``.
 
     Returns:
         A dict with ``trajectory`` (the per-generation best MAXIMIZED fitness),
@@ -148,7 +162,9 @@ def run_demo(
     problem = make_sr_problem(x, y, used_ids=tree_config)
 
     started = time.time()
-    workflow = make_stdworkflow(algorithm, problem, backend=backend, device=device)
+    workflow = make_stdworkflow(
+        algorithm, problem, backend=backend, device=device, cache_dir=cache_dir
+    )
     state = workflow.init(seed=seed)
     # `StdWorkflow.init` also builds the step graph, so the compile of the whole
     # generation (evaluation + operators) is paid HERE, once.
@@ -239,6 +255,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="evoxc device, e.g. rocm:0 or cuda:0 (default: the CPU)",
     )
     parser.add_argument(
+        "--cache-dir", default=None,
+        help=(
+            "opt-in step-artifact cache directory: a later run of the same "
+            "cell reloads the compiled step graph instead of recompiling it "
+            "(default: build every time)"
+        ),
+    )
+    parser.add_argument(
         "--quiet", action="store_true",
         help="print only the summary line",
     )
@@ -256,6 +280,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         max_nodes=args.max_nodes,
         backend=args.backend,
         device=args.device,
+        cache_dir=args.cache_dir,
         verbose=not args.quiet,
     )
     if args.quiet:

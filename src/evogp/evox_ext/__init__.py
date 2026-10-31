@@ -56,6 +56,7 @@ from evogp.evox_ext.sr_problem import (
 )
 from evogp.evox_ext.stdworkflow import (
     OPT_DIRECTION,
+    accepts_cache_dir,
     best_row,
     best_so_far,
     generation_fitness,
@@ -72,6 +73,7 @@ __all__ = [
     "SRProblemState",
     "make_sr_problem",
     "make_stdworkflow",
+    "accepts_cache_dir",
     "generation_fitness",
     "host_channels",
     "best_so_far",
