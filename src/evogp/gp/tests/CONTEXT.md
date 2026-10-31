@@ -25,7 +25,8 @@ It is a separate suite from `src/evogp/tests/` (the torch stack's suite) and is 
 ## Constraints
 - numpy evoxc backend for everything but the two device modules, small sizes (pop ≤ 2 048, `max_nodes` ≤ 64), and no timing loops — device measurement belongs to `measure_generation.py` / `DEVICE_LOOP.md`.
 - A device test gates on `gp_operator_support.usable_device_kind()` and skips (never fails) when it returns `None`; it must pass `backend="iree"` and an explicit `evoxc.Device` itself, because `conftest.py` pins the numpy backend.
-- Torch may be imported here (it is the reference oracle), never in the subtree's own modules; the constants-parity tests use `pytest.importorskip` so a torch-less box skips instead of failing.
+- `test_gp_stack_device_fused.py` gates on the interop and fused probes on top of that (`_device_interop.interop_available(kind)` and `fused_eval.fused_available()`), because the device-native fused route additionally needs torch, triton, the DLPack protocol and a writable `TRITON_CACHE_DIR`.
+- Torch may be imported here (it is the reference oracle), never in the subtree's own modules; the constants-parity tests use `pytest.importorskip` so a torch-less box skips instead of failing, and the fused device module keeps torch out of its module scope (pinned by its own `ast` check).
 - Tests must not assume execution order: every layer memoizes graphs process-wide (`evogp.gp.clear_cache()` is the reset, and `tests/test_gp_stack_encoding.py` and the driver tests rely on it).
 - The driver tests use a deterministic synthetic objective (`-size[:, 0]`, "shorter trees win") for the contract properties and a small real `SymbolicRegression` only where numerics matter, so the suite stays in seconds.
 ## Notes for Agents
