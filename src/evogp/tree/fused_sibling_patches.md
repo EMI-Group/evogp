@@ -28,7 +28,8 @@ Replace the two tuple asserts (live `:339-340`), add the membership asserts besi
 `tree/fused_pytest_draft.py` is the SUITE's net for this route (hermetic: it SKIPS without a device /
 `triton` / a writable `TRITON_CACHE_DIR`); the whole edit is
 `git mv src/evogp/tree/fused_pytest_draft.py src/evogp/tests/test_fused_route.py`, after which
-`import reference_eval` resolves as a sibling. `FUSED_HANDOFF.md` does not carry this item.
+`import reference_eval` resolves as a sibling — a rename only, no content change. Carried by
+`FUSED_HANDOFF.md` §1b.
 
 ## 3. REQUIRED — the harness arm registry (`common.py`)
 

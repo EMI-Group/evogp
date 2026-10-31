@@ -136,9 +136,9 @@ at the raised trace cap 128. **Against `batch`:** 33.7× / 26.8× (`p256-L32`), 
 65.9× / 50.2× (`p1000`).
 
 **Row axis is nearly free:** `bf` goes 0.1016 → 0.1095 ms for 4× the rows (`p256`, N 1024 → 4096), and the
-`N=4096` cell is still 44.9× the torch arm. **Pop axis costs the tree walk:** 0.0995 → 0.1460 ms from pop 256 to
-4096 (same tree length), which is the documented "the tree walk repeats once per row block, and per-program work
-scales with pop" limit.
+`N=4096` cell is still 44.9× the torch arm. **Pop axis costs the tree walk:** 0.1016 → 0.1460 ms from pop 256 to
+4096 at the same tree length (`L=64`: `p256-L64-i32-N1024` → `p4096-L64-i32-N1024`), which is the documented
+"the tree walk repeats once per row block, and per-program work scales with pop" limit.
 
 ---
 
@@ -327,7 +327,7 @@ trees; `fused_results/validation-fused.json`):
    `EVOGP_FUSED_MIN_POP=0` is refused; the measured basis of the number is §13. **`EVOGP_EVOXC_BACKEND=numpy` still
    reports `engine="fused"` while every call declines** — the engine name is not a served-call proof. Both campaigns
    therefore assert on `fused_kernel_launches`; the harness's own route reporting cannot yet distinguish the two
-   (`fused_sibling_patches.md` §3/§4).
+   (`fused_sibling_patches.md` §5).
 7. **One process pays the JIT again** (`fused_kernel_compiles` counts a first launch per specialization even when
    Triton serves it from disk in 2.1 ms), and `clear_fused_cache()` resets the facade counters but not
    `fused_kernels._KERNELS["specializations"]`, so a post-reset repeat can under-report compiles.
@@ -430,7 +430,7 @@ The campaign is benchmark evidence for the `evoxc` harness, so its home is
 gateable directory and `probes/`, `cold/`, `validation-fused.json` as sibling columns.
 It is parked here, under `src/evogp/tree/fused_results/`, **only because `test/` is outside this node's write
 scope**; the parent agent should move (or copy) the directory there and add the fused arm to the harness registry
-(`fused_sibling_patches.md` §2–§4). Nothing in the numbers depends on the location.
+(`fused_sibling_patches.md` §3–§6). Nothing in the numbers depends on the location.
 
 ## 10. Files
 

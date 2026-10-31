@@ -4,7 +4,9 @@ The fused Triton route is implemented, wired, hardened and measured inside this 
 Everything that still has to change lives in a node this node cannot write.
 Detail and quoted code: `fused_sibling_patches.md`; measurements and verdicts: `FUSED.md` + `fused_results/`.
 
-## 1. Required: one stale test pin (`src/evogp/tests/test_dense_policy.py:339-355`)
+## 1. Required in `src/evogp/tests/`: one stale pin, one rename
+
+### 1a. The stale table pin (`test_dense_policy.py:339-355`)
 `test_eval_mode_tables_stay_canonical` still asserts the pre-fused tuples, so the suite reports exactly one failure (1206 passed / 7 skipped / 1 failed).
 Replace the two tuple asserts and add the two `fused` membership asserts:
 
@@ -20,16 +22,44 @@ Replace the two tuple asserts and add the two `fused` membership asserts:
 The test's docstring should say `fused` is the opt-in FOURTH engine, listed before `auto`, never an alias, never `auto`-selected.
 Nothing else in `src/evogp/tests` fails.
 
+### 1b. Relocate the route's pytest net (rename only)
+`src/evogp/tree/fused_pytest_draft.py` is the suite's net for this route (hermetic: it SKIPS without a device, `triton` or a writable `TRITON_CACHE_DIR`).
+The whole edit is one rename, no content change — after it `import reference_eval` resolves as a sibling:
+
+```bash
+git mv src/evogp/tree/fused_pytest_draft.py src/evogp/tests/test_fused_route.py
+```
+
+Paste-ready checklist and the re-verification counts: `fused_sibling_patches.md` §2.
+
 ## 2. Required for the campaign harness (`test/benchmark/evoxc/`)
-`common.EVOXC_ARMS` needs the arm, and the route reporting needs a `fused` branch (a fused call is served on the torch device, not on an evoxc backend):
+Four edits, all in `test/benchmark/evoxc/`; the paste-ready code is in `fused_sibling_patches.md` §3–§6 (the subsection labels below name its sections).
+
+### 2a. The arm registry (`common.EVOXC_ARMS`) — appendix §3
+The campaign of record's registry (`fused_results/fused_campaign.py`'s `FUSED_ARMS`) registers TWO arms, appended after the last `batch` entry so every existing arm id keeps its index:
 
 ```python
-    # the fused Triton route (one launch per (tree, row-block), no evoxc graph)
+    # the fused (Triton) route: one launch per (tree, row-block), no evoxc graph; the
+    # explicit-backend spelling is unconditional, the bare one is the shipped policy
+    "evoxc-fused-iree": {"eval_mode": "fused", "backend": "iree", "family": "evoxc"},
     "evoxc-fused": {"eval_mode": "fused", "backend": None, "family": "evoxc"},
 ```
 
-`common.route_decision` (and `route_text`) currently fold only `dense`/`batch`; under `eval_mode="fused"` it reports the dense-side `should_use_dense=False` and a `numpy` backend instead of `resolve_route(...).engine == "fused"`, which makes a record's route block wrong (not fatal).
-Needed: a `fused_route_decision` sibling of `batch_route_decision` reading `route.engine` / `route.use_fused`, plus the `fused_cache_stats()` existence proof in the worker (an engine name is not proof a call was served — `fused_kernel_launches` is).
+`evoxc-fused-iree` (explicit `backend="iree"`) makes the route resolve `fused` unconditionally, whatever the ambient backend env, with an `iree` fallback: it is the right arm when the round must not depend on an exporter's environment, and it is the one to pair with the `evoxc-dense-iree` / `evoxc-batch-iree` arms of a four-way round.
+`evoxc-fused` (no explicit backend) is the POLICY's own decision — `EVOGP_FUSED_MIN_POP` and the device probe decide, exactly what a user gets without exporting `EVOGP_EVOXC_BACKEND` — so it is the right arm for "the shipped route"; on a CPU box or below the population floor its calls are the specialized fallback, i.e. its medians are not a kernel measurement (`fused_kernel_launches` tells them apart).
+
+### 2b. `EVOGP_FUSED_*` are route knobs (`common.py`) — appendix §4
+`FUSED_ENV_VARS` (the five knobs `MIN_POP`, `BLOCK_ROWS`, `NUM_WARPS`, `MAX_SCRATCH_MB`, `HOST_MEMO`) beside `DENSE_ENV_VARS`, folded into `ROUTE_ENV_VARS`; otherwise a caller's exported `EVOGP_FUSED_BLOCK_ROWS=64` silently applies to every arm of the round.
+
+### 2c. Route reporting (`common.route_decision`, then `summarize.route_text`) — appendix §5
+`route_decision` currently folds only `dense`/`batch`; under `eval_mode="fused"` it reports the dense-side `should_use_dense=False` and a `numpy` backend instead of `resolve_route(...).engine == "fused"`, which makes a record's route block wrong (not fatal) and renders a SERVED call as `fused/numpy → fused`.
+The appendix's patch is an `if decision["eval_mode"] == "fused":` branch INLINE in `route_decision` (not a separate `fused_route_decision` function) asking the one `dense_engine.resolve_route(...)` and stamping `backend` / `engine` / `would_use_fused` / `fused_fallback_backend` / `fused_reason`, plus the `kind` derivation and the `declined` annotation in `route_text`.
+A fused call is served on the torch device, not on an evoxc backend, so `engine` — never the backend spelling — is what the record must quote.
+
+### 2d. The existence proof in `worker.py` — appendix §6
+An engine name is not proof a call was served; `fused_kernel_launches` is (`fused_calls` counts ATTEMPTS).
+The worker needs `FUSED_STATS_KEYS` (the 15 `fused_cache_stats()` keys), `FUSED_GAUGE_KEYS` (the 6 gauges among them, recorded as an AFTER snapshot, never a delta), `fused_served()` (`attempts - declines == calls` and `launches >= calls`), the `fused_window_block` mirror of `artifact.py`'s delta/gauge split, and `record["fused_cache"]` beside `record["engine_cache_final"]`.
+
 The comment in `common.py` that still describes `EVAL_MODES` as three values needs updating.
 
 ## 3. Required: move the records and re-register the report
