@@ -8,8 +8,9 @@ population in one launch; unlike every existing route it needs no evoxc graph, n
 host decode, no host-side assembly and no readback on the value path.
 
 The route is WIRED: :func:`evogp.tree.dense_engine.resolve_route` owns the policy
-branch (``EVOGP_EVAL_MODE=fused`` -> ``Route(engine="fused", ...)``, reported by
-``Route.use_fused``) and all five call sites dispatch on it -- ``Forest.forward``
+branch (``EVOGP_EVAL_MODE=fused`` -> ``Route(engine="fused", ...)``, and ``auto``
+on a device box, both reported by ``Route.use_fused``) and all five call sites
+dispatch on it -- ``Forest.forward``
 (``per_row=True``), ``Forest.batch_forward`` (``per_row=False``),
 ``Forest.SR_fitness`` (the loss path) and ``Tree.forward`` / ``Tree.SR_fitness``
 (``pop_size == 1``) -- each continuing on the route's fallback after a
@@ -169,7 +170,7 @@ ternary, loose, rich and ``compare_unary`` -- the set that draws ``>`` / ``<=`` 
 NaN/zero-sign case, ``<= 1.8e-07`` relative on the loose/rich transcendental
 sets' value paths and ``<= 1e-07`` on the loss paths (float32 reduction order),
 plus 10/10 golden fixtures inside 1e-4 (measured ``<= 1.9e-06``), 54/54
-decline/contract checks and 31/31 wiring checks.  The ``OUT_NODE`` multi-output
+decline/contract checks and 32/32 wiring checks.  The ``OUT_NODE`` multi-output
 protocol has its own stage
 (``--stage multi``: 13 case x ``out_len`` populations, 4 surfaces, 65/65
 comparisons, value path BITWISE, loss ``<= 1.2e-07`` relative).
