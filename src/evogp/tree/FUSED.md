@@ -44,7 +44,7 @@ compile and no re-prep** (5/5 transforms hit, 5/5 scratch reuses, 0 compiles, 0 
 dense compile and 25–500× cheaper than a `batch` merged compile. The one thing to fix is cross-node bookkeeping:
 `src/evogp/tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` used to pin the pre-fused
 `EVAL_MODES`/`ENGINES` tuples; it has since been updated to `("dense","specialized","batch","fused","auto")` /
-`("specialized","dense","batch","fused")` and the suite is green (1 276 passed / 7 skipped / 0 failed).
+`("specialized","dense","batch","fused")` and the suite is green (1 308 passed / 7 skipped / 0 failed).
 
 Kernel round (§17): the walk now keeps its top three stack slots in registers (`STACK_WINDOW` 3, gated to
 `BLOCK_R >= 32`), which takes the DEVICE kernel **−10.9 % on `p4096-L64` / −12.4 % on its loss path and −3.8…−4.5 % on
@@ -321,13 +321,13 @@ trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
 
 1. **The suite is green** (the two stale assertions the campaign opened with have since been fixed, in
    `tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` and in `tests/test_fused_route.py`).
-   `pytest src/evogp/tests -q` → **1 276 passed, 7 skipped, 0 failed in ~118 s** on the device reference box (42 of
+   `pytest src/evogp/tests -q` → **1 308 passed, 7 skipped, 0 failed in ~121 s** on the device reference box (53 of
    them in `test_fused_route.py`, which compiles and launches the real kernel).
    `CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= python -c "import evogp.tree"` works with
    `torch.cuda.is_available() == False`, `fused_available() == False` and
    `resolve_route(256, eval_mode="fused").engine == "specialized"` — the route degrades to the policy's CPU answer
    and the import needs no GPU.
-2. **The pytest net is `tests/test_fused_route.py`** (42 cases: value/loss parity against `reference_eval` on the
+2. **The pytest net is `tests/test_fused_route.py`** (53 cases: value/loss parity against `reference_eval` on the
    three function sets, single-node and constant populations, a deep chain, protected div and NaN/Inf placement,
    multi-output value + loss, the route policy above and below `EVOGP_FUSED_MIN_POP`, `fused_kernel_launches` as the
    served-call proof, the decline matrix including `output_len > MAX_OUT_LEN`, non-contiguous inputs and the
@@ -456,7 +456,7 @@ $PY -m evogp.tree.fused_envelope --stage records    # read-only: stored envelope
 # 7. end-to-end and the hermetic suite (run the suite AFTER all timing — parts of it touch the GPU)
 EVOGP_EVAL_MODE=fused EVOGP_EVOXC_BACKEND=iree $PY -m evogp.sr_test     # best fitness -0.2259 in ~10.4 s
 $PY -m evogp.sr_test                                                    # default auto: -0.2259 in ~16.1 s
-PYTHONPATH=src:/root/evoxc $PY -m pytest src/evogp/tests -q             # 1 276 passed / 7 skipped / 0 failed
+PYTHONPATH=src:/root/evoxc $PY -m pytest src/evogp/tests -q             # 1 308 passed / 7 skipped / 0 failed
 CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= PYTHONPATH=src:/root/evoxc $PY -c "import evogp.tree"
 ```
 
@@ -623,10 +623,10 @@ explicitly named backend still serves below the threshold, and `auto` selects fu
 
 ---
 
-## 14. Block/warp sweep — the default stays 256 / 1
+## 14. Block/warp sweep — the default is the minimax at 256 / 1
 
-Records `test/benchmark/evoxc/results/t1a1_fused/sweep/sweep.json`: 12 configs × 4 cells, value medians in ms, one process per (config, cell).
-`worst` = the config's slowest cell relative to that cell's best config.
+The table below is the earlier window's 12-config × 4-cell sweep (`test/benchmark/evoxc/results/t1a1_fused/sweep/sweep.json`), value medians in ms, one process per (config, cell).
+`worst` there = the config's slowest cell relative to that cell's best config.
 
 | cfg | `p256-L64-N1024` | `p4096-L64-N1024` | `p256-L64-N4096` | `p2048-L128-d7` | worst |
 |---|---|---|---|---|---|
@@ -643,17 +643,10 @@ Records `test/benchmark/evoxc/results/t1a1_fused/sweep/sweep.json`: 12 configs �
 | B1024-W2 | 0.096 | 0.157 | 0.114 | 0.165 | 1.19 |
 | B1024-W4 | 0.081 | 0.140 | 0.108 | 0.164 | 1.07 |
 
-Re-run after §17's kernel change (`fused_check --stage tuning`, the same 12 configs × 6 cells, public API): the
-minimax config is `B512-W2` (worst-cell ratio 0.015 on `p256-L64-i32-N1024`) and the shipped `256/1` reads 0.016 —
-**1.06× the minimax ratio**, with `B512-W1` (0.017) and `B256-W2` (0.016) in the same band. The register window did
-not move the geometry optimum, and a 6 % worst-cell difference over a metric with a ±5–12 % noise floor is not a
-reason to change a default (§17.2).
-
-**256 / 1 stays.** It is the outright best config on both large-population cells (1.00), 1.10–1.12 on the others by
-the min statistic; the only config with a lower minimax (`B1024-W4`, 1.07) wins solely on `p256-L64-i32-N1024`, whose
-own within-record spread (52 %) exceeds the 18 % gap, so no change is justified by this protocol. The clearly-bad
-region is narrow blocks with many warps (128 lanes × 4 warps: 1.67–3.04×), consistent with the walk being a scalar
-loop-carried dependency chain.
+The current verdict is `fused_check --stage tuning` (12 configs × 6 cells through the public API, one process per config+cell, `worst value ratio` = the config's worst cell's fused/torch-batched ratio): the minimax IS the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` at 1.00× (worst value ratio 0.009 on `p256-L64-i32-N4096`, mean 0.008, worst loss 0.011), with `B128-W1` (0.010) and `B512-W1` / `B512-W2` / `B512-W4` (0.010–0.011) inside the same noise band.
+The earlier window's reading — minimax `B512-W2`, the shipped `256/1` at 1.06× of it — is that round's window, kept as history.
+Neither sweep moves the default: the current one puts the shipped config on top, and in the earlier table the lower-minimax `B1024-W4` (1.07) wins solely on `p256-L64-i32-N1024`, whose own within-record spread (52 %) exceeds the 18 % gap.
+The clearly-bad region is narrow blocks with many warps (128 lanes × 4 warps: 1.67–3.04×), consistent with the walk being a scalar loop-carried dependency chain.
 
 ---
 
@@ -901,7 +894,7 @@ i.e. `pre_unmasked_*`, is −1…−6 %, all of it recovered by the window below
 | row block as the OUTER grid dimension (node loop inner) | flat (±1 %) | reverted |
 | `num_stages` 1 / 4 | flat | reverted |
 | packed / int32 metadata conversion at prepare time | not pursued: the ablation puts the chain's cost in its DEPENDENCE (one load per node feeding the branch), not in the load's width, and narrowing it would change the channel schema the facade caches on | dropped |
-| geometry: `BLOCK_R`/warps re-run of §14 | minimax `512/2`, **1.06×** the shipped `256/1`'s worst cell | default unchanged (< 5 %) |
+| geometry: `BLOCK_R`/warps re-run of §14 | minimax IS the shipped `256/1` (worst value ratio 0.009, 1.00× itself); `B128-W1` 0.010 and `B512-W1` / `B512-W2` / `B512-W4` 0.010–0.011 in the same band | default stands as the measured optimum |
 
 ### 17.3 What ships
 `STACK_WINDOW = 3` keeps the walk's top three stack slots in registers (`w0/w1/w2`), the memory stack keeps the deep
@@ -950,7 +943,7 @@ Only `p4096` reads in the expected direction at this resolution; everything else
 `fused_check --stage all` → **PARITY 56/56** comparisons inside tolerance (value `max_abs = 0.0` on all three
 function sets, loss `max_rel` ≤ 3.8e-07), **MULTI 65/65**, **GOLDENS 10/10** inside 1e-4, **DECLINES 57/57**,
 **WIRED 32/32**, **TIMING** worst-cell 102.59× `value` / 90.99× `loss` against `torch-batched`, **TUNING** minimax
-= the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` at 1.00× (default).
+= the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` at 1.00× (worst value ratio 0.009 on `p256-L64-i32-N4096`; default).
 `pytest src/evogp/tests -q` → **1 308 passed, 7 skipped, 0 failed**.
 
 ### 17.7 What this leaves
@@ -963,7 +956,8 @@ function sets, loss `max_rel` ≤ 3.8e-07), **MULTI 65/65**, **GOLDENS 10/10** i
   iterations' work) is the largest remaining IN-kernel item and the hardest: it is the walk itself, and every
   variant that pre-loaded the operands outside the branch lost more in registers than it saved in loads.
 - **The floor is measured, not assumed**: `STACK_WINDOW` 4 and above is worse than 3, `num_stages` and the grid
-  order are flat, and geometry is a 1.06× decision at best.
+  order are flat, and the geometry minimax IS the shipped `256/1` at 1.00× (§14: worst value ratio 0.009; every other
+  config sits at 0.010–0.037, so no alternative clears the noise floor).
 
 ## Measured detail (moved from tree/CONTEXT.md)
 

@@ -820,7 +820,7 @@ goldens, declines, the six-cell timing and the tuning grid) and the campaign of 
 --allow-missing --allow-digest-mismatch`, read against `results/t1a1_baseline/`); the verdict, the numbers and the
 residual gaps are in [`src/evogp/tree/FUSED.md`](src/evogp/tree/FUSED.md). That net pins the shipped policy both ways —
 `test_auto_selects_fused_above_the_floor` and `test_auto_keeps_the_pre_fused_policy_below_the_floor_or_without_triton` —
-and reads 54 passed on a device box with Triton.
+and reads 53 passed on a device box with Triton.
 
 The differential file (`test_equivalence.py`) also validates `.npz` golden fixtures found in `$EVOGP_GOLDEN_DIR`,
 `test/goldens/` and `src/evogp/tests/goldens/`: every `.npz` in those directories must use the documented fixture

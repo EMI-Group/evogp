@@ -1,12 +1,12 @@
 # Cross-node edits for the fused route (`EVOGP_EVAL_MODE=fused`) — all applied
 `FUSED_HANDOFF.md` is the one-page summary of the edits the fused route needed OUTSIDE `src/evogp/tree/`; this file is their record.
 Every item below has landed in the tree, verified against the current code, so nothing here is a paste-ready instruction any more.
-Re-verified on the device reference box: `pytest src/evogp/tests -q` → 1 276 passed / 7 skipped / 0 failed (both stale assertions, §1's table pin and §7's `auto` pin, have since been fixed), `pytest src/evogp/gp/tests -q` → 309 passed / 36 skipped (345 collected; the 36 are the device-gated `test_gp_stack_device_fused.py` cases, which skip while the native device hand-off is unavailable), `pytest test/benchmark/evoxc -q` → 40 passed, `fused_cache_stats()` has 15 keys, `EVOGP_FUSED_MIN_POP` is 16 and `MAX_OUT_LEN` is 8.
+Re-verified on the device reference box: `pytest src/evogp/tests -q` → 1 308 passed / 7 skipped / 0 failed (both stale assertions, §1's table pin and §7's `auto` pin, have since been fixed), `pytest src/evogp/gp/tests -q` → 309 passed / 36 skipped (345 collected; the 36 are the device-gated `test_gp_stack_device_fused.py` cases, which skip while the native device hand-off is unavailable), `pytest test/benchmark/evoxc -q` → 44 passed, `fused_cache_stats()` has 15 keys, `EVOGP_FUSED_MIN_POP` is 16 and `MAX_OUT_LEN` is 8.
 ## 1. The route tables (`src/evogp/tree/dense_engine.py`, pinned by `src/evogp/tests/test_dense_policy.py`)
 `EVAL_MODES` is `("dense", "specialized", "batch", "fused", "auto")` and `ENGINES` is `("specialized", "dense", "batch", "fused")`, with `fused` before `auto`, never an alias.
 `test_eval_mode_tables_stay_canonical` pins both plus the membership/alias rules, so the table cannot drift.
 ## 2. The route's pytest net (`src/evogp/tests/test_fused_route.py`)
-42 cases that compile and launch the real Triton kernel, lift the session `EVOGP_EVOXC_BACKEND=numpy` pin per test and SKIP on a box without a device, `triton` or a writable `TRITON_CACHE_DIR`.
+53 cases that compile and launch the real Triton kernel, lift the session `EVOGP_EVOXC_BACKEND=numpy` pin per test and SKIP on a box without a device, `triton` or a writable `TRITON_CACHE_DIR`.
 `import reference_eval` resolves as a sibling of the test file.
 ## 3. The harness arm registry (`test/benchmark/evoxc/common.py`)
 `evoxc-fused-iree` (explicit `backend="iree"`, the unconditional arm) and `evoxc-fused` (no explicit backend, i.e. the policy's own decision) sit after the LAST batch entry, so every earlier arm id keeps its index and `ALL_ARMS` derives them.
