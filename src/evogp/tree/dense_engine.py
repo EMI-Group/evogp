@@ -502,6 +502,8 @@ from .multi_output import check_multi_output
 from .evoxc_engine import (  # private but deliberately reused: parity by construction
     BACKEND_ENV,
     CACHE,
+    IREE_DEVICE_ENV,
+    IREE_OPT_LEVEL_ENV,
     _CPU,
     _as_numpy,
     _emit_binary,
@@ -567,6 +569,7 @@ __all__ = [
     "auto_tree_len_allowance",
     "build_dense",
     "build_dense_runner",
+    "clear_route_memo",
     "decline_backend",
     "dense_cache_stats",
     "dense_peak_bytes",
@@ -584,6 +587,7 @@ __all__ = [
     "resolve_fused_min_pop",
     "resolve_prune",
     "resolve_route",
+    "route_cache_stats",
     "should_use_dense",
     "sr_fitness_dense",
     "trace_cap_pinned",
@@ -643,6 +647,18 @@ AUTO_MAX_TREE_LEN_ENV = "EVOGP_DENSE_AUTO_MAX_TREE_LEN"
 #: :func:`evogp.tree.fused_engine.resolve_min_pop`; :func:`resolve_fused_min_pop`
 #: delegates to it -- see that function.
 FUSED_MIN_POP_ENV = "EVOGP_FUSED_MIN_POP"
+#: The fused route's memory-envelope knobs, re-declared for :func:`_route_key` ONLY
+#: (the route policy reads them through ``fused_engine.envelope_decline`` when a
+#: caller passes ``rows``/``tree_len``, so a memoized decision must be invalidated by
+#: a flip).  They are OWNED -- the parsing, the defaults and the error messages -- by
+#: :mod:`evogp.tree.fused_engine` (:data:`~evogp.tree.fused_engine.MAX_SCRATCH_MB_ENV`,
+#: :data:`~evogp.tree.fused_engine.BLOCK_ROWS_ENV`,
+#: :data:`~evogp.tree.fused_engine.NUM_WARPS_ENV` there, the three module attributes
+#: :func:`~evogp.tree.fused_engine.resolve_max_scratch_mb` and its siblings read); a
+#: test pins the two spellings together so they cannot drift.
+FUSED_MAX_SCRATCH_MB_ENV = "EVOGP_FUSED_MAX_SCRATCH_MB"
+FUSED_BLOCK_ROWS_ENV = "EVOGP_FUSED_BLOCK_ROWS"
+FUSED_NUM_WARPS_ENV = "EVOGP_FUSED_NUM_WARPS"
 #: Max trace length ``L`` (``EVOGP_DENSE_MAX_TREE_LEN``): populations whose
 #: longest tree exceeds it fall back to the specialized engine.  This is the
 #: knob that bounds trace time and graph size (the candidate chain is emitted
@@ -1601,87 +1617,251 @@ class Route:
         return self.engine == "fused"
 
 
-def resolve_route(
+# --------------------------------------------------------------------------- #
+# the route policy's memo
+# --------------------------------------------------------------------------- #
+#: The ambient environment's raw store, when CPython exposes it: ``os._Environ``
+#: keeps its keys AND values as ``bytes`` (``surrogateescape``-encoded) in a plain
+#: ``dict`` -- ``os.environ._data`` -- and a plain ``os.environ[...] = v`` /
+#: ``del`` / ``.pop`` writes through to exactly that dict.  The route memo has to
+#: read its knobs on EVERY call to stay sound, and this reader is what makes the
+#: key cheaper than the derivation it guards: measured on the reference box, six
+#: names cost 3.37 us through ``os.environ.get`` (0.56 us each -- it re-encodes the
+#: key and goes through the mapping protocol) against 0.51 us for six ``dict.get``
+#: calls with pre-encoded keys.  ``None`` when the private store is missing or is
+#: not a ``dict``, in which case :func:`_route_env` answers through ``os.environ``
+#: (and the key carries ``str`` values instead of ``bytes``) -- the two spellings
+#: never mix inside one process, and both compare exactly as ``os.environ.get``
+#: would.
+_ENV_DATA: Optional[Dict[Any, Any]] = getattr(os.environ, "_data", None)
+if not isinstance(_ENV_DATA, dict):
+    _ENV_DATA = None
+#: ``str`` -> encoded name, filled on first use (a handful of module constants).
+_ENV_KEYS: Dict[str, bytes] = {}
+
+
+def _route_env(name: str) -> Optional[str]:
+    """One environment knob, RAW and unparsed (the route memo's own reader).
+
+    Exactly what ``os.environ.get(name)`` answers -- an unset name is ``None``,
+    which is what every resolver in this module reads as "use the default", and a
+    set one is the same ``str`` (the store holds ``surrogateescape``-encoded
+    ``bytes``, decoded the way ``os.environ`` decodes them) -- but through the fast
+    reader when the interpreter has one (see :data:`_ENV_DATA`).  A store that is
+    missing or does not follow that layout falls back to ``os.environ.get`` for that
+    lookup rather than serving a silently-``None`` knob, so the two spellings can
+    only differ in speed.
+    """
+    data = _ENV_DATA
+    if data is not None:
+        key = _ENV_KEYS.get(name)
+        if key is None:
+            key = _ENV_KEYS[name] = os.fsencode(name)
+        value = data.get(key)
+        if value is None:
+            return None
+        if type(value) is bytes:
+            return value.decode("utf-8", "surrogateescape")
+        if type(value) is str:  # an already-decoded store: trust it as-is
+            return value
+    return os.environ.get(name)
+
+
+def _route_probe_needs(mode: str, explicit: str) -> Tuple[bool, bool]:
+    """Which availability probes :func:`_route_decision` consults for this call.
+
+    The memos' LAZINESS contract in one function: a probe
+    (:data:`_DEVICE_AVAILABLE` / :data:`_FUSED_AVAILABLE`) may only be resolved by
+    the policy itself, so the memo has to know -- BEFORE any key is built -- whether
+    the answer it is about to cache depends on one.  The rules, arm by arm, are the
+    arms of :func:`_route_decision`:
+
+    * ``specialized`` and every arm with an EXPLICIT backend: no probe at all (that
+      is what ``test_route_policy.py``'s isolation cases pin: an explicit mode or
+      backend must answer without asking the box anything).
+    * ``batch`` / ``fused`` / ``dense`` without an explicit backend: the device
+      probe only.
+    * ``auto`` without an explicit backend: the device probe gates the whole arm,
+      and only a device answer of ``True`` reaches the fused half
+      (``fused_route_available``), so the fused probe is needed exactly when the
+      device probe is not already known to be ``False``.
+
+    A needed probe that is still ``None`` means "derive fresh, memoize nothing" --
+    the caller must never resolve it just to complete a key.
+    """
+    if explicit or mode == "specialized":
+        return (False, False)
+    if mode in ("batch", "fused", "dense"):
+        return (True, False)
+    return (True, _DEVICE_AVAILABLE is not False)
+
+
+#: Memo of :func:`resolve_route`'s DECISION.  The policy is a pure function of its
+#: arguments, the environment knobs it reads and the two memoized availability
+#: probes, and it sits on the hottest path in the library (every
+#: ``Forest.forward`` / ``batch_forward`` / ``SR_fitness`` and every ``Tree.*``
+#: call asks it; a derivation costs 5.8 us of the fused route's ~37 us warm
+#: ``p256-L64`` call, more than the kernel launch), so the whole decision is a table
+#: lookup instead of a re-derivation.
+#:
+#: Soundness is by CONSTRUCTION, and it is the laziness rule that makes it hold:
+#: the key carries every raw argument, every knob the arm can read and the two
+#: probe VALUES the answer used (see :func:`_route_key`), and a needed probe that
+#: is still unresolved is served by the policy, never memoized
+#: (:func:`_route_probe_needs`).  A hit therefore proves exactly what a fresh
+#: derivation would compute -- same inputs, same knobs, same already-taken probes --
+#: and nothing is ever re-read lazily behind an entry.  A raise is never stored (the
+#: error path is taken again on every call, with the same message), while a decline
+#: IS a :class:`Route` and is served exactly like any other decision.
+#:
+#: Hygiene only to drop: :func:`clear_route_memo` runs from
+#: ``evoxc_engine.clear_cache()``, the engine's single in-memory invalidation point.
+_ROUTE_MEMO: Dict[Tuple[Any, ...], "Route"] = {}
+_ROUTE_MEMO_MAX = 32
+#: Hit/miss/bypass counters, in one-element lists so the hot path mutates them
+#: without a ``global`` statement (the lock covers the cold store path and a
+#: concurrent :func:`route_cache_stats` read, never a hit).
+_ROUTE_HITS = [0]
+_ROUTE_MISSES = [0]
+_ROUTE_BYPASSES = [0]
+_ROUTE_LOCK = threading.Lock()
+
+
+def clear_route_memo() -> None:
+    """Drop the route memo and zero its counters (``clear_cache()`` hygiene).
+
+    No entry can go stale -- the key carries every input of the answer -- so this is
+    the same kind of reset ``dense_memo.clear`` performs for the dense front tables:
+    the counters are zeroed with the table, because a cleared memo has no hits to
+    report.
+    """
+    with _ROUTE_LOCK:
+        _ROUTE_MEMO.clear()
+        _ROUTE_HITS[0] = 0
+        _ROUTE_MISSES[0] = 0
+        _ROUTE_BYPASSES[0] = 0
+
+
+_register_cache_reset(clear_route_memo)
+
+
+def route_cache_stats() -> Dict[str, int]:
+    """Snapshot of the route memo (every key is ``route_*``).
+
+    ``route_hits`` are calls served from the table, ``route_misses`` the calls that
+    derived a decision (stored or not), ``route_bypasses`` the calls that could not
+    be memoized AT ALL because a probe it needs is still unresolved
+    (:func:`_route_probe_needs` -- the lazy arms), ``route_entries`` the live entry
+    count and ``route_maxsize`` its bound (the table is cleared as a whole when it
+    is reached).  ``evoxc_engine.clear_cache()`` resets the table through
+    :func:`clear_route_memo`; the counters are reset there too, since a cleared memo
+    has no hits to report.
+    """
+    with _ROUTE_LOCK:
+        return {
+            "route_hits": _ROUTE_HITS[0],
+            "route_misses": _ROUTE_MISSES[0],
+            "route_bypasses": _ROUTE_BYPASSES[0],
+            "route_entries": len(_ROUTE_MEMO),
+            "route_maxsize": _ROUTE_MEMO_MAX,
+        }
+
+
+def _route_key(
+    pop_size: Any,
+    rows: Any,
+    backend: Any,
+    iree_device_index: Any,
+    eval_mode: Any,
+    auto_min_pop: Any,
+    auto_max_rows: Any,
+    tree_len: Any,
+    auto_budget_mb: Any,
+    output_len: Any,
+    mode: str,
+    explicit: str,
+    probes: Tuple[Any, Any],
+) -> Optional[Tuple[Any, ...]]:
+    """The route memo's key: every argument plus every knob the arm can read.
+
+    The knob list is the policy chain's whole environment surface -- this module's
+    five (:data:`EVAL_MODE_ENV`, ``evoxc_engine.BACKEND_ENV``,
+    :data:`AUTO_MIN_POP_ENV`, :data:`AUTO_MAX_ROWS_ENV`,
+    :data:`AUTO_BUDGET_MB_ENV`), the fused route's minimum population
+    (:data:`FUSED_MIN_POP_ENV`) and, on the arms that reach the fused envelope (a
+    ``rows`` argument) those three (:data:`FUSED_MAX_SCRATCH_MB_ENV`,
+    :data:`FUSED_BLOCK_ROWS_ENV`, :data:`FUSED_NUM_WARPS_ENV`), plus the two IREE
+    names ``evoxc_engine._resolve_backend`` reads (only for a named backend: an
+    explicit ``backend=`` or a non-empty ``EVOGP_EVOXC_BACKEND``).  ANY new
+    environment read on this path has to be added here -- that is the memo's whole
+    contract, and ``tests/test_route_memo.py`` flips each name in turn.
+
+    ``probes`` is the ``(device, fused)`` VALUE snapshot the answer used
+    (:func:`_route_probe_needs` -- an unused half stays ``None``), and ``mode`` /
+    ``explicit`` are the resolved spellings of the two inputs the arm is chosen on.
+    ``None`` for an argument the memo cannot hash (an unhashable value): the caller
+    then takes the full path and stores nothing.
+    """
+    env = (
+        _route_env(EVAL_MODE_ENV),
+        _route_env(BACKEND_ENV),
+        _route_env(AUTO_MIN_POP_ENV),
+        _route_env(AUTO_MAX_ROWS_ENV),
+        _route_env(AUTO_BUDGET_MB_ENV),
+        _route_env(FUSED_MIN_POP_ENV),
+    )
+    if rows is not None:
+        env += (
+            _route_env(FUSED_MAX_SCRATCH_MB_ENV),
+            _route_env(FUSED_BLOCK_ROWS_ENV),
+            _route_env(FUSED_NUM_WARPS_ENV),
+        )
+    if backend or env[1]:
+        env += (_route_env(IREE_DEVICE_ENV), _route_env(IREE_OPT_LEVEL_ENV))
+    key = (
+        pop_size,
+        rows,
+        backend,
+        iree_device_index,
+        eval_mode,
+        auto_min_pop,
+        auto_max_rows,
+        tree_len,
+        auto_budget_mb,
+        output_len,
+        mode,
+        explicit,
+        probes[0],
+        probes[1],
+    ) + env
+    try:
+        hash(key)
+    except TypeError:  # an unhashable argument: serve it the slow way
+        return None
+    return key
+
+
+def _route_decision(
     pop_size: int,
     *,
+    mode: str,
+    explicit: str,
     rows: Optional[int] = None,
     backend: Optional[str] = None,
     iree_device_index: Optional[int] = None,
-    eval_mode: Optional[str] = None,
     auto_min_pop: Optional[int] = None,
     auto_max_rows: Optional[int] = None,
     tree_len: Optional[int] = None,
     auto_budget_mb: Optional[int] = None,
     output_len: int = 1,
 ) -> Route:
-    """The ONE route policy: which engine (dense / batch / specialized), and on which backend.
+    """The route POLICY, un-memoized (the rules are documented on :func:`resolve_route`).
 
-    Every wired call site (:meth:`evogp.tree.Forest.forward` /
-    ``Forest.batch_forward`` / ``Forest.SR_fitness``, :meth:`evogp.tree.Tree.forward`
-    / ``Tree.SR_fitness``) asks this, so the policy exists exactly once;
-    :func:`should_use_dense` is the boolean view of the dense half of it.
-    ``pop_size`` is the population about to be evaluated (``1`` for a ``Tree``).
-
-    Precedence: an explicitly provided backend (the ``backend=`` argument or a
-    non-empty ``EVOGP_EVOXC_BACKEND``) first, then ``EVOGP_EVAL_MODE``, then the
-    device probe.
-
-    * ``specialized`` -> never dense, on the explicitly named backend or the
-      engine's own default (``numpy``).
-    * ``dense`` -> always attempt dense; with no explicit backend it uses the
-      device backend on a device box (a user forcing dense wants the fast dense
-      route) and ``numpy`` elsewhere.
-    * ``batch`` -> always attempt the OPT-IN batch route
-      (:mod:`evogp.tree.batch_engine`, ONE merged graph for the whole
-      population): the explicitly named backend, else ``iree`` on a device box and
-      ``numpy`` elsewhere, with a specialized+``numpy`` fallback either way.  No
-      ``pop_size``/``rows`` gate here -- the batch engine declines a small
-      population itself (``EVOGP_BATCH_MIN_POP``) with a ``BatchUnsupported``.
-    * ``fused`` -> always attempt the OPT-IN fused route
-      (:mod:`evogp.tree.fused_engine`, ONE Triton launch for the whole
-      population): the explicitly named backend, else the device backend
-      (``iree``, the spelling every device route uses) while a device is usable
-      from torch AND ``pop_size >= EVOGP_FUSED_MIN_POP``; otherwise the route IS
-      specialized+``numpy`` (``engine`` stays ``"specialized"``, so the call site
-      behaves exactly like the pre-existing routes).  The fallback is ALWAYS
-      specialized on ``numpy`` -- the explicit-backend arm included, even when
-      ``EVOGP_EVOXC_BACKEND`` names ``iree``: the fused route has no numpy twin,
-      and a per-tree iree compile can never amortize after a decline.
-    * ``auto`` with an explicit backend -> the historical rule: dense iff that
-      backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
-      *and* ``rows`` (when given) fits :func:`auto_row_allowance`.  An explicit
-      backend NEVER reaches the fused route (a named backend is the user's
-      choice; ``EVOGP_EVAL_MODE=fused`` is how to ask for it).
-    * ``auto`` without an explicit backend -> the policy owns the engine AND the
-      backend, in this order: the FUSED (Triton) route while
-      :func:`auto_fused_decline` allows it -- ``triton`` importable, a device
-      usable from torch, ``pop_size >= EVOGP_FUSED_MIN_POP`` (16) and the fused
-      route's memory envelope satisfied -- on the ``iree`` backend SPELLING with a
-      ``numpy`` fallback (that route runs on the torch device, and a per-tree iree
-      compile can never amortize after a decline); else dense on ``iree`` from
-      ``EVOGP_DENSE_AUTO_MIN_POP`` (64) up; else ``numpy`` for the specialized
-      route -- below the thresholds, with no device, and after a
-      :class:`DenseUnsupported` (a per-tree iree compile costs 271-284 ms/tree and
-      can never amortize).
-    ``auto`` NEVER selects the batch engine: that half of the policy is exactly
-    the fused / dense / specialized rule above.
-
-    The rows half is a MEMORY rule (:func:`auto_rows_decline`): ``rows`` is inside
-    the allowance only while ``pop_size * tree_len * rows * 4`` bytes fit
-    ``EVOGP_DENSE_AUTO_BUDGET_MB`` (and ``rows`` does not exceed an explicit
-    ``EVOGP_DENSE_AUTO_MAX_ROWS`` pin).  ``tree_len`` is the population's row
-    stride (``max_tree_len``) and is OPTIONAL: the wired call sites do not know it,
-    so they pass ``pop_size`` only and :func:`evaluate_dense` /
-    :func:`sr_fitness_dense` enforce the envelope where the shape IS known -- with
-    an unknown ``tree_len`` this function can only apply the pin, never a
-    shape-derived decline.  The fused half has the same limitation for the same
-    reason: ``output_len`` is the population's real output count (default ``1``)
-    and only enters that route's envelope, which is likewise applied here only
-    when the shape was passed in.
+    ``mode`` / ``explicit`` are the already-resolved spellings of
+    ``EVOGP_EVAL_MODE`` / the explicit backend (:func:`resolve_route` resolves them
+    once because its memo key needs them too, and passing them in keeps this
+    function a pure function of its arguments -- no knob is read twice per call).
     """
-    mode = resolve_eval_mode(eval_mode)
-    explicit = str(backend).strip() if backend else os.environ.get(BACKEND_ENV, "").strip()
-
     if mode == "specialized":
         name = resolve_backend_name(backend, iree_device_index)
         return Route(False, name, name, "EVOGP_EVAL_MODE=specialized: specialized engine only")
@@ -1845,6 +2025,191 @@ def resolve_route(
         f"auto policy: pop_size={int(pop_size)} < {minimum} ({AUTO_MIN_POP_ENV}) "
         "-> specialized on numpy (a per-tree iree compile cannot amortize there)",
     )
+
+
+def resolve_route(
+    pop_size: int,
+    *,
+    rows: Optional[int] = None,
+    backend: Optional[str] = None,
+    iree_device_index: Optional[int] = None,
+    eval_mode: Optional[str] = None,
+    auto_min_pop: Optional[int] = None,
+    auto_max_rows: Optional[int] = None,
+    tree_len: Optional[int] = None,
+    auto_budget_mb: Optional[int] = None,
+    output_len: int = 1,
+) -> Route:
+    """The ONE route policy: which engine, and on which backend -- MEMOIZED.
+
+    Every wired call site (:meth:`evogp.tree.Forest.forward` /
+    ``Forest.batch_forward`` / ``Forest.SR_fitness``, :meth:`evogp.tree.Tree.forward`
+    / ``Tree.SR_fitness``) asks this, so the policy exists exactly once;
+    :func:`should_use_dense` is the boolean view of the dense half of it.
+    ``pop_size`` is the population about to be evaluated (``1`` for a ``Tree``).
+
+    Precedence: an explicitly provided backend (the ``backend=`` argument or a
+    non-empty ``EVOGP_EVOXC_BACKEND``) first, then ``EVOGP_EVAL_MODE``, then the
+    device probe.
+
+    * ``specialized`` -> never dense, on the explicitly named backend or the
+      engine's own default (``numpy``).
+    * ``dense`` -> always attempt dense; with no explicit backend it uses the
+      device backend on a device box (a user forcing dense wants the fast dense
+      route) and ``numpy`` elsewhere.
+    * ``batch`` -> always attempt the OPT-IN batch route
+      (:mod:`evogp.tree.batch_engine`, ONE merged graph for the whole
+      population): the explicitly named backend, else ``iree`` on a device box and
+      ``numpy`` elsewhere, with a specialized+``numpy`` fallback either way.  No
+      ``pop_size``/``rows`` gate here -- the batch engine declines a small
+      population itself (``EVOGP_BATCH_MIN_POP``) with a ``BatchUnsupported``.
+    * ``fused`` -> always attempt the OPT-IN fused route
+      (:mod:`evogp.tree.fused_engine`, ONE Triton launch for the whole
+      population): the explicitly named backend, else the device backend
+      (``iree``, the spelling every device route uses) while a device is usable
+      from torch AND ``pop_size >= EVOGP_FUSED_MIN_POP``; otherwise the route IS
+      specialized+``numpy`` (``engine`` stays ``"specialized"``, so the call site
+      behaves exactly like the pre-existing routes).  The fallback is ALWAYS
+      specialized on ``numpy`` -- the explicit-backend arm included, even when
+      ``EVOGP_EVOXC_BACKEND`` names ``iree``: the fused route has no numpy twin,
+      and a per-tree iree compile can never amortize after a decline.
+    * ``auto`` with an explicit backend -> the historical rule: dense iff that
+      backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
+      *and* ``rows`` (when given) fits :func:`auto_row_allowance`.  An explicit
+      backend NEVER reaches the fused route (a named backend is the user's
+      choice; ``EVOGP_EVAL_MODE=fused`` is how to ask for it).
+    * ``auto`` without an explicit backend -> the policy owns the engine AND the
+      backend, in this order: the FUSED (Triton) route while
+      :func:`auto_fused_decline` allows it -- ``triton`` importable, a device
+      usable from torch, ``pop_size >= EVOGP_FUSED_MIN_POP`` (16) and the fused
+      route's memory envelope satisfied -- on the ``iree`` backend SPELLING with a
+      ``numpy`` fallback (that route runs on the torch device, and a per-tree iree
+      compile can never amortize after a decline); else dense on ``iree`` from
+      ``EVOGP_DENSE_AUTO_MIN_POP`` (64) up; else ``numpy`` for the specialized
+      route -- below the thresholds, with no device, and after a
+      :class:`DenseUnsupported` (a per-tree iree compile costs 271-284 ms/tree and
+      can never amortize).
+    ``auto`` NEVER selects the batch engine: that half of the policy is exactly
+    the fused / dense / specialized rule above.
+
+    The rows half is a MEMORY rule (:func:`auto_rows_decline`): ``rows`` is inside
+    the allowance only while ``pop_size * tree_len * rows * 4`` bytes fit
+    ``EVOGP_DENSE_AUTO_BUDGET_MB`` (and ``rows`` does not exceed an explicit
+    ``EVOGP_DENSE_AUTO_MAX_ROWS`` pin).  ``tree_len`` is the population's row
+    stride (``max_tree_len``) and is OPTIONAL: the wired call sites do not know it,
+    so they pass ``pop_size`` only and :func:`evaluate_dense` /
+    :func:`sr_fitness_dense` enforce the envelope where the shape IS known -- with
+    an unknown ``tree_len`` this function can only apply the pin, never a
+    shape-derived decline.  The fused half has the same limitation for the same
+    reason: ``output_len`` is the population's real output count (default ``1``)
+    and only enters that route's envelope, which is likewise applied here only
+    when the shape was passed in.
+
+    The DECISION IS REMEMBERED (:data:`_ROUTE_MEMO`), because this function is on
+    the hottest path in the library -- every ``Forest.forward`` /
+    ``batch_forward`` / ``SR_fitness`` and every ``Tree.*`` call asks it -- where a
+    full derivation costs 5.8 us of the fused route's ~37 us warm ``p256-L64`` call,
+    i.e. more than the kernel launch, while the answer is the SAME on every call of
+    a loop.  A hit proves exactly what a fresh derivation would compute, and the two
+    rules that make that true are:
+
+    * LAZINESS.  Building or validating a key never resolves a probe.  The two
+      memoized availability probes are resolved by the policy alone, and only for
+      the arms that need them (:func:`_route_probe_needs`: an explicit
+      ``EVOGP_EVAL_MODE`` or an explicit backend answers without asking the box
+      anything, which is also what keeps ``test_route_policy.py``'s isolation
+      cases true).  A needed probe that is still ``None`` -- and the key's whole
+      point is that a memo entry must not be built "as if" it were resolved --
+      means the call is a BYPASS: the policy derives it and NOTHING is stored
+      (``route_bypasses`` in :func:`route_cache_stats`).  Never an approximation of
+      the probe state.
+    * COMPLETENESS WITHIN AN ARM.  The key (:func:`_route_key`) carries every raw
+      argument, the resolved ``mode`` / ``explicit`` spelling the arm is chosen on,
+      the probe VALUES the answer used, and every environment name the arm can
+      read: ``EVOGP_EVAL_MODE``, ``EVOGP_EVOXC_BACKEND``,
+      ``EVOGP_DENSE_AUTO_MIN_POP``, ``EVOGP_DENSE_AUTO_MAX_ROWS``,
+      ``EVOGP_DENSE_AUTO_BUDGET_MB``, ``EVOGP_FUSED_MIN_POP``, the fused envelope's
+      ``EVOGP_FUSED_MAX_SCRATCH_MB`` / ``_BLOCK_ROWS`` / ``_NUM_WARPS`` (when a
+      shape was passed) and ``EVOGP_EVOXC_DEVICE`` / ``EVOGP_EVOXC_OPT_LEVEL``
+      (when a backend name is in play).  A new environment read on this path must
+      be added there; ``tests/test_route_memo.py`` flips each name in turn and
+      compares against a fresh derivation.
+
+    Everything else is unchanged: the same ``Route`` object semantics (frozen, so a
+    caller cannot mutate a memoized decision), the same ``reason`` text, and the
+    same error path -- a raise is never stored, so a malformed argument or an
+    unusable knob raises on every call, and a DECLINE is an ordinary ``Route`` that
+    is served exactly like any other decision.  :func:`clear_route_memo` (reached
+    from ``evoxc_engine.clear_cache()``) is hygiene, not correctness: no entry can
+    go stale.
+    """
+    mode = resolve_eval_mode(
+        eval_mode if eval_mode is not None else (_route_env(EVAL_MODE_ENV) or "")
+    )  # raises on a bad spelling, memo or not (nothing is stored for a raise)
+    raw_backend = _route_env(BACKEND_ENV)
+    explicit = (
+        str(backend).strip() if backend else (raw_backend or "").strip()
+    )
+    need_device, need_fused = _route_probe_needs(mode, explicit)
+    device, fused = _DEVICE_AVAILABLE, _FUSED_AVAILABLE
+    if (need_device and device is None) or (need_fused and fused is None):
+        # Laziness: this arm's answer depends on a probe nobody has taken yet, and
+        # the memo must never take one just to complete a key.
+        _ROUTE_BYPASSES[0] += 1
+        return _route_decision(
+            pop_size,
+            mode=mode,
+            explicit=explicit,
+            rows=rows,
+            backend=backend,
+            iree_device_index=iree_device_index,
+            auto_min_pop=auto_min_pop,
+            auto_max_rows=auto_max_rows,
+            tree_len=tree_len,
+            auto_budget_mb=auto_budget_mb,
+            output_len=output_len,
+        )
+    probes = (device if need_device else None, fused if need_fused else None)
+    key = _route_key(
+        pop_size,
+        rows,
+        backend,
+        iree_device_index,
+        eval_mode,
+        auto_min_pop,
+        auto_max_rows,
+        tree_len,
+        auto_budget_mb,
+        output_len,
+        mode,
+        explicit,
+        probes,
+    )
+    if key is not None:
+        route = _ROUTE_MEMO.get(key)
+        if route is not None:
+            _ROUTE_HITS[0] += 1
+            return route
+    _ROUTE_MISSES[0] += 1
+    route = _route_decision(
+        pop_size,
+        mode=mode,
+        explicit=explicit,
+        rows=rows,
+        backend=backend,
+        iree_device_index=iree_device_index,
+        auto_min_pop=auto_min_pop,
+        auto_max_rows=auto_max_rows,
+        tree_len=tree_len,
+        auto_budget_mb=auto_budget_mb,
+        output_len=output_len,
+    )
+    if key is not None:
+        with _ROUTE_LOCK:
+            if len(_ROUTE_MEMO) >= _ROUTE_MEMO_MAX:
+                _ROUTE_MEMO.clear()
+            _ROUTE_MEMO[key] = route
+    return route
 
 
 def should_use_dense(

@@ -591,6 +591,15 @@ def clear_fused_cache() -> None:
     TAG_MEMO.reset()
     PLAN_MEMO.reset()
     fused_kernels.clear_caches()
+    # The route decision this route was prepared under goes with the plan: a caller
+    # reaching for a cold fused route (the documented answer to a write torch's
+    # version counter cannot see) must not keep a memoized route either.  Hygiene
+    # only -- no route entry can go stale -- and imported lazily because
+    # ``dense_engine`` owns the policy (and imports this module inside its own
+    # functions), so a module-level import would close a cycle.
+    from . import dense_engine
+
+    dense_engine.clear_route_memo()
 
 
 evoxc_engine._register_cache_reset(clear_fused_cache)

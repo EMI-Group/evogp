@@ -945,6 +945,141 @@ def test_clear_fused_cache_rearms_the_dispatch():
     )
 
 
+# --- 3c. the single-slot fast path's invalidation contract ------------------------- #
+# The plan fast path (`fused_engine._LAST`) serves a warm call off tensor IDENTITY plus
+# the `_version` vector, so the one way a stale plan can be served is a write torch's
+# version counter does not see (a numpy view of the same memory, a foreign kernel) --
+# which is what `clear_fused_cache()` is for.  These cases pin both halves: an in-place
+# write (through the tensor or through a VIEW of it) is a MISS with correct numbers,
+# and the reset drops the fast path, the geometry memo and the route memo with the
+# tables.
+def _const_population(pop_size=16, value=1.5, pad_to=32):
+    """A population of one-node CONSTANT trees: `batch_node_value[row, 0]` is the number."""
+    return _forest([("const", value)] * pop_size, input_len=4, pad_to=pad_to)
+
+
+def test_an_in_place_channel_mutation_misses_the_plan_fast_path():
+    """A channel written in place is a NEW call: no plan hit, and the numbers follow."""
+    fused_engine.clear_fused_cache()
+    forest, x = _const_population(), _data(8, 4)
+    first = _served(lambda: forest.batch_forward(x), "batch_forward[const population]")
+    _assert_same(first, _oracle(forest, x), "batch_forward[const population]")
+    _assert_same(forest.batch_forward(x), first, "batch_forward[warm repeat]")
+    before = fused_engine.fused_cache_stats()
+    assert int(before["fused_plan_hits"]) >= 1, (
+        "the warm repeat must be served by the plan fast path (or the PLAN_MEMO table "
+        f"behind it); counted {before['fused_plan_hits']} plan hits"
+    )
+    with torch.no_grad():
+        forest.batch_node_value[3, 0] = 2.5  # row 3 is now the constant 2.5
+    mutated = _served(
+        lambda: forest.batch_forward(x), "batch_forward[after the in-place write]"
+    )
+    after = fused_engine.fused_cache_stats()
+    assert int(after["fused_plan_hits"]) == int(before["fused_plan_hits"]), (
+        "an in-place channel write must MISS the plan fast path (its `_version` moved), "
+        f"but the call was served from it: {before['fused_plan_hits']} -> "
+        f"{after['fused_plan_hits']} plan hits"
+    )
+    assert int(after["fused_plan_misses"]) > int(before["fused_plan_misses"]), (
+        "the mutated call must re-prepare (a plan MISS): "
+        f"{before['fused_plan_misses']} -> {after['fused_plan_misses']}"
+    )
+    _assert_same(mutated, _oracle(forest, x), "batch_forward[after the in-place write]")
+    assert float(mutated[3, 0]) == pytest.approx(2.5), (
+        f"row 3 must answer the NEW constant, got {float(mutated[3, 0])!r}"
+    )
+    assert not torch.equal(mutated[3], first[3]), "the numbers must move with the write"
+    assert torch.equal(mutated[4], first[4]), "and only the written row may move"
+
+
+def test_an_in_place_mutation_through_a_view_misses_the_plan_fast_path():
+    """A write through a VIEW shares the version counter -- so it must miss too."""
+    fused_engine.clear_fused_cache()
+    forest, x = _const_population(), _data(8, 4)
+    first = _served(lambda: forest.batch_forward(x), "batch_forward[const population]")
+    _assert_same(forest.batch_forward(x), first, "batch_forward[warm repeat]")
+    before = fused_engine.fused_cache_stats()
+    view = forest.batch_node_value[3:5]  # a VIEW: same storage, same `_version`
+    base = forest.batch_node_value
+    assert view.data_ptr() == base.data_ptr() + 3 * base.stride(0) * base.element_size(), (
+        "the case is only about views if this is one"
+    )
+    with torch.no_grad():
+        view[0, 0] = 4.25  # writes into row 3 of the population tensor
+    mutated = _served(
+        lambda: forest.batch_forward(x), "batch_forward[after the view write]"
+    )
+    after = fused_engine.fused_cache_stats()
+    assert int(after["fused_plan_hits"]) == int(before["fused_plan_hits"]), (
+        "a write through a VIEW of a channel must MISS the plan fast path (the version "
+        f"counter is shared), but it was served: {before['fused_plan_hits']} -> "
+        f"{after['fused_plan_hits']} plan hits"
+    )
+    _assert_same(mutated, _oracle(forest, x), "batch_forward[after the view write]")
+    assert float(mutated[3, 0]) == pytest.approx(4.25), (
+        f"row 3 must answer the value written through the view, got {float(mutated[3, 0])!r}"
+    )
+    assert float(mutated[4, 0]) == pytest.approx(1.5), "the un-written row must not move"
+
+
+def test_the_served_fast_path_is_one_launch_per_call():
+    """The fast path changes the PLAN KEY, never the launch: one launch per call."""
+    fused_engine.clear_fused_cache()
+    forest, x = _const_population(), _data(8, 4)
+    launches = []
+    for _ in range(3):
+        stats_before = _dispatch_stats()
+        fused_engine_before = fused_engine.fused_cache_stats()
+        forest.batch_forward(x)
+        stats_after = _dispatch_stats()
+        fused_after = fused_engine.fused_cache_stats()
+        launches.append(
+            (
+                int(stats_after["bound_launches"] - stats_before["bound_launches"])
+                + int(stats_after["jit_launches"] - stats_before["jit_launches"]),
+                int(fused_after["fused_kernel_launches"] - fused_engine_before["fused_kernel_launches"]),
+            )
+        )
+    assert launches == [(1, 1), (1, 1), (1, 1)], (
+        f"every served call must be exactly one dispatch and one launch, counted {launches}"
+    )
+
+
+def test_clear_fused_cache_drops_the_fast_path_the_geometry_memo_and_the_route_memo():
+    """The reset reaches all three in-memory tables a warm call leaves behind."""
+    forest, x = _const_population(), _data(8, 4)
+    for reset, label in (
+        (fused_engine.clear_fused_cache, "clear_fused_cache()"),
+        (evoxc_engine.clear_cache, "evoxc_engine.clear_cache()"),
+    ):
+        reset()
+        first = fused_engine.fused_cache_stats()
+        assert int(first["fused_plan_hits"]) == 0 and int(first["fused_plan_misses"]) == 0
+        served = _served(lambda: forest.batch_forward(x), f"batch_forward[{label} -> first]")
+        forest.batch_forward(x)
+        assert fused_engine._LAST is not None, (
+            f"{label}: the two calls above must have armed the single-slot fast path"
+        )
+        assert fused_engine._GEOMETRY_MEMO, (
+            f"{label}: the calls above must have filled the geometry memo"
+        )
+        assert dense_engine.route_cache_stats()["route_entries"] > 0, (
+            f"{label}: the calls above must have stored a route decision"
+        )
+        reset()
+        assert fused_engine._LAST is None, f"{label} must drop the single-slot fast path"
+        assert not fused_engine._GEOMETRY_MEMO, f"{label} must drop the geometry memo"
+        assert dense_engine.route_cache_stats()["route_entries"] == 0, (
+            f"{label} must drop the route memo too (the route decision a cleared plan is "
+            "prepared under)"
+        )
+        assert dense_engine.route_cache_stats()["route_hits"] == 0, (
+            f"{label} must zero the route memo's counters with its table"
+        )
+        again = _served(lambda: forest.batch_forward(x), f"batch_forward[{label} -> re-served]")
+        _assert_same(again, served, f"batch_forward[{label}: numbers before/after the reset]")
+
 def test_active_launch_hooks_decline(monkeypatch):
     """A registered Triton launch hook keeps the historical dispatch (profilers)."""
     triton_knobs = pytest.importorskip("triton.knobs")
