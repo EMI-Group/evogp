@@ -608,6 +608,57 @@ def _as_device_tensor(value: Any, dtype: torch.dtype, device: torch.device, name
     return value
 
 
+def _same_device(left: torch.device, right: torch.device) -> bool:
+    """Whether two torch devices name the same physical device (index-aware)."""
+    if left.type != right.type:
+        return False
+    return (
+        left.index is None
+        or right.index is None
+        or int(left.index) == int(right.index)
+    )
+
+
+def _out_destination(
+    out: Any, shape: Tuple[int, ...], device: torch.device, name: str
+) -> torch.Tensor:
+    """Validate a caller-supplied ``out`` tensor the kernel writes into.
+
+    The kernel addresses ``out`` with the same raw pointer arithmetic as its own
+    buffer, so every property it relies on is checked here and a violation is a
+    caller error (:class:`ValueError`), never a silently mis-strided write: a
+    torch tensor, exactly ``shape``, float32, contiguous, ``requires_grad=False``
+    and living on the computation device (an index-less spelling of the same
+    device is accepted, as everywhere else in this module).
+    """
+    if not isinstance(out, torch.Tensor):
+        raise ValueError(
+            f"{name} must be a torch tensor (the fused route never stages host "
+            f"memory), got {type(out).__name__}"
+        )
+    got = tuple(int(size) for size in out.shape)
+    if got != tuple(int(size) for size in shape):
+        raise ValueError(f"{name} must have shape {tuple(shape)}, got {got}")
+    if out.dtype != torch.float32:
+        raise ValueError(f"{name} must be float32, got {out.dtype}")
+    if not _same_device(out.device, torch.device(device)):
+        raise ValueError(
+            f"{name} lives on {out.device} but the population is on "
+            f"{torch.device(device)}; the kernel writes in place and cannot cross "
+            "devices"
+        )
+    if out.requires_grad:
+        raise ValueError(
+            f"{name} requires grad; the fused route writes into it in place"
+        )
+    if not out.is_contiguous():
+        raise ValueError(
+            f"{name} must be contiguous (the kernel writes a flat buffer), got "
+            f"strides {out.stride()}"
+        )
+    return out
+
+
 def _transposed(x: torch.Tensor) -> torch.Tensor:
     """``x.t().contiguous()``, memoized by the input tensor's identity.
 
@@ -857,6 +908,7 @@ def evaluate_fused(
     x: Any,
     *,
     per_row: bool,
+    out: Optional[Any] = None,
     out_device: Optional[Any] = None,
     backend: Optional[str] = None,
     block_rows: Optional[int] = None,
@@ -870,6 +922,14 @@ def evaluate_fused(
     float32 on the computation device (the population's device; ``out_device``
     overrides).  ``x`` and the population tensors are never modified.
 
+    ``out`` (optional) is a caller-supplied float32 destination the kernel writes
+    the ``(pop_size, rows, output_len)`` value buffer into instead of allocating
+    one; the return value then shares its storage.  It is the destination of the
+    KERNEL, so it always has the 3-D kernel shape -- ``per_row=True`` returns
+    ``out.squeeze(1)`` (a view, still zero-copy).  Nothing is allocated for the
+    output when it is given, which is what lets a device loop hand the kernel the
+    buffer another runtime will read.
+
     Host crossings: NONE in the steady state.  ``x`` is transposed once per
     distinct dataset tensor (:func:`_transposed`, an identity-keyed table hit
     afterwards) and the value buffer is the kernel's only output -- no decode, no
@@ -877,6 +937,9 @@ def evaluate_fused(
 
     Raises:
         FusedUnsupported: the route cannot serve the call (see the class).
+        ValueError: shape contract violations, or an ``out`` that is not a
+            contiguous float32 tensor of the kernel's shape on the computation
+            device.
     """
     _bump("fused_calls")
     try:
@@ -888,6 +951,7 @@ def evaluate_fused(
             output_len,
             x,
             per_row=per_row,
+            out=out,
             out_device=out_device,
             backend=backend,
             block_rows=block_rows,
@@ -908,6 +972,7 @@ def _evaluate_fused(
     x: Any,
     *,
     per_row: bool,
+    out: Optional[Any],
     out_device: Optional[Any],
     backend: Optional[str],
     block_rows: Optional[int],
@@ -954,10 +1019,25 @@ def _evaluate_fused(
         block_rows=prepared.block_rows, num_warps=prepared.num_warps,
         out_len=int(output_len), holds_values=True,
     )
+    destination = None
+    if out is not None:
+        if out_device is not None and torch.device(out_device) != torch.device(
+            prepared.device
+        ):
+            raise ValueError(
+                f"out lives on {prepared.device} but out_device={out_device!r} asks "
+                "for the result elsewhere; pass one or the other"
+            )
+        destination = _out_destination(
+            out,
+            (prepared.pop, rows, int(output_len)),
+            prepared.device,
+            "out",
+        )
 
     if per_row:
         # Tree t reads x[t]; no transpose is needed (a scalar load per VAR node).
-        out = _launch(
+        values = _launch(
             fused_kernels.launch_value,
             prepared.node_value,
             prepared.node_type,
@@ -971,9 +1051,10 @@ def _evaluate_fused(
             num_warps=prepared.num_warps,
             out_len=int(output_len),
             max_scratch_mb=budget_mb,
+            out=destination,
         )
-        # (pop, 1, out_len) -> (pop, out_len) view of the fresh buffer
-        result = out.squeeze(1)
+        # (pop, 1, out_len) -> (pop, out_len) view of the value buffer
+        result = values.squeeze(1)
     else:
         result = _launch(
             fused_kernels.launch_value,
@@ -989,6 +1070,7 @@ def _evaluate_fused(
             num_warps=prepared.num_warps,
             out_len=int(output_len),
             max_scratch_mb=budget_mb,
+            out=destination,
         )
     if out_device is not None and torch.device(out_device) != result.device:
         result = result.to(out_device)
@@ -1005,6 +1087,7 @@ def sr_fitness_fused(
     labels: Any,
     use_MSE: bool = True,
     *,
+    out: Optional[Any] = None,
     out_device: Optional[Any] = None,
     backend: Optional[str] = None,
     block_rows: Optional[int] = None,
@@ -1024,9 +1107,18 @@ def sr_fitness_fused(
     output of the pass is the ``(pop, n_rb)`` chart: summing it and dividing by
     ``N`` are two tiny device ops and no prediction ever crosses to the host.
 
+    ``out`` (optional) is a caller-supplied ``(pop_size,)`` float32 device tensor
+    the epilogue writes the finished loss INTO (sum into it, then divide in
+    place) instead of allocating the result; the return value is that same
+    tensor.  It saves one ``(pop_size,)`` allocation and, for a caller that
+    already owns a buffer another runtime reads, the device copy into it.  The
+    loss still crosses no boundary; the tensor must be contiguous, float32, on
+    the computation device and must not require grad (a caller error otherwise).
+
     Raises:
         FusedUnsupported: the route cannot serve the call.
-        ValueError: shape contract violations (mismatched rows/columns).
+        ValueError: shape contract violations (mismatched rows/columns), or an
+            ``out`` that does not satisfy the contract above.
     """
     _bump("fused_calls")
     try:
@@ -1039,6 +1131,7 @@ def sr_fitness_fused(
             inputs,
             labels,
             use_MSE,
+            out=out,
             out_device=out_device,
             backend=backend,
             block_rows=block_rows,
@@ -1060,6 +1153,7 @@ def _sr_fitness_fused(
     labels: Any,
     use_MSE: bool,
     *,
+    out: Optional[Any],
     out_device: Optional[Any],
     backend: Optional[str],
     block_rows: Optional[int],
@@ -1120,6 +1214,18 @@ def _sr_fitness_fused(
     # ``out_len == 1`` wants the flat ``(N,)`` view (a free reshape of the now
     # contiguous label column); the multi-output kernel indexes ``(N, out_len)``.
     label_ptr = label_column.reshape(-1) if int(output_len) == 1 else label_column
+    # A caller-supplied destination is validated BEFORE the launch (fail fast,
+    # never after the kernel has run).
+    destination = None
+    if out is not None:
+        if out_device is not None and torch.device(out_device) != torch.device(
+            prepared.device
+        ):
+            raise ValueError(
+                f"out lives on {prepared.device} but out_device={out_device!r} asks "
+                "for the result elsewhere; pass one or the other"
+            )
+        destination = _out_destination(out, (prepared.pop,), prepared.device, "out")
     partials = _launch(
         fused_kernels.launch_loss,
         prepared.node_value,
@@ -1137,8 +1243,14 @@ def _sr_fitness_fused(
         max_scratch_mb=budget_mb,
     )
     # ``sum_points sum_outputs err / N`` -- outputs are already summed (there is
-    # exactly one), the divisor is the data-point count only.
-    loss = partials.sum(dim=1) / float(rows)
-    if out_device is not None and torch.device(out_device) != loss.device:
-        loss = loss.to(out_device)
-    return loss.contiguous()
+    # exactly one), the divisor is the data-point count only.  A caller-supplied
+    # destination gets both steps IN PLACE, so the finished loss is written
+    # straight into the buffer another runtime reads (no allocation, no copy).
+    if destination is None:
+        loss = partials.sum(dim=1) / float(rows)
+        if out_device is not None and torch.device(out_device) != loss.device:
+            loss = loss.to(out_device)
+        return loss.contiguous()
+    torch.sum(partials, dim=1, out=destination)
+    destination.div_(float(rows))
+    return destination
