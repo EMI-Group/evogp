@@ -6,7 +6,7 @@ The route serves `output_len` 1..`fused_engine.MAX_OUT_LEN` (8): `out_len == 1` 
 runs `_fused_multi_kernel` (§11).
 Measured **2026-10-30** on **AMD Instinct MI300X VF** (191.7 GB HBM), torch **2.13.0+rocm7.1**, triton 3.7.1,
 iree-base 3.11.0, `/tmp/rocvenv/bin/python` 3.12.3, `evoxc` from `/root/evoxc`.
-Every record lives next to this file under `fused_results/`; the raw evidence is JSON, nothing here is an estimate.
+Every record lives under `test/benchmark/evoxc/results/t1a1_fused/`, the harness's results tree; the raw evidence is JSON, nothing here is an estimate.
 
 Protocol (identical to `test/benchmark/evoxc/results/t1a1_baseline/BASELINE.md`): one process per (cell, arm),
 seed 0, `common.build_workload(cell)` (`Forest.random_generate`, `x = rand(N, input_len)`), `warmup 2` untimed,
@@ -17,15 +17,15 @@ Ratio convention: **`torch-batched median / arm median`**, so > 1.00 means the a
 Cells: `p256-L32-i8-N1024`, `p256-L64-i32-N1024`, `p256-L64-i32-N4096`, `p1000-L64-i32-N1024`,
 `p4096-L64-i32-N1024`, `p2048-L128-i32-N1024-d7` (123-node trees, `max_layer_cnt 7`).
 
-Campaign size: **20 timing configs, 0 failures** (77 cell×arm×workload entries in `fused_results/campaign.json`;
-the merged `fused_results/main/campaign.json` indexes the four driver invocations), plus 6 per-cell probes,
+Campaign size: **20 timing configs, 0 failures** (77 cell×arm×workload entries in `test/benchmark/evoxc/results/t1a1_fused/campaign.json`;
+the merged `test/benchmark/evoxc/results/t1a1_fused/main/campaign.json` indexes the four driver invocations), plus 6 per-cell probes,
 6 cold-cache probes and one route-validation run (18 cases).
 The harness's own gate over the records (`fused_gate.py` → `check.py --allow-missing --allow-digest-mismatch`, the
 same two allowances the baseline campaign needs) reads **20 records / 574 checks / 0 failures, 20/20 configs on an
 idle device, 0 contaminated**; its digest warnings are exactly the NaN-payload / float32-reduction splits described
 in §6, never a value mismatch.
 
-The route's second campaign (`fused_envelope.py`, §11–§15, table set `fused_results/ENVELOPE.md`) covers what this
+The route's second campaign (`fused_envelope.py`, §11–§15, table set `test/benchmark/evoxc/results/t1a1_fused/ENVELOPE.md`) covers what this
 one does not: the multi-output (`OUT_NODE`) protocol, the memory/population envelope over 12 cells, the measured
 basis of `EVOGP_FUSED_MIN_POP`, the block/warp geometry sweep and a public-API re-verification of the six headline
 cells.
@@ -276,7 +276,7 @@ surfaces are bit-identical on every finite point and differ only in NaN payloads
 `fused_check` documents.
 
 **Route validation across function sets** (`validate.py`, fused arm, 6 cells × `arith`/`rich`/`ternary`, 32 oracle
-trees; `fused_results/validation-fused.json`):
+trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
 
 - `batch_forward` and `forward` vs the **oracle**: `max_abs = 0.000e+00` on **all 18 cases**, including the
   `rich` (transcendental) set. This is a genuinely new result: on `rich`, the *torch* arms deviate from the oracle
@@ -357,22 +357,22 @@ PY=/tmp/rocvenv/bin/python
 # 1. timing campaign — one process per (cell, arm), idle-device guard, warm medians
 #    (fused_campaign.py registers evoxc-fused-iree / evoxc-fused into the harness registry, then calls campaign.py;
 #     fused_gate.py does the same for check.py. The harness files themselves are untouched.)
-$PY src/evogp/tree/fused_results/fused_campaign.py --out src/evogp/tree/fused_results/main \
+$PY test/benchmark/evoxc/results/t1a1_fused/fused_campaign.py --out test/benchmark/evoxc/results/t1a1_fused/main \
     --cells p256-L32-i8-N1024,p256-L64-i32-N1024,p256-L64-i32-N4096,p1000-L64-i32-N1024,p4096-L64-i32-N1024,p2048-L128-i32-N1024-d7 \
     --arms torch-batched,evoxc-fused-iree --workloads sr_fitness,batch_forward,forward,gp_step \
     --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 --seed 0 --guard-wait 60 --timeout 1800
 
-$PY src/evogp/tree/fused_results/fused_campaign.py --out src/evogp/tree/fused_results/main \
+$PY test/benchmark/evoxc/results/t1a1_fused/fused_campaign.py --out test/benchmark/evoxc/results/t1a1_fused/main \
     --cells p256-L32-i8-N1024,p256-L64-i32-N1024,p256-L64-i32-N4096,p1000-L64-i32-N1024 \
     --arms evoxc-dense-iree --workloads sr_fitness,batch_forward,forward,gp_step \
     --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 --seed 0 --guard-wait 60 --timeout 1800
 
-$PY src/evogp/tree/fused_results/fused_campaign.py --out src/evogp/tree/fused_results/main \
+$PY test/benchmark/evoxc/results/t1a1_fused/fused_campaign.py --out test/benchmark/evoxc/results/t1a1_fused/main \
     --cells p2048-L128-i32-N1024-d7 --arms evoxc-dense-iree-raised \
     --workloads sr_fitness,batch_forward,forward,gp_step \
     --warmup 2 --reps 5 --gp-warmup 1 --gp-reps 5 --seed 0 --guard-wait 60 --timeout 1800
 
-$PY src/evogp/tree/fused_results/fused_campaign.py --out src/evogp/tree/fused_results/main \
+$PY test/benchmark/evoxc/results/t1a1_fused/fused_campaign.py --out test/benchmark/evoxc/results/t1a1_fused/main \
     --cells p256-L32-i8-N1024,p256-L64-i32-N1024,p1000-L64-i32-N1024 \
     --arms evoxc-batch-iree --workloads sr_fitness,batch_forward,forward \
     --warmup 2 --reps 5 --seed 0 --guard-wait 60 --timeout 1800
@@ -381,25 +381,25 @@ $PY src/evogp/tree/fused_results/fused_campaign.py --out src/evogp/tree/fused_re
 #    kernel/host/transpose split, cold first calls, and the GP generation loop
 export EVOGP_EVAL_MODE=fused EVOGP_EVOXC_BACKEND=iree
 for c in p256-L32-i8-N1024 p256-L64-i32-N1024 p256-L64-i32-N4096 p1000-L64-i32-N1024 p4096-L64-i32-N1024 p2048-L128-i32-N1024-d7; do
-  $PY src/evogp/tree/fused_results/fused_probe.py --cell $c --gp --oracle-trees 32 \
-      --out src/evogp/tree/fused_results/probes/$c.json
+  $PY test/benchmark/evoxc/results/t1a1_fused/fused_probe.py --cell $c --gp --oracle-trees 32 \
+      --out test/benchmark/evoxc/results/t1a1_fused/probes/$c.json
 done
 
 # 3. cold Triton cache: a fresh TRITON_CACHE_DIR per cell, one call per surface
 i=0; for c in p256-L32-i8-N1024 p256-L64-i32-N1024 p256-L64-i32-N4096 p1000-L64-i32-N1024 p4096-L64-i32-N1024 p2048-L128-i32-N1024-d7; do
   i=$((i+1)); rm -rf $TMPDIR/tf-cold-$i; TRITON_CACHE_DIR=$TMPDIR/tf-cold-$i \
-  $PY src/evogp/tree/fused_results/fused_probe.py --cell $c --cold-cache \
-      --out src/evogp/tree/fused_results/cold/$c.json
+  $PY test/benchmark/evoxc/results/t1a1_fused/fused_probe.py --cell $c --cold-cache \
+      --out test/benchmark/evoxc/results/t1a1_fused/cold/$c.json
 done
 
 # 4. numeric validation against the plain-torch oracle, three function sets
 $PY test/benchmark/evoxc/validate.py \
     --cells p256-L32-i8-N1024,p256-L64-i32-N1024,p256-L64-i32-N4096,p1000-L64-i32-N1024,p4096-L64-i32-N1024,p2048-L128-i32-N1024-d7 \
     --func-sets arith,rich,ternary --max-oracle 32 \
-    --out src/evogp/tree/fused_results/validation-fused.json
+    --out test/benchmark/evoxc/results/t1a1_fused/validation-fused.json
 
 # 5. index (one campaign.json entry per cell × arm × workload) + the markdown summary
-$PY src/evogp/tree/fused_results/campaign_index.py
+$PY test/benchmark/evoxc/results/t1a1_fused/campaign_index.py
 
 # 6. the route's second campaign: multi-output parity, the envelope, the min-pop column,
 #    the geometry sweep and the public-API headline (one process per config; each stage
@@ -423,33 +423,33 @@ CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= PYTHONPATH=src:/root/evoxc $PY -c "im
 
 ---
 
-## 9. Where these records belong
+## 9. Where these records live
 
-The campaign is benchmark evidence for the `evoxc` harness, so its home is
+The campaign is benchmark evidence for the `evoxc` harness, so it lives at
 **`test/benchmark/evoxc/results/t1a1_fused/`** (the sibling of `results/t1a1_baseline/`), with `main/` as the
 gateable directory and `probes/`, `cold/`, `validation-fused.json` as sibling columns.
-It is parked here, under `src/evogp/tree/fused_results/`, **only because `test/` is outside this node's write
-scope**; the parent agent should move (or copy) the directory there and add the fused arm to the harness registry
-(`fused_sibling_patches.md` §3–§6). Nothing in the numbers depends on the location.
+The harness registry carries both arms (`evoxc-fused-iree`, `evoxc-fused` in `common.EVOXC_ARMS`), so a re-run is a
+plain `campaign.py` invocation and the gate is `check.py --results test/benchmark/evoxc/results/t1a1_fused --allow-snapshot --allow-missing --allow-digest-mismatch`.
+This document stays in the library as the route's design/report; §10 lists the records beside it.
 
 ## 10. Files
 
 | path | content |
 |---|---|
-| `fused_results/campaign.json` | index: one entry per cell × arm × workload (77 entries, 0 failed, 0 missing) |
-| `fused_results/campaign.md` | the same index rendered as tables |
-| `fused_results/main/<cell>/<arm>.json` | harness-schema timing records (workloads, medians, samples, cold calls, digests, routes, `gp_step`) |
-| `fused_results/main/campaign.A.json`, `.B1.json`, `.B2.json`, `.C.json` | the four driver invocations' own `campaign.json` files |
-| `fused_results/probes/<cell>.json` | route proof, served-call counter deltas, numerics vs arm + oracle, stage split, cold calls, GP loop |
-| `fused_results/cold/<cell>.json` | cold-Triton-cache first calls (one fresh cache dir per cell) |
-| `fused_results/validation-fused.json` | `validate.py` output, 18 cases × 15 checks |
-| `fused_results/fused_campaign.py`, `fused_gate.py`, `fused_probe.py`, `campaign_index.py` | the tooling that produced the above |
-| `fused_results/main/headline_<UTC>.json` | the six-cell public-API headline re-verification of §15 (value/loss/per-row medians, the `fused_direct` kernel column and the policy's route per cell) |
-| `fused_results/envelope.json` | the 12 envelope cells of §12 (arms `fused` / `torch-batched` / `specialized` / `dense`, scratch bytes, the device peak over the fused window, parity) |
-| `fused_results/minpop.json` | the pop 1–128 column of §13 (`fused_direct` + the public API + `specialized` + `torch-batched` + the policy's engine) |
-| `fused_results/sweep/sweep.json` | the 12-config block/warp geometry sweep of §14 (four cells per config) |
-| `fused_results/degenerate.json` | the degenerate shapes (rows 1 / rows 1000 / `input_len` 1 / all-constant population / single-node population) |
-| `fused_results/ENVELOPE.md` | the table set of that campaign: protocol, headline, envelope, min-pop, sweep, degenerate shapes, reader notes |
+| `test/benchmark/evoxc/results/t1a1_fused/campaign.json` | index: one entry per cell × arm × workload (77 entries, 0 failed, 0 missing) |
+| `test/benchmark/evoxc/results/t1a1_fused/campaign.md` | the same index rendered as tables |
+| `test/benchmark/evoxc/results/t1a1_fused/main/<cell>/<arm>.json` | harness-schema timing records (workloads, medians, samples, cold calls, digests, routes, `gp_step`) |
+| `test/benchmark/evoxc/results/t1a1_fused/main/campaign.A.json`, `.B1.json`, `.B2.json`, `.C.json` | the four driver invocations' own `campaign.json` files |
+| `test/benchmark/evoxc/results/t1a1_fused/probes/<cell>.json` | route proof, served-call counter deltas, numerics vs arm + oracle, stage split, cold calls, GP loop |
+| `test/benchmark/evoxc/results/t1a1_fused/cold/<cell>.json` | cold-Triton-cache first calls (one fresh cache dir per cell) |
+| `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json` | `validate.py` output, 18 cases × 15 checks |
+| `test/benchmark/evoxc/results/t1a1_fused/fused_campaign.py`, `fused_gate.py`, `fused_probe.py`, `campaign_index.py` | the tooling that produced the above |
+| `test/benchmark/evoxc/results/t1a1_fused/main/headline_<UTC>.json` | the six-cell public-API headline re-verification of §15 (value/loss/per-row medians, the `fused_direct` kernel column and the policy's route per cell) |
+| `test/benchmark/evoxc/results/t1a1_fused/envelope.json` | the 12 envelope cells of §12 (arms `fused` / `torch-batched` / `specialized` / `dense`, scratch bytes, the device peak over the fused window, parity) |
+| `test/benchmark/evoxc/results/t1a1_fused/minpop.json` | the pop 1–128 column of §13 (`fused_direct` + the public API + `specialized` + `torch-batched` + the policy's engine) |
+| `test/benchmark/evoxc/results/t1a1_fused/sweep/sweep.json` | the 12-config block/warp geometry sweep of §14 (four cells per config) |
+| `test/benchmark/evoxc/results/t1a1_fused/degenerate.json` | the degenerate shapes (rows 1 / rows 1000 / `input_len` 1 / all-constant population / single-node population) |
+| `test/benchmark/evoxc/results/t1a1_fused/ENVELOPE.md` | the table set of that campaign: protocol, headline, envelope, min-pop, sweep, degenerate shapes, reader notes |
 | `fused_envelope.py` | the driver behind §12–§15 (`--stage headline\|envelope\|minpop\|sweep\|degenerate`, plus the `*-one` single-process legs the drivers spawn) and the read-only `--stage records` audit of the committed files against the engine's envelope rule |
 | `fused_sibling_patches.md` | the exact cross-node edits (test pin, harness arm registry, route reporting, worker counters, doc drift) |
 
@@ -519,7 +519,7 @@ row (NaN/nonsense cells behind the tree).
 
 ## 12. The envelope: memory, rows and population (12 cells)
 
-Records `fused_results/envelope.json`, table set `fused_results/ENVELOPE.md`. Shipped geometry
+Records `test/benchmark/evoxc/results/t1a1_fused/envelope.json`, table set `test/benchmark/evoxc/results/t1a1_fused/ENVELOPE.md`. Shipped geometry
 (`BLOCK_R` 256 / 1 warp), warm medians in ms, one process per config, `TREE_LEN = 64` unless the cell names `d7`
 (`max_layer_cnt` 7, 123-node trees) or `d8`.
 
@@ -584,7 +584,7 @@ explicitly named backend still serves below the threshold, and `auto` selects fu
 
 ## 14. Block/warp sweep — the default stays 256 / 1
 
-Records `fused_results/sweep/sweep.json`: 12 configs × 4 cells, value medians in ms, one process per (config, cell).
+Records `test/benchmark/evoxc/results/t1a1_fused/sweep/sweep.json`: 12 configs × 4 cells, value medians in ms, one process per (config, cell).
 `worst` = the config's slowest cell relative to that cell's best config.
 
 | cfg | `p256-L64-N1024` | `p4096-L64-N1024` | `p256-L64-N4096` | `p2048-L128-d7` | worst |
@@ -612,7 +612,7 @@ loop-carried dependency chain.
 
 ## 15. Headline re-verification — no regression
 
-Six cells of record through the PUBLIC API at the shipped geometry (`fused_results/main/headline_<UTC>.json`), ms,
+Six cells of record through the PUBLIC API at the shipped geometry (`test/benchmark/evoxc/results/t1a1_fused/main/headline_<UTC>.json`), ms,
 warm medians, one process per config:
 
 | cell | value | loss | per_row | arm | ratio | kernel-only | recorded kernel-only |
@@ -723,7 +723,7 @@ Exact bytes one launch allocates, and what the pre-fix formula compared (value p
   1 000 rows at 256 lanes is 1 024 lanes) + `pop*rows*out_len*4` (the value path, and the multi-output loss
   path) + `pop*n_rb*4` (the loss chart), declines with a message naming all three components, and returns the
   resolved budget so the scratch TABLE is budgeted by the number the envelope was checked against. The campaign's
-  measured peak-allocated tracks the scratch term within 3.5 %, the value buffer on top (`fused_results/ENVELOPE.md`).
+  measured peak-allocated tracks the scratch term within 3.5 %, the value buffer on top (`test/benchmark/evoxc/results/t1a1_fused/ENVELOPE.md`).
   Battery `_check_envelope_bytes`: the 1 050 MiB call now declines naming `value buffer`; `d7` at 8 192 returns `8192`.
 - **S1:** the scratch table is an LRU bounded by total BYTES, `n_prog*stack_cap*block_rows*4` against the call's
   `EVOGP_FUSED_MAX_SCRATCH_MB` (it used to be bounded only by an entry count of 8, i.e. up to 8× the budget).
@@ -804,7 +804,7 @@ was arm-order drift, which is why §15's protocol keeps the order alternation.
 - `EVOGP_FUSED_BLOCK_ROWS` values between two powers of two silently become the lower one (reported in the
   stats, not refused).
 - `MAX_OUT_LEN` is 8: a wider multi-output population declines by name.
-- The records under `fused_results/` predate §16.4, so their `geometry.scratch_bytes` is the older round figure and
+- The records under `test/benchmark/evoxc/results/t1a1_fused/` predate §16.4, so their `geometry.scratch_bytes` is the older round figure and
   their geometric keys carry no value-buffer/chart terms. Their `envelope_ok` is unaffected: all 79 stored records
   still pass today's rule, which `fused_envelope.py --stage records` re-checks read-only (it never rewrites them).
 - Module sizes are deliberate single units: `fused_engine.py` ~1.1 k lines and `fused_kernels.py` ~1.2 k lines

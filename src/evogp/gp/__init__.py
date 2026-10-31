@@ -37,10 +37,10 @@ The stack, bottom up:
     (:class:`FusedEvaluator` for host channels, :class:`FusedDeviceEvaluator`
     for device channels, :func:`fused_available` / :func:`interop_available` as
     their probes), which resolves its dependencies at call time only.
-    ``_device_interop`` is the local, explicitly temporary DLPack shim the
-    device-native route borrows (``evoxc`` has no first-class device export
-    yet); it is not part of the public surface beyond
-    :func:`interop_available`.
+    The device hand-off is the standard DLPack protocol (``Tensor.__dlpack__``
+    exports, ``torch.from_dlpack`` consumes), wrapped by
+    :func:`export_to_torch` so the shape/dtype/device validation is not
+    optional; :func:`interop_available` is the probe a caller gates on.
 ``workflow``
     the driver: :func:`init_gp`, :func:`step` (one generation, elitism included,
     one ``evaluate`` call), :func:`run` (the loop) and :class:`GPResult`.  The
@@ -78,11 +78,11 @@ names are the submodules themselves (``evogp.gp.variation`` must stay importable
 as a module).
 
 No module of this subtree carries a torch import statement
-(``tests/test_gp_stack_purity.py`` pins that; the optional fused backend and its
-local DLPack shim ``_device_interop`` resolve torch/evoxc/iree through
-``importlib`` inside their functions, at call time only), and nothing imports
-``evoxc`` at module scope either, so ``import evogp.gp`` works on a plain
-checkout; the graphs themselves need evoxc at call time.
+(``tests/test_gp_stack_purity.py`` pins that; the optional fused backend
+resolves torch/triton/evoxc through ``importlib`` inside its functions, at call
+time only), and nothing imports ``evoxc`` at module scope either, so
+``import evogp.gp`` works on a plain checkout; the graphs themselves need evoxc
+at call time.
 """
 
 from .config import GPConfig, GPTreeConfig, MUTATION_KINDS, SELECTION_MODES
