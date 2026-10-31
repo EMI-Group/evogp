@@ -21,9 +21,10 @@ re-export it):
   channels), :func:`index_array` (the ``[0, pop_size)``-validated index vector
   the legacy kernel left undefined) and :func:`unevaluated`;
 * **trace-time primitives** -- :func:`columns`, :func:`row_offsets`,
-  :func:`take_rows`, :func:`take_per_row`, :func:`row_values`, the typed scalar
-  constructors :func:`i32`, :func:`f32` and the ``cumsum`` decomposition
-  :func:`cumsum_axis` (the stablehlo/iree emitter has no ``cumsum``).
+  :func:`constant_index`, :func:`take_rows`, :func:`take_per_row`,
+  :func:`row_values`, the typed scalar constructors :func:`i32`, :func:`f32` and
+  the ``cumsum`` decomposition :func:`cumsum_axis` (the stablehlo/iree emitter
+  has no ``cumsum``).
 
 Two evoxc facts drive the last group and are worth stating once here:
 
@@ -70,6 +71,7 @@ __all__ = [
     "gate_tensor",
     "columns",
     "row_offsets",
+    "constant_index",
     "take_rows",
     "take_per_row",
     "row_values",
@@ -380,6 +382,17 @@ def columns(evoxc_module, width: int):
 def row_offsets(evoxc_module, pop_size: int, width: int):
     """``[pop_size, 1]`` int64 ``row * width`` offsets for the flattened gathers."""
     table = (np.arange(int(pop_size), dtype=np.int64) * int(width)).reshape(-1, 1)
+    return evoxc_module.constant(evoxc_module.from_numpy(table))
+
+
+def constant_index(evoxc_module, length: int):
+    """The constant ``[0, length)`` int32 vector (a static row order).
+
+    The index list of "keep the first ``length`` rows": the offspring rows an
+    elite splice keeps, which is static for one graph, so it is baked in here
+    rather than passed by the caller.
+    """
+    table = np.arange(int(length), dtype=np.int32)
     return evoxc_module.constant(evoxc_module.from_numpy(table))
 
 
