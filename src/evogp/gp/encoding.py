@@ -16,9 +16,10 @@ Public surface
 ``init_population(config, key, ...)``
     One traced, memoized graph per config draws a whole random population from
     the key (the same decision structure as ``../tree/generation.py``: level-wise
-    sampling on the padded complete-tree layout, then one scatter into pre-order)
-    and returns a :class:`~evogp.gp.state.GPState` whose ``key`` is the key of
-    the next generation.
+    sampling on the padded complete-tree layout, then an axis-1 ``argsort`` of
+    the destination map into pre-order) and returns a
+    :class:`~evogp.gp.state.GPState` whose ``key`` is the key of the next
+    generation.
 ``live_mask(channels)`` / ``row_length(channels)`` / ``is_leaf(size)``
     Derived, never-stored views (host-side numpy).
 ``validate_channels(channels, input_len=None)``
@@ -600,7 +601,13 @@ def _generator_fn(config: GPTreeConfig, pop_size: int):
     evoxc = _evoxc()
     # Imported here, not at module scope: `_runtime` imports this module (it is
     # the shared trace-primitive home of the operator layer).
-    from ._runtime import columns as column_index, cumsum_axis, f32, i32
+    from ._runtime import (
+        columns as column_index,
+        cumsum_axis,
+        f32,
+        i32,
+        take_per_row,
+    )
 
     widths = config.padded_widths()
     offsets = _padded_offsets(config)
@@ -608,16 +615,22 @@ def _generator_fn(config: GPTreeConfig, pop_size: int):
     total = sum(widths)
     arity_max = config.max_arity
     max_nodes = config.max_nodes
-    columns = max_nodes + 1  # one scratch column absorbs the dropped slots
-    scratch = max_nodes
-    flat = pop_size * total
+    scratch = max_nodes  # the destination of every dropped padded slot
+    if total > max_nodes:  # pragma: no cover - the config validates this
+        raise ValueError(
+            f"the padded layout needs {total} slots but max_nodes is {max_nodes}; "
+            "the pre-order placement writes the channels at [pop_size, max_nodes] "
+            "and cannot shrink a row, so raise max_nodes to at least "
+            f"{total} (GPTreeConfig validates this for a complete "
+            f"{arity_max}-ary tree of {levels} levels)"
+        )
+    pad_out = max_nodes - total
 
     leaf_probs = _slot_leaf_probs(config)
     cdf = np.asarray(config.roulette_funcs, dtype=np.float32)
     arity_table = np.asarray(config.func_arity, dtype=np.int32)
     constants = np.asarray(config.const_samples, dtype=np.float32)
     rank_pattern = np.arange(arity_max, dtype=np.int32)
-    row_offsets = (np.arange(pop_size, dtype=np.int32) * columns).reshape(pop_size, 1)
     const_prob = float(config.const_prob)
     input_len = int(config.input_len)
 
@@ -747,59 +760,40 @@ def _generator_fn(config: GPTreeConfig, pop_size: int):
             )
 
         # ---- the padded grid back into pre-order --------------------------
-        # The layout is flattened to 1-D because evoxc.scatter takes the
-        # indices' shape as the "middle" axes and does not broadcast them
-        # against the leading axis of a 2-D base; every row owns a disjoint
-        # slice of the flat buffer, so this is the same write.
+        # `prefixes` holds, per padded slot, that slot's DESTINATION column in
+        # pre-order, and `scratch` for every dropped slot.  Sorting each row's
+        # columns by that key IS the inverse permutation: the live slots come
+        # out in pre-order (their destinations are distinct, 0..live-1) and the
+        # dropped slots -- all mapped to `scratch` = max_nodes -- trail at the
+        # end, where their order among themselves is irrelevant because
+        # everything past the row's live node count is masked out below.
         #
-        # The three channels are NOT three scatters: a program with two
-        # `stablehlo.scatter` ops whose window is scalar (rank-1 operand) fails
-        # to compile on the iree backend ("unresolved materialization from
-        # tensor<Kx1xi32> to tensor<Kxi32>"), so ONE scatter builds the inverse
-        # map (destination column -> source slot) once and each channel is then
-        # one row-wise gather.  Duplicate destinations (every dropped slot lands
-        # on the scratch column) are masked out below, so last-write-wins on
-        # them is irrelevant.
-        index_flat = evoxc.reshape(
-            evoxc.add(
-                evoxc.concatenate(prefixes, axis=1),
-                evoxc.constant(evoxc.from_numpy(row_offsets)),
-            ),
-            (flat,),
-        )
-        slot_table = np.arange(flat, dtype=np.int32)
-        inverse_flat = evoxc.scatter(
-            evoxc.broadcast(zero_i, (pop_size * columns,)),
-            index_flat,
-            evoxc.constant(evoxc.from_numpy(slot_table)),
-            axis=0,
-        )
+        # The axis-1 `argsort` REPLACED a flat `evoxc.scatter` of the inverse
+        # map: `stablehlo.scatter` lowers to a sequential update loop (~45 ns
+        # per index), which made that one scatter 2.77 ms of the generation
+        # graph's 2.35-2.77 ms at pop 4096, against ~0.16 ms for the argsort
+        # (and no scratch column, so the buffer is `pop_size * total` instead of
+        # `pop_size * (max_nodes + 1)`).  The output is bit-identical: measured
+        # on 3 configs x pops 5/17/64/257/1000 x 3 seeds on numpy and on
+        # iree/rocm.
+        destination = evoxc.concatenate(prefixes, axis=1)
+        order = evoxc.cast(evoxc.argsort(destination, axis=1), evoxc.int32)
         # The root's subtree size IS the row's live node count, so this is the
         # padding mask without a second reduction.
-        keep = evoxc.less(column_index(evoxc, columns), sizes[0])
-        pad_len = pop_size * columns - flat
+        keep = evoxc.less(column_index(evoxc, total), sizes[0])
         outputs = []
         for values in (opcode, payload, evoxc.concatenate(sizes, axis=1)):
             zero = (
                 zero_f if values.dtype == evoxc.float32 else zero_i
             )
-            flat_values = evoxc.reshape(values, (flat,))
-            if pad_len > 0:
-                flat_values = evoxc.concatenate(
-                    (flat_values, evoxc.broadcast(zero, (pad_len,))), axis=0
+            buffer = evoxc.select(keep, take_per_row(evoxc, values, order), zero)
+            if pad_out:
+                # `total <= max_nodes` (validated above), so the channels are
+                # grown to `max_nodes` with the same zero the mask uses.
+                buffer = evoxc.concatenate(
+                    (buffer, evoxc.broadcast(zero, (pop_size, pad_out))), axis=1
                 )
-            pulled = evoxc.reshape(
-                evoxc.gather(flat_values, inverse_flat, axis=0),
-                (pop_size, columns),
-            )
-            buffer = evoxc.select(keep, pulled, zero)
-            outputs.append(
-                evoxc.slice(
-                    buffer,
-                    start=(0, 0),
-                    lengths=(pop_size, max_nodes),
-                )
-            )
+            outputs.append(buffer)
 
         return outputs[0], outputs[1], outputs[2], k_next
 
@@ -862,8 +856,9 @@ def init_population(
     its arity follows from the id; a leaf is a constant with probability
     ``const_prob`` (value drawn uniformly from the constant table) and a
     variable index ``% input_len`` otherwise.  The population is grown on the
-    padded complete-tree layout and scattered once into pre-order, so the whole
-    generation is a single `evoxc.run` of a static-shape graph.
+    padded complete-tree layout and placed into pre-order by one axis-1
+    ``argsort`` of the destination map, so the whole generation is a single
+    `evoxc.run` of a static-shape graph.
 
     Args:
         config: a :class:`~evogp.gp.config.GPTreeConfig` (then ``pop_size`` is

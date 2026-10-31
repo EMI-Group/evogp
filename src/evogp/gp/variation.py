@@ -24,11 +24,14 @@ Elitism is folded into the same graph
 ``elite_count=k`` prepends the ``k`` best parent rows, bit-identically, to the
 first ``pop_size - k`` offspring rows INSIDE the graph -- the splice the driver
 used to run as a second executable per generation (:file:`workflow.py`).  The
-elite rows are ranked in-graph with ``argsort(stable=True)`` on ``-fitness``, so
-ties go to the lower row index exactly like
-``np.argsort(-fitness, kind="stable")``; a caller that already knows the rows
-passes ``elite_index=`` instead.  ``elite_count=0`` (the default) is
-offspring-only, i.e. the behaviour this module always had.
+elite rows are ranked in-graph by ``k`` repeated ``argmax`` passes over a
+running ``-inf`` mask, so ties go to the lower row index exactly like
+``np.argsort(-fitness, kind="stable")[:k]`` (``argmax`` returns the first
+maximal index) at a cost linear in ``k`` rather than a population-wide sort; a
+``k`` above :data:`_ARGSORT_ELITE_BREAK_EVEN` falls back to that stable
+``argsort`` instead, which is cheaper from there on.  A caller that already
+knows the rows passes ``elite_index=`` instead.  ``elite_count=0`` (the
+default) is offspring-only, i.e. the behaviour this module always had.
 
 Inside the graph (all from the primitives of the sibling modules, so there is no
 second implementation of anything):
@@ -190,8 +193,16 @@ def _sanitize_fitness(evoxc_module, fitness):
     )
 
 
-def _elite_order(evoxc_module, fitness):
-    """``[pop_size]`` int32 row order of ``fitness``, best first.
+#: ``elite_count`` above which ONE stable ``argsort`` is cheaper than that many
+#: ``argmax`` passes.  Measured on the acceptance config at pop 4096: the stable
+#: argsort of the whole ``-fitness`` vector costs 1.31-1.46 ms, one ``argmax``
+#: pass (plus its mask update) ~0.025 ms, so the crossover sits near 50 rows and
+#: an elite count in that region is the only case that takes the sort.
+_ARGSORT_ELITE_BREAK_EVEN = 50
+
+
+def _argsort_order(evoxc_module, fitness):
+    """``[pop_size]`` int32 row order of ``fitness``, best first (the full sort).
 
     Sorting the negated vector ASCENDING with ``stable=True`` is the in-graph
     spelling of ``np.argsort(-fitness, kind="stable")``: a tie keeps the lower
@@ -205,6 +216,99 @@ def _elite_order(evoxc_module, fitness):
         ),
         evoxc_module.int32,
     )
+
+
+def _argmax_order(evoxc_module, fitness, count: int):
+    """``[count]`` int32 rows of the ``count`` best entries of ``fitness``.
+
+    ``count`` repeated ``argmax`` passes over a running mask: ``argmax`` returns
+    the FIRST maximal index, so ties go to the lower row index, and the winner
+    of each pass is masked to ``-inf`` so every row is emitted once.  That
+    reproduces ``np.argsort(-fitness, kind="stable")[:count]`` exactly.
+
+    Two details make it exact rather than approximate:
+
+    * masking to ``-inf`` cannot push a row below an ``-inf`` competitor, so
+      once every remaining row is ``-inf`` the ``argmax`` keeps returning a row
+      that is ALREADY taken.  The pass therefore checks whether its winner is
+      still untaken and, when it is not, continues with the lowest untaken row
+      (``argmin`` of the taken mask) -- which is the order the stable sort uses
+      (an all-``-inf`` vector yields ``0, 1, ...``);
+    * ``count`` must stay below ``pop_size``: with every row taken there is no
+      untaken row left to name (the caller takes the stable-``argsort`` path
+      for that case, see :func:`_elite_order`).
+
+    Args:
+        fitness: ``[pop_size]`` float32 fitness, already sanitized (``NaN`` has
+            been mapped to ``-inf``), so a row can never win on a non-finite
+            value.
+        count: how many rows to take (``1 <= count < pop_size``).
+    """
+    pop_size = int(fitness.shape[0])
+    neg_inf = _runtime.f32(evoxc_module, float(UNEVALUATED))
+    rows = evoxc_module.constant(
+        evoxc_module.from_numpy(np.arange(pop_size, dtype=np.int32))
+    )
+    taken = evoxc_module.constant(
+        evoxc_module.from_numpy(np.zeros(pop_size, dtype=np.int32))
+    )
+    running = fitness
+    winners = []
+    for _ in range(int(count)):
+        # `argmax` drops the reduced axis and returns int64; the winner is
+        # reshaped back to a length-1 int32 vector so it broadcasts against the
+        # population-sized masks and can be concatenated with the other passes.
+        winner = evoxc_module.cast(
+            evoxc_module.reshape(evoxc_module.argmax(running, axis=0), (1,)),
+            evoxc_module.int32,
+        )
+        best = evoxc_module.gather(running, winner, axis=0)
+        first_untaken = evoxc_module.cast(
+            evoxc_module.reshape(evoxc_module.argmin(taken, axis=0), (1,)),
+            evoxc_module.int32,
+        )
+        winner = evoxc_module.select(
+            evoxc_module.greater(best, neg_inf), winner, first_untaken
+        )
+        winners.append(winner)
+        hit = evoxc_module.equal(rows, winner)
+        taken = evoxc_module.add(
+            taken, evoxc_module.cast(hit, evoxc_module.int32)
+        )
+        running = evoxc_module.select(hit, neg_inf, running)
+    return evoxc_module.concatenate(winners, axis=0)
+
+
+def _elite_order(evoxc_module, fitness, count=None):
+    """Row indices of the ``count`` best entries of ``fitness``, best first.
+
+    ``count=None`` returns the FULL order (the stable-argsort spelling above) and
+    ``count=0`` the empty vector; a ``count`` up to
+    :data:`_ARGSORT_ELITE_BREAK_EVEN` that still leaves a row untaken uses that
+    many ``argmax`` passes (:func:`_argmax_order`), which is cheaper for the
+    elite counts a run actually splices, and anything else (``count >=
+    pop_size`` included) falls back to the sort and slices it -- so the tie rule
+    (lower row index wins) is the same on both paths, only the cost differs.
+    """
+    if count is not None:
+        wanted = int(count)
+        if wanted == 0:
+            # The empty order, built as a constant: a zero-length `slice` of the
+            # sorted order is what would spell it otherwise, and a zero-length
+            # slice in the graph hangs `iree-compile`.  Unreachable from
+            # `variation` (an `elite_count` of 0 short-circuits before the
+            # splice), kept so a caller of this helper cannot build that graph.
+            return evoxc_module.constant(
+                evoxc_module.zeros((0,), evoxc_module.int32)
+            )
+        if wanted <= _ARGSORT_ELITE_BREAK_EVEN and wanted < int(
+            fitness.shape[0]
+        ):
+            return _argmax_order(evoxc_module, fitness, wanted)
+    order = _argsort_order(evoxc_module, fitness)
+    if count is None:
+        return order
+    return evoxc_module.slice(order, start=(0,), lengths=(int(count),))
 
 
 def _assemble_elites(evoxc_module, parents, offspring, fitness, elite_count: int,
@@ -229,9 +333,7 @@ def _assemble_elites(evoxc_module, parents, offspring, fitness, elite_count: int
     kept = int(elite_count)
     remaining = pop_size - kept
     if elite_index is None:
-        elite_index = evoxc_module.slice(
-            _elite_order(evoxc_module, fitness), start=(0,), lengths=(kept,)
-        )
+        elite_index = _elite_order(evoxc_module, fitness, kept)
     elite_index = evoxc_module.cast(elite_index, evoxc_module.int32)
     keep_offspring = (
         _runtime.constant_index(evoxc_module, remaining) if remaining else None
@@ -415,10 +517,12 @@ def variation(config, state, fitness, key=0, *, elite_count: int = 0,
             choice: ``variation(config, state, fitness, state.key)``).
         elite_count: how many parent rows to keep, best first, in front of the
             offspring (``0``, the default, is pure offspring).  The rows are
-            ranked IN-GRAPH -- ``argsort`` of ``-fitness`` with ``stable=True``,
-            i.e. exactly ``np.argsort(-fitness, kind="stable")[:elite_count]``
-            -- and copied bit-identically, with their fitness, into the returned
-            state (``-inf`` for the offspring rows).
+            ranked IN-GRAPH by that many ``argmax`` passes over a running mask
+            (a stable ``argsort`` of ``-fitness`` above
+            :data:`_ARGSORT_ELITE_BREAK_EVEN` rows) -- i.e. exactly
+            ``np.argsort(-fitness, kind="stable")[:elite_count]``, ties to the
+            lower row index -- and copied bit-identically, with their fitness,
+            into the returned state (``-inf`` for the offspring rows).
         elite_index: an explicit ``[elite_count]`` vector of parent row indices
             to use instead of the in-graph ranking (it also fixes
             ``elite_count`` to its length); uploaded once on a device run.
