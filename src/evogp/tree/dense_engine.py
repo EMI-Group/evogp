@@ -502,8 +502,6 @@ from .multi_output import check_multi_output
 from .evoxc_engine import (  # private but deliberately reused: parity by construction
     BACKEND_ENV,
     CACHE,
-    IREE_DEVICE_ENV,
-    IREE_OPT_LEVEL_ENV,
     _CPU,
     _as_numpy,
     _emit_binary,
@@ -645,18 +643,6 @@ AUTO_MAX_TREE_LEN_ENV = "EVOGP_DENSE_AUTO_MAX_TREE_LEN"
 #: :func:`evogp.tree.fused_engine.resolve_min_pop`; :func:`resolve_fused_min_pop`
 #: delegates to it -- see that function.
 FUSED_MIN_POP_ENV = "EVOGP_FUSED_MIN_POP"
-#: The fused route's memory-envelope knobs, re-declared for :func:`resolve_route`'s
-#: MEMO KEY only (the route policy reads them through
-#: ``fused_engine.envelope_decline`` when a caller passes ``rows``/``tree_len``, so a
-#: cached decision must be invalidated by a flip).  They are owned -- the parsing,
-#: the defaults and the error messages -- by
-#: :mod:`evogp.tree.fused_engine` (:data:`FUSED_MAX_SCRATCH_MB_ENV`,
-#: :data:`FUSED_BLOCK_ROWS_ENV`, :data:`FUSED_NUM_WARPS_ENV` there, the same three
-#: module attributes :func:`evogp.tree.fused_engine.resolve_max_scratch_mb` and its
-#: siblings read); a test pins the two spellings together so they cannot drift.
-FUSED_MAX_SCRATCH_MB_ENV = "EVOGP_FUSED_MAX_SCRATCH_MB"
-FUSED_BLOCK_ROWS_ENV = "EVOGP_FUSED_BLOCK_ROWS"
-FUSED_NUM_WARPS_ENV = "EVOGP_FUSED_NUM_WARPS"
 #: Max trace length ``L`` (``EVOGP_DENSE_MAX_TREE_LEN``): populations whose
 #: longest tree exceeds it fall back to the specialized engine.  This is the
 #: knob that bounds trace time and graph size (the candidate chain is emitted
@@ -1615,152 +1601,7 @@ class Route:
         return self.engine == "fused"
 
 
-#: The ambient environment's raw store, when CPython exposes it (``os._Environ``
-#: keeps its values in a plain ``dict`` since 3.x).  The route memo has to read a
-#: handful of knobs on EVERY call to stay sound, and ``os.environ.get`` costs 0.23 us
-#: per name (it re-encodes the key and goes through the mapping protocol) against
-#: 0.03 us for a plain ``dict.get`` -- 2.5 us against 0.4 us for the whole key, i.e.
-#: the difference between a memo that pays for itself and one that does not.  The
-#: two readers agree by construction: ``os.environ[...] = v`` / ``del`` / ``.pop``
-#: write through to this dict (and the C ``putenv``/``unsetenv`` do not update
-#: ``os.environ`` either, so no new divergence is introduced).  ``None`` when the
-#: private attribute is missing, and a value that is not a ``str`` (a ``bytes``
-#: value on an exotic platform) falls back to ``os.environ`` -- see
-#: :func:`_route_env`.
-_ENV_DATA = getattr(os.environ, "_data", None)
-
-
-def _route_env(name: str) -> Optional[str]:
-    """One environment knob, raw and unparsed (the route memo's reader).
-
-    Exactly what ``os.environ.get(name)`` answers -- see :data:`_ENV_DATA` for why
-    the fast reader is used.  A ``None`` result means "unset", which is what every
-    resolver in this module treats as "use the default".
-    """
-    data = _ENV_DATA
-    if data is not None:
-        value = data.get(name)
-        if value is None or type(value) is str:
-            return value
-    return os.environ.get(name)
-
-
-#: Memo of :func:`resolve_route`'s DECISION.  The policy is a pure function of its
-#: arguments, the environment knobs it reads and the two memoized availability
-#: probes, so the whole decision is a table lookup instead of a re-derivation -- it
-#: is on the hottest path in the library (every ``Forest.forward`` /
-#: ``batch_forward`` / ``SR_fitness`` and every ``Tree.*`` call asks it) and cost
-#: 3.5 us of the fused route's ~21 us host glue, more than the launch itself.
-#:
-#: Soundness is by CONSTRUCTION: the key carries every argument
-#: (:func:`_route_key`), every environment name the policy chain can read, and --
-#: as a validity check on the entry, not as a key component -- the two probe
-#: globals :data:`_DEVICE_AVAILABLE` / :data:`_FUSED_AVAILABLE` as they were when
-#: the entry was stored, so an entry served while a probe has since been resolved,
-#: pinned or monkeypatched back to ``None`` is a miss.  Nothing is ever re-read
-#: lazily behind the entry: a probe the policy would take flips a global, which
-#: invalidates the entry on the next call.
-#:
-#: The consequence is that a memo entry can never disagree with a fresh derivation,
-#: while the caching is bounded (at most a handful of distinct argument shapes alive
-#: in a process) and hygiene-only to drop -- :func:`clear_route_memo` runs from
-#: ``evoxc_engine.clear_cache()``, the engine's single in-memory invalidation point.
-_ROUTE_MEMO: Dict[Tuple[Any, ...], Tuple[Optional[bool], Optional[bool], "Route"]] = {}
-_ROUTE_MEMO_MAX = 32
-
-
-def clear_route_memo() -> None:
-    """Drop the route memo (``clear_cache()`` hygiene; no entry can go stale)."""
-    _ROUTE_MEMO.clear()
-
-
-_register_cache_reset(clear_route_memo)
-
-
-def route_cache_stats() -> Dict[str, int]:
-    """``route_hits`` / ``route_misses`` / ``route_entries`` / ``route_maxsize``."""
-    with _ROUTE_LOCK:
-        return {
-            "route_hits": _ROUTE_HITS[0],
-            "route_misses": _ROUTE_MISSES[0],
-            "route_entries": len(_ROUTE_MEMO),
-            "route_maxsize": _ROUTE_MEMO_MAX,
-        }
-
-
-_ROUTE_LOCK = threading.Lock()
-#: Hit/miss counters, in one-element lists so the hot path mutates them without a
-#: ``global`` statement (the lock covers a concurrent statistics read only).
-_ROUTE_HITS = [0]
-_ROUTE_MISSES = [0]
-
-
-def _route_key(
-    pop_size: Any,
-    rows: Any,
-    backend: Any,
-    iree_device_index: Any,
-    eval_mode: Any,
-    auto_min_pop: Any,
-    auto_max_rows: Any,
-    tree_len: Any,
-    auto_budget_mb: Any,
-    output_len: Any,
-) -> Optional[Tuple[Any, ...]]:
-    """The route memo's key: every argument plus every knob the policy can read.
-
-    The knob list is the policy chain's whole environment surface -- this module's
-    five (:data:`EVAL_MODE_ENV`, ``evoxc_engine.BACKEND_ENV``,
-    :data:`AUTO_MIN_POP_ENV`, :data:`AUTO_MAX_ROWS_ENV`,
-    :data:`AUTO_BUDGET_MB_ENV`), the fused route's minimum population
-    (:data:`FUSED_MIN_POP_ENV`) and, on the arms that reach
-    ``evoxc_engine._resolve_backend`` (an explicit backend name) or the fused
-    envelope (a ``rows`` argument), those two families as well.  ANY new
-    environment read on this path has to be added here -- that is the memo's whole
-    contract, and ``tests/test_route_memo.py`` flips each name in turn.
-
-    ``None`` for an argument the memo cannot normalise (an unhashable value), so
-    the caller takes the full path and raises/caches nothing.
-    """
-    env = (
-        _route_env(EVAL_MODE_ENV),
-        _route_env(BACKEND_ENV),
-        _route_env(AUTO_MIN_POP_ENV),
-        _route_env(AUTO_MAX_ROWS_ENV),
-        _route_env(AUTO_BUDGET_MB_ENV),
-        _route_env(FUSED_MIN_POP_ENV),
-    )
-    if rows is not None:
-        env += (
-            _route_env(FUSED_MAX_SCRATCH_MB_ENV),
-            _route_env(FUSED_BLOCK_ROWS_ENV),
-            _route_env(FUSED_NUM_WARPS_ENV),
-        )
-    if backend or env[1]:
-        # ``_resolve_backend`` also reads these two, but only for a named backend
-        # and only when it resolves to iree; keeping them in the key whenever an
-        # explicit name could be in play is the cheap side of that bound.
-        env += (_route_env(IREE_DEVICE_ENV), _route_env(IREE_OPT_LEVEL_ENV))
-    key = (
-        pop_size,
-        rows,
-        backend,
-        iree_device_index,
-        eval_mode,
-        auto_min_pop,
-        auto_max_rows,
-        tree_len,
-        auto_budget_mb,
-        output_len,
-    ) + env
-    try:
-        hash(key)
-    except TypeError:  # an unhashable argument: serve it the slow way
-        return None
-    return key
-
-
-def _resolve_route(
+def resolve_route(
     pop_size: int,
     *,
     rows: Optional[int] = None,
@@ -2004,90 +1845,6 @@ def _resolve_route(
         f"auto policy: pop_size={int(pop_size)} < {minimum} ({AUTO_MIN_POP_ENV}) "
         "-> specialized on numpy (a per-tree iree compile cannot amortize there)",
     )
-
-
-def resolve_route(
-    pop_size: int,
-    *,
-    rows: Optional[int] = None,
-    backend: Optional[str] = None,
-    iree_device_index: Optional[int] = None,
-    eval_mode: Optional[str] = None,
-    auto_min_pop: Optional[int] = None,
-    auto_max_rows: Optional[int] = None,
-    tree_len: Optional[int] = None,
-    auto_budget_mb: Optional[int] = None,
-    output_len: int = 1,
-) -> Route:
-    """The ONE route policy, MEMOIZED -- see :func:`_resolve_route` for the rules.
-
-    :func:`_resolve_route` is the policy: which engine (dense / batch / fused /
-    specialized) a call runs on and on which backend, a pure function of the ten
-    arguments above, the environment knobs it reads, and the two memoized
-    availability probes (:func:`device_available` /
-    :func:`fused_route_available`).  It is also on the hottest path in the library
-    -- every ``Forest.forward`` / ``batch_forward`` / ``SR_fitness`` and every
-    ``Tree.*`` call asks it -- where a full derivation costs ~3.5 us of the fused
-    route's ~21 us of host glue, i.e. more than the kernel launch itself, and where
-    the answer is the SAME on every call for a given loop.
-
-    So the decision is remembered (:data:`_ROUTE_MEMO`) and revalidated, not
-    re-derived: a hit proves its key -- the arguments plus every environment name
-    the chain can read -- still matches AND that neither probe global has changed
-    since the entry was stored, which is exactly the condition under which
-    :func:`_resolve_route` would take the same path and answer the same thing.  A
-    new or changed knob, a newly resolved/pinned/cleared probe, or a different
-    call shape is therefore always a MISS and the policy runs for real; nothing is
-    ever cached ACROSS that boundary and nothing is re-read lazily behind an entry.
-
-    Behaviour is otherwise identical to :func:`_resolve_route`: the same ``Route``
-    (same fields, same ``reason`` text, same equality), the same
-    ``ValueError``/``Exception`` propagation on a malformed argument or an
-    inconsistent ``Route`` (only successful derivations are stored, so the error
-    path is taken again -- and raises again -- on every call), and no side effect
-    beyond the memo.  Values kept here are frozen ``Route`` instances, so a
-    returned route cannot be mutated by a caller.
-    """
-    key = _route_key(
-        pop_size,
-        rows,
-        backend,
-        iree_device_index,
-        eval_mode,
-        auto_min_pop,
-        auto_max_rows,
-        tree_len,
-        auto_budget_mb,
-        output_len,
-    )
-    if key is not None:
-        entry = _ROUTE_MEMO.get(key)
-        if (
-            entry is not None
-            and entry[0] is _DEVICE_AVAILABLE
-            and entry[1] is _FUSED_AVAILABLE
-        ):
-            _ROUTE_HITS[0] += 1
-            return entry[2]
-    _ROUTE_MISSES[0] += 1
-    route = _resolve_route(
-        pop_size,
-        rows=rows,
-        backend=backend,
-        iree_device_index=iree_device_index,
-        eval_mode=eval_mode,
-        auto_min_pop=auto_min_pop,
-        auto_max_rows=auto_max_rows,
-        tree_len=tree_len,
-        auto_budget_mb=auto_budget_mb,
-        output_len=output_len,
-    )
-    if key is not None:
-        if len(_ROUTE_MEMO) >= _ROUTE_MEMO_MAX:
-            with _ROUTE_LOCK:
-                _ROUTE_MEMO.clear()
-        _ROUTE_MEMO[key] = (_DEVICE_AVAILABLE, _FUSED_AVAILABLE, route)
-    return route
 
 
 def should_use_dense(
