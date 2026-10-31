@@ -176,20 +176,32 @@ def _resident_fitness(fitness, pop_size: int, device):
 
 
 def _sanitize_fitness(evoxc_module, fitness):
-    """In-graph ``NaN -> -inf`` -- the NaN half of the repo-wide fitness rule.
+    """In-graph ``non-finite -> -inf`` -- the repo-wide fitness rule.
 
-    A ``NaN`` compares false against everything, so it would corrupt both the
-    tournament and the elite ranking.  Applying the rule inside the graph is
-    what makes a device-fed generation safe WITHOUT the host readback that
-    ``workflow._fitness`` uses to sanitize its own copy.
-    Only ``NaN`` is rewritten here: an ``inf`` passes through unchanged, where
-    the host paths (``problem._fitness_from_loss``, ``graph_eval``,
-    ``fused_eval``) map every non-finite value to ``-inf``.  A ``+inf`` fitness
-    therefore keeps winning selection on this lane instead of being demoted.
+    A ``NaN`` compares false against everything, and an ``inf`` outranks every
+    real value, so either would corrupt the tournament and the elite ranking.
+    Applying the rule inside the graph is what makes a device-fed generation
+    safe WITHOUT the host readback that ``workflow._fitness`` uses to sanitize
+    its own copy, and it is the SAME rule the host paths apply
+    (``problem._fitness_from_loss``'s ``~np.isfinite``, ``graph_eval``,
+    ``fused_eval``): every non-finite value -- ``NaN``, ``+inf`` and ``-inf`` --
+    becomes ``-inf``, i.e. "unevaluable".  A ``+inf`` fitness can therefore
+    never win a tournament slot or an elite row on either lane.
+
+    The two tests are composed exactly like :func:`evogp.gp.graph_eval`'s
+    ``isnan(x) | (|x| == inf)``: exact for ``float32``, since no finite float32
+    equals infinity.
     """
     shape = (int(fitness.shape[0]),)
-    return evoxc_module.select(
+    not_finite = evoxc_module.logical_or(
         evoxc_module.isnan(fitness),
+        evoxc_module.equal(
+            evoxc_module.abs(fitness),
+            _runtime.f32(evoxc_module, float("inf")),
+        ),
+    )
+    return evoxc_module.select(
+        not_finite,
         evoxc_module.broadcast(
             _runtime.f32(evoxc_module, float(UNEVALUATED)), shape
         ),
@@ -243,9 +255,9 @@ def _argmax_order(evoxc_module, fitness, count: int):
       for that case, see :func:`_elite_order`).
 
     Args:
-        fitness: ``[pop_size]`` float32 fitness, already sanitized (``NaN`` has
-            been mapped to ``-inf``), so a row can never win on a non-finite
-            value.
+        fitness: ``[pop_size]`` float32 fitness, already sanitized (every
+            non-finite value has been mapped to ``-inf``), so a row can never
+            win on a non-finite value.
         count: how many rows to take (``1 <= count < pop_size``).
     """
     pop_size = int(fitness.shape[0])
@@ -334,20 +346,22 @@ def _assemble_elites(evoxc_module, parents, offspring, fitness, elite_count: int
         offspring row.
     """
     pop_size = int(parents[2].shape[0])
+    width = int(parents[2].shape[1])
     kept = int(elite_count)
     remaining = pop_size - kept
     if elite_index is None:
         elite_index = _elite_order(evoxc_module, fitness, kept)
     elite_index = evoxc_module.cast(elite_index, evoxc_module.int32)
-    keep_offspring = (
-        _runtime.constant_index(evoxc_module, remaining) if remaining else None
-    )
     channels = []
     for parent, child in zip(parents, offspring):
         elite_rows = evoxc_module.gather(parent, elite_index, axis=0)
         if remaining:
-            offspring_rows = evoxc_module.gather(
-                child, keep_offspring, axis=0
+            # The kept offspring rows are the operator layer's FIRST
+            # `remaining` rows -- a static prefix, so a zero-copy slice does
+            # the job of an index gather here (one op instead of a gather with
+            # its index arithmetic, and no index buffer on the device).
+            offspring_rows = evoxc_module.slice(
+                child, start=(0, 0), lengths=(remaining, width)
             )
             elite_rows = evoxc_module.concatenate(
                 [elite_rows, offspring_rows], axis=0

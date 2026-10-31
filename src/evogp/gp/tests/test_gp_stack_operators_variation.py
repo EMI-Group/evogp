@@ -287,3 +287,97 @@ def test_selection_module_is_reachable_from_the_generation():
     indices = selection.select(fitness, 0, mode="tournament", tournament_size=2)
     assert indices.numpy().shape == (8,)
     assert int(indices.numpy().max()) < 8
+
+# --------------------------------------------------------------------------- #
+# the two rules the device lane and the host lane must share
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("bad", [np.nan, np.inf])
+def test_a_non_finite_fitness_can_never_become_an_elite(bad):
+    """Every non-finite value is `-inf` ("unevaluable") on BOTH lanes.
+
+    The repo-wide rule (`problem._fitness_from_loss`, `graph_eval`,
+    `fused_eval`, `workflow._fitness`) demotes NaN, `+inf` AND `-inf` alike, and
+    the in-graph sanitizer is what applies it on a device-fed generation (which
+    never has a host readback).  A `+inf` used to survive it and outrank every
+    real value, so this test carries the two demoted rows on the fitness vector
+    and asserts the elite slots come from the FINITE rows instead.
+    """
+    config, gp = SAFE_CONFIG(), GPConfig(pop_size=10, elite_count=2)
+    parents = _population_of(config, gp)
+    fitness = _fitness(parents)  # rows 0..9, descending
+    fitness[3] = bad
+    fitness[7] = bad
+    sanitized = np.array(fitness, dtype=np.float32)
+    sanitized[~np.isfinite(sanitized)] = -np.inf
+    expected = np.argsort(-sanitized, kind="stable")[: gp.elite_count]
+    assert expected.tolist() == [0, 1], "fixture invariant: the finite rows win"
+    offspring, _key = V.variation(
+        (config, gp), parents, fitness, 0, elite_count=gp.elite_count
+    )
+    assert_well_formed(offspring, context="non-finite elites")
+    parent_opcode, parent_payload, _parent_size = _row_matrices(parents)
+    child_opcode, child_payload, _child_size = _row_matrices(offspring)
+    for slot, source in enumerate(expected):
+        np.testing.assert_array_equal(
+            child_opcode[slot], parent_opcode[source],
+            err_msg=(
+                f"elite slot {slot} must be parent row {source}: a {bad!r} "
+                "fitness is unevaluable, never a winner"
+            ),
+        )
+        np.testing.assert_array_equal(child_payload[slot], parent_payload[source])
+    # ... and the elite's recorded fitness is the sanitized value, never the
+    # non-finite input (which would poison the next generation's ranking).
+    recorded = offspring.fitness.numpy()
+    assert np.all(np.isfinite(recorded[: gp.elite_count]))
+    np.testing.assert_array_equal(recorded[: gp.elite_count], sanitized[expected])
+
+
+def test_a_non_finite_fitness_cannot_win_a_tournament():
+    """The same rule on the selection side: with both rates at 0 the offspring
+    ARE the two parent draws, so a `+inf` row must never appear among them."""
+    config, gp = SAFE_CONFIG(), GPConfig(
+        pop_size=10, elite_count=0, crossover_prob=0.0, mutation_prob=0.0
+    )
+    parents = _population_of(config, gp)
+    fitness = np.full(10, -1.0, dtype=np.float32)
+    fitness[3] = np.inf
+    fitness[7] = np.inf
+    offspring, _key = V.variation((config, gp), parents, fitness, 0)
+    parent_opcode, parent_payload, _parent_size = _row_matrices(parents)
+    child_opcode, child_payload, _child_size = _row_matrices(offspring)
+    for slot in range(int(offspring.size.shape[0])):
+        for bad_row in (3, 7):
+            assert not (
+                np.array_equal(child_opcode[slot], parent_opcode[bad_row])
+                and np.array_equal(child_payload[slot], parent_payload[bad_row])
+            ), f"offspring row {slot} is the +inf row {bad_row}"
+
+
+def test_the_elite_tie_rule_prefers_the_lower_row_index():
+    """A flat fitness vector ranks rows `0, 1, ...` -- FIRST index wins.
+
+    That is ``np.argsort(-fitness, kind="stable")`` (the host rule) and
+    ``argmax``'s first-maximal rule; evoxc's ``argsort(..., descending=True)``
+    would hand the tie group back in REVERSE index order, so this fixture can
+    tell the two apart.
+    """
+    config, gp = SAFE_CONFIG(), GPConfig(pop_size=12, elite_count=3)
+    parents = _population_of(config, gp)
+    fitness = np.full(12, 0.25, dtype=np.float32)
+    expected = np.argsort(-fitness, kind="stable")[: gp.elite_count]
+    assert expected.tolist() == [0, 1, 2], "fixture invariant"
+    offspring, _key = V.variation(
+        (config, gp), parents, fitness, 0, elite_count=gp.elite_count
+    )
+    parent_opcode, parent_payload, _parent_size = _row_matrices(parents)
+    child_opcode, child_payload, _child_size = _row_matrices(offspring)
+    for slot, source in enumerate(expected):
+        np.testing.assert_array_equal(
+            child_opcode[slot], parent_opcode[source],
+            err_msg=(
+                f"elite slot {slot} must be parent row {source}: a tie keeps "
+                "the lower row index"
+            ),
+        )
+        np.testing.assert_array_equal(child_payload[slot], parent_payload[source])

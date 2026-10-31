@@ -276,9 +276,10 @@ def _fitness(state: GPState, evaluate: Callable, read_back: bool = True):
         if not read_back:
             return None, raw
         # The ONE readback of a generation. `readback_fitness` owns the D2H move
-        # and the repo-wide non-finite -> -inf rule (`StandardPipeline.step` maps
-        # NaN to -inf in place; the driver does the same so an unevaluable tree
-        # can never win a tournament).
+        # and the repo-wide non-finite -> -inf rule (NaN, +inf and -inf alike:
+        # `StandardPipeline.step` demotes every non-finite value, and the driver
+        # does the same so an unevaluable -- or an exploded -- tree can never win
+        # a tournament).
         return graph_eval.readback_fitness(raw, expected), raw
     values = np.array(
         encoding._as_numpy(raw, "fitness"), dtype=np.float32, copy=True
@@ -288,7 +289,7 @@ def _fitness(state: GPState, evaluate: Callable, read_back: bool = True):
             f"evaluate returned shape {values.shape}; the contract is a "
             f"[pop_size={expected}] float32 fitness vector"
         )
-    values[np.isnan(values)] = float(UNEVALUATED)
+    values[~np.isfinite(values)] = float(UNEVALUATED)
     return values, raw
 
 
