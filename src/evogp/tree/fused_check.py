@@ -2418,14 +2418,23 @@ def stage_wired(args: argparse.Namespace) -> int:
             explicit.engine == "fused" and explicit.backend == "numpy",
             f"{explicit.engine} on {explicit.backend}: {explicit.reason}",
         )
-        # A CPU box: the monkeypatched probe is the battery's stand-in for
-        # unplugging the GPU.
+        # A CPU box: the pinned probe SNAPSHOT is the battery's stand-in for
+        # unplugging the GPU.  ``device_available()`` resolves ``_DEVICE_AVAILABLE``
+        # once per process (``test_route_policy`` pins the snapshot for the same
+        # reason), so replacing the FUNCTION only simulates a CPU box while that
+        # snapshot is still ``None`` -- i.e. it was order-dependent: a stage that
+        # had already resolved the probe (or a warm route-memo entry keyed on the
+        # resolved value) made the patched call answer "device available" anyway.
+        # Pinning both keeps the simulation real in any order.
         original_probe = dense_engine.device_available
+        original_snapshot = dense_engine._DEVICE_AVAILABLE
         dense_engine.device_available = lambda: False
+        dense_engine._DEVICE_AVAILABLE = False
         try:
             cpu_route = dense_engine.resolve_route(256, eval_mode="fused")
         finally:
             dense_engine.device_available = original_probe
+            dense_engine._DEVICE_AVAILABLE = original_snapshot
         check(
             "policy: no usable device -> specialized+numpy (engine stays default)",
             (cpu_route.engine, cpu_route.backend, cpu_route.fallback_backend)
