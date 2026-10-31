@@ -1,0 +1,138 @@
+{
+  "arm": "torch_batched",
+  "arm_note": "the harness's whole-population plain-torch arm",
+  "cell": "p64-L64-i32-N1024",
+  "created_utc": "2026-10-31T12:55:35Z",
+  "dispatch": {
+    "bound_launches": 0,
+    "declines": 0,
+    "jit_launches": 0
+  },
+  "fused_available": true,
+  "geometry": {
+    "fused_block_rows": 256,
+    "fused_max_scratch_mb": 8192,
+    "fused_min_pop": 16,
+    "fused_num_warps": 1,
+    "n_rb": 4
+  },
+  "guard": {
+    "contaminated": false,
+    "gpu": {
+      "gpu_use_pct": {
+        "GPU[0]": 2.0
+      }
+    },
+    "gpu_pids": {
+      "idle": true,
+      "pids": []
+    },
+    "ok": true,
+    "python": [
+      "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "waited_s": 0.2
+  },
+  "input_len": 32,
+  "kind": "minpop",
+  "max_layer_cnt": 5,
+  "policy_engine": "fused",
+  "pop": 64,
+  "protocol": {
+    "one_process_per_config": true,
+    "reps": 20,
+    "sync_bracketed": true,
+    "warmup": 5
+  },
+  "route_fused_request": {
+    "backend": "iree",
+    "engine": "fused",
+    "eval_mode": "fused",
+    "fallback_backend": "numpy",
+    "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=64 >= 16 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)",
+    "use_dense": false,
+    "use_fused": true
+  },
+  "route_inherited": {
+    "backend": "iree",
+    "engine": "fused",
+    "eval_mode": null,
+    "fallback_backend": "numpy",
+    "reason": "auto policy: device available, triton importable and pop_size=64 >= 16 (EVOGP_FUSED_MIN_POP) -> fused (Triton) on the torch device (specialized fallback on numpy)",
+    "use_dense": false,
+    "use_fused": true
+  },
+  "rows": 1024,
+  "schema": "evogp.minpop_probe/1",
+  "timings": {
+    "loss": {
+      "cache_after_first_call": null,
+      "first_call_ms": 4.18321299366653,
+      "max_ms": 4.221798037178814,
+      "mean_ms": 4.167489297105931,
+      "median_ms": 4.165745980571955,
+      "min_ms": 4.115299030672759,
+      "reps": 20,
+      "samples_ms": [
+        4.177453985903412,
+        4.166457976680249,
+        4.165033984463662,
+        4.141598998103291,
+        4.216670000459999,
+        4.195038985926658,
+        4.218311980366707,
+        4.12369699915871,
+        4.146271967329085,
+        4.115299030672759,
+        4.153459041845053,
+        4.179094976279885,
+        4.221798037178814,
+        4.162127035669982,
+        4.156691022217274,
+        4.137779003940523,
+        4.168327955994755,
+        4.174899950157851,
+        4.174499015789479,
+        4.155275993980467
+      ],
+      "warmup": 5
+    },
+    "value": {
+      "cache_after_first_call": null,
+      "first_call_ms": 61.60953000653535,
+      "max_ms": 4.266945994459093,
+      "mean_ms": 4.125955703784712,
+      "median_ms": 4.125940467929468,
+      "min_ms": 3.8492660387419164,
+      "reps": 20,
+      "samples_ms": [
+        4.235198954120278,
+        4.21927502611652,
+        4.194684966932982,
+        4.146832041442394,
+        4.138492979109287,
+        4.0938970050774515,
+        4.078925994690508,
+        4.06744604697451,
+        4.075096978340298,
+        4.102097998838872,
+        4.119531949982047,
+        4.107379005290568,
+        4.0999550255946815,
+        3.8492660387419164,
+        4.136116011068225,
+        4.266945994459093,
+        4.203308024443686,
+        4.132348985876888,
+        4.147063998971134,
+        4.105251049622893
+      ],
+      "warmup": 5
+    }
+  },
+  "tree_len": 64,
+  "triton": {
+    "cache_dir": "/tmp/triton-cache",
+    "specializations": 0
+  }
+}

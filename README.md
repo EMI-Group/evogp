@@ -438,7 +438,10 @@ Honest limits, from these campaigns:
   with a read-only `$HOME` the first launch dies with `OSError: [Errno 30] Read-only file system: '/root/.triton'`,
   and nothing in `src/` sets it.
 - **`EVOGP_FUSED_MIN_POP` = 16** keeps a single-tree call (`pop 1`) on the specialized engine so a one-shot
-  `Tree.forward` never pays the JIT; `0` is refused. `EVOGP_EVOXC_BACKEND=numpy` still *reports* `engine="fused"` while
+  `Tree.forward` never pays the JIT; `0` is refused. The floor is conservative: re-measured on the current tree the
+  kernel is flat from pop 1 to 128 (0.033–0.036 ms `batch_forward`, 0.040–0.043 ms `SR_fitness`) and already beats
+  `specialized` 13.2× at pop 1, so 16 is a cold-start guard (a one-shot single-tree call needs ≈3 760 calls to repay
+  the ~1.6 s Triton JIT), not a throughput crossover (`src/evogp/tree/FUSED.md` §13). `EVOGP_EVOXC_BACKEND=numpy` still *reports* `engine="fused"` while
   every call declines onto specialized+`numpy`, so a served call must be proven by `fused_cache_stats()`
   (`fused_kernel_launches` / `fused_bound_launches`), never by the engine name.
 - **No per-stage timer surface** on this route: the kernel/host split was reconstructed by timing the kernel launch and

@@ -21,7 +21,7 @@ Campaign size: **20 timing configs, 0 failures** (77 cell×arm×workload entries
 the merged `test/benchmark/evoxc/results/t1a1_fused/main/campaign.json` indexes the four driver invocations), plus 6 per-cell probes,
 6 cold-cache probes and one route-validation run (18 cases).
 The harness's own gate over the records (`fused_gate.py` → `check.py --allow-missing --allow-digest-mismatch`, the
-same two allowances the baseline campaign needs) reads **20 records / 574 checks / 0 failures, 20/20 configs on an
+same two allowances the baseline campaign needs) reads **20 records / 580 checks / 0 failures, 20/20 configs on an
 idle device, 0 contaminated**; its digest warnings are exactly the NaN-payload / float32-reduction splits described
 in §6, never a value mismatch.
 
@@ -58,7 +58,8 @@ axis. Its device cost is the envelope `fused_engine._check_envelope` charges —
 block * 4` (row axis rounded UP to the block) plus the `(pop, rows, out_len)` value buffer and the loss chart, 2 GiB of
 scratch at the largest measured cell, which allocates it and does not OOM, 4× inside the 8192 MiB default — and
 `EVOGP_FUSED_MIN_POP` is 16 because the kernel is
-**flat in `pop_size`** (0.088–0.103 ms from pop 1 to 128 as measured for §13; the current tree, with the per-call plan memo, reads 0.0651–0.0684 ms over pop 16–128) while the specialized fallback scales with the tree count.
+**flat in `pop_size`** (0.033–0.036 ms `batch_forward` and 0.040–0.043 ms `SR_fitness` from pop 1 to 128, re-measured for §13 at 5 warmups + 20 reps) while the specialized fallback scales with the tree count (0.466 → 23.225 ms over pop 1 → 128).
+That floor is a cold-start guard, not a warm crossover: the kernel already wins warm at pop 1, and 16 keeps a one-shot single `Tree` call off the ~1.6 s Triton JIT (§13).
 
 ---
 
@@ -594,25 +595,47 @@ falls back to per-structure `specialized` and timing it would only report that f
 
 ## 13. `EVOGP_FUSED_MIN_POP` is 16
 
-The kernel is FLAT in `pop_size` at `L=64` / `i32` / `N=1024` (0.088–0.103 ms from pop 1 to 128 in this campaign; 0.0651–0.0684 ms over pop 16–128 on the current tree) because its cost is
-the row-block sweep, not the trees, while `specialized` scales linearly with the tree count:
+Re-measured **2026-10-31** on the current tree — pre-bound dispatch and plan fast path shipped — with
+`test/benchmark/evoxc/minpop_probe.py` (records and `SUMMARY.md` in `test/benchmark/evoxc/results/minpop_r3/`):
+5 untimed warmups + 20 sync-bracketed reps, warm medians, one process per (pop, arm), idle-device guard per config
+(40/40 configs on an idle device), `L=64` / `i32` / `N=1024`.
+`kernel` is `fused_engine.evaluate_fused` / `sr_fitness_fused` (policy-free, so it is measurable below the floor);
+the `fused` column is `Forest.batch_forward` / `SR_fitness` with `EVOGP_EVAL_MODE=fused`, i.e. what the policy serves.
 
-| pop | fused (`fused_direct`) ms | specialized ms | torch-batched ms | policy engine |
-|---|---|---|---|---|
-| 1 | 0.093 | 0.490 | 1.396 | specialized |
-| 4 | 0.092 | 0.925 | 1.951 | specialized |
-| 16 | 0.103 | 2.725 | 3.367 | **fused** |
-| 32 | 0.097 | 5.679 | 3.954 | fused |
-| 64 | 0.097 | 12.154 | 4.233 | fused |
-| 128 | 0.092 | 22.536 | 4.110 | fused |
-
-At the shipped 16 the route is 26.5× ahead of the fallback at pop 16 and 10.1× at pop 4 (`fused_engine.resolve_min_pop`,
-`EVOGP_FUSED_MIN_POP`; `dense_engine.resolve_fused_min_pop` delegates to it through a local import). 16 rather than
-1–8 for two measured reasons: every number in the column is at `N=1024` only, and a 1–8-tree population on a tiny row
-plane is the one unmeasured class where a single per-tree numpy run could undercut the kernel's ~0.09 ms launch floor;
-and 16 keeps a single `Tree.forward` / `Tree.SR_fitness` (pop 1) on the specialized route instead of paying a ~1.4 s
-cold Triton JIT for a one-shot call. `EVOGP_FUSED_MIN_POP=0` stays refused (a pop-size threshold must be `>= 1`), an
-explicitly named backend still serves below the threshold, and `auto` selects fused from the threshold up (the default on a device box, `dense_engine.auto_fused_decline`).
+The kernel is FLAT in `pop_size` — **0.033–0.036 ms** on the value surface and **0.040–0.043 ms** on the loss surface
+from pop 1 to 128 — because its cost is the row-block sweep, not the trees, while `specialized` scales linearly with
+the tree count (0.466 → 23.225 ms over the same pops).
+| pop | kernel value | kernel loss | `fused` (public) value | `fused` (public) loss | specialized value | torch-per-tree value | torch-batched value | spec/kernel | torch-1/kernel | policy engine |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 0.035 | 0.040 | 0.517 | 0.542 | 0.466 | 0.233 | 1.359 | 13.2 | 6.6 | specialized |
+| 2 | 0.035 | 0.043 | 0.666 | 0.680 | 0.628 | 0.254 | 1.587 | 17.9 | 7.3 | specialized |
+| 4 | 0.035 | 0.040 | 0.918 | 0.952 | 0.928 | 0.433 | 1.897 | 26.4 | 12.3 | specialized |
+| 8 | 0.033 | 0.043 | 1.599 | 1.571 | 1.600 | 0.788 | 2.503 | 47.8 | 23.5 | specialized |
+| 16 | 0.034 | 0.041 | 0.040 | 0.049 | 2.814 | 1.410 | 3.195 | 82.1 | 41.1 | **fused** |
+| 32 | 0.034 | 0.041 | 0.039 | 0.049 | 5.547 | 2.736 | 3.782 | 161.6 | 79.7 | fused |
+| 64 | 0.035 | 0.042 | 0.040 | 0.048 | 13.413 | 6.088 | 4.126 | 388.3 | 176.2 | fused |
+| 128 | 0.036 | 0.041 | 0.038 | 0.048 | 23.225 | 11.243 | 4.103 | 650.2 | 314.8 | fused |
+Below the floor the `fused` column IS that fallback — same route spelling (`specialized`+`numpy`), 0 kernel launches,
+`served: false` — so the two labels read the same number within box noise at pops 1–8 (0.517 / 0.466 at pop 1,
+1.599 / 1.600 at pop 8).
+The warm crossover is therefore **pop 1, not 16**: at pop 1 the kernel already beats `specialized` by 13.2× (13.3× on
+loss), the per-tree torch walk by 6.6× (6.2×) and the batched torch arm by 38.6× (35.0×); at pop 16 those margins are
+82.1× / 41.1× / 93.2× (71.2× / 45.6× / 77.5×).
+The floor is NOT a throughput crossover — it is a COLD-START guard on the one call shape that is one-shot by
+construction: the kernel's first call pays the Triton JIT (1619 ms measured at pop 1; the empty-cache figures are
+~1.6 s for the value kernel and ~0.94–0.99 s for the loss kernel) against a 0.431 ms/call warm saving over
+`specialized` at that shape, so a one-shot single-tree call needs ≈3 760 calls to repay it, and the whole warm win
+below 16 is real but uncollected on purpose (`fused_engine.resolve_min_pop`, `EVOGP_FUSED_MIN_POP`;
+`dense_engine.resolve_fused_min_pop` delegates to it through a local import).
+16 stands as a CONSERVATIVE floor: lowering it to the measured crossover (pop 1) would put every single
+`Tree.forward` / `Tree.SR_fitness` on the JIT — ~3 400× a warm specialized call on its first call — while no GP
+population is generated below 16, so nothing on the throughput axis is left on the table.
+The second reason a slide to 1–8 is not taken is unchanged and still unmeasured: the whole column is `N=1024`, and a
+1–8-tree population on a tiny row plane is the class where a per-tree numpy run could undercut a ~0.035 ms launch
+floor (§7's open corner).
+`EVOGP_FUSED_MIN_POP=0` stays refused (a pop-size threshold must be `>= 1`), an explicitly named backend still
+serves below the threshold, and `auto` selects fused from the threshold up (the default on a device box,
+`dense_engine.auto_fused_decline`).
 
 ---
 

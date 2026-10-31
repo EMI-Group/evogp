@@ -1,0 +1,160 @@
+{
+  "arm": "fused_direct",
+  "arm_note": "evaluate_fused / sr_fitness_fused: the kernel without the route policy, so it is measurable below the floor",
+  "cell": "p4-L64-i32-N1024",
+  "created_utc": "2026-10-31T12:52:23Z",
+  "dispatch": {
+    "bound_launches": 0,
+    "declines": 0,
+    "jit_launches": 0
+  },
+  "expected_launches": 52,
+  "fused_available": true,
+  "fused_cache_delta": {
+    "fused_bound_launches": 50,
+    "fused_calls": 52,
+    "fused_kernel_compiles": 2,
+    "fused_kernel_launches": 52,
+    "fused_plan_entries": 2,
+    "fused_plan_hits": 50,
+    "fused_plan_misses": 2,
+    "fused_scratch_allocs": 1,
+    "fused_scratch_bytes": 1048576,
+    "fused_scratch_entries": 1,
+    "fused_scratch_reuses": 1,
+    "fused_tag_entries": 1,
+    "fused_tag_hits": 1,
+    "fused_tag_misses": 1,
+    "fused_xt_entries": 1,
+    "fused_xt_hits": 1,
+    "fused_xt_misses": 1
+  },
+  "geometry": {
+    "fused_block_rows": 256,
+    "fused_max_scratch_mb": 8192,
+    "fused_min_pop": 16,
+    "fused_num_warps": 1,
+    "n_rb": 4
+  },
+  "guard": {
+    "contaminated": false,
+    "gpu": {
+      "gpu_use_pct": {
+        "GPU[0]": 2.0
+      }
+    },
+    "gpu_pids": {
+      "idle": true,
+      "pids": []
+    },
+    "ok": true,
+    "python": [
+      "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+    ],
+    "waited_s": 0.2
+  },
+  "input_len": 32,
+  "kind": "minpop",
+  "launches": 52,
+  "max_layer_cnt": 5,
+  "policy_engine": "specialized",
+  "pop": 4,
+  "protocol": {
+    "one_process_per_config": true,
+    "reps": 20,
+    "sync_bracketed": true,
+    "warmup": 5
+  },
+  "route_fused_request": {
+    "backend": "numpy",
+    "engine": "specialized",
+    "eval_mode": "fused",
+    "fallback_backend": "numpy",
+    "reason": "EVOGP_EVAL_MODE=fused: pop_size=4 < 16 (EVOGP_FUSED_MIN_POP) -> specialized on numpy",
+    "use_dense": false,
+    "use_fused": false
+  },
+  "route_inherited": {
+    "backend": "numpy",
+    "engine": "specialized",
+    "eval_mode": null,
+    "fallback_backend": "numpy",
+    "reason": "EVOGP_EVAL_MODE=fused: pop_size=4 < 16 (EVOGP_FUSED_MIN_POP) -> specialized on numpy",
+    "use_dense": false,
+    "use_fused": false
+  },
+  "rows": 1024,
+  "schema": "evogp.minpop_probe/1",
+  "served": true,
+  "timings": {
+    "loss": {
+      "cache_after_first_call": null,
+      "first_call_ms": 18.39614799246192,
+      "max_ms": 0.07466698298230767,
+      "mean_ms": 0.042949558701366186,
+      "median_ms": 0.04020050982944667,
+      "min_ms": 0.03824499435722828,
+      "reps": 20,
+      "samples_ms": [
+        0.05229003727436066,
+        0.04239397821947932,
+        0.04067103145644069,
+        0.04030601121485233,
+        0.04005897790193558,
+        0.045325024984776974,
+        0.04096201155334711,
+        0.040095008444041014,
+        0.039583013858646154,
+        0.039510021451860666,
+        0.07466698298230767,
+        0.04684599116444588,
+        0.040345999877899885,
+        0.03913504770025611,
+        0.0385329476557672,
+        0.043279025703668594,
+        0.039609032683074474,
+        0.038493017200380564,
+        0.03864301834255457,
+        0.03824499435722828
+      ],
+      "warmup": 5
+    },
+    "value": {
+      "cache_after_first_call": null,
+      "first_call_ms": 477.7544119860977,
+      "max_ms": 0.0570639967918396,
+      "mean_ms": 0.03677660133689642,
+      "median_ms": 0.035203032894060016,
+      "min_ms": 0.03347400343045592,
+      "reps": 20,
+      "samples_ms": [
+        0.0570639967918396,
+        0.04450301639735699,
+        0.03602897049859166,
+        0.034419994335621595,
+        0.03492902033030987,
+        0.036676006857305765,
+        0.035477045457810163,
+        0.03873300738632679,
+        0.035492994356900454,
+        0.03434298560023308,
+        0.034003984183073044,
+        0.03413599915802479,
+        0.03698997898027301,
+        0.03394903615117073,
+        0.03796099917963147,
+        0.03450101939961314,
+        0.0357049866579473,
+        0.03347400343045592,
+        0.03347999881953001,
+        0.03366498276591301
+      ],
+      "warmup": 5
+    }
+  },
+  "tree_len": 64,
+  "triton": {
+    "cache_dir": "/tmp/triton-cache",
+    "specializations": 0
+  }
+}

@@ -1,0 +1,1021 @@
+{
+  "configs": [
+    {
+      "arm": "fused",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 0.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 1,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p1-fused.json",
+      "status": "ok",
+      "wall_s": 8.24
+    },
+    {
+      "arm": "fused_direct",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 1,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p1-fused_direct.json",
+      "status": "ok",
+      "wall_s": 10.94
+    },
+    {
+      "arm": "specialized",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 1,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p1-specialized.json",
+      "status": "ok",
+      "wall_s": 8.27
+    },
+    {
+      "arm": "torch_batched",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 1,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p1-torch_batched.json",
+      "status": "ok",
+      "wall_s": 8.39
+    },
+    {
+      "arm": "torch_per_tree",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 1,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p1-torch_per_tree.json",
+      "status": "ok",
+      "wall_s": 8.11
+    },
+    {
+      "arm": "fused",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 2,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p2-fused.json",
+      "status": "ok",
+      "wall_s": 8.25
+    },
+    {
+      "arm": "fused_direct",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 2,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p2-fused_direct.json",
+      "status": "ok",
+      "wall_s": 8.6
+    },
+    {
+      "arm": "specialized",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 2,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p2-specialized.json",
+      "status": "ok",
+      "wall_s": 8.11
+    },
+    {
+      "arm": "torch_batched",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 2,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p2-torch_batched.json",
+      "status": "ok",
+      "wall_s": 8.32
+    },
+    {
+      "arm": "torch_per_tree",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 2,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p2-torch_per_tree.json",
+      "status": "ok",
+      "wall_s": 8.35
+    },
+    {
+      "arm": "fused",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 4,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p4-fused.json",
+      "status": "ok",
+      "wall_s": 8.2
+    },
+    {
+      "arm": "fused_direct",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 4,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p4-fused_direct.json",
+      "status": "ok",
+      "wall_s": 8.61
+    },
+    {
+      "arm": "specialized",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 4,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p4-specialized.json",
+      "status": "ok",
+      "wall_s": 8.16
+    },
+    {
+      "arm": "torch_batched",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 4,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p4-torch_batched.json",
+      "status": "ok",
+      "wall_s": 8.4
+    },
+    {
+      "arm": "torch_per_tree",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 4,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p4-torch_per_tree.json",
+      "status": "ok",
+      "wall_s": 8.26
+    },
+    {
+      "arm": "fused",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 8,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p8-fused.json",
+      "status": "ok",
+      "wall_s": 8.32
+    },
+    {
+      "arm": "fused_direct",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 8,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p8-fused_direct.json",
+      "status": "ok",
+      "wall_s": 8.66
+    },
+    {
+      "arm": "specialized",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 8,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p8-specialized.json",
+      "status": "ok",
+      "wall_s": 8.2
+    },
+    {
+      "arm": "torch_batched",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 8,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p8-torch_batched.json",
+      "status": "ok",
+      "wall_s": 8.38
+    },
+    {
+      "arm": "torch_per_tree",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 8,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p8-torch_per_tree.json",
+      "status": "ok",
+      "wall_s": 8.27
+    },
+    {
+      "arm": "fused",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 16,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p16-fused.json",
+      "status": "ok",
+      "wall_s": 8.61
+    },
+    {
+      "arm": "fused_direct",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 16,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p16-fused_direct.json",
+      "status": "ok",
+      "wall_s": 8.55
+    },
+    {
+      "arm": "specialized",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 16,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p16-specialized.json",
+      "status": "ok",
+      "wall_s": 8.19
+    },
+    {
+      "arm": "torch_batched",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 16,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p16-torch_batched.json",
+      "status": "ok",
+      "wall_s": 8.45
+    },
+    {
+      "arm": "torch_per_tree",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 16,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p16-torch_per_tree.json",
+      "status": "ok",
+      "wall_s": 8.34
+    },
+    {
+      "arm": "fused",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 32,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p32-fused.json",
+      "status": "ok",
+      "wall_s": 8.63
+    },
+    {
+      "arm": "fused_direct",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 32,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p32-fused_direct.json",
+      "status": "ok",
+      "wall_s": 8.67
+    },
+    {
+      "arm": "specialized",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 32,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p32-specialized.json",
+      "status": "ok",
+      "wall_s": 8.57
+    },
+    {
+      "arm": "torch_batched",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 32,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p32-torch_batched.json",
+      "status": "ok",
+      "wall_s": 8.38
+    },
+    {
+      "arm": "torch_per_tree",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 32,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p32-torch_per_tree.json",
+      "status": "ok",
+      "wall_s": 8.52
+    },
+    {
+      "arm": "fused",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 64,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p64-fused.json",
+      "status": "ok",
+      "wall_s": 8.79
+    },
+    {
+      "arm": "fused_direct",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 64,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p64-fused_direct.json",
+      "status": "ok",
+      "wall_s": 8.75
+    },
+    {
+      "arm": "specialized",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 64,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p64-specialized.json",
+      "status": "ok",
+      "wall_s": 9.23
+    },
+    {
+      "arm": "torch_batched",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 64,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p64-torch_batched.json",
+      "status": "ok",
+      "wall_s": 8.55
+    },
+    {
+      "arm": "torch_per_tree",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 64,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p64-torch_per_tree.json",
+      "status": "ok",
+      "wall_s": 8.91
+    },
+    {
+      "arm": "fused",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 128,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p128-fused.json",
+      "status": "ok",
+      "wall_s": 8.83
+    },
+    {
+      "arm": "fused_direct",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 128,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p128-fused_direct.json",
+      "status": "ok",
+      "wall_s": 8.78
+    },
+    {
+      "arm": "specialized",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 128,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p128-specialized.json",
+      "status": "ok",
+      "wall_s": 9.89
+    },
+    {
+      "arm": "torch_batched",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 2.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 128,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p128-torch_batched.json",
+      "status": "ok",
+      "wall_s": 8.58
+    },
+    {
+      "arm": "torch_per_tree",
+      "detail": "",
+      "guard": {
+        "contaminated": false,
+        "gpu": {
+          "gpu_use_pct": {
+            "GPU[0]": 3.0
+          }
+        },
+        "gpu_pids": {
+          "idle": true,
+          "pids": []
+        },
+        "ok": true,
+        "python": [
+          "3394756: /usr/bin/systemd-run --user --unit=genesis-job-b1636047-bash-37b7855a8e5a1ec7 --slice=evogit --wait -q --setenv=PATH=/ro"
+        ],
+        "waited_s": 0.2
+      },
+      "pop": 128,
+      "record": "/root/evogp/.genesis/workers/worker_T1_A156/test/benchmark/evoxc/results/t1a1_fused/minpop_r3/records/p128-torch_per_tree.json",
+      "status": "ok",
+      "wall_s": 9.1
+    }
+  ],
+  "created_utc": "2026-10-31T12:50:39Z",
+  "failures": 0,
+  "geometry": {
+    "input_len": 32,
+    "max_layer_cnt": 5,
+    "rows": 1024,
+    "tree_len": 64
+  },
+  "kind": "minpop_driver",
+  "protocol": {
+    "arms_sequential": false,
+    "one_process_per_config": true,
+    "reps": 20,
+    "sync_bracketed": true,
+    "warmup": 5
+  },
+  "schema": "evogp.minpop_probe/1"
+}
