@@ -143,7 +143,10 @@ def hermetic_knobs(monkeypatch):
     same thing on a box that exports them.  The route policy's device probe is
     pinned to "a device is available" (the interesting branch of the
     ``auto`` policy), so no assertion here depends on the box the suite runs on --
-    a CPU-box scenario is a test of its own in ``test_route_policy.py``.  Each test
+    a CPU-box scenario is a test of its own in ``test_route_policy.py``.  The fused
+    probe is pinned to "no triton" as well, because a triton-equipped device box
+    would otherwise make ``auto`` resolve to the fused route and every dense
+    assertion below would be measuring a policy this file does not own.  Each test
     then sets what it needs on the same ``monkeypatch`` and pytest restores the
     ambient values at teardown.
     """
@@ -158,6 +161,7 @@ def hermetic_knobs(monkeypatch):
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(dense, "_DEVICE_AVAILABLE", True)
+    monkeypatch.setattr(dense, "_FUSED_AVAILABLE", False)
 
 
 # --------------------------------------------------------------------------- #
