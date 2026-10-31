@@ -487,7 +487,7 @@ class FusedEvaluator:
 
     # ---------------------------------------------------------------- internal
     def _resident(self, torch_module: Any, device: Any) -> Tuple[Any, Any]:
-        """The uploaded data tensors, built once per (process, device)."""
+        """The uploaded data tensors of this evaluator, built once per device."""
         if self._tensors is None or self._tensors[0] != device:
             self._tensors = (device,) + _data_tensors(
                 torch_module, device, self.x, self.y
