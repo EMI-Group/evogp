@@ -75,7 +75,8 @@ the next generation never pay the compile cost twice.
 No in-graph dispatch, no recursion — the tree *is* the graph.
 
 Four evaluation routes are selectable with `EVOGP_EVAL_MODE`: **`fused`** (one fused Triton kernel launch for the whole
-population — the fastest route we have measured, 41–157× the plain-torch batched evaluator), **`dense`** (one all-ops
+population — the fastest route we have measured, 38–142× the plain-torch batched evaluator on the shipped default and
+41–157× with the route forced), **`dense`** (one all-ops
 compiled graph per population shape), **`specialized`** (one compiled graph per tree structure) and **`batch`** (one
 merged graph per population structure multiset, opt-in). `auto` — the default — takes **`fused` first** on a device box
 (from `EVOGP_FUSED_MIN_POP` = 16 up, while Triton is importable and the call fits the fused memory envelope), then
@@ -106,8 +107,8 @@ tree/GP/symbolic-regression component, so that part is EvoGP's contribution to t
 
 - **A fused Triton route that removes the dispatch bound**:
 
-    - `EVOGP_EVAL_MODE=fused` launches **one fused kernel for the whole population**, reading the tree channels directly, with no per-node dispatch, no graph and no readback: **0.10–0.17 ms against 4.0–26.5 ms** for the plain-torch batched evaluator across the six benchmark cells (**41×–157×**).
-    - Value outputs are bit-identical to the plain-torch oracle on every measured cell; evaluation is 8.7–9.1 % of a GP generation, so the operator layer becomes the bottleneck. It is `auto`'s first choice on a device box, and `EVOGP_EVAL_MODE=fused` forces it anywhere.
+    - `EVOGP_EVAL_MODE=fused` launches **one fused kernel for the whole population**, reading the tree channels directly, with no per-node dispatch, no graph and no readback: **0.10–0.19 ms against 4.0–26.6 ms** for the plain-torch batched evaluator across the six benchmark cells on the shipped default (**38×–142×**; **41×–157×** with `EVOGP_EVAL_MODE=fused`).
+    - Value outputs are bit-identical to the plain-torch oracle on every measured cell; evaluation is 8.8–10.0 % of a GP generation, so the operator layer becomes the bottleneck. It is `auto`'s first choice on a device box, and `EVOGP_EVAL_MODE=fused` forces it anywhere.
 
 - **Two stacks, one engine**:
 
@@ -313,7 +314,8 @@ create their tensors on `"cuda"` (the same string also selects AMD GPUs under RO
 use, so an end-to-end run of that stack expects a CUDA-visible device — even though the default evaluation backend
 computes on the CPU. The evoxc engine itself is device-agnostic (it accepts population/input tensors from any device
 and returns results on the input's device), and on a device box the `fused` route is what turns that device into
-speed: one kernel launch per population, 8.6×–663× the `dense` default. The functional stack (`evogp.gp`) needs no
+speed: one kernel launch per population, 38×–142× the plain-torch batched evaluator on the shipped default
+(8.6×–663× the `dense` route with `EVOGP_EVAL_MODE=fused`). The functional stack (`evogp.gp`) needs no
 device at all.
 
 ## Evaluation Routes & Performance
@@ -324,7 +326,7 @@ one all-ops graph per population shape, one merged graph per population, or no g
 
 | Route | Enabled by | What runs | Compile cost | Warm cost (measured, whole population) |
 |---|---|---|---|---|
-| **`fused`** — what `auto` picks first on any CUDA-visible device | `auto` (default) on a device box, or force it with `EVOGP_EVAL_MODE=fused`; `pip install "evogp[fused]"` | ONE fused Triton kernel launch for the whole population, on the torch device; the tree channels are read directly, there is no evoxc graph, no per-node dispatch and no readback | one-time Triton JIT per kernel specialization: ~1.64–1.67 s value, ~0.94–0.99 s loss, ~0.32 s per-row from an empty cache (~2 ms from a warm disk cache) | **0.10–0.17 ms** |
+| **`fused`** — what `auto` picks first on any CUDA-visible device | `auto` (default) on a device box, or force it with `EVOGP_EVAL_MODE=fused`; `pip install "evogp[fused]"` | ONE fused Triton kernel launch for the whole population, on the torch device; the tree channels are read directly, there is no evoxc graph, no per-node dispatch and no readback | one-time Triton JIT per kernel specialization: ~1.64–1.67 s value, ~0.94–0.99 s loss, ~0.32 s per-row from an empty cache (~2 ms from a warm disk cache) | **0.10–0.19 ms** |
 | `dense` — what `auto` picks on a device box at population ≥ 64 when the fused route is unavailable | `EVOGP_EVAL_MODE=dense` (alias `dynamic`) | one all-ops compiled graph per population shape: every candidate op is emitted once and the tree structure stays runtime data | 3.1–3.4 s (L=32) / ~6.1 s (L=64) per (shape, function set) on IREE; ~0.16 s from the opt-in artifact cache | 2.0–111 ms |
 | `specialized` — what `auto` picks everywhere else, and every fallback | `EVOGP_EVAL_MODE=specialized` | one compiled graph per tree structure (`evoxc.build_cached`) | 1–10 ms per structure on `numpy`, ~0.4–0.9 s on IREE | ~0.5 ms per tree (numpy), ~2.4–3.6 ms per tree (IREE) |
 | `batch` — opt-in | `EVOGP_EVAL_MODE=batch` | ONE merged graph for the whole population, built with evoxc's `batch_functions` transform | 2.7–164 s per merged plan (chunked; superlinear in the population's total node count) | 3.4–6.9 ms |
@@ -335,41 +337,50 @@ or above that envelope it takes `dense`+`iree` at population ≥ 64; below that 
 fallback it takes `specialized`+`numpy`, because a per-shape or per-structure compile cannot amortize there. `auto`
 never selects `batch`, and `EVOGP_EVAL_MODE` overrides the whole policy for any single route.
 
-### Headline: the fused route
+### Headline: the shipped default (`auto` → `fused`)
 
 Warm medians, one process per config, `Forest.batch_forward` (one whole population, value surface), N=1024 unless
-stated; `dense` and `batch` are the same-process four-way arms, `torch-batched` is the plain-PyTorch batched evaluator
-of the benchmark harness (`test/benchmark/evoxc/`; full campaign and protocol in
+stated; `dense` is the same-window control, `torch-batched` the plain-PyTorch batched evaluator of the benchmark
+harness. The column of record is `evoxc-auto` of
+[`test/benchmark/evoxc/results/t1a1_auto/`](test/benchmark/evoxc/results/t1a1_auto/README.md) — no `EVOGP_EVAL_MODE`
+and no `EVOGP_EVOXC_BACKEND` exported, i.e. exactly what a plain install does (design and route semantics in
 [`src/evogp/tree/FUSED.md`](src/evogp/tree/FUSED.md)):
 
-| cell (pop × tree length × inputs × rows) | `fused` | `torch-batched` | speed-up | `dense` | speed-up |
+| cell (pop × tree length × inputs × rows) | `auto` (shipped default) | `torch-batched` | speed-up | `dense` (same window) | speed-up |
 |---|---|---|---|---|---|
-| `p256-L32-i8-N1024` | **0.0995 ms** | 4.0547 ms | **40.8×** | 1.9857 ms | 20.0× |
-| `p256-L64-i32-N1024` | **0.1016 ms** | 4.4274 ms | **43.6×** | 2.8460 ms | 28.0× |
-| `p256-L64-i32-N4096` | **0.1095 ms** | 4.9177 ms | **44.9×** | 7.8461 ms | 71.7× |
-| `p1000-L64-i32-N1024` | **0.1053 ms** | 4.8867 ms | **46.4×** | 7.3829 ms | 70.1× |
-| `p4096-L64-i32-N1024` | **0.1460 ms** | 10.6400 ms | **72.9×** | not re-run here (baseline of record 45.97 ms) | — |
-| `p2048-L128-i32-N1024-d7` (123-node trees) | **0.1673 ms** | 26.2510 ms | **156.9×** | 110.9945 ms (raised cap 128) | 663× |
+| `p256-L32-i8-N1024` | **0.1023 ms** | 3.989 ms | **39.0×** | 1.8084 ms | 17.7× |
+| `p256-L64-i32-N1024` | **0.1169 ms** | 4.584 ms | **39.2×** | 2.9494 ms | 25.2× |
+| `p256-L64-i32-N4096` | **0.1307 ms** | 5.024 ms | **38.4×** | 7.6783 ms | 58.7× |
+| `p1000-L64-i32-N1024` | **0.1145 ms** | 4.857 ms | **42.4×** | 7.7009 ms | 67.3× |
+| `p4096-L64-i32-N1024` | **0.1532 ms** | 10.323 ms | **67.4×** | 47.0181 ms | 307× |
+| `p2048-L128-i32-N1024-d7` (123-node trees) | **0.1879 ms** | 26.627 ms | **141.7×** | not scheduled (plain `dense` OOM-kills here) | — |
 
-On the loss surface (`Forest.SR_fitness`) the same route reads 0.1299–0.2005 ms, i.e. **32.1×–130.9×** the batched
-arm; over the wider 12-cell envelope campaign it is 35.8×–206× the batched arm, 32.2×–155 847× `specialized` and
-16.3×–495× the shipped `dense` default, so it loses no measured cell on any axis. Read the headline as **41×–157× the
-plain-PyTorch batched evaluator on `batch_forward`** (0.10–0.17 ms against 4.0–26.5 ms; 32×–131× on the loss surface)
-**and 8.6×–663× the `dense` default** on the measured grid, with a one-time ~1.6 s Triton JIT and no per-shape compile.
+On the loss surface (`Forest.SR_fitness`) the shipped default reads 0.1244–0.2155 ms, i.e. **29.2×–123.7×** the batched
+arm, and 0.0983–0.1289 ms on `forward`. Read the headline as **38×–142× the plain-PyTorch batched evaluator on
+`batch_forward`** (0.10–0.19 ms against 4.0–26.6 ms; 29×–124× on the loss surface) **and 6.9×–307× the `dense` route of
+the same window**, with a one-time ~1.6 s Triton JIT and no per-shape compile.
 
-What that does to a GP loop (one `step()` per sample, population replaced every generation): a fused generation is
-**2.64–2.90 ms**, of which evaluation is only **0.23–0.26 ms (8.7–9.1 %)** — 8.8×–108.6× faster per generation than the
-batched torch arm and 2.0×–45.3× faster than `dense` — with **0 compiles and 0 re-preps** across five warm
-generations (a changed population changes only the node tensors the kernel reads). Evaluation stops being the
-bottleneck; the operator layer is.
+**Ceiling: the same route forced.** With `EVOGP_EVAL_MODE=fused` the route is stated instead of resolved per call, and
+that column — measured in its own session
+([`test/benchmark/evoxc/results/t1a1_fused/`](test/benchmark/evoxc/results/t1a1_fused/README.md)) — is the fastest we
+have: 0.0995–0.1673 ms on `batch_forward` (**40.8×–156.9×** the batched arm), 0.1299–0.2005 ms on `sr_fitness`
+(32.1×–130.9×), and **8.6×–663× the `dense` default** on the wider grid (16.3×–495× at the 12-cell envelope). Neither
+column loses a measured cell on any axis.
 
-Honest limits, all from the same campaign:
+What that does to a GP loop (one `step()` per sample, population replaced every generation): a generation on the
+shipped default is **2.583–2.840 ms**, of which evaluation is only **0.236–0.269 ms (8.8–10.0 %)** — 7.6×–108.1× faster
+per generation than the batched torch arm (6.2×–74.1× than a per-tree torch loop) and 2.1×–20.1× faster than `dense` —
+with **0 compiles and 0 re-preps** (`gp_step.compile_misses_total` is 0 on every shipped-default record): a changed
+population changes only the node tensors the kernel reads. Evaluation stops being the bottleneck; the operator layer
+is.
+
+Honest limits, from these campaigns:
 
 - **Single-output-first kernel.** The value path folds the reduction in registers for `output_len == 1` and moves only
   `1/rows` of the traffic; `output_len ≥ 2` is served (up to `MAX_OUT_LEN` = 8) but materializes the
   `(pop, rows, out_len)` prediction buffer, so it costs more traffic than the single-output path.
-- **The tree walk repeats once per row block and per-program work scales with population**: 0.1016 → 0.1095 ms for 4×
-  the rows (nearly free), but 0.1016 → 0.1460 ms from pop 256 to 4 096 at the same tree length.
+- **The tree walk repeats once per row block and per-program work scales with population**: 0.1169 → 0.1307 ms for 4×
+  the rows (+12 %), but 0.1169 → 0.1532 ms from pop 256 to 4 096 at the same tree length.
 - **Host glue is 22–49 % of a warm call** (0.031–0.062 ms: route resolution, prep, scratch lookup, epilogue) where the
   kernel is 51–78 %; the remaining headroom is host-side, not kernel-side.
 - **One-time JIT, not per generation**: ~1.64–1.67 s for the value kernel, ~0.94–0.99 s for the loss kernel, ~0.32 s
@@ -404,7 +415,7 @@ Measured on the reference box with the `numpy` backend and `EVOXC_DISABLE_LOCATI
 - Consequently the **numpy backend is the right choice at population scale on the per-structure route**, where almost every individual is a new structure and the build dominates.
 - **IREE is for repeated structures and heavy per-run work**: the same trees evaluated again and again (elites, repeated rows, long inner loops over many data batches), where the ~0.4–0.9 s per-structure compile is amortized and the computation executes on the device. On the per-structure route, building a fresh random population with IREE is impractical (one compile per individual) and at small batch sizes the numpy interpreter's ~0.5 ms per run beats IREE's ~2.4–3.6 ms (fixed launch/readback overhead) — the `dense` route removes both problems for same-shaped populations.
 - The cache is **in-memory only** (nothing is shared between processes) and holds one entry per *(structure, shape, backend, device, options)*; size it at `>= pop_size + headroom` because every distinct structure of a full-population fitness pass needs its own entry. Each entry pins a loaded executable (~270 KiB for a 30-node tree, ~478 KiB for a 60-node tree).
-- **Same-shaped populations go through ONE dense graph.** With `EVOGP_EVAL_MODE=auto` (the default), a device box with population ≥ 64 packs the whole population into a single dense `iree` evaluator (below that threshold — and on a CPU box, and on any fallback — `auto` stays on the per-structure `numpy` route, because one compile per (population, shape) cannot amortize at tiny populations): a single one-time compile per (population shape, used function set) instead of one compile per structure. Measured warm medians on the reference box (N=1024, `Forest.SR_fitness`): **1.55 ms at 64 trees × L=64**, **2.05 ms at 256 × L=64**, **5.67 ms at 1000 × L=32** — against the plain-PyTorch baselines that is **4.9–75× faster than a per-tree torch eval loop** and **2.1–3.9× faster than a batched whole-population torch implementation**, with one honest loss at 1000 trees × L=64 where the batched torch loop wins by 1.16×. At population 16 this route is 1.22–1.37× *slower* than the per-tree torch loop; the `fused` route wins the small-population cells outright (its kernel is flat in `pop_size`), and `EVOGP_EVAL_MODE=dense` wins them against torch at the price of a compile. Where a warm dense call goes (`test/benchmark/evoxc/FINAL.md`): 84.7% `evoxc.run` and 15.3% host-side staging (staging was ~75% before the host-glue work); the dispatch-bound graph (~310 chained device ops) is what the fused route removes — it runs the same population in ONE kernel launch. **Cold start matters:** a dense graph compiles in ~3.1–3.4 s (L=32) / ~6.1 s (L=64), so short training runs are compile-dominated until ≈1250 generations; set `EVOGP_EVOXC_ARTIFACT_DIR` to reuse a compiled artifact across processes (~0.16 s reload). Numerics: value paths are bitwise exact for the arithmetic and ternary function sets and ~1e-6 relative elsewhere, but the transcendental (`rich`) set is only approximate on the dense IREE route (up to 4.4e-01 absolute at large output magnitudes — see `test/benchmark/evoxc/VALIDATION.md`); the fused route is exact on it too. Force a route with `EVOGP_EVAL_MODE=dense|specialized|batch|fused` (`dynamic` is an alias of `dense`). Details: `src/evogp/tree/DENSE_EVAL.md` (dense), `src/evogp/tree/BATCH_EVAL.md` (batch), `src/evogp/tree/FUSED.md` (fused); verdicts of record in `test/benchmark/evoxc/FINAL.md`, `test/benchmark/evoxc/BATCH.md` and `src/evogp/tree/FUSED.md`.
+- **Same-shaped populations go through ONE dense graph.** With `EVOGP_EVAL_MODE=dense` (and with `auto` on a device box whenever the fused route is unavailable — no Triton, or a call above the fused memory envelope), a device box with population ≥ 64 packs the whole population into a single dense `iree` evaluator (below that threshold — and on a CPU box, and on any fallback — the policy stays on the per-structure `numpy` route, because one compile per (population, shape) cannot amortize at tiny populations): a single one-time compile per (population shape, used function set) instead of one compile per structure. Measured warm medians of the `dense` route on the reference box (N=1024, `Forest.SR_fitness`): **1.55 ms at 64 trees × L=64**, **2.05 ms at 256 × L=64**, **5.67 ms at 1000 × L=32** — against the plain-PyTorch baselines that is **4.9–75× faster than a per-tree torch eval loop** and **2.1–3.9× faster than a batched whole-population torch implementation**, with one honest loss at 1000 trees × L=64 where the batched torch loop wins by 1.16×. At population 16 `dense` is 1.22–1.37× *slower* than the per-tree torch loop; the `fused` route — the shipped default on a device box — wins the small-population cells outright (its kernel is flat in `pop_size`), and `EVOGP_EVAL_MODE=dense` wins them against torch at the price of a compile. Where a warm dense call goes (`test/benchmark/evoxc/FINAL.md`): 84.7% `evoxc.run` and 15.3% host-side staging (staging was ~75% before the host-glue work); the dispatch-bound graph (~310 chained device ops) is what the fused route removes — it runs the same population in ONE kernel launch. **Cold start matters:** a dense graph compiles in ~3.1–3.4 s (L=32) / ~6.1 s (L=64), so short training runs are compile-dominated until ≈1250 generations; set `EVOGP_EVOXC_ARTIFACT_DIR` to reuse a compiled artifact across processes (~0.16 s reload). Numerics: value paths are bitwise exact for the arithmetic and ternary function sets and ~1e-6 relative elsewhere, but the transcendental (`rich`) set is only approximate on the dense IREE route (up to 4.4e-01 absolute at large output magnitudes — see `test/benchmark/evoxc/VALIDATION.md`); the fused route is exact on it too. Force a route with `EVOGP_EVAL_MODE=dense|specialized|batch|fused` (`dynamic` is an alias of `dense`). Details: `src/evogp/tree/DENSE_EVAL.md` (dense), `src/evogp/tree/BATCH_EVAL.md` (batch), `src/evogp/tree/FUSED.md` (fused); verdicts of record in `test/benchmark/evoxc/FINAL.md`, `test/benchmark/evoxc/BATCH.md` and `src/evogp/tree/FUSED.md`.
 
 ### Environment variables
 
@@ -519,9 +530,14 @@ record [`src/evogp/gp/DEVICE_LOOP.md`](src/evogp/gp/DEVICE_LOOP.md)). It is stil
   `CustomLoss` is the escape hatch) — the torch stack serves multi-output trees;
 - **no committed test compares its fitness numbers against the torch stack** on a shared problem (the two differ in RNG
   stream, data draw and selection operator, so they are never expected to agree bit-for-bit);
-- the device-native fused objective reaches torch through `_device_interop.py`, an explicitly transitional DLPack shim
-  that `evoxc`'s own device-payload export (`evoxc.core.Tensor.__dlpack__` plus
-  `register_external_kernel(..., device_resident=True)`) is replacing;
+- the device-native fused objective reaches torch through `evoxc`'s own DLPack device export, with no shim in between:
+  the channel buffers are exported zero-copy (`evoxc.core.Tensor.__dlpack__` → `torch.from_dlpack`), the Triton kernel
+  writes its `(pop_size,)` loss straight INTO the exported fitness buffer (`out=`), so the variation graph reads that
+  same tensor with no import step, and one `torch.cuda.synchronize()` provides the cross-runtime ordering before the
+  next `evoxc.run` touches the buffer. Operational caveat: that native device export needs an `evoxc` that has it
+  (commit `474bf72`, reachable as the task's evoxc worktree checkout
+  `/root/evoxc/.genesis/foreign_repos/evoxc`); against `/root/evoxc` HEAD (`9f66fec`) the stack declines the device
+  route and falls back to the host hand-off, which is correct but slower (one upload and one readback per call);
 - channel validation is a Python loop (~50 ms per 256 × 300-node population; `validate=False` opts out), and the
   in-graph problem layer owns a second compile cache.
 
@@ -728,7 +744,7 @@ python -m pytest src/evogp/tests -q                                             
 python -m pytest src/evogp/gp/tests -q
 ```
 
-The torch suite (`src/evogp/tests`, 1 262 cases: 1 252 pass / 7 skip / 3 fail on the device reference box — see the
+The torch suite (`src/evogp/tests`, 1 262 cases: 1 255 pass / 7 skip / 0 fail in ~122 s on the device reference box — see the
 fused-route note below) checks the evaluation engine against an independent plain-torch
 reference evaluator (randomized and adversarial tree sets, plus any golden fixtures found), the route policy and the
 per-route knobs, generation/splice invariants, the public API surface, and runs a tiny convergence smoke test; the
@@ -742,9 +758,9 @@ or a device) plus the in-library battery `python -m evogp.tree.fused_check --sta
 goldens, declines, the six-cell timing and the tuning grid) and the campaign of record in
 `test/benchmark/evoxc/results/t1a1_fused/` (`check.py --results test/benchmark/evoxc/results/t1a1_fused --allow-snapshot
 --allow-missing --allow-digest-mismatch`, read against `results/t1a1_baseline/`); the verdict, the numbers and the
-residual gaps are in [`src/evogp/tree/FUSED.md`](src/evogp/tree/FUSED.md). One of those cases,
-`test_auto_never_selects_fused`, still asserts the pre-policy "`auto` never picks `fused`" rule and is the only red
-case in either suite on a device box.
+residual gaps are in [`src/evogp/tree/FUSED.md`](src/evogp/tree/FUSED.md). That net pins the shipped policy both ways —
+`test_auto_selects_fused_above_the_floor` and `test_auto_keeps_the_pre_fused_policy_below_the_floor_or_without_triton` —
+and reads 39 passed on a device box with Triton.
 
 The differential file (`test_equivalence.py`) also validates `.npz` golden fixtures found in `$EVOGP_GOLDEN_DIR`,
 `test/goldens/` and `src/evogp/tests/goldens/`: every `.npz` in those directories must use the documented fixture
@@ -798,7 +814,7 @@ EvoGP is a new project, and we will continue to maintain it in the future. We wa
 1. Improve EvoGP documentation and tutorials.
 2. Implement more GP-related algorithms, such as LGP, CGP, GEP.
 3. Add more multi-output methods for EvoGP — including the multi-output protocol in the functional stack (`evogp.gp`), which is single-output today.
-4. Reach parity between the functional stack (`evogp.gp`) and the torch stack on shared problems, so `torch` can become a pure test/benchmark dependency, and replace its transitional `_device_interop.py` shim with `evoxc`'s own DLPack device export.
+4. Reach parity between the functional stack (`evogp.gp`) and the torch stack on shared problems, so `torch` can become a pure test/benchmark dependency — its device hand-off already runs on `evoxc`'s own DLPack device export (the channels as `Tensor.__dlpack__` → `torch.from_dlpack` views, the kernel writing the fitness buffer through `out=`, and one `torch.cuda.synchronize()` for the cross-runtime ordering), with no private bridge left to replace.
 6. Further optimize EvoGP to increase computation speed and reduce memory usage.
 
 We warmly welcome community developers to contribute to EvoGP and look forward to your pull requests!
