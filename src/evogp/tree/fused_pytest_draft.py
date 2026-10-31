@@ -1,36 +1,32 @@
 """Regression net for the shipped ``EVOGP_EVAL_MODE=fused`` (Triton) route.
 
 ``src/evogp/tree/fused_check.py`` is this route's EXHAUSTIVE gate (parity, multi,
-goldens, declines, wiring, timing) and stays the authority; it is a dev CLI and is
-NOT pytest-collected.  This module is the SUITE's net for the same route: a few
-seconds of assertions that fail loudly when the Triton evaluator
-(``fused_kernels``), its facade (``fused_engine``) or the route wiring
-(``dense_engine.resolve_route`` + ``Forest``) regresses.  The oracle is
-``src/evogp/tests/reference_eval.py`` (read-only, independent of the engine).
+goldens, declines, wiring, timing) and stays the authority; it is a dev CLI and is NOT
+pytest-collected.  This module is the SUITE's net for the same route: seconds of
+assertions that fail loudly when the Triton evaluator (``fused_kernels``), its facade
+(``fused_engine``) or the route wiring (``dense_engine.resolve_route`` + ``Forest``)
+regresses.  Oracle: ``src/evogp/tests/reference_eval.py`` (read-only, engine-free).
 
-HERMETIC BY CONSTRUCTION: the whole module SKIPS (never fails) when the route
-cannot exist -- no CUDA/HIP device visible to torch, ``triton`` not importable, or
-no writable Triton JIT cache (``TRITON_CACHE_DIR`` unset on a read-only ``$HOME``).
-The decision is taken at COLLECTION time and imports nothing heavy
-(``fused_engine.fused_available`` answers from ``importlib.util.find_spec``).  The
-suite's ``conftest.py`` pins ``EVOGP_EVOXC_BACKEND=numpy`` for hermeticity; the
-``_fused_route`` fixture removes that pin per test, because ``backend="numpy"`` is
-a documented DECLINE of this route (no Triton twin) and would silently route every
-call to the specialized engine.
+HERMETIC BY CONSTRUCTION: the whole module SKIPS (never fails) when the route cannot
+exist -- no CUDA/HIP device visible to torch, ``triton`` not importable, or no writable
+Triton JIT cache (``TRITON_CACHE_DIR`` unset on a read-only ``$HOME``).  The decision is
+taken at COLLECTION time and imports nothing heavy (``fused_available`` answers from
+``importlib.util.find_spec``).  The suite's ``conftest.py`` pins
+``EVOGP_EVOXC_BACKEND=numpy`` for hermeticity; the ``_fused_route`` fixture removes that
+pin per test, because ``backend="numpy"`` is a documented DECLINE of this route, not a
+fallback.
 
-RUN (repo root, the torch-carrying venv; ``$HOME`` must be writable or
-``TRITON_CACHE_DIR`` set, or triton's JIT cannot materialize its cache)::
+RUN (repo root, torch-carrying venv, writable ``TRITON_CACHE_DIR``)::
 
     PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 \\
       TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache \\
       /tmp/rocvenv/bin/python -m pytest src/evogp/tree/fused_pytest_draft.py -q
 
-RELOCATION NOTE (this file is a DRAFT): move it to
-``src/evogp/tests/test_fused_route.py`` -- rename only, the ``test_`` prefix is
-what makes pytest collect it there.  Nothing else changes: co-located,
-``import reference_eval`` resolves directly (the path fallback below only serves
-the draft's current ``tree/`` home), the suite's conftest supplies the backend pin
-this module neutralises, and no ``sys.path`` edit or conftest entry is needed.
+RELOCATION NOTE (this file is a DRAFT): move it to ``src/evogp/tests/test_fused_route.py``
+-- rename only; the ``test_`` prefix is what makes pytest collect it there.  Nothing else
+changes: co-located ``import reference_eval`` resolves directly (the path fallback below
+only serves the draft's ``tree/`` home) and no conftest entry or ``sys.path`` edit is
+needed.
 """
 
 from __future__ import annotations
@@ -48,7 +44,7 @@ torch = pytest.importorskip("torch")
 def _load_reference():
     """``src/evogp/tests/reference_eval.py``: by import when co-located, else by path."""
     try:
-        import reference_eval  # the relocated home: it is a sibling module
+        import reference_eval  # the relocated home: a sibling module
 
         return reference_eval
     except ImportError:
@@ -56,9 +52,7 @@ def _load_reference():
     here = pathlib.Path(__file__).resolve().parent
     for candidate in (here / "reference_eval.py", here.parent / "tests" / "reference_eval.py"):
         if candidate.is_file():
-            spec = importlib.util.spec_from_file_location(
-                "_evogp_fused_reference_eval", candidate
-            )
+            spec = importlib.util.spec_from_file_location("_evogp_fused_reference", candidate)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             return module
@@ -68,7 +62,7 @@ def _load_reference():
 reference = _load_reference()
 if reference is None:  # pragma: no cover - only if the draft is moved without it
     pytest.skip(
-        "the plain-torch oracle was not found next to this module or in ../tests/",
+        "the plain-torch oracle is not next to this module or in ../tests/",
         allow_module_level=True,
     )
 
@@ -106,7 +100,9 @@ pytestmark = pytest.mark.skipif(
 DEVICE = torch.device("cuda")
 # Node kinds and function ids come from the ORACLE's tables, so a case can never
 # disagree with the reference about what an id means.
-VAR, CONST, UFUNC, BFUNC, TFUNC = reference.VAR, reference.CONST, reference.UFUNC, reference.BFUNC, reference.TFUNC
+VAR, CONST, UFUNC, BFUNC, TFUNC = (
+    reference.VAR, reference.CONST, reference.UFUNC, reference.BFUNC, reference.TFUNC,
+)
 OUT_NODE = reference.OUT_NODE
 IF, ADD, SUB, MUL, DIV, LOOSE_DIV, POW, LOOSE_POW, MAX, MIN, LT, GT, LE, GE = range(14)
 (
@@ -114,10 +110,9 @@ IF, ADD, SUB, MUL, DIV, LOOSE_DIV, POW, LOOSE_POW, MAX, MIN, LT, GT, LE, GE = ra
     LOOSE_SQRT,
 ) = range(14, 29)
 
-#: ``(using_funcs, rtol)`` per function set.  ``rtol = 0.0`` means the route is
-#: BITWISE against the oracle there (measured, ``tree/FUSED.md`` §16.5); the ``1e-6``
-#: sets are the transcendental / loose surfaces, whose emitters may agree in value
-#: while one byte differs.
+#: ``(using_funcs, rtol)`` per function set.  ``rtol = 0.0`` means the route is BITWISE
+#: against the oracle there (measured, ``tree/FUSED.md`` §16.5); the ``1e-6`` sets are the
+#: transcendental / loose surfaces, where an emitter may agree in value on a different byte.
 VALUE_SETS = {
     "arithmetic": (["+", "-", "*", "/"], 0.0),
     "ternary": (["if", "+", "*"], 0.0),
@@ -127,9 +122,7 @@ VALUE_SETS = {
 }
 
 
-# --------------------------------------------------------------------------- #
-# tiny tree-spec DSL: nested spec -> prefix-encoded population tensors
-# --------------------------------------------------------------------------- #
+# --- tiny tree-spec DSL: nested spec -> prefix-encoded population tensors --------- #
 def _node_type_of(function_id):
     """The node kind a function id implies (arity 1/2/3 -> UFUNC/BFUNC/TFUNC)."""
     return {1: UFUNC, 2: BFUNC, 3: TFUNC}[int(reference.arity_of(int(function_id)))]
@@ -146,12 +139,10 @@ def _encode(node, output_len):
     values, types, sizes = [], [], []
 
     def walk(n):
-        tag = n[0]
-        index = len(values)
+        tag, index, kids = n[0], len(values), ()
         values.append(0.0)
         types.append(0)
         sizes.append(0)
-        kids = ()
         if tag == "var":
             values[index], types[index] = float(n[1]), VAR
         elif tag == "const":
@@ -186,35 +177,23 @@ def _forest(specs, *, input_len, output_len=1, pad_to):
         node_type[row, : len(values)] = torch.tensor(types, dtype=torch.int16)
         subtree_size[row, : len(values)] = torch.tensor(sizes, dtype=torch.int16)
     return Forest(
-        input_len,
-        output_len,
-        node_value.to(DEVICE),
-        node_type.to(DEVICE),
-        subtree_size.to(DEVICE),
+        input_len, output_len,
+        node_value.to(DEVICE), node_type.to(DEVICE), subtree_size.to(DEVICE),
     )
 
 
-# --------------------------------------------------------------------------- #
-# populations, data, oracle
-# --------------------------------------------------------------------------- #
-def _random_forest(pop_size, using_funcs, *, input_len=4, output_len=1,
-                   max_tree_len=64, max_layer_cnt=None, seed=0):
+# --- populations, data, oracle ---------------------------------------------------- #
+def _random_forest(pop_size, using_funcs, *, input_len=4, output_len=1, max_tree_len=64,
+                   max_layer_cnt=None, seed=0):
     """``seed -> descriptor -> population`` (both draw from torch's global RNG)."""
     if max_layer_cnt is None:
         max_layer_cnt = 3 if "if" in using_funcs else 4
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     descriptor = GenerateDescriptor(
-        max_tree_len=max_tree_len,
-        input_len=input_len,
-        output_len=output_len,
-        using_funcs=list(using_funcs),
-        max_layer_cnt=max_layer_cnt,
-        layer_leaf_prob=0.2,
-        const_prob=0.5,
-        out_prob=0.5,
-        const_range=(0.25, 1.25),
-        sample_cnt=8,
+        max_tree_len=max_tree_len, input_len=input_len, output_len=output_len,
+        using_funcs=list(using_funcs), max_layer_cnt=max_layer_cnt, layer_leaf_prob=0.2,
+        const_prob=0.5, out_prob=0.5, const_range=(0.25, 1.25), sample_cnt=8,
     )
     return Forest.random_generate(pop_size=pop_size, descriptor=descriptor)
 
@@ -233,43 +212,27 @@ def _rows_of(forest):
     )
 
 
-def _oracle_batch(forest, x):
-    return reference.batch_forward_from_rows(
-        *_rows_of(forest), x.detach().cpu().float(), out_len=forest.output_len
-    )
-
-
-def _oracle_forward(forest, x):
-    return reference.forward_from_rows(
-        *_rows_of(forest), x.detach().cpu().float(), out_len=forest.output_len
-    )
-
-
-def _oracle_loss(forest, inputs, labels, use_mse):
+def _oracle(forest, x, *, per_row=False, labels=None, use_mse=True):
+    """The independent plain-torch answer for the same tensors."""
+    rows, x = _rows_of(forest), x.detach().cpu().float()
+    if labels is None:
+        emit = reference.forward_from_rows if per_row else reference.batch_forward_from_rows
+        return emit(*rows, x, out_len=forest.output_len)
     return reference.sr_fitness_from_rows(
-        *_rows_of(forest),
-        inputs.detach().cpu().float(),
-        labels.detach().cpu().float(),
-        use_mse=use_mse,
-        out_len=forest.output_len,
+        *rows, x, labels.detach().cpu().float(), use_mse=use_mse, out_len=forest.output_len
     )
 
 
-# --------------------------------------------------------------------------- #
-# assertions: NaN/inf PLACEMENT always exact, then bitwise or within ``rtol``
-# --------------------------------------------------------------------------- #
-def _to_cpu(value):
-    return value.detach().to(torch.float32).cpu()
-
-
+# --- assertions: NaN/inf PLACEMENT always exact, then bitwise or within ``rtol`` --- #
 def _assert_same(value, expected, context, *, rtol=None):
     """Compare against the oracle; ``rtol=None`` demands bit-identical finite values.
 
-    A NaN *payload* is deliberately not part of the claim (``FUSED.md`` §16.5: the
-    loose surface may write a different payload for the same NaN), so non-finite
-    entries are pinned by the placement check and only finite ones are compared.
+    A NaN *payload* is deliberately not part of the claim (``FUSED.md`` §16.5: the loose
+    surface may write a different payload for the same NaN), so non-finite entries are
+    pinned by the placement check and only finite ones are compared.
     """
-    got, want = _to_cpu(value), _to_cpu(expected)
+    got = value.detach().to(torch.float32).cpu()
+    want = expected.detach().to(torch.float32).cpu()
     assert tuple(got.shape) == tuple(want.shape), (
         f"{context}: shape {tuple(got.shape)} != {tuple(want.shape)}"
     )
@@ -302,46 +265,60 @@ def _assert_same(value, expected, context, *, rtol=None):
         )
 
 
-def _assert_served(before, after, context):
-    """The call really ran on the Triton kernel, not on a fallback."""
-    declines = int(after["fused_declines"] - before["fused_declines"])
-    launches = int(after["fused_kernel_launches"] - before["fused_kernel_launches"])
+def _deltas(before, after):
+    return (
+        int(after["fused_declines"] - before["fused_declines"]),
+        int(after["fused_kernel_launches"] - before["fused_kernel_launches"]),
+    )
+
+
+def _served(call, context):
+    """Run ``call()`` and prove the Triton kernel served it (never a fallback).
+
+    The engine name in a ``Route`` is not a served-call proof: an explicit
+    ``EVOGP_EVOXC_BACKEND`` (or a knob) can still decline at call time, so the counters
+    are the evidence (``fused_calls`` counts ATTEMPTS, ``fused_kernel_launches`` only
+    real launches).
+    """
+    before = fused_engine.fused_cache_stats()
+    got = call()
+    declines, launches = _deltas(before, fused_engine.fused_cache_stats())
     assert declines == 0, (
         f"{context}: the fused route DECLINED (+{declines}), so a fallback produced these "
         "numbers -- check EVOGP_EVAL_MODE / EVOGP_FUSED_MIN_POP / "
         "EVOGP_FUSED_MAX_SCRATCH_MB and that EVOGP_EVOXC_BACKEND is not 'numpy'"
     )
     assert launches > 0, (
-        f"{context}: no Triton launch was counted (fused_kernel_launches +0) -- the call "
-        "never reached the fused engine"
+        f"{context}: no Triton launch was counted -- the call never reached the fused engine"
     )
+    return got
 
 
-def _assert_declined(before, after, context):
-    """The call was declined, i.e. the documented fallback served it."""
-    declines = int(after["fused_declines"] - before["fused_declines"])
-    launches = int(after["fused_kernel_launches"] - before["fused_kernel_launches"])
-    assert declines == 1, f"{context}: expected exactly 1 decline, counted {declines}"
-    assert launches == 0, f"{context}: {launches} Triton launch(es) happened anyway"
+def _declined(call, context):
+    """Run ``call()`` and prove it was DECLINED (i.e. the fallback served it)."""
+    before = fused_engine.fused_cache_stats()
+    got = call()
+    declines, launches = _deltas(before, fused_engine.fused_cache_stats())
+    assert (declines, launches) == (1, 0), (
+        f"{context}: expected exactly one decline and no launch, counted "
+        f"declines={declines} launches={launches}"
+    )
+    return got
 
 
-# --------------------------------------------------------------------------- #
-# fixtures
-# --------------------------------------------------------------------------- #
+# --- fixtures --------------------------------------------------------------------- #
 @pytest.fixture(scope="module", autouse=True)
 def _warm_jit():
     """Compile the four single-output Triton specializations once for the module.
 
-    The JIT cost is per ``(per_row, reduce, use_mse, block, warps)`` combination
-    (~0.4 s the first time in a process); paying it here keeps the per-test numbers
-    about correctness.  A direct facade call ignores ``EVOGP_EVOXC_BACKEND``, which
-    a module-scoped fixture could not neutralise anyway (``monkeypatch`` is
+    The JIT cost is per ``(per_row, reduce, use_mse, block, warps)`` combination (~0.4 s
+    the first time in a process).  A direct facade call ignores ``EVOGP_EVOXC_BACKEND``,
+    which a module-scoped fixture could not neutralise anyway (``monkeypatch`` is
     function-scoped).  The multi-output kernels are compiled by their own test.
     """
     rows = _forest([("fn", ADD, (("var", 0), ("var", 1)))] * 16, input_len=4, pad_to=8)
-    broadcast, labels = _data(8, 4, seed=1), _data(8, 1, seed=3)
-    per_row = _data(rows.pop_size, 4, seed=2)
     call = (rows.batch_node_value, rows.batch_node_type, rows.batch_subtree_size)
+    broadcast, labels, per_row = _data(8, 4, seed=1), _data(8, 1, seed=3), _data(16, 4, 2)
     fused_engine.evaluate_fused(*call, 4, 1, broadcast, per_row=False)
     fused_engine.evaluate_fused(*call, 4, 1, per_row, per_row=True)
     for use_mse in (True, False):
@@ -354,38 +331,29 @@ def _fused_route(monkeypatch):
     """Point the PUBLIC API at the fused engine for the duration of the test.
 
     ``EVOGP_EVAL_MODE=fused`` selects the route; the evoxc backend pin the suite's
-    ``conftest.py`` sets must go, because ``backend="numpy"`` is a documented DECLINE
-    of this route (Triton has no numpy twin), not a fallback.
+    ``conftest.py`` sets must go, because ``backend="numpy"`` is a documented DECLINE of
+    this route (Triton has no numpy twin), not a fallback.
     """
     monkeypatch.setenv("EVOGP_EVAL_MODE", "fused")
-    for name in (
-        "EVOGP_EVOXC_BACKEND",
-        "EVOGP_FUSED_MIN_POP",
-        "EVOGP_FUSED_MAX_SCRATCH_MB",
-        "EVOGP_FUSED_BLOCK_ROWS",
-        "EVOGP_FUSED_NUM_WARPS",
-    ):
+    for name in ("EVOGP_EVOXC_BACKEND", "EVOGP_FUSED_MIN_POP", "EVOGP_FUSED_MAX_SCRATCH_MB",
+                 "EVOGP_FUSED_BLOCK_ROWS", "EVOGP_FUSED_NUM_WARPS"):
         monkeypatch.delenv(name, raising=False)
     yield
 
 
-# --------------------------------------------------------------------------- #
-# 1. value-path parity through the public API
-# --------------------------------------------------------------------------- #
+# --- 1. value-path parity through the public API ---------------------------------- #
 @pytest.mark.parametrize("per_row", [False, True], ids=["batch_forward", "forward"])
 @pytest.mark.parametrize("name", sorted(VALUE_SETS))
 def test_value_parity(name, per_row):
     """``batch_forward`` (per_row=False) and ``forward`` (per_row=True) vs the oracle."""
     using_funcs, rtol = VALUE_SETS[name]
     forest = _random_forest(24, using_funcs)
-    rows = forest.pop_size if per_row else 16
-    x = _data(rows, forest.input_len, seed=13 if per_row else 11)
-    before = fused_engine.fused_cache_stats()
-    got = forest.forward(x) if per_row else forest.batch_forward(x)
-    after = fused_engine.fused_cache_stats()
+    x = _data(forest.pop_size if per_row else 16, forest.input_len, seed=13 if per_row else 11)
     context = f"{'forward' if per_row else 'batch_forward'}[{name}]"
-    _assert_served(before, after, context)
-    want = _oracle_forward(forest, x) if per_row else _oracle_batch(forest, x)
+    got = _served(
+        lambda: forest.forward(x) if per_row else forest.batch_forward(x), context
+    )
+    want = _oracle(forest, x, per_row=per_row)
     _assert_same(got, want, context, rtol=None if rtol == 0.0 else rtol)
 
 
@@ -401,13 +369,13 @@ def test_single_node_and_constant_populations():
     }
     for name, specs in cases.items():
         forest = _forest(specs * 16, input_len=4, pad_to=8)
-        before = fused_engine.fused_cache_stats()
-        got = forest.batch_forward(x)
-        after = fused_engine.fused_cache_stats()
-        _assert_served(before, after, f"batch_forward[{name}]")
-        _assert_same(got, _oracle_batch(forest, x), f"batch_forward[{name}]")
+        context = f"batch_forward[{name}]"
+        got = _served(lambda: forest.batch_forward(x), context)
+        _assert_same(got, _oracle(forest, x), context)
         per_row = _data(forest.pop_size, 4, seed=21)
-        _assert_same(forest.forward(per_row), _oracle_forward(forest, per_row), f"forward[{name}]")
+        _assert_same(
+            forest.forward(per_row), _oracle(forest, per_row, per_row=True), f"forward[{name}]"
+        )
 
 
 def test_deep_chain():
@@ -419,13 +387,12 @@ def test_deep_chain():
     length = int(forest.batch_subtree_size[0, 0])
     assert length >= 40, f"the deep-chain case regressed to {length} nodes"
     x = _data(8, 4)
-    before = fused_engine.fused_cache_stats()
-    got = forest.batch_forward(x)
-    after = fused_engine.fused_cache_stats()
-    _assert_served(before, after, "batch_forward[deep_chain]")
-    _assert_same(got, _oracle_batch(forest, x), f"batch_forward[deep_chain {length} nodes]")
+    got = _served(lambda: forest.batch_forward(x), "batch_forward[deep_chain]")
+    _assert_same(got, _oracle(forest, x), f"batch_forward[deep_chain {length} nodes]")
     per_row = _data(forest.pop_size, 4, seed=22)
-    _assert_same(forest.forward(per_row), _oracle_forward(forest, per_row), "forward[deep_chain]")
+    _assert_same(
+        forest.forward(per_row), _oracle(forest, per_row, per_row=True), "forward[deep_chain]"
+    )
 
 
 def test_protected_div_and_nan_inf_placement():
@@ -448,44 +415,33 @@ def test_protected_div_and_nan_inf_placement():
     ]
     forest = _forest([spec for spec in edge for _ in range(2)], input_len=4, pad_to=32)
     x = _data(8, 4)
-    before = fused_engine.fused_cache_stats()
-    got = forest.batch_forward(x)
-    after = fused_engine.fused_cache_stats()
-    _assert_served(before, after, "batch_forward[edge]")
-    want = _oracle_batch(forest, x)
+    got = _served(lambda: forest.batch_forward(x), "batch_forward[edge]")
+    want = _oracle(forest, x)
     assert int(torch.isnan(want).sum()) > 0, (
         "the edge population produces no NaN any more, so it stopped exercising NaN placement"
     )
     _assert_same(got, want, "batch_forward[edge: div/0, log(0), sqrt(-1), overflow]")
     per_row = _data(forest.pop_size, 4, seed=23)
-    _assert_same(forest.forward(per_row), _oracle_forward(forest, per_row), "forward[edge]")
+    _assert_same(forest.forward(per_row), _oracle(forest, per_row, per_row=True), "forward[edge]")
 
 
-# --------------------------------------------------------------------------- #
-# 2. loss path and its result contract
-# --------------------------------------------------------------------------- #
+# --- 2. loss path and its result contract ----------------------------------------- #
 @pytest.mark.parametrize("use_mse", [True, False], ids=["mse", "mae"])
 @pytest.mark.parametrize("name", ["arithmetic", "loose"])
 def test_sr_fitness_matches_oracle(name, use_mse):
     """``Forest.SR_fitness`` vs the oracle's reduction, for both loss metrics."""
     forest = _random_forest(24, VALUE_SETS[name][0])
     inputs, labels = _data(16, forest.input_len), _data(16, 1, seed=31)
-    before = fused_engine.fused_cache_stats()
-    loss = forest.SR_fitness(inputs, labels, use_MSE=use_mse)
-    after = fused_engine.fused_cache_stats()
     context = f"SR_fitness[{name}, mse={use_mse}]"
-    _assert_served(before, after, context)
-    _assert_same(loss, _oracle_loss(forest, inputs, labels, use_mse), context, rtol=1e-6)
+    loss = _served(lambda: forest.SR_fitness(inputs, labels, use_MSE=use_mse), context)
+    _assert_same(loss, _oracle(forest, inputs, labels=labels, use_mse=use_mse), context, rtol=1e-6)
 
 
 def test_sr_fitness_result_contract():
     """``(pop,)`` float32, contiguous, no grad, on the device, and a FRESH buffer."""
     forest = _random_forest(24, ["+", "*"])
     inputs, labels = _data(16, forest.input_len), _data(16, 1, seed=41)
-    before = fused_engine.fused_cache_stats()
-    loss = forest.SR_fitness(inputs, labels)
-    after = fused_engine.fused_cache_stats()
-    _assert_served(before, after, "SR_fitness[contract]")
+    loss = _served(lambda: forest.SR_fitness(inputs, labels), "SR_fitness[contract]")
     assert tuple(loss.shape) == (forest.pop_size,), f"shape {tuple(loss.shape)}"
     assert loss.dtype == torch.float32, f"dtype {loss.dtype}"
     assert loss.is_contiguous(), "the pipeline mutates the loss in place: it must be contiguous"
@@ -496,22 +452,24 @@ def test_sr_fitness_result_contract():
     _assert_same(forest.SR_fitness(inputs, labels), snapshot, "SR_fitness[fresh buffer]")
 
 
-# --------------------------------------------------------------------------- #
-# 3. multi-output (OUT_NODE-tagged) populations
-# --------------------------------------------------------------------------- #
+# --- 3. multi-output (OUT_NODE-tagged) populations --------------------------------- #
 def _tagged(function_id, out_index, children):
     return ("out", function_id, out_index, children)
 
 
 def _multi_population():
     """Four tagged shapes x 4: two outputs, a tagged ROOT, one tagged, same output twice."""
-    two_outputs = ("fn", ADD, (_tagged(NEG, 0, (("var", 0),)), _tagged(ADD, 1, (("var", 1), ("var", 2)))))
-    root_if = _tagged(
-        IF,
-        1,
-        (("var", 0), ("fn", ADD, (("var", 1), ("const", 0.5))), ("fn", MUL, (("var", 2), ("var", 3)))),
-    )
-    one_tagged = ("fn", ADD, (_tagged(MUL, 1, (("var", 0), ("const", 2.5))), ("fn", SUB, (("var", 1), ("var", 2)))))
+    two_outputs = ("fn", ADD, (
+        _tagged(NEG, 0, (("var", 0),)), _tagged(ADD, 1, (("var", 1), ("var", 2))),
+    ))
+    root_if = _tagged(IF, 1, (
+        ("var", 0),
+        ("fn", ADD, (("var", 1), ("const", 0.5))),
+        ("fn", MUL, (("var", 2), ("var", 3))),
+    ))
+    one_tagged = ("fn", ADD, (
+        _tagged(MUL, 1, (("var", 0), ("const", 2.5))), ("fn", SUB, (("var", 1), ("var", 2))),
+    ))
     same_output = _tagged(ADD, 0, (("var", 0), _tagged(NEG, 0, (("var", 1),))))
     return [two_outputs, root_if, one_tagged, same_output] * 4
 
@@ -520,16 +478,13 @@ def _multi_population():
 def test_multi_output_value_parity(out_len):
     """``batch_forward`` and ``forward`` at ``output_len`` 2 and 3: BITWISE."""
     forest = _forest(_multi_population(), input_len=4, output_len=out_len, pad_to=32)
-    x = _data(16, 4)
-    before = fused_engine.fused_cache_stats()
-    got = forest.batch_forward(x)
-    after = fused_engine.fused_cache_stats()
-    _assert_served(before, after, f"batch_forward[multi, out_len={out_len}]")
-    _assert_same(got, _oracle_batch(forest, x), f"batch_forward[multi, out_len={out_len}]")
+    x, context = _data(16, 4), f"multi_batch_forward[out_len={out_len}]"
+    got = _served(lambda: forest.batch_forward(x), context)
+    _assert_same(got, _oracle(forest, x), context)
     per_row = _data(forest.pop_size, 4, seed=33)
     _assert_same(
         forest.forward(per_row),
-        _oracle_forward(forest, per_row),
+        _oracle(forest, per_row, per_row=True),
         f"forward[multi, out_len={out_len}]",
     )
 
@@ -537,46 +492,37 @@ def test_multi_output_value_parity(out_len):
 @pytest.mark.parametrize("use_mse", [True, False], ids=["mse", "mae"])
 @pytest.mark.parametrize("out_len", [2, 3])
 def test_multi_output_loss_parity(out_len, use_mse):
-    """``SR_fitness`` on tagged trees: the documented ``<= 1e-6`` relative.
+    """``SR_fitness`` on tagged trees: the documented ``<= 1e-6`` relative, NOT bitwise.
 
-    NOT bitwise: the in-kernel reduction sums the per-output errors in fp32 in its
-    own order while the oracle sums with torch (measured ~1e-7 relative -- the
-    ``LOSS_RTOL`` story of ``tree/FUSED.md`` §16.5).
+    The in-kernel reduction sums the per-output errors in fp32 in its own order while the
+    oracle sums with torch (measured ~1e-7 relative -- the ``LOSS_RTOL`` story of
+    ``tree/FUSED.md`` §16.5).
     """
     forest = _forest(_multi_population(), input_len=4, output_len=out_len, pad_to=32)
     inputs, labels = _data(16, 4), _data(16, out_len, seed=35)
-    before = fused_engine.fused_cache_stats()
-    loss = forest.SR_fitness(inputs, labels, use_MSE=use_mse)
-    after = fused_engine.fused_cache_stats()
     context = f"SR_fitness[multi, out_len={out_len}, mse={use_mse}]"
-    _assert_served(before, after, context)
+    loss = _served(lambda: forest.SR_fitness(inputs, labels, use_MSE=use_mse), context)
     assert tuple(loss.shape) == (forest.pop_size,), f"shape {tuple(loss.shape)}"
-    _assert_same(loss, _oracle_loss(forest, inputs, labels, use_mse), context, rtol=1e-6)
+    _assert_same(loss, _oracle(forest, inputs, labels=labels, use_mse=use_mse), context, rtol=1e-6)
 
 
-# --------------------------------------------------------------------------- #
-# 4. route wiring
-# --------------------------------------------------------------------------- #
+# --- 4. route wiring --------------------------------------------------------------- #
 @pytest.mark.parametrize("pop_size", [1, 16, 64, 256])
 def test_route_policy_selects_fused(pop_size):
     """``EVOGP_EVAL_MODE=fused`` routes to fused from ``EVOGP_FUSED_MIN_POP`` up."""
     minimum = fused_engine.resolve_min_pop()
     route = dense_engine.resolve_route(pop_size)
-    if pop_size < minimum:
-        assert route.engine == "specialized", (
-            f"pop_size={pop_size} < {minimum}: expected specialized, got "
-            f"{route.engine!r} ({route.reason})"
+    expected = "specialized" if pop_size < minimum else "fused"
+    assert route.engine == expected, (
+        f"pop_size={pop_size} against min_pop={minimum}: expected {expected!r}, got "
+        f"{route.engine!r} ({route.reason})"
+    )
+    if expected == "fused":
+        assert route.use_dense is False
+        assert (route.backend, route.fallback_backend) == ("iree", "numpy"), (
+            "the fused route must run on a device backend with a specialized+numpy "
+            f"fallback, got {route.backend!r} / {route.fallback_backend!r}"
         )
-        return
-    assert route.engine == "fused", (
-        f"pop_size={pop_size} >= {minimum}: expected fused, got {route.engine!r} "
-        f"({route.reason})"
-    )
-    assert route.use_dense is False
-    assert (route.backend, route.fallback_backend) == ("iree", "numpy"), (
-        "the fused route must run on a device backend with a specialized+numpy "
-        f"fallback, got {route.backend!r} / {route.fallback_backend!r}"
-    )
 
 
 @pytest.mark.parametrize("pop_size", [1, 16, 64, 256])
@@ -592,7 +538,7 @@ def test_auto_never_selects_fused(pop_size, monkeypatch):
 
 
 def test_served_call_increments_launches_only():
-    """A served call bumps ``fused_kernel_launches``, never ``fused_declines``."""
+    """A served call bumps ``fused_kernel_launches`` and ``fused_calls`` only."""
     forest = _random_forest(32, ["+", "*"])
     x = _data(8, forest.input_len)
     before = fused_engine.fused_cache_stats()
@@ -600,20 +546,18 @@ def test_served_call_increments_launches_only():
     after = fused_engine.fused_cache_stats()
     calls = int(after["fused_calls"] - before["fused_calls"])
     assert calls == 1, f"one public-API call must be exactly one fused call, counted {calls}"
-    _assert_served(before, after, "batch_forward[served]")
+    assert _deltas(before, after) == (0, 1), (
+        f"one served call must launch once and never decline, counted decl={_deltas(before, after)}"
+    )
 
 
-# --------------------------------------------------------------------------- #
-# 5. declines: the documented "fall back to specialized+numpy" contract
-# --------------------------------------------------------------------------- #
+# --- 5. declines: the documented "fall back to specialized+numpy" contract -------- #
 def test_decline_wide_output_len(monkeypatch):
     """``output_len`` above ``MAX_OUT_LEN`` declines and the fallback serves it."""
     out_len = int(fused_engine.MAX_OUT_LEN) + 1
     forest = _forest(
         [_tagged(ADD, 0, (("var", 0), ("var", 1)))] * 16,
-        input_len=4,
-        output_len=out_len,
-        pad_to=32,
+        input_len=4, output_len=out_len, pad_to=32,
     )
     x = _data(8, 4)
     seen = {}
@@ -624,11 +568,8 @@ def test_decline_wide_output_len(monkeypatch):
         return original(population, inputs, **kwargs)
 
     monkeypatch.setattr(evoxc_engine, "evaluate", spy)
-    before = fused_engine.fused_cache_stats()
-    got = forest.batch_forward(x)
-    after = fused_engine.fused_cache_stats()
-    _assert_declined(before, after, f"batch_forward[out_len={out_len} > MAX_OUT_LEN]")
-    _assert_same(got, _oracle_batch(forest, x), f"decline[out_len={out_len}] fallback")
+    got = _declined(lambda: forest.batch_forward(x), f"batch_forward[out_len={out_len}]")
+    _assert_same(got, _oracle(forest, x), f"decline[out_len={out_len}] fallback values")
     assert seen.get("backend") == "numpy", (
         "the fallback must be the specialized engine on numpy (a per-tree iree compile "
         f"cannot amortize after a decline); recorded backend={seen.get('backend')!r}"
@@ -640,38 +581,31 @@ def test_decline_tiny_scratch_budget(monkeypatch):
 
     The envelope is the bytes one launch ALLOCATES (``tree/FUSED.md`` §12):
     ``pop * n_rb * tree_len * block * 4`` with ``block`` = the largest power of two
-    ``<= min(rows, cap)``, never ``rows`` itself.  This call is 32 trees x 64 cells at
-    160 data rows, i.e. 2 blocks of 128 lanes -> 32 * 2 * 64 * 128 * 4 B = 4 MiB of
-    scratch, comfortably above the 1 MiB budget below (16 rows would be a 16-lane
-    block, i.e. 128 KiB, and would be SERVED).
+    ``<= min(rows, cap)``, never ``rows`` itself.  This call is 32 trees x 64 cells at 160
+    data rows, i.e. 2 blocks of 128 lanes -> 32 * 2 * 64 * 128 * 4 B = 4 MiB of scratch,
+    comfortably above the 1 MiB budget below (16 rows would be a 16-lane block, i.e.
+    128 KiB, and would be SERVED).
     """
     forest = _random_forest(32, ["+", "*"])
     x = _data(160, forest.input_len)
     baseline = forest.batch_forward(x)
     monkeypatch.setenv("EVOGP_FUSED_MAX_SCRATCH_MB", "1")
-    before = fused_engine.fused_cache_stats()
-    got = forest.batch_forward(x)
-    after = fused_engine.fused_cache_stats()
-    _assert_declined(before, after, "batch_forward[EVOGP_FUSED_MAX_SCRATCH_MB=1]")
+    got = _declined(lambda: forest.batch_forward(x), "batch_forward[budget=1MB]")
     _assert_same(got, baseline, "decline[scratch budget] fallback values")
 
 
-# --------------------------------------------------------------------------- #
-# 6. guards for the defects the hardening round fixed
-# --------------------------------------------------------------------------- #
+# --- 6. guards for the defects the hardening round fixed -------------------------- #
 def test_noncontiguous_inputs_are_read_correctly():
     """A column slice of a padded ``x`` (and of the labels) equals its contiguous copy."""
     forest = _random_forest(24, ["+", "*"])
-    padded = _data(16, forest.input_len + 8)
-    sliced = padded[:, : forest.input_len]
+    sliced = _data(16, forest.input_len + 8)[:, : forest.input_len]
     assert not sliced.is_contiguous(), "the case stopped being a non-contiguous view"
     _assert_same(
         forest.batch_forward(sliced),
         forest.batch_forward(sliced.contiguous()),
         "batch_forward[non-contiguous x]",
     )
-    padded_rows = _data(forest.pop_size, forest.input_len + 8, seed=17)
-    row_slice = padded_rows[:, : forest.input_len]
+    row_slice = _data(forest.pop_size, forest.input_len + 8, seed=17)[:, : forest.input_len]
     assert not row_slice.is_contiguous()
     _assert_same(
         forest.forward(row_slice),
@@ -700,19 +634,14 @@ def test_noncontiguous_population_equals_contiguous():
         return wide[:, ::2]
 
     view = Forest(
-        forest.input_len,
-        forest.output_len,
-        strided(forest.batch_node_value),
-        strided(forest.batch_node_type),
+        forest.input_len, forest.output_len,
+        strided(forest.batch_node_value), strided(forest.batch_node_type),
         strided(forest.batch_subtree_size),
     )
     assert not view.batch_subtree_size.is_contiguous(), (
         "the case stopped being a non-contiguous population"
     )
-    before = fused_engine.fused_cache_stats()
-    got = view.batch_forward(x)
-    after = fused_engine.fused_cache_stats()
-    _assert_served(before, after, "batch_forward[stride-2 population]")
+    got = _served(lambda: view.batch_forward(x), "batch_forward[stride-2 population]")
     _assert_same(got, forest.batch_forward(x), "batch_forward[stride-2 population]")
 
 
@@ -733,15 +662,14 @@ def test_subtree_size_clamp():
 
     negative = honest.batch_subtree_size.clone()
     negative[0, 0] = -5  # floors to 0: the walk does nothing, the value is exactly 0
-    floored = Forest(
-        4, 1, honest.batch_node_value, honest.batch_node_type, negative
-    ).batch_forward(x)
-    assert float(floored[0].abs().max()) == 0.0, (
+    floored = Forest(4, 1, honest.batch_node_value, honest.batch_node_type, negative)
+    floored_values = floored.batch_forward(x)
+    assert float(floored_values[0].abs().max()) == 0.0, (
         "a negative subtree_size[0] must floor to an empty walk (0.0), got "
-        f"max|value|={float(floored[0].abs().max()):.3e}"
+        f"max|value|={float(floored_values[0].abs().max()):.3e}"
     )
     _assert_same(
-        floored[1:].unsqueeze(0),
+        floored_values[1:].unsqueeze(0),
         honest_values[1:].unsqueeze(0),
         "clamp[subtree_size[0]=-5] leaves the other rows alone",
     )
@@ -753,11 +681,7 @@ def test_clear_cache_resets_the_fused_tables():
     x = _data(8, forest.input_len)
     forest.batch_forward(x)  # make sure every counter has moved
     evoxc_engine.clear_cache()
-    cleared = fused_engine.fused_cache_stats()
     for key in ("fused_calls", "fused_declines", "fused_kernel_launches", "fused_xt_entries"):
-        assert cleared[key] == 0, f"{key}={cleared[key]} after clear_cache()"
-    before = fused_engine.fused_cache_stats()
-    got = forest.batch_forward(x)
-    after = fused_engine.fused_cache_stats()
-    _assert_served(before, after, "batch_forward[after clear_cache]")
-    _assert_same(got, _oracle_batch(forest, x), "batch_forward[after clear_cache]")
+        assert fused_engine.fused_cache_stats()[key] == 0, f"{key} survived clear_cache()"
+    got = _served(lambda: forest.batch_forward(x), "batch_forward[after clear_cache]")
+    _assert_same(got, _oracle(forest, x), "batch_forward[after clear_cache]")
