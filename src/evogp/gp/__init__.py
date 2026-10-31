@@ -34,8 +34,13 @@ The stack, bottom up:
     the device-resident in-graph evaluator (:class:`GraphEvaluator`,
     :func:`sr_fitness_channels`, :func:`readback_fitness`) -- what a device run
     plugs in as ``evaluate=`` -- and the optional fused (kernel) backend
-    (:class:`FusedEvaluator`, :func:`fused_available`), which resolves its
-    dependencies at call time only.
+    (:class:`FusedEvaluator` for host channels, :class:`FusedDeviceEvaluator`
+    for device channels, :func:`fused_available` / :func:`interop_available` as
+    their probes), which resolves its dependencies at call time only.
+    ``_device_interop`` is the local, explicitly temporary DLPack shim the
+    device-native route borrows (``evoxc`` has no first-class device export
+    yet); it is not part of the public surface beyond
+    :func:`interop_available`.
 ``workflow``
     the driver: :func:`init_gp`, :func:`step` (one generation, elitism included,
     one ``evaluate`` call), :func:`run` (the loop) and :class:`GPResult`.  The
@@ -58,6 +63,14 @@ Device-resident flow (same driver, same result object)::
                  backend="iree", device="rocm")
     result.best_fitness_history, result.best_channels   # host rows
 
+The same loop with the fused kernel instead of the in-graph evaluation (same
+driver, same result object -- this evaluator returns a DEVICE fitness tensor,
+so the generation still needs no readback)::
+
+    evaluator = FusedDeviceEvaluator(x, y)     # falls back to the host route
+    result = run(config, evaluator, generations=100, key=0,
+                 backend="iree", device="rocm")
+
 Two names are spelled differently at this level than in their modules:
 ``apply_variation`` is :func:`evogp.gp.variation.variation` and
 ``apply_crossover`` is :func:`evogp.gp.crossover.crossover`, because the bare
@@ -65,9 +78,10 @@ names are the submodules themselves (``evogp.gp.variation`` must stay importable
 as a module).
 
 No module of this subtree carries a torch import statement
-(``tests/test_gp_stack_purity.py`` pins that; the optional fused backend resolves
-torch through ``importlib`` inside its functions, at call time only), and nothing
-imports ``evoxc`` at module scope either, so ``import evogp.gp`` works on a plain
+(``tests/test_gp_stack_purity.py`` pins that; the optional fused backend and its
+local DLPack shim ``_device_interop`` resolve torch/evoxc/iree through
+``importlib`` inside their functions, at call time only), and nothing imports
+``evoxc`` at module scope either, so ``import evogp.gp`` works on a plain
 checkout; the graphs themselves need evoxc at call time.
 """
 
@@ -83,7 +97,12 @@ from .encoding import (
     validate_channels,
 )
 from .evaluator import predict
-from .fused_eval import FusedEvaluator, fused_available
+from .fused_eval import (
+    FusedDeviceEvaluator,
+    FusedEvaluator,
+    fused_available,
+    interop_available,
+)
 from .graph_eval import GraphEvaluator, readback_fitness, sr_fitness_channels
 from .mutation import hoist_mutation, mutate, point_mutation, subtree_mutation
 from .problem import (
@@ -149,7 +168,9 @@ __all__ = [
     "readback_fitness",
     # optional fused (kernel) evaluation backend
     "FusedEvaluator",
+    "FusedDeviceEvaluator",
     "fused_available",
+    "interop_available",
     # driver
     "init_gp",
     "step",

@@ -43,6 +43,14 @@ Read this before writing any traced code here; every claim below is a source fac
 - `evoxc.scan(f, init, xs, length=None) -> (carry, stacked)`: scanned axis is the leading axis of `xs`; **`length` must be static**.
 - There is **no `jit`**; `@evoxc.defn` only marks a graph definition.
 
+## Device pointers: the DLPack hand-off (verified on this box, MI300X/ROCm, iree 3.11)
+`evoxc` has no first-class device export/import (its documented interop is host-only: `from_numpy` is a host wrap and a device tensor is read back with `t.to(Device("cpu", 0)).numpy()`), so `_device_interop.py` borrows the private handles below — verified, not guessed.
+- A device tensor's `.data` is an `evoxc.backends.adapters.iree.IreeDevicePayload` (alias `_IreeDevicePayload`); its public contract is `.device_array` (an `iree.runtime.array_interop.DeviceArray`), `.shape`, `.dtype` (numpy), `.device` (the `evoxc.Device`) and `.to_host()`.
+- That `DeviceArray` exposes `._device` (an `iree.runtime.HalDevice`) and `._buffer_view` (`HalBufferView`); `DeviceArray(hal_device, buffer_view)` is its constructor.
+- `HalDevice.create_dlpack_capsule(buffer_view, device_type_code, device_id)` → a DLPack capsule torch accepts (`torch.utils.dlpack.from_dlpack(capsule)`); codes are kDLCUDA 2 and kDLROCM 10 (torch calls a ROCm device `cuda`, so an evoxc `rocm` tensor arrives as `cuda:<index>`).
+- `HalDevice.from_dlpack_capsule(torch_tensor.__dlpack__())` → a `HalBufferView`; wrapping it (`IreeDevicePayload(DeviceArray(hal, view), like.device)` → `evoxc.core.Tensor(payload)`) yields an `evoxc.Tensor` an `iree` executable accepts as input, including as the `fitness` operand of the variation graph.
+- Both directions are zero-copy (a shared buffer: shape/dtype/values identical, a view at a byte offset included), and iree's HIP driver and torch share the process' default HIP stream, so no extra synchronization is needed — that assumption is validated by a chained-generation parity test, not by the API text.
+- A non-cpu payload's `.numpy()` raises `DeviceError` (no implicit D2H); the host copy is `t.to(Device("cpu", 0)).numpy()`.
 ## Confirmed gaps (design around them)
 `bitcast` — no. `searchsorted` — no. `nonzero` / boolean masking — no. `any`/`all` — no. In-place writes — no. `unsqueeze`/`expand` — no (only `evoxc.numpy.expand_dims`). Dynamic shapes — yes, via symbolic `Dim`/`None` in `TensorSpec`, but numpy-backend only in practice.
 
