@@ -280,6 +280,31 @@ def _device_type_code(kind: str) -> int:
     return int(code)
 
 
+def _check_kind_against_torch(torch_module: Any, kind: str) -> None:
+    """Refuse a device kind this torch build cannot be the same device as.
+
+    The eVOXC kind and torch's build are two spellings of one physical device:
+    a ROCm build reports ``torch.version.hip`` and only ``rocm``/``hip`` buffers
+    live on it, an NVIDIA build has no ``hip`` and only ``cuda`` buffers do.  A
+    capsule minted with the wrong DLPack code would be a silent misinterpretation
+    of the pointer, so it is refused here instead.
+    """
+    normalised = _normalise_kind(kind)
+    hip = getattr(getattr(torch_module, "version", None), "hip", None)
+    if normalised in ("rocm", "hip") and not hip:
+        raise InteropUnavailable(
+            f"the device interop cannot serve evoxc kind {kind!r}: this is not a "
+            f"ROCm torch build (torch.version.hip is {hip!r}), so no {kind!r} "
+            f"buffer can be shared with it; {_HOST_PATH}"
+        )
+    if normalised == "cuda" and hip:
+        raise InteropUnavailable(
+            f"the device interop cannot serve evoxc kind 'cuda' on a ROCm torch "
+            f"build (torch.version.hip is {hip!r}): the buffers are HIP buffers "
+            f"and their DLPack code is kDLROCM; {_HOST_PATH}"
+        )
+
+
 def _torch_dtype(torch_module: Any, dtype: Any) -> Any:
     """The torch dtype of a payload's numpy dtype, or :class:`InteropUnavailable`."""
     try:
@@ -447,8 +472,10 @@ def interop_available(kind: Optional[Any] = None) -> bool:
 
     Args:
         kind: optional evoxc device kind (``"rocm"`` / ``"cuda"`` / ...) the
-            caller intends to use; an unknown or ``cpu`` kind answers ``False``
-            without touching the rest of the probe.
+            caller intends to use; an unknown or ``cpu`` kind answers ``False``,
+            and so does a kind this torch build cannot be the same device as
+            (``"rocm"`` on an NVIDIA build, ``"cuda"`` on a ROCm build) --
+            either is refused without touching the rest of the probe.
 
     Notes:
         A per-call refusal (an unsupported dtype, a non-contiguous tensor, a
@@ -468,6 +495,10 @@ def interop_available(kind: Optional[Any] = None) -> bool:
         )
         if torch_module is None or not torch_module.cuda.is_available():
             return False
+        if kind is not None:
+            _check_kind_against_torch(torch_module, kind)
+    except InteropUnavailable:
+        return False
     except Exception:  # noqa: BLE001 - a probe answers False, it never raises
         return False
     return True
@@ -553,6 +584,7 @@ def export_to_torch(tensor: Any, *, device_kind: Optional[Any] = None) -> Any:
             )
         kind = override
     code = _device_type_code(kind)
+    _check_kind_against_torch(torch_module, kind)
     expected_shape = tuple(int(size) for size in tuple(payload.shape))
     expected_dtype = _torch_dtype(torch_module, payload.dtype)
     hal = hal_device(tensor)
@@ -621,6 +653,7 @@ def import_from_torch(torch_tensor: Any, like: Any, *, copy: bool = False) -> An
     device = _device_of_payload(payload)
     kind = _normalise_kind(getattr(device, "kind", ""))
     _device_type_code(kind)
+    _check_kind_against_torch(torch_module, kind)
     _check_torch_dtype(torch_tensor)
     expected_type = _TORCH_DEVICE_TYPES.get(kind)
     actual = torch_tensor.device
