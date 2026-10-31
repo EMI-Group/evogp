@@ -5,7 +5,14 @@ import numpy as np
 from .utils import *
 from .tree import Tree
 from .descriptor import GenerateDescriptor
-from . import batch_engine, dense_engine, evoxc_engine, generation, splicing
+from . import (
+    batch_engine,
+    dense_engine,
+    evoxc_engine,
+    fused_engine,
+    generation,
+    splicing,
+)
 
 
 class Forest:
@@ -108,7 +115,8 @@ class Forest:
         ), f"x shape should be ({self.pop_size}, {self.input_len}), but got {x.shape}"
 
         # The route policy (``dense_engine.resolve_route``) decides the engine (dense /
-        # batch / specialized) and the backend; see dense_engine's module docstring.
+        # batch / fused / specialized) and the backend; see dense_engine's module
+        # docstring.
         # A decline falls back below, deliberately covering only that engine's own
         # exception type.
         route = dense_engine.resolve_route(self.pop_size)
@@ -141,6 +149,20 @@ class Forest:
                 )
             except dense_engine.DenseUnsupported as exc:
                 backend = dense_engine.decline_backend(route, exc)
+        elif route.engine == "fused":
+            try:
+                return fused_engine.evaluate_fused(
+                    self.batch_node_value,
+                    self.batch_node_type,
+                    self.batch_subtree_size,
+                    self.input_len,
+                    self.output_len,
+                    x,
+                    per_row=True,
+                    backend=backend,
+                )
+            except fused_engine.FusedUnsupported:
+                backend = route.fallback_backend
 
         pop = evoxc_engine.decode_population(
             self.batch_node_value,
@@ -159,7 +181,8 @@ class Forest:
             x.shape[1] == self.input_len
         ), f"x shape[1] should be {self.input_len}, but got {x.shape[1]}"
 
-        # Route decision / fallback as in ``forward`` (per_row=False here).
+        # Route decision / fallback as in ``forward`` (per_row=False here): the same
+        # dense / batch / fused / specialized cascade.
         route = dense_engine.resolve_route(self.pop_size)
         backend = route.backend
         if route.engine == "batch":
@@ -190,6 +213,20 @@ class Forest:
                 )
             except dense_engine.DenseUnsupported as exc:
                 backend = dense_engine.decline_backend(route, exc)
+        elif route.engine == "fused":
+            try:
+                return fused_engine.evaluate_fused(
+                    self.batch_node_value,
+                    self.batch_node_type,
+                    self.batch_subtree_size,
+                    self.input_len,
+                    self.output_len,
+                    x,
+                    per_row=False,
+                    backend=backend,
+                )
+            except fused_engine.FusedUnsupported:
+                backend = route.fallback_backend
 
         pop = evoxc_engine.decode_population(
             self.batch_node_value,
@@ -364,8 +401,8 @@ class Forest:
             "auto",
         ], f"execute_mode should be one of ['torch', 'hybrid parallel', 'data parallel', 'tree parallel', 'auto'], but got {execute_mode}"
 
-        # Route decision / fallback as in ``forward``: the loss is computed from the
-        # dense/batch prediction with the same reduction, so the returned tensor is
+        # Route decision / fallback as in ``forward``: the loss is computed by the
+        # dense/batch/fused engine with the same reduction, so the returned tensor is
         # fresh, writable and positive (the caller negates it).
         route = dense_engine.resolve_route(self.pop_size)
         backend = route.backend
@@ -399,6 +436,21 @@ class Forest:
                 )
             except dense_engine.DenseUnsupported as exc:
                 backend = dense_engine.decline_backend(route, exc)
+        elif route.engine == "fused":
+            try:
+                return fused_engine.sr_fitness_fused(
+                    self.batch_node_value,
+                    self.batch_node_type,
+                    self.batch_subtree_size,
+                    self.input_len,
+                    self.output_len,
+                    inputs,
+                    labels,
+                    use_MSE=use_MSE,
+                    backend=backend,
+                )
+            except fused_engine.FusedUnsupported:
+                backend = route.fallback_backend
 
         pop = evoxc_engine.decode_population(
             self.batch_node_value,

@@ -1,0 +1,3968 @@
+{
+ "schema": "evogp-fused-envelope-v1",
+ "kind": "envelope",
+ "created_utc": "2026-10-30T21:40:29Z",
+ "protocol": {
+  "warmup": 2,
+  "reps": 5,
+  "one_process_per_cell": true
+ },
+ "failures": 0,
+ "records": [
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:25:02Z",
+   "cell": "p16-L64-i32-N1024",
+   "pop": 16,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 4194304,
+    "scratch_mib": 4.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: pop_size=16 < 64 (EVOGP_DENSE_AUTO_MIN_POP) -> specialized on numpy (a per-tree iree compile cannot amortize there)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: pop_size=16 < 64 (EVOGP_FUSED_MIN_POP) -> specialized on numpy"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 441.63251103600487,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.11154299136251211,
+       0.10033801663666964,
+       0.088292988948524,
+       0.0822200090624392,
+       0.0804539886303246
+      ],
+      "median_ms": 0.088292988948524,
+      "min_ms": 0.0804539886303246,
+      "max_ms": 0.11154299136251211,
+      "mean_ms": 0.09256959892809391
+     },
+     "loss": {
+      "first_call_ms": 24.940975999925286,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.10708300396800041,
+       0.0994889996945858,
+       0.10885798837989569,
+       0.09715801570564508,
+       0.0910409726202488
+      ],
+      "median_ms": 0.0994889996945858,
+      "min_ms": 0.0910409726202488,
+      "max_ms": 0.10885798837989569,
+      "mean_ms": 0.10072579607367516
+     }
+    },
+    "served": true,
+    "served_via": "direct",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.1435546875,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 4.3935546875,
+     "peak_reserved_mib": 22.0,
+     "delta_allocated_mib": 4.25,
+     "delta_reserved_mib": 20.0
+    },
+    "policy": {
+     "eval_mode": "fused",
+     "engine": "specialized",
+     "use_fused": false,
+     "use_dense": false,
+     "backend": "numpy",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: pop_size=16 < 64 (EVOGP_FUSED_MIN_POP) -> specialized on numpy"
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 135.40547102456912,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       3.3801660174503922,
+       3.161589032970369,
+       3.1891819671727717,
+       3.1450220267288387,
+       3.157756000291556
+      ],
+      "median_ms": 3.161589032970369,
+      "min_ms": 3.1450220267288387,
+      "max_ms": 3.3801660174503922,
+      "mean_ms": 3.2067430089227855
+     },
+     "loss": {
+      "first_call_ms": 3.2202749862335622,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       3.2249799696728587,
+       3.223292005714029,
+       3.246537991799414,
+       3.2081720419228077,
+       3.2332849805243313
+      ],
+      "median_ms": 3.2249799696728587,
+      "min_ms": 3.2081720419228077,
+      "max_ms": 3.246537991799414,
+      "mean_ms": 3.227253397926688
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 697104.4375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      16
+     ],
+     "max_abs": 32.0,
+     "max_rel": 1.5922915963528794e-07,
+     "ref_abs_max": 487333632.0,
+     "finite_points": 16,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 66.51216698810458,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       2.844804956112057,
+       2.9315059655345976,
+       2.8699690010398626,
+       2.7788529987446964,
+       2.8422889881767333
+      ],
+      "median_ms": 2.844804956112057,
+      "min_ms": 2.7788529987446964,
+      "max_ms": 2.9315059655345976,
+      "mean_ms": 2.8534843819215894
+     },
+     "loss": {
+      "first_call_ms": 2.870447002351284,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       2.9041210073046386,
+       2.9083770350553095,
+       3.010154003277421,
+       3.202216001227498,
+       3.208825015462935
+      ],
+      "median_ms": 3.010154003277421,
+      "min_ms": 2.9041210073046386,
+      "max_ms": 3.208825015462935,
+      "mean_ms": 3.0467386124655604
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 697104.4375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "served",
+    "served": true,
+    "dense_expected_decline": false,
+    "timings": {
+     "value": {
+      "first_call_ms": 6524.316049006302,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.503549050539732,
+       1.4742030180059373,
+       1.4708749949932098,
+       1.5139919705688953,
+       1.4564950251951814
+      ],
+      "median_ms": 1.4742030180059373,
+      "min_ms": 1.4564950251951814,
+      "max_ms": 1.5139919705688953,
+      "mean_ms": 1.4838228118605912
+     },
+     "loss": {
+      "first_call_ms": 6251.786155044101,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.5336599899455905,
+       1.4613890089094639,
+       1.4206310152076185,
+       1.4082060079090297,
+       1.4448339934460819
+      ],
+      "median_ms": 1.4448339934460819,
+      "min_ms": 1.4082060079090297,
+      "max_ms": 1.5336599899455905,
+      "mean_ms": 1.453744003083557
+     }
+    },
+    "stats_delta": {
+     "dense_exec_entries": 2,
+     "dense_exec_hits": 0,
+     "dense_exec_maxsize": 0,
+     "dense_exec_misses": 2,
+     "dense_input_entries": 2,
+     "dense_input_hits": 22,
+     "dense_input_maxsize": 0,
+     "dense_input_misses": 2,
+     "dense_plan_entries": 2,
+     "dense_plan_hits": 14,
+     "dense_plan_maxsize": 0,
+     "dense_plan_misses": 2
+    },
+    "parity_value_vs_reference": {
+     "shape": [
+      16,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 697104.4375,
+     "finite_points": 16384,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "note": "served is read from the dense front tables (a plan/exec miss); a DenseUnsupported fallback is invisible through the public API, and EVOGP_DENSE_HOST_MEMO=0 disables those tables"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 35.807928473387825,
+    "loss_vs_torch_batched": 32.415442707967664,
+    "value_vs_specialized": 32.22005495555957,
+    "loss_vs_specialized": 30.256149046809984,
+    "value_vs_dense": 16.696716642647782,
+    "loss_vs_dense": 14.522550210389841
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:25:24Z",
+   "cell": "p64-L64-i32-N1024",
+   "pop": 64,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 16777216,
+    "scratch_mib": 16.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=64 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=64 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 418.3283449965529,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.126850965898484,
+       0.12021797010675073,
+       0.10733498493209481,
+       0.10145100532099605,
+       0.0935659627430141
+      ],
+      "median_ms": 0.10733498493209481,
+      "min_ms": 0.0935659627430141,
+      "max_ms": 0.126850965898484,
+      "mean_ms": 0.10988417780026793
+     },
+     "loss": {
+      "first_call_ms": 26.208014984149486,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.16248697647824883,
+       0.13828498777002096,
+       0.12349797179922462,
+       0.1394590362906456,
+       0.11911301407963037
+      ],
+      "median_ms": 0.13828498777002096,
+      "min_ms": 0.11911301407963037,
+      "max_ms": 0.16248697647824883,
+      "mean_ms": 0.13656839728355408
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.1728515625,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 16.7978515625,
+     "peak_reserved_mib": 18.0,
+     "delta_allocated_mib": 16.625,
+     "delta_reserved_mib": 16.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 40.40161898592487,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.037693957798183,
+       4.107335989829153,
+       4.07425599405542,
+       3.99685901356861,
+       4.045959969516844
+      ],
+      "median_ms": 4.045959969516844,
+      "min_ms": 3.99685901356861,
+      "max_ms": 4.107335989829153,
+      "mean_ms": 4.052420984953642
+     },
+     "loss": {
+      "first_call_ms": 3.748876042664051,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.198618000373244,
+       4.318494000472128,
+       4.198825976345688,
+       4.178173956461251,
+       4.099857993423939
+      ],
+      "median_ms": 4.198618000373244,
+      "min_ms": 4.099857993423939,
+      "max_ms": 4.318494000472128,
+      "mean_ms": 4.19879398541525
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      64
+     ],
+     "max_abs": 32.0,
+     "max_rel": 2.2884127304223512e-07,
+     "ref_abs_max": 2985255424.0,
+     "finite_points": 64,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 258.73799598775804,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       11.1887960229069,
+       13.103522011078894,
+       12.088347983080894,
+       12.119224993512034,
+       11.61959394812584
+      ],
+      "median_ms": 12.088347983080894,
+      "min_ms": 11.1887960229069,
+      "max_ms": 13.103522011078894,
+      "mean_ms": 12.023896991740912
+     },
+     "loss": {
+      "first_call_ms": 11.293500021565706,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       10.458913980983198,
+       11.424536001868546,
+       11.22789498185739,
+       11.607525986619294,
+       11.682933021802455
+      ],
+      "median_ms": 11.424536001868546,
+      "min_ms": 10.458913980983198,
+      "max_ms": 11.682933021802455,
+      "mean_ms": 11.280360794626176
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "served",
+    "served": true,
+    "dense_expected_decline": false,
+    "timings": {
+     "value": {
+      "first_call_ms": 6411.260320979636,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.7468269797973335,
+       1.7780609778128564,
+       1.7569470219314098,
+       1.7397130141034722,
+       1.752702984958887
+      ],
+      "median_ms": 1.752702984958887,
+      "min_ms": 1.7397130141034722,
+      "max_ms": 1.7780609778128564,
+      "mean_ms": 1.7548501957207918
+     },
+     "loss": {
+      "first_call_ms": 6284.47973204311,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1.505938998889178,
+       1.4920500107109547,
+       1.4978330000303686,
+       1.5195150044746697,
+       1.5048320055939257
+      ],
+      "median_ms": 1.5048320055939257,
+      "min_ms": 1.4920500107109547,
+      "max_ms": 1.5195150044746697,
+      "mean_ms": 1.5040338039398193
+     }
+    },
+    "stats_delta": {
+     "dense_exec_entries": 2,
+     "dense_exec_hits": 0,
+     "dense_exec_maxsize": 0,
+     "dense_exec_misses": 2,
+     "dense_input_entries": 2,
+     "dense_input_hits": 22,
+     "dense_input_maxsize": 0,
+     "dense_input_misses": 2,
+     "dense_plan_entries": 2,
+     "dense_plan_hits": 14,
+     "dense_plan_maxsize": 0,
+     "dense_plan_misses": 2
+    },
+    "parity_value_vs_reference": {
+     "shape": [
+      64,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1698248.5,
+     "finite_points": 65536,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "note": "served is read from the dense front tables (a plan/exec miss); a DenseUnsupported fallback is invisible through the public API, and EVOGP_DENSE_HOST_MEMO=0 disables those tables"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 37.6946991894256,
+    "loss_vs_torch_batched": 30.362066541567643,
+    "value_vs_specialized": 112.6226271026968,
+    "loss_vs_specialized": 82.6158803359658,
+    "value_vs_dense": 16.32927964789607,
+    "loss_vs_dense": 10.88210679887091
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:25:46Z",
+   "cell": "p256-L64-i32-N1024",
+   "pop": 256,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 67108864,
+    "scratch_mib": 64.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=256 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=256 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 433.5677869967185,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.10169000597670674,
+       0.09931897511705756,
+       0.09716697968542576,
+       0.10918598854914308,
+       0.10533997556194663
+      ],
+      "median_ms": 0.10169000597670674,
+      "min_ms": 0.09716697968542576,
+      "max_ms": 0.10918598854914308,
+      "mean_ms": 0.10254038497805595
+     },
+     "loss": {
+      "first_call_ms": 27.029487013351172,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.12339302338659763,
+       0.11420599184930325,
+       0.10890996782109141,
+       0.1409579999744892,
+       0.16208295710384846
+      ],
+      "median_ms": 0.12339302338659763,
+      "min_ms": 0.10890996782109141,
+      "max_ms": 0.16208295710384846,
+      "mean_ms": 0.129909988027066
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.2900390625,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 66.4150390625,
+     "peak_reserved_mib": 68.0,
+     "delta_allocated_mib": 66.125,
+     "delta_reserved_mib": 66.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 49.333273025695235,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       5.048039020039141,
+       4.789909988176078,
+       4.830141027923673,
+       4.688336979597807,
+       4.809417994692922
+      ],
+      "median_ms": 4.809417994692922,
+      "min_ms": 4.688336979597807,
+      "max_ms": 5.048039020039141,
+      "mean_ms": 4.833169002085924
+     },
+     "loss": {
+      "first_call_ms": 4.864615970291197,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.824667994398624,
+       4.784326010849327,
+       4.858601023443043,
+       4.76385501679033,
+       4.871896002441645
+      ],
+      "median_ms": 4.824667994398624,
+      "min_ms": 4.76385501679033,
+      "max_ms": 4.871896002441645,
+      "mean_ms": 4.820669209584594
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      256,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 118248632.0,
+     "finite_points": 262144,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      256
+     ],
+     "max_abs": 32768.0,
+     "max_rel": 2.2884127304223512e-07,
+     "ref_abs_max": 13940222328832.0,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 947.5252219708636,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       45.5865150433965,
+       46.09741602325812,
+       45.005273015704006,
+       45.9523550234735,
+       45.20908195991069
+      ],
+      "median_ms": 45.5865150433965,
+      "min_ms": 45.005273015704006,
+      "max_ms": 46.09741602325812,
+      "mean_ms": 45.570128213148564
+     },
+     "loss": {
+      "first_call_ms": 44.76502299075946,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       46.104809967800975,
+       44.24999898765236,
+       45.03127298085019,
+       45.841399987693876,
+       45.22716603241861
+      ],
+      "median_ms": 45.22716603241861,
+      "min_ms": 44.24999898765236,
+      "max_ms": 46.104809967800975,
+      "mean_ms": 45.2909295912832
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      256,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 118248632.0,
+     "finite_points": 262144,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "served",
+    "served": true,
+    "dense_expected_decline": false,
+    "timings": {
+     "value": {
+      "first_call_ms": 6561.749981949106,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       2.9389740084297955,
+       3.7634859909303486,
+       2.875038015190512,
+       2.868639014195651,
+       2.888968971092254
+      ],
+      "median_ms": 2.888968971092254,
+      "min_ms": 2.868639014195651,
+      "max_ms": 3.7634859909303486,
+      "mean_ms": 3.067021199967712
+     },
+     "loss": {
+      "first_call_ms": 6523.94867799012,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       2.14953301474452,
+       2.158949035219848,
+       2.1208139951340854,
+       2.155154012143612,
+       2.1372020128183067
+      ],
+      "median_ms": 2.14953301474452,
+      "min_ms": 2.1208139951340854,
+      "max_ms": 2.158949035219848,
+      "mean_ms": 2.1443304140120745
+     }
+    },
+    "stats_delta": {
+     "dense_exec_entries": 2,
+     "dense_exec_hits": 0,
+     "dense_exec_maxsize": 0,
+     "dense_exec_misses": 2,
+     "dense_input_entries": 2,
+     "dense_input_hits": 22,
+     "dense_input_maxsize": 0,
+     "dense_input_misses": 2,
+     "dense_plan_entries": 2,
+     "dense_plan_hits": 14,
+     "dense_plan_maxsize": 0,
+     "dense_plan_misses": 2
+    },
+    "parity_value_vs_reference": {
+     "shape": [
+      256,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 118248632.0,
+     "finite_points": 262144,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "note": "served is read from the dense front tables (a plan/exec miss); a DenseUnsupported fallback is invisible through the public API, and EVOGP_DENSE_HOST_MEMO=0 disables those tables"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 47.29489342142997,
+    "loss_vs_torch_batched": 39.10000632112445,
+    "value_vs_specialized": 448.2890388839058,
+    "loss_vs_specialized": 366.5293611513126,
+    "value_vs_dense": 28.409566341789823,
+    "loss_vs_dense": 17.420215144659405
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:26:10Z",
+   "cell": "p1000-L64-i32-N1024",
+   "pop": 1000,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 262144000,
+    "scratch_mib": 250.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=1000 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=1000 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 443.4083040105179,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.13781595043838024,
+       0.14703103806823492,
+       0.13599195517599583,
+       0.1135829952545464,
+       0.11082296259701252
+      ],
+      "median_ms": 0.13599195517599583,
+      "min_ms": 0.11082296259701252,
+      "max_ms": 0.14703103806823492,
+      "mean_ms": 0.12904898030683398
+     },
+     "loss": {
+      "first_call_ms": 26.2669799849391,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.14083896530792117,
+       0.1265609753318131,
+       0.11981197167187929,
+       0.12249103747308254,
+       0.11704396456480026
+      ],
+      "median_ms": 0.12249103747308254,
+      "min_ms": 0.11704396456480026,
+      "max_ms": 0.14083896530792117,
+      "mean_ms": 0.12534938286989927
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.744140625,
+     "baseline_reserved_mib": 4.0,
+     "peak_allocated_mib": 258.681640625,
+     "peak_reserved_mib": 274.0,
+     "delta_allocated_mib": 257.9375,
+     "delta_reserved_mib": 270.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 48.000877955928445,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       5.4062450071796775,
+       5.366622004657984,
+       5.362619005609304,
+       5.368053971324116,
+       5.363965989090502
+      ],
+      "median_ms": 5.366622004657984,
+      "min_ms": 5.362619005609304,
+      "max_ms": 5.4062450071796775,
+      "mean_ms": 5.373501195572317
+     },
+     "loss": {
+      "first_call_ms": 5.417666980065405,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       5.415669991634786,
+       5.395983986090869,
+       5.397008033469319,
+       5.392930004745722,
+       5.401069007348269
+      ],
+      "median_ms": 5.397008033469319,
+      "min_ms": 5.392930004745722,
+      "max_ms": 5.415669991634786,
+      "mean_ms": 5.400532204657793
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      1000,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 320035744.0,
+     "finite_points": 1020928,
+     "nan_points": 3072,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      1000
+     ],
+     "max_abs": 8388608.0,
+     "max_rel": 3.1898085239845386e-07,
+     "ref_abs_max": 102423469228032.0,
+     "finite_points": 997,
+     "nan_points": 3,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 3631.4270709990524,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       179.9660730175674,
+       180.49244600115344,
+       188.78838798264042,
+       177.75756702758372,
+       177.55991098238155
+      ],
+      "median_ms": 179.9660730175674,
+      "min_ms": 177.55991098238155,
+      "max_ms": 188.78838798264042,
+      "mean_ms": 180.9128770022653
+     },
+     "loss": {
+      "first_call_ms": 179.36295201070607,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       176.31722998339683,
+       175.45383900869638,
+       177.4461500463076,
+       189.9256959441118,
+       181.36637698626146
+      ],
+      "median_ms": 177.4461500463076,
+      "min_ms": 175.45383900869638,
+      "max_ms": 189.9256959441118,
+      "mean_ms": 180.1018583937548
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      1000,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 320035744.0,
+     "finite_points": 1020928,
+     "nan_points": 3072,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "served",
+    "served": true,
+    "dense_expected_decline": false,
+    "timings": {
+     "value": {
+      "first_call_ms": 6487.967777997255,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       7.606705010402948,
+       7.729978999122977,
+       7.765204005409032,
+       7.516102981753647,
+       7.790663978084922
+      ],
+      "median_ms": 7.729978999122977,
+      "min_ms": 7.516102981753647,
+      "max_ms": 7.790663978084922,
+      "mean_ms": 7.681730994954705
+     },
+     "loss": {
+      "first_call_ms": 6333.901977981441,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       5.7343540247529745,
+       5.674373009242117,
+       5.668530997354537,
+       5.684045027010143,
+       5.68347901571542
+      ],
+      "median_ms": 5.68347901571542,
+      "min_ms": 5.668530997354537,
+      "max_ms": 5.7343540247529745,
+      "mean_ms": 5.688956414815038
+     }
+    },
+    "stats_delta": {
+     "dense_exec_entries": 2,
+     "dense_exec_hits": 0,
+     "dense_exec_maxsize": 0,
+     "dense_exec_misses": 2,
+     "dense_input_entries": 2,
+     "dense_input_hits": 22,
+     "dense_input_maxsize": 0,
+     "dense_input_misses": 2,
+     "dense_plan_entries": 2,
+     "dense_plan_hits": 14,
+     "dense_plan_maxsize": 0,
+     "dense_plan_misses": 2
+    },
+    "parity_value_vs_reference": {
+     "shape": [
+      1000,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 320035744.0,
+     "finite_points": 1020928,
+     "nan_points": 3072,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "note": "served is read from the dense front tables (a plan/exec miss); a DenseUnsupported fallback is invisible through the public API, and EVOGP_DENSE_HOST_MEMO=0 disables those tables"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 39.46279026367918,
+    "loss_vs_torch_batched": 44.0604320512455,
+    "value_vs_specialized": 1323.3582294236587,
+    "loss_vs_specialized": 1448.64598836712,
+    "value_vs_dense": 56.84144322448427,
+    "loss_vs_dense": 46.399141789980895
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:26:39Z",
+   "cell": "p256-L64-i32-N4096",
+   "pop": 256,
+   "rows": 4096,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 268435456,
+    "scratch_mib": 256.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 16
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=256 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=256 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 435.5648169876076,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.13860000763088465,
+       0.13789301738142967,
+       0.12558599701151252,
+       0.11470902245491743,
+       0.11684600031003356
+      ],
+      "median_ms": 0.12558599701151252,
+      "min_ms": 0.11470902245491743,
+      "max_ms": 0.13860000763088465,
+      "mean_ms": 0.12672680895775557
+     },
+     "loss": {
+      "first_call_ms": 26.368237973656505,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.156266032718122,
+       0.131412991322577,
+       0.12149300891906023,
+       0.11737499153241515,
+       0.11759297922253609
+      ],
+      "median_ms": 0.12149300891906023,
+      "min_ms": 0.11737499153241515,
+      "max_ms": 0.156266032718122,
+      "mean_ms": 0.1288280007429421
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.6767578125,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 265.1767578125,
+     "peak_reserved_mib": 278.0,
+     "delta_allocated_mib": 264.5,
+     "delta_reserved_mib": 276.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 46.41211801208556,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       5.227089044637978,
+       5.207016016356647,
+       5.202514003030956,
+       5.1969149499200284,
+       5.196973972488195
+      ],
+      "median_ms": 5.202514003030956,
+      "min_ms": 5.1969149499200284,
+      "max_ms": 5.227089044637978,
+      "mean_ms": 5.206101597286761
+     },
+     "loss": {
+      "first_call_ms": 5.219904996920377,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       5.295782990287989,
+       5.233290954492986,
+       5.228894995525479,
+       5.204093002248555,
+       5.231886985711753
+      ],
+      "median_ms": 5.231886985711753,
+      "min_ms": 5.204093002248555,
+      "max_ms": 5.295782990287989,
+      "mean_ms": 5.238789785653353
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      256,
+      4096,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 2959824384.0,
+     "finite_points": 1048576,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      256
+     ],
+     "max_abs": 268435456.0,
+     "max_rel": 2.5468099806857936e-07,
+     "ref_abs_max": 2880045349601280.0,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 932.8233110136352,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       50.616193970199674,
+       48.167269967962056,
+       49.7519820346497,
+       47.86049301037565,
+       51.041998027358204
+      ],
+      "median_ms": 49.7519820346497,
+      "min_ms": 47.86049301037565,
+      "max_ms": 51.041998027358204,
+      "mean_ms": 49.48758740210906
+     },
+     "loss": {
+      "first_call_ms": 50.17425597179681,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       49.58208097377792,
+       51.06798600172624,
+       50.46621605288237,
+       50.836604030337185,
+       51.20804999023676
+      ],
+      "median_ms": 50.836604030337185,
+      "min_ms": 49.58208097377792,
+      "max_ms": 51.20804999023676,
+      "mean_ms": 50.632187409792095
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      256,
+      4096,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 2959824384.0,
+     "finite_points": 1048576,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "served",
+    "served": true,
+    "dense_expected_decline": false,
+    "timings": {
+     "value": {
+      "first_call_ms": 6533.469691989012,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       7.729634991846979,
+       7.855200965423137,
+       7.86725600482896,
+       7.823694031685591,
+       7.901743985712528
+      ],
+      "median_ms": 7.855200965423137,
+      "min_ms": 7.729634991846979,
+      "max_ms": 7.901743985712528,
+      "mean_ms": 7.835505995899439
+     },
+     "loss": {
+      "first_call_ms": 6453.581064008176,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       5.82677498459816,
+       5.803512001875788,
+       5.778243998065591,
+       5.807145964354277,
+       5.799030011985451
+      ],
+      "median_ms": 5.803512001875788,
+      "min_ms": 5.778243998065591,
+      "max_ms": 5.82677498459816,
+      "mean_ms": 5.802941392175853
+     }
+    },
+    "stats_delta": {
+     "dense_exec_entries": 2,
+     "dense_exec_hits": 0,
+     "dense_exec_maxsize": 0,
+     "dense_exec_misses": 2,
+     "dense_input_entries": 2,
+     "dense_input_hits": 22,
+     "dense_input_maxsize": 0,
+     "dense_input_misses": 2,
+     "dense_plan_entries": 2,
+     "dense_plan_hits": 14,
+     "dense_plan_maxsize": 0,
+     "dense_plan_misses": 2
+    },
+    "parity_value_vs_reference": {
+     "shape": [
+      256,
+      4096,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 2959824384.0,
+     "finite_points": 1048576,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "note": "served is read from the dense front tables (a plan/exec miss); a DenseUnsupported fallback is invisible through the public API, and EVOGP_DENSE_HOST_MEMO=0 disables those tables"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 41.425908356279876,
+    "loss_vs_torch_batched": 43.06327608691694,
+    "value_vs_specialized": 396.158673885345,
+    "loss_vs_specialized": 418.43234012094473,
+    "value_vs_dense": 62.548382402084584,
+    "loss_vs_dense": 47.76827945501079
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:27:03Z",
+   "cell": "p256-L64-i32-N16384",
+   "pop": 256,
+   "rows": 16384,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 1073741824,
+    "scratch_mib": 1024.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 64
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=256 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=256 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 431.1600449727848,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.1829079701565206,
+       0.19483105279505253,
+       0.1636429806239903,
+       0.15549303498119116,
+       0.1537950010970235
+      ],
+      "median_ms": 0.1636429806239903,
+      "min_ms": 0.1537950010970235,
+      "max_ms": 0.19483105279505253,
+      "mean_ms": 0.17013400793075562
+     },
+     "loss": {
+      "first_call_ms": 26.93955902941525,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.18682301742956042,
+       0.17061899416148663,
+       0.15631900168955326,
+       0.1876220339909196,
+       0.15686795813962817
+      ],
+      "median_ms": 0.17061899416148663,
+      "min_ms": 0.15631900168955326,
+      "max_ms": 0.1876220339909196,
+      "mean_ms": 0.17165020108222961
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 2.2236328125,
+     "baseline_reserved_mib": 22.0,
+     "peak_allocated_mib": 1060.2236328125,
+     "peak_reserved_mib": 1062.0,
+     "delta_allocated_mib": 1058.0,
+     "delta_reserved_mib": 1040.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 50.47745199408382,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       10.261498973704875,
+       10.256950976327062,
+       10.240989970043302,
+       10.259228001814336,
+       10.252930980641395
+      ],
+      "median_ms": 10.256950976327062,
+      "min_ms": 10.240989970043302,
+      "max_ms": 10.261498973704875,
+      "mean_ms": 10.254319780506194
+     },
+     "loss": {
+      "first_call_ms": 10.262250027153641,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       10.257659014314413,
+       10.288083052728325,
+       10.284561023581773,
+       10.271934035699815,
+       10.328850999940187
+      ],
+      "median_ms": 10.284561023581773,
+      "min_ms": 10.257659014314413,
+      "max_ms": 10.328850999940187,
+      "mean_ms": 10.286217625252903
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      256,
+      16384,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 291370270720.0,
+     "finite_points": 4194304,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      256
+     ],
+     "max_abs": 549755813888.0,
+     "max_rel": 2.821369946559571e-07,
+     "ref_abs_max": 5.185577761812513e+18,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 995.0631569954567,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       108.38647501077503,
+       110.13544403249398,
+       111.60969705088064,
+       110.37562903948128,
+       106.77486000349745
+      ],
+      "median_ms": 110.13544403249398,
+      "min_ms": 106.77486000349745,
+      "max_ms": 111.60969705088064,
+      "mean_ms": 109.45642102742568
+     },
+     "loss": {
+      "first_call_ms": 110.22426700219512,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       110.29990599490702,
+       111.69692996190861,
+       111.91176099237055,
+       111.70863697770983,
+       112.75565403047949
+      ],
+      "median_ms": 111.70863697770983,
+      "min_ms": 110.29990599490702,
+      "max_ms": 112.75565403047949,
+      "mean_ms": 111.6745775914751
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      256,
+      16384,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 291370270720.0,
+     "finite_points": 4194304,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "served",
+    "served": true,
+    "dense_expected_decline": false,
+    "timings": {
+     "value": {
+      "first_call_ms": 6414.683216018602,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       81.26513403840363,
+       80.75768197886646,
+       80.99593600491062,
+       80.97126800566912,
+       81.04752696817741
+      ],
+      "median_ms": 80.99593600491062,
+      "min_ms": 80.75768197886646,
+      "max_ms": 81.26513403840363,
+      "mean_ms": 81.00750939920545
+     },
+     "loss": {
+      "first_call_ms": 6267.485087038949,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       77.96161103760824,
+       77.72496005054563,
+       77.80083600664511,
+       77.65506400028244,
+       77.71760504692793
+      ],
+      "median_ms": 77.72496005054563,
+      "min_ms": 77.65506400028244,
+      "max_ms": 77.96161103760824,
+      "mean_ms": 77.77201522840187
+     }
+    },
+    "stats_delta": {
+     "dense_exec_entries": 2,
+     "dense_exec_hits": 0,
+     "dense_exec_maxsize": 0,
+     "dense_exec_misses": 2,
+     "dense_input_entries": 2,
+     "dense_input_hits": 22,
+     "dense_input_maxsize": 0,
+     "dense_input_misses": 2,
+     "dense_plan_entries": 2,
+     "dense_plan_hits": 14,
+     "dense_plan_maxsize": 0,
+     "dense_plan_misses": 2
+    },
+    "parity_value_vs_reference": {
+     "shape": [
+      256,
+      16384,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 291370270720.0,
+     "finite_points": 4194304,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "note": "served is read from the dense front tables (a plan/exec miss); a DenseUnsupported fallback is invisible through the public API, and EVOGP_DENSE_HOST_MEMO=0 disables those tables"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 62.6788325244143,
+    "loss_vs_torch_batched": 60.27793724916519,
+    "value_vs_specialized": 673.0227206357055,
+    "loss_vs_specialized": 654.7256800258732,
+    "value_vs_dense": 494.95514990049315,
+    "loss_vs_dense": 455.5469362161454
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:27:29Z",
+   "cell": "p1000-L64-i32-N4096",
+   "pop": 1000,
+   "rows": 4096,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 1048576000,
+    "scratch_mib": 1000.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 16
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=1000 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=1000 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 440.4178569675423,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.19880803301930428,
+       0.19850197713822126,
+       0.18769805319607258,
+       0.1754830009303987,
+       0.17050799215212464
+      ],
+      "median_ms": 0.18769805319607258,
+      "min_ms": 0.17050799215212464,
+      "max_ms": 0.19880803301930428,
+      "mean_ms": 0.1861998112872243
+     },
+     "loss": {
+      "first_call_ms": 27.35884301364422,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.20810600835829973,
+       0.2361909719184041,
+       0.17803400987759233,
+       0.19265199080109596,
+       0.18621899653226137
+      ],
+      "median_ms": 0.19265199080109596,
+      "min_ms": 0.17803400987759233,
+      "max_ms": 0.2361909719184041,
+      "mean_ms": 0.2002403954975307
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 1.130859375,
+     "baseline_reserved_mib": 4.0,
+     "peak_allocated_mib": 1033.630859375,
+     "peak_reserved_mib": 1036.0,
+     "delta_allocated_mib": 1032.5,
+     "delta_reserved_mib": 1032.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 53.22579602943733,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       10.189834982156754,
+       10.227972990833223,
+       10.2213469799608,
+       10.21192700136453,
+       10.228889004793018
+      ],
+      "median_ms": 10.2213469799608,
+      "min_ms": 10.189834982156754,
+      "max_ms": 10.228889004793018,
+      "mean_ms": 10.215994191821665
+     },
+     "loss": {
+      "first_call_ms": 10.265815013553947,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       10.293998988345265,
+       10.21083100931719,
+       10.21694700466469,
+       10.226803016848862,
+       10.229241044726223
+      ],
+      "median_ms": 10.226803016848862,
+      "min_ms": 10.21083100931719,
+      "max_ms": 10.293998988345265,
+      "mean_ms": 10.235564212780446
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      1000,
+      4096,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 2959824384.0,
+     "finite_points": 4083712,
+     "nan_points": 12288,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      1000
+     ],
+     "max_abs": 268435456.0,
+     "max_rel": 3.888034711962973e-07,
+     "ref_abs_max": 2880045349601280.0,
+     "finite_points": 997,
+     "nan_points": 3,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 3724.106434965506,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       197.5892850314267,
+       198.69625399587676,
+       194.98639303492382,
+       198.0279769632034,
+       190.7866619876586
+      ],
+      "median_ms": 197.5892850314267,
+      "min_ms": 190.7866619876586,
+      "max_ms": 198.69625399587676,
+      "mean_ms": 196.01731420261785
+     },
+     "loss": {
+      "first_call_ms": 197.6493370020762,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       199.8511269921437,
+       195.68759301910177,
+       201.7949849832803,
+       205.6749209878035,
+       206.2513320124708
+      ],
+      "median_ms": 201.7949849832803,
+      "min_ms": 195.68759301910177,
+      "max_ms": 206.2513320124708,
+      "mean_ms": 201.85199159896
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      1000,
+      4096,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 2959824384.0,
+     "finite_points": 4083712,
+     "nan_points": 12288,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "served",
+    "served": true,
+    "dense_expected_decline": false,
+    "timings": {
+     "value": {
+      "first_call_ms": 6433.406686002854,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       48.99813700467348,
+       49.35301799559966,
+       49.321950995363295,
+       49.16975199012086,
+       49.012965988367796
+      ],
+      "median_ms": 49.16975199012086,
+      "min_ms": 48.99813700467348,
+      "max_ms": 49.35301799559966,
+      "mean_ms": 49.17116479482502
+     },
+     "loss": {
+      "first_call_ms": 6189.13180695381,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       39.67798303347081,
+       39.5193180302158,
+       39.70496100373566,
+       39.619187999051064,
+       39.51677097938955
+      ],
+      "median_ms": 39.619187999051064,
+      "min_ms": 39.51677097938955,
+      "max_ms": 39.70496100373566,
+      "mean_ms": 39.60764420917258
+     }
+    },
+    "stats_delta": {
+     "dense_exec_entries": 2,
+     "dense_exec_hits": 0,
+     "dense_exec_maxsize": 0,
+     "dense_exec_misses": 2,
+     "dense_input_entries": 2,
+     "dense_input_hits": 22,
+     "dense_input_maxsize": 0,
+     "dense_input_misses": 2,
+     "dense_plan_entries": 2,
+     "dense_plan_hits": 14,
+     "dense_plan_maxsize": 0,
+     "dense_plan_misses": 2
+    },
+    "parity_value_vs_reference": {
+     "shape": [
+      1000,
+      4096,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 2959824384.0,
+     "finite_points": 4083712,
+     "nan_points": 12288,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "note": "served is read from the dense front tables (a plan/exec miss); a DenseUnsupported fallback is invisible through the public API, and EVOGP_DENSE_HOST_MEMO=0 disables those tables"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 54.45632922619291,
+    "loss_vs_torch_batched": 53.084336031635154,
+    "value_vs_specialized": 1052.6975728673199,
+    "loss_vs_specialized": 1047.458602136243,
+    "value_vs_dense": 261.96197111728856,
+    "loss_vs_dense": 205.65158882762856
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:27:59Z",
+   "cell": "p2048-L64-i32-N1024",
+   "pop": 2048,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 536870912,
+    "scratch_mib": 512.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=2048 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=2048 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 430.3552210330963,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.12577499728649855,
+       0.12731202878057957,
+       0.12070103548467159,
+       0.11212896788492799,
+       0.10915205348283052
+      ],
+      "median_ms": 0.12070103548467159,
+      "min_ms": 0.10915205348283052,
+      "max_ms": 0.12731202878057957,
+      "mean_ms": 0.11901381658390164
+     },
+     "loss": {
+      "first_call_ms": 26.193986006546766,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.15421898569911718,
+       0.14681497123092413,
+       0.13112497981637716,
+       0.13775000115856528,
+       0.13596698408946395
+      ],
+      "median_ms": 0.13775000115856528,
+      "min_ms": 0.13112497981637716,
+      "max_ms": 0.15421898569911718,
+      "mean_ms": 0.14117518439888954
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 1.3837890625,
+     "baseline_reserved_mib": 6.0,
+     "peak_allocated_mib": 529.5087890625,
+     "peak_reserved_mib": 538.0,
+     "delta_allocated_mib": 528.125,
+     "delta_reserved_mib": 532.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 48.862115014344454,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       7.1520619676448405,
+       7.125253963749856,
+       7.121601956896484,
+       7.083162025082856,
+       7.082110969349742
+      ],
+      "median_ms": 7.121601956896484,
+      "min_ms": 7.082110969349742,
+      "max_ms": 7.1520619676448405,
+      "mean_ms": 7.112838176544756
+     },
+     "loss": {
+      "first_call_ms": 7.119318004697561,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       7.1272579953074455,
+       7.140852976590395,
+       7.144094968680292,
+       7.141634006984532,
+       7.114976004231721
+      ],
+      "median_ms": 7.140852976590395,
+      "min_ms": 7.114976004231721,
+      "max_ms": 7.144094968680292,
+      "mean_ms": 7.133763190358877
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      2048,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 320035744.0,
+     "finite_points": 2079744,
+     "nan_points": 17408,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      2048
+     ],
+     "max_abs": 8388608.0,
+     "max_rel": 3.783929400924535e-07,
+     "ref_abs_max": 102423469228032.0,
+     "finite_points": 2031,
+     "nan_points": 17,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 7194.597216963302,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       373.268149967771,
+       368.91836603172123,
+       369.9402119964361,
+       369.1617730073631,
+       368.90011600917205
+      ],
+      "median_ms": 369.1617730073631,
+      "min_ms": 368.90011600917205,
+      "max_ms": 373.268149967771,
+      "mean_ms": 370.0377234024927
+     },
+     "loss": {
+      "first_call_ms": 367.6404180005193,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       370.71435496909544,
+       366.22139398241416,
+       363.8885699911043,
+       366.29839200759307,
+       362.84875898854807
+      ],
+      "median_ms": 366.22139398241416,
+      "min_ms": 362.84875898854807,
+      "max_ms": 370.71435496909544,
+      "mean_ms": 365.994293987751
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      2048,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 320035744.0,
+     "finite_points": 2079744,
+     "nan_points": 17408,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "served",
+    "served": true,
+    "dense_expected_decline": false,
+    "timings": {
+     "value": {
+      "first_call_ms": 6765.679384989198,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       14.658314001280814,
+       14.35976498760283,
+       14.609262987505645,
+       14.399437990505248,
+       14.560697949491441
+      ],
+      "median_ms": 14.560697949491441,
+      "min_ms": 14.35976498760283,
+      "max_ms": 14.658314001280814,
+      "mean_ms": 14.517495583277196
+     },
+     "loss": {
+      "first_call_ms": 6483.789457008243,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       11.018085002433509,
+       11.000131024047732,
+       10.975518031045794,
+       10.985988017637283,
+       10.989558999426663
+      ],
+      "median_ms": 10.989558999426663,
+      "min_ms": 10.975518031045794,
+      "max_ms": 11.018085002433509,
+      "mean_ms": 10.993856214918196
+     }
+    },
+    "stats_delta": {
+     "dense_exec_entries": 2,
+     "dense_exec_hits": 0,
+     "dense_exec_maxsize": 0,
+     "dense_exec_misses": 2,
+     "dense_input_entries": 2,
+     "dense_input_hits": 22,
+     "dense_input_maxsize": 0,
+     "dense_input_misses": 2,
+     "dense_plan_entries": 2,
+     "dense_plan_hits": 14,
+     "dense_plan_maxsize": 0,
+     "dense_plan_misses": 2
+    },
+    "parity_value_vs_reference": {
+     "shape": [
+      2048,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 320035744.0,
+     "finite_points": 2079744,
+     "nan_points": 17408,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "note": "served is read from the dense front tables (a plan/exec miss); a DenseUnsupported fallback is invisible through the public API, and EVOGP_DENSE_HOST_MEMO=0 disables those tables"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 59.00199553632571,
+    "loss_vs_torch_batched": 51.83922262454644,
+    "value_vs_specialized": 3058.480579930441,
+    "loss_vs_specialized": 2658.5944893085943,
+    "value_vs_dense": 120.63440790730064,
+    "loss_vs_dense": 79.77901202901974
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:28:35Z",
+   "cell": "p4096-L64-i32-N1024",
+   "pop": 4096,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 1073741824,
+    "scratch_mib": 1024.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=4096 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=4096 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 441.8264259584248,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.16990897711366415,
+       0.18420402193441987,
+       0.15572999836876988,
+       0.14470104360952973,
+       0.14334602747112513
+      ],
+      "median_ms": 0.15572999836876988,
+      "min_ms": 0.14334602747112513,
+      "max_ms": 0.18420402193441987,
+      "mean_ms": 0.15957801369950175
+     },
+     "loss": {
+      "first_call_ms": 27.483503974508494,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.18617702880874276,
+       0.16831897664815187,
+       0.15737104695290327,
+       0.1556000206619501,
+       0.15095999697223306
+      ],
+      "median_ms": 0.15737104695290327,
+      "min_ms": 0.15095999697223306,
+      "max_ms": 0.18617702880874276,
+      "mean_ms": 0.16368541400879622
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 2.6337890625,
+     "baseline_reserved_mib": 32.0,
+     "peak_allocated_mib": 1058.7587890625,
+     "peak_reserved_mib": 1072.0,
+     "delta_allocated_mib": 1056.125,
+     "delta_reserved_mib": 1040.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 52.9894350329414,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       10.53431601030752,
+       10.53134398534894,
+       10.53384703118354,
+       10.504340985789895,
+       10.512210021261126
+      ],
+      "median_ms": 10.53134398534894,
+      "min_ms": 10.504340985789895,
+      "max_ms": 10.53431601030752,
+      "mean_ms": 10.523211606778204
+     },
+     "loss": {
+      "first_call_ms": 10.534945002291352,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       10.512904031202197,
+       10.528982034884393,
+       10.568702011369169,
+       10.538308008108288,
+       10.51233900943771
+      ],
+      "median_ms": 10.528982034884393,
+      "min_ms": 10.51233900943771,
+      "max_ms": 10.568702011369169,
+      "mean_ms": 10.532247019000351
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      4096,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 13157992448.0,
+     "finite_points": 4166656,
+     "nan_points": 27648,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      4096
+     ],
+     "max_abs": 16777216.0,
+     "max_rel": 3.783929400924535e-07,
+     "ref_abs_max": 3.046062961773773e+17,
+     "finite_points": 4069,
+     "nan_points": 27,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 14382.26541300537,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       720.5685150111094,
+       727.8655100381002,
+       718.9961430267431,
+       721.9518129713833,
+       720.5009210156277
+      ],
+      "median_ms": 720.5685150111094,
+      "min_ms": 718.9961430267431,
+      "max_ms": 727.8655100381002,
+      "mean_ms": 721.9765804125927
+     },
+     "loss": {
+      "first_call_ms": 715.4512309934944,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       727.624959021341,
+       719.5650750072673,
+       699.9649880453944,
+       718.2516919565387,
+       724.0300879930146
+      ],
+      "median_ms": 719.5650750072673,
+      "min_ms": 699.9649880453944,
+      "max_ms": 727.624959021341,
+      "mean_ms": 717.8873604047112
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      4096,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 13157992448.0,
+     "finite_points": 4166656,
+     "nan_points": 27648,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "served",
+    "served": true,
+    "dense_expected_decline": false,
+    "timings": {
+     "value": {
+      "first_call_ms": 6745.771542016882,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       46.987587003968656,
+       46.79271701024845,
+       46.93345201667398,
+       46.924411959480494,
+       47.11181402672082
+      ],
+      "median_ms": 46.93345201667398,
+      "min_ms": 46.79271701024845,
+      "max_ms": 47.11181402672082,
+      "mean_ms": 46.94999640341848
+     },
+     "loss": {
+      "first_call_ms": 7068.34404199617,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       37.4191629816778,
+       37.26904297946021,
+       37.28843398857862,
+       37.15507598826662,
+       37.29344095336273
+      ],
+      "median_ms": 37.28843398857862,
+      "min_ms": 37.15507598826662,
+      "max_ms": 37.4191629816778,
+      "mean_ms": 37.285031378269196
+     }
+    },
+    "stats_delta": {
+     "dense_exec_entries": 2,
+     "dense_exec_hits": 0,
+     "dense_exec_maxsize": 0,
+     "dense_exec_misses": 2,
+     "dense_input_entries": 2,
+     "dense_input_hits": 22,
+     "dense_input_maxsize": 0,
+     "dense_input_misses": 2,
+     "dense_plan_entries": 2,
+     "dense_plan_hits": 14,
+     "dense_plan_maxsize": 0,
+     "dense_plan_misses": 2
+    },
+    "parity_value_vs_reference": {
+     "shape": [
+      4096,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 13157992448.0,
+     "finite_points": 4166656,
+     "nan_points": 27648,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "note": "served is read from the dense front tables (a plan/exec miss); a DenseUnsupported fallback is invisible through the public API, and EVOGP_DENSE_HOST_MEMO=0 disables those tables"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 67.62566041008125,
+    "loss_vs_torch_batched": 66.90545839753752,
+    "value_vs_specialized": 4627.037324593027,
+    "loss_vs_specialized": 4572.410801985787,
+    "value_vs_dense": 301.3770789718702,
+    "loss_vs_dense": 236.94596122079557
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:29:25Z",
+   "cell": "p8192-L64-i32-N1024",
+   "pop": 8192,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 2147483648,
+    "scratch_mib": 2048.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=8192 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=8192 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 442.01155903283507,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.21978304721415043,
+       0.21755002671852708,
+       0.22495101438835263,
+       0.20317797316238284,
+       0.19745196914300323
+      ],
+      "median_ms": 0.21755002671852708,
+      "min_ms": 0.19745196914300323,
+      "max_ms": 0.22495101438835263,
+      "mean_ms": 0.21258280612528324
+     },
+     "loss": {
+      "first_call_ms": 26.32042800541967,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.21993299014866352,
+       0.21602102788165212,
+       0.19970000721514225,
+       0.20124501315876842,
+       0.19634200725704432
+      ],
+      "median_ms": 0.20124501315876842,
+      "min_ms": 0.19634200725704432,
+      "max_ms": 0.21993299014866352,
+      "mean_ms": 0.20664820913225412
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 5.1337890625,
+     "baseline_reserved_mib": 30.0,
+     "peak_allocated_mib": 2117.2587890625,
+     "peak_reserved_mib": 2142.0,
+     "delta_allocated_mib": 2112.125,
+     "delta_reserved_mib": 2112.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 56.2476470367983,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       17.729894956573844,
+       17.653869988862425,
+       17.64748600544408,
+       17.672988993581384,
+       17.673561989795417
+      ],
+      "median_ms": 17.672988993581384,
+      "min_ms": 17.64748600544408,
+      "max_ms": 17.729894956573844,
+      "mean_ms": 17.67556038685143
+     },
+     "loss": {
+      "first_call_ms": 17.731600964907557,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       17.79979804996401,
+       17.780700989533216,
+       17.743700998835266,
+       17.730673018377274,
+       17.71959604229778
+      ],
+      "median_ms": 17.743700998835266,
+      "min_ms": 17.71959604229778,
+      "max_ms": 17.79979804996401,
+      "mean_ms": 17.75489381980151
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      8192,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 13157992448.0,
+     "finite_points": 8331264,
+     "nan_points": 57344,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      8192
+     ],
+     "max_abs": 16777216.0,
+     "max_rel": 4.051078974498523e-07,
+     "ref_abs_max": 3.046062961773773e+17,
+     "finite_points": 8136,
+     "nan_points": 56,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 30098.264767962974,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       34369.10861096112,
+       33596.788401016966,
+       33809.19964401983,
+       33904.431115021,
+       34745.97836000612
+      ],
+      "median_ms": 33904.431115021,
+      "min_ms": 33596.788401016966,
+      "max_ms": 34745.97836000612,
+      "mean_ms": 34085.101226205006
+     },
+     "loss": {
+      "first_call_ms": 33828.38883699151,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       34208.57200300088,
+       34276.256198005285,
+       35016.07604394667,
+       34075.101379014086,
+       33819.784505991265
+      ],
+      "median_ms": 34208.57200300088,
+      "min_ms": 33819.784505991265,
+      "max_ms": 35016.07604394667,
+      "mean_ms": 34279.15802599164
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      8192,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 13157992448.0,
+     "finite_points": 8331264,
+     "nan_points": 57344,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "served",
+    "served": true,
+    "dense_expected_decline": false,
+    "timings": {
+     "value": {
+      "first_call_ms": 6699.293226003647,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       96.56492795329541,
+       95.66408902173862,
+       96.1893480271101,
+       95.97304399358109,
+       95.89554998092353
+      ],
+      "median_ms": 95.97304399358109,
+      "min_ms": 95.66408902173862,
+      "max_ms": 96.56492795329541,
+      "mean_ms": 96.05739179532975
+     },
+     "loss": {
+      "first_call_ms": 7475.469700002577,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       76.27035700716078,
+       76.25411101616919,
+       76.22935302788392,
+       76.36259699938819,
+       76.46738499170169
+      ],
+      "median_ms": 76.27035700716078,
+      "min_ms": 76.22935302788392,
+      "max_ms": 76.46738499170169,
+      "mean_ms": 76.31676060846075
+     }
+    },
+    "stats_delta": {
+     "dense_exec_entries": 2,
+     "dense_exec_hits": 0,
+     "dense_exec_maxsize": 0,
+     "dense_exec_misses": 2,
+     "dense_input_entries": 2,
+     "dense_input_hits": 22,
+     "dense_input_maxsize": 0,
+     "dense_input_misses": 2,
+     "dense_plan_entries": 2,
+     "dense_plan_hits": 14,
+     "dense_plan_maxsize": 0,
+     "dense_plan_misses": 2
+    },
+    "parity_value_vs_reference": {
+     "shape": [
+      8192,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 13157992448.0,
+     "finite_points": 8331264,
+     "nan_points": 57344,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "note": "served is read from the dense front tables (a plan/exec miss); a DenseUnsupported fallback is invisible through the public API, and EVOGP_DENSE_HOST_MEMO=0 disables those tables"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 81.23643678723718,
+    "loss_vs_torch_batched": 88.169643164458,
+    "value_vs_specialized": 155846.59595968513,
+    "loss_vs_specialized": 169984.69411022216,
+    "value_vs_dense": 441.1539057991198,
+    "loss_vs_dense": 378.99253159127346
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:38:54Z",
+   "cell": "p2048-L128-i32-N1024-d7",
+   "pop": 2048,
+   "rows": 1024,
+   "tree_len": 128,
+   "input_len": 32,
+   "max_layer_cnt": 7,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 1073741824,
+    "scratch_mib": 1024.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=2048 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=2048 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 449.9077200307511,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.1912279985845089,
+       0.19392900867387652,
+       0.19386003259569407,
+       0.17926102736964822,
+       0.1696429681032896
+      ],
+      "median_ms": 0.1912279985845089,
+      "min_ms": 0.1696429681032896,
+      "max_ms": 0.19392900867387652,
+      "mean_ms": 0.18558420706540346
+     },
+     "loss": {
+      "first_call_ms": 27.912946010474116,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.2180990413762629,
+       0.20752300042659044,
+       0.18878100672736764,
+       0.18321297829970717,
+       0.182789983227849
+      ],
+      "median_ms": 0.18878100672736764,
+      "min_ms": 0.182789983227849,
+      "max_ms": 0.2180990413762629,
+      "mean_ms": 0.19608120201155543
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 2.38427734375,
+     "baseline_reserved_mib": 32.0,
+     "peak_allocated_mib": 1042.50927734375,
+     "peak_reserved_mib": 1056.0,
+     "delta_allocated_mib": 1040.125,
+     "delta_reserved_mib": 1024.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 72.24617700558156,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       27.5475459638983,
+       27.56306901574135,
+       27.512529981322587,
+       27.518994000274688,
+       27.519742026925087
+      ],
+      "median_ms": 27.519742026925087,
+      "min_ms": 27.512529981322587,
+      "max_ms": 27.56306901574135,
+      "mean_ms": 27.532376197632402
+     },
+     "loss": {
+      "first_call_ms": 27.56882703397423,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       27.592313999775797,
+       27.568283025175333,
+       27.560456015635282,
+       27.60294801555574,
+       27.58535696193576
+      ],
+      "median_ms": 27.58535696193576,
+      "min_ms": 27.560456015635282,
+      "max_ms": 27.60294801555574,
+      "mean_ms": 27.581871603615582
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      2048,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 260319395840.0,
+     "finite_points": 2052096,
+     "nan_points": 45056,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      2048
+     ],
+     "max_abs": 274877906944.0,
+     "max_rel": 3.125652483504382e-07,
+     "ref_abs_max": 1.0668639609538426e+20,
+     "finite_points": 2004,
+     "nan_points": 44,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 17110.283939982764,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       889.6646869834512,
+       888.2044240017422,
+       884.1078000259586,
+       891.6927049867809,
+       871.05466297362
+      ],
+      "median_ms": 888.2044240017422,
+      "min_ms": 871.05466297362,
+      "max_ms": 891.6927049867809,
+      "mean_ms": 884.9448557943106
+     },
+     "loss": {
+      "first_call_ms": 863.7331490172073,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       863.9809890300967,
+       896.7537939897738,
+       881.60462299129,
+       873.0591820203699,
+       878.5929519799538
+      ],
+      "median_ms": 878.5929519799538,
+      "min_ms": 863.9809890300967,
+      "max_ms": 896.7537939897738,
+      "mean_ms": 878.7983080022968
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      2048,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 260319395840.0,
+     "finite_points": 2052096,
+     "nan_points": 45056,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "skipped",
+    "served": false,
+    "dense_expected_decline": true,
+    "note": "tree_len 128 > EVOGP_DENSE_MAX_TREE_LEN=64: an explicit dense call declines into specialized, so timing it would report the fallback, not dense"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 143.91063144847672,
+    "loss_vs_torch_batched": 146.1235822403139,
+    "value_vs_specialized": 4644.740469891078,
+    "loss_vs_specialized": 4654.032559794501
+   },
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "envelope",
+   "created_utc": "2026-10-30T21:39:36Z",
+   "cell": "p2048-L256-i32-N1024-d8",
+   "pop": 2048,
+   "rows": 1024,
+   "tree_len": 256,
+   "input_len": 32,
+   "max_layer_cnt": 8,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": null,
+   "geometry": {
+    "scratch_bytes": 2147483648,
+    "scratch_mib": 2048.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=2048 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=2048 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 429.5439689885825,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.23791397688910365,
+       0.2418010262772441,
+       0.24859601398929954,
+       0.22797600831836462,
+       0.22615696070715785
+      ],
+      "median_ms": 0.23791397688910365,
+      "min_ms": 0.22615696070715785,
+      "max_ms": 0.24859601398929954,
+      "mean_ms": 0.23648879723623395
+     },
+     "loss": {
+      "first_call_ms": 26.79446601541713,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.2585229813121259,
+       0.24053099332377315,
+       0.23311900440603495,
+       0.23180298740044236,
+       0.23299094755202532
+      ],
+      "median_ms": 0.23311900440603495,
+      "min_ms": 0.23180298740044236,
+      "max_ms": 0.2585229813121259,
+      "mean_ms": 0.23939338279888034
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 16,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 16,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 16,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 2,
+     "fused_kernel_launches": 16,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 15,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 4.38525390625,
+     "baseline_reserved_mib": 48.0,
+     "peak_allocated_mib": 2068.51025390625,
+     "peak_reserved_mib": 2096.0,
+     "delta_allocated_mib": 2064.125,
+     "delta_reserved_mib": 2048.0
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 87.1815099962987,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       49.04545197496191,
+       49.00293698301539,
+       49.01287896791473,
+       49.07040297985077,
+       48.9681150065735
+      ],
+      "median_ms": 49.01287896791473,
+      "min_ms": 48.9681150065735,
+      "max_ms": 49.07040297985077,
+      "mean_ms": 49.01995718246326
+     },
+     "loss": {
+      "first_call_ms": 49.00149197783321,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       49.08953799167648,
+       49.04751799767837,
+       49.06238801777363,
+       49.09544304246083,
+       49.064295017160475
+      ],
+      "median_ms": 49.064295017160475,
+      "min_ms": 49.04751799767837,
+      "max_ms": 49.09544304246083,
+      "mean_ms": 49.071836413349956
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      2048,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 113259252285440.0,
+     "finite_points": 2038784,
+     "nan_points": 58368,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      2048
+     ],
+     "max_abs": 5.764607523034235e+17,
+     "max_rel": 3.407649273867719e-07,
+     "ref_abs_max": 1.2527021338524007e+25,
+     "finite_points": 1991,
+     "nan_points": 57,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "specialized": {
+    "timings": {
+     "value": {
+      "first_call_ms": 27202.400204958394,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1394.1042560036294,
+       1398.0010660015978,
+       1474.0039330208674,
+       1411.2072809948586,
+       1379.4148330343887
+      ],
+      "median_ms": 1398.0010660015978,
+      "min_ms": 1379.4148330343887,
+      "max_ms": 1474.0039330208674,
+      "mean_ms": 1411.3462738110684
+     },
+     "loss": {
+      "first_call_ms": 1378.0540690058842,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       1371.5148129849695,
+       1364.3070490215905,
+       1359.3208820093423,
+       1392.4293179879896,
+       1362.5339739955962
+      ],
+      "median_ms": 1364.3070490215905,
+      "min_ms": 1359.3208820093423,
+      "max_ms": 1392.4293179879896,
+      "mean_ms": 1370.0212071998976
+     }
+    },
+    "parity_value_vs_torch_batched": {
+     "shape": [
+      2048,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 113259252285440.0,
+     "finite_points": 2038784,
+     "nan_points": 58368,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "dense": {
+    "max_tree_len": 64,
+    "status": "skipped",
+    "served": false,
+    "dense_expected_decline": true,
+    "note": "tree_len 256 > EVOGP_DENSE_MAX_TREE_LEN=64: an explicit dense call declines into specialized, so timing it would report the fallback, not dense"
+   },
+   "ratios": {
+    "value_vs_torch_batched": 206.01092717961916,
+    "loss_vs_torch_batched": 210.46887679608804,
+    "value_vs_specialized": 5876.077918083953,
+    "loss_vs_specialized": 5852.405952477856
+   },
+   "status": "ok"
+  }
+ ]
+}

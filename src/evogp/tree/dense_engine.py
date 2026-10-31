@@ -43,11 +43,13 @@ fitness returns a fresh writable ``(pop_size,)`` positive-loss tensor).
 
 Strategy switch: ``EVOGP_EVAL_MODE``
 ------------------------------------
-This module is the ONE route dispatcher for the library's three evaluation
+This module is the ONE route dispatcher for the library's four evaluation
 engines: ``specialized`` (:mod:`evogp.tree.evoxc_engine`, one graph per tree
-structure), ``dense`` (this module, one all-ops graph per shape signature) and
+structure), ``dense`` (this module, one all-ops graph per shape signature),
 ``batch`` (:mod:`evogp.tree.batch_engine`, ONE merged graph for the whole
-population -- opt-in only, see its bullet below).
+population -- opt-in only, see its bullet below) and ``fused``
+(:mod:`evogp.tree.fused_engine`, one Triton launch per population -- opt-in only,
+see its bullet below).
 One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
 ``evoxc_engine._resolve_backend``), case-insensitive, default ``auto``:
 
@@ -153,6 +155,25 @@ One master switch, read **per call** (exactly like ``EVOGP_EVOXC_BACKEND`` in
     ``EVOGP_EVAL_MODE=batch``; with no explicit backend it runs ``iree`` on a
     device box and ``numpy`` elsewhere, and its fallback is always
     specialized+``numpy`` (a per-tree iree compile can never amortize).
+``fused``
+    always attempt the OPT-IN fused route
+    (:func:`evogp.tree.fused_engine.evaluate_fused` /
+    :func:`evogp.tree.fused_engine.sr_fitness_fused`, ONE Triton launch for the
+    whole population), falling back on
+    :class:`evogp.tree.fused_engine.FusedUnsupported`.  It runs on the TORCH
+    device rather than on an evoxc backend, so it uses the same ``iree`` backend
+    SPELLING the other device routes use (the facade declines for any other name)
+    and its fallback is ALWAYS specialized on ``numpy`` -- the explicit-backend
+    arm included, even when ``EVOGP_EVOXC_BACKEND`` names ``iree``, because a
+    per-tree iree compile can never amortize after a decline (the explicit
+    spelling drives ``backend`` only, never ``fallback_backend``).  With no
+    explicit backend it needs a device usable from torch and
+    ``pop_size >= EVOGP_FUSED_MIN_POP`` (default 16 -- the kernel is flat in
+    ``pop_size``, 0.088-0.103 ms from pop 1 to 128, so the threshold only keeps a
+    one-shot ``Tree`` off a cold Triton JIT); below that threshold, or with no
+    device, the route IS specialized+``numpy`` (the engine field stays
+    ``"specialized"``).  ``auto`` NEVER selects this engine, so the fused route is
+    reached only through an explicit ``EVOGP_EVAL_MODE=fused``.
 
 Any other value raises ``ValueError`` naming the variable.  The dense-specific
 knobs below stay as they are.
@@ -508,6 +529,7 @@ __all__ = [
     "EVAL_MODE_ENV",
     "ENGINES",
     "FULL_FUNC_IDS",
+    "FUSED_MIN_POP_ENV",
     "HOST_MEMO_ENV",
     "MAX_TREE_LEN_ENV",
     "PRUNE_ENV",
@@ -541,6 +563,7 @@ __all__ = [
     "resolve_auto_min_pop",
     "resolve_backend_name",
     "resolve_eval_mode",
+    "resolve_fused_min_pop",
     "resolve_prune",
     "resolve_route",
     "should_use_dense",
@@ -553,7 +576,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 #: Master switch (``EVOGP_EVAL_MODE``): ``dense`` / ``specialized`` / ``batch`` /
-#: ``auto``.  The ONE policy knob; :func:`resolve_eval_mode` /
+#: ``fused`` / ``auto``.  The ONE policy knob; :func:`resolve_eval_mode` /
 #: :func:`resolve_route` read it per call, exactly like
 #: ``evoxc_engine._resolve_backend`` reads the backend variable.
 EVAL_MODE_ENV = "EVOGP_EVAL_MODE"
@@ -589,6 +612,19 @@ AUTO_BUDGET_MB_ENV = "EVOGP_DENSE_AUTO_BUDGET_MB"
 #: ``L=128`` per shape signature), so the raise needs a bound.  See
 #: :func:`auto_tree_len_allowance` / :func:`auto_trace_cap` / :func:`auto_cap_decline`.
 AUTO_MAX_TREE_LEN_ENV = "EVOGP_DENSE_AUTO_MAX_TREE_LEN"
+#: Pop-size threshold of the ``fused`` policy (``EVOGP_FUSED_MIN_POP``): the Triton
+#: route is attempted from here up on a device box, and below it the route IS
+#: specialized+numpy.  The kernel is FLAT in ``pop_size`` (0.088-0.103 ms from pop 1
+#: to 128 at ``L=64``/``i32``/``N=1024``) while ``specialized`` scales with the tree
+#: count (5.3x / 26.5x / 244.7x dearer at pop 1 / 16 / 128), so the number is set by
+#: what a one-shot call may pay rather than by the kernel's own crossover: 16 keeps a
+#: single ``Tree.forward`` on the specialized route instead of a cold Triton JIT, and
+#: a 1-8-tree population on a tiny row plane is the one unmeasured class where a
+#: per-tree numpy run could undercut the kernel's ~0.09 ms launch floor.
+#: The variable has EXACTLY ONE parser,
+#: :func:`evogp.tree.fused_engine.resolve_min_pop`; :func:`resolve_fused_min_pop`
+#: delegates to it -- see that function.
+FUSED_MIN_POP_ENV = "EVOGP_FUSED_MIN_POP"
 #: Max trace length ``L`` (``EVOGP_DENSE_MAX_TREE_LEN``): populations whose
 #: longest tree exceeds it fall back to the specialized engine.  This is the
 #: knob that bounds trace time and graph size (the candidate chain is emitted
@@ -603,14 +639,16 @@ UPDATE_MODE_ENV = "EVOGP_DENSE_UPDATE_MODE"
 ALLOW_UNSAFE_SCATTER_ENV = "EVOGP_DENSE_ALLOW_UNSAFE_SCATTER"
 
 #: Canonical ``EVOGP_EVAL_MODE`` spellings; ``auto`` stays LAST.  ``batch`` is the
-#: opt-in third engine (:mod:`evogp.tree.batch_engine`) and is never produced by
-#: the ``auto`` policy -- see :func:`resolve_route`.
-EVAL_MODES = ("dense", "specialized", "batch", "auto")
+#: opt-in third engine (:mod:`evogp.tree.batch_engine`), ``fused`` the opt-in
+#: fourth (:mod:`evogp.tree.fused_engine`), and neither is ever produced by the
+#: ``auto`` policy -- see :func:`resolve_route`.
+EVAL_MODES = ("dense", "specialized", "batch", "fused", "auto")
 DEFAULT_EVAL_MODE = "auto"
-#: The three evaluation engines a :class:`Route` can name: ``specialized``
-#: (one graph per tree structure), ``dense`` (one all-ops graph per shape) and
-#: ``batch`` (one merged graph for the whole population, opt-in only).
-ENGINES = ("specialized", "dense", "batch")
+#: The four evaluation engines a :class:`Route` can name: ``specialized``
+#: (one graph per tree structure), ``dense`` (one all-ops graph per shape),
+#: ``batch`` (one merged graph for the whole population, opt-in only) and
+#: ``fused`` (one Triton launch per population, opt-in only).
+ENGINES = ("specialized", "dense", "batch", "fused")
 #: Accepted ALIASES of the canonical :data:`EVAL_MODES`, resolved by
 #: :func:`resolve_eval_mode` after case folding/trimming and before validation
 #: (so ``EVOGP_EVAL_MODE=dynamic`` and ``eval_mode="dynamic"`` behave exactly
@@ -856,6 +894,8 @@ def resolve_eval_mode(value: Optional[str] = None) -> str:
             "always try the dense evaluator and fall back on DenseUnsupported, "
             "'batch' = always try the opt-in merged-graph (batch) evaluator and "
             "fall back on BatchUnsupported, "
+            "'fused' = always try the opt-in fused (Triton) evaluator and fall "
+            "back on FusedUnsupported, "
             "'specialized' = never use it, 'auto' = the measured policy"
         )
     return mode
@@ -886,8 +926,21 @@ def resolve_auto_min_pop(value: Optional[int] = None) -> int:
             f"{AUTO_MIN_POP_ENV}={minimum} must be >= 1 (it is a pop_size threshold)"
         )
     return minimum
+def resolve_fused_min_pop(value: Optional[int] = None) -> int:
+    """Resolve the ``fused`` policy's pop-size threshold (``EVOGP_FUSED_MIN_POP``).
 
+    The threshold has EXACTLY ONE parser -- :func:`evogp.tree.fused_engine.resolve_min_pop`,
+    which reads the same variable and owns its validation, its default (16, the
+    measured flat-kernel threshold) and its error message --
+    so this reader only delegates to it.  The import is LOCAL on purpose: the
+    route policy is both the first thing every call site touches and the module
+    ``fused_engine`` must not depend on, so a module-level import would reverse
+    the one-way module DAG (and pull the Triton route into every
+    ``import evogp.tree``).
+    """
+    from . import fused_engine
 
+    return int(fused_engine.resolve_min_pop(value))
 def resolve_auto_max_rows(value: Optional[int] = None) -> int:
     """Resolve the ``auto`` rows PIN (``EVOGP_DENSE_AUTO_MAX_ROWS``), ``0`` = unpinned.
 
@@ -1373,20 +1426,22 @@ def device_available() -> bool:
 class Route:
     """The route policy's decision for one call: which ENGINE, on which backend.
 
-    ``engine`` names one of the three evaluation engines (:data:`ENGINES`):
+    ``engine`` names one of the four evaluation engines (:data:`ENGINES`):
     ``"dense"`` -> :func:`evaluate_dense` / :func:`sr_fitness_dense`,
     ``"batch"`` -> :func:`evogp.tree.batch_engine.evaluate_batch` /
-    ``sr_fitness_batch`` (opt-in only), ``"specialized"`` ->
+    ``sr_fitness_batch`` (opt-in only), ``"fused"`` ->
+    :func:`evogp.tree.fused_engine.evaluate_fused` / ``sr_fitness_fused`` (opt-in
+    only), ``"specialized"`` ->
     :func:`evoxc_engine.decode_population` + ``evaluate`` / ``sr_fitness``.
     ``backend`` is always a concrete backend NAME (``"numpy"`` / ``"iree"``) that
     the call site passes explicitly to the engine it picked, so the route -- not
     an ambient environment variable -- decides where a call runs;
     ``fallback_backend`` is what the call site continues on after that engine's
-    decline (:class:`DenseUnsupported` / :class:`BatchUnsupported`).
-    ``compare=False`` on ``engine`` is deliberate: for the two engines the policy
-    had before the opt-in batch route it is a *derived* view of ``use_dense``, so
-    every ``Route`` equality check written against the old three-field record
-    keeps its meaning.
+    decline (:class:`DenseUnsupported` / ``BatchUnsupported`` /
+    ``FusedUnsupported``).  ``compare=False`` on ``engine`` is deliberate: for the
+    engines the policy had before the opt-in routes it is a *derived* view of
+    ``use_dense``, so every ``Route`` equality check written against the old
+    three-field record keeps its meaning.
     """
 
     use_dense: bool
@@ -1401,8 +1456,9 @@ class Route:
         ``use_dense == (engine == "dense")`` holds for every instance: an
         old-style ``Route(True, ...)`` (no ``engine`` given) is promoted to
         ``engine="dense"``, an explicit ``engine="dense"`` with
-        ``use_dense=False`` raises ``ValueError`` (as does ``engine="batch"``
-        with ``use_dense=True``), and an unknown engine name is rejected.
+        ``use_dense=False`` raises ``ValueError`` (as do ``engine="batch"`` and
+        ``engine="fused"`` with ``use_dense=True``), and an unknown engine name is
+        rejected.
         """
         engine = str(self.engine)
         if engine not in ENGINES:
@@ -1412,6 +1468,13 @@ class Route:
                 raise ValueError(
                     "Route(use_dense=True, engine='batch') is inconsistent: the "
                     "batch route owns the whole population, so use_dense must be False"
+                )
+            return
+        if engine == "fused":
+            if self.use_dense:
+                raise ValueError(
+                    "Route(use_dense=True, engine='fused') is inconsistent: the "
+                    "fused route owns the whole population, so use_dense must be False"
                 )
             return
         if engine == "dense":
@@ -1429,6 +1492,11 @@ class Route:
     def use_batch(self) -> bool:
         """Whether the call site should attempt the opt-in batch route."""
         return self.engine == "batch"
+
+    @property
+    def use_fused(self) -> bool:
+        """Whether the call site should attempt the opt-in fused (Triton) route."""
+        return self.engine == "fused"
 
 
 def resolve_route(
@@ -1466,6 +1534,16 @@ def resolve_route(
       ``numpy`` elsewhere, with a specialized+``numpy`` fallback either way.  No
       ``pop_size``/``rows`` gate here -- the batch engine declines a small
       population itself (``EVOGP_BATCH_MIN_POP``) with a ``BatchUnsupported``.
+    * ``fused`` -> always attempt the OPT-IN fused route
+      (:mod:`evogp.tree.fused_engine`, ONE Triton launch for the whole
+      population): the explicitly named backend, else the device backend
+      (``iree``, the spelling every device route uses) while a device is usable
+      from torch AND ``pop_size >= EVOGP_FUSED_MIN_POP``; otherwise the route IS
+      specialized+``numpy`` (``engine`` stays ``"specialized"``, so the call site
+      behaves exactly like the pre-existing routes).  The fallback is ALWAYS
+      specialized on ``numpy`` -- the explicit-backend arm included, even when
+      ``EVOGP_EVOXC_BACKEND`` names ``iree``: the fused route has no numpy twin,
+      and a per-tree iree compile can never amortize after a decline.
     * ``auto`` with an explicit backend -> the historical rule: dense iff that
       backend is not ``numpy`` *and* ``pop_size >= EVOGP_DENSE_AUTO_MIN_POP``
       *and* ``rows`` (when given) fits :func:`auto_row_allowance`.
@@ -1474,8 +1552,8 @@ def resolve_route(
       available, and ``numpy`` for the specialized route -- below the threshold,
       with no device, and after a :class:`DenseUnsupported` (a per-tree iree
       compile costs 271-284 ms/tree and can never amortize).
-    ``auto`` NEVER selects the batch engine: that half of the policy is exactly
-    the dense / specialized rule above.
+    ``auto`` NEVER selects the batch or the fused engine: that half of the policy
+    is exactly the dense / specialized rule above.
 
     The rows half is a MEMORY rule (:func:`auto_rows_decline`): ``rows`` is inside
     the allowance only while ``pop_size * tree_len * rows * 4`` bytes fit
@@ -1526,6 +1604,33 @@ def resolve_route(
             "evaluator on numpy (no CUDA/HIP device usable from torch)",
             engine="batch",
         )
+    if mode == "fused":
+        # Opt-in FOURTH engine: the Triton kernel route.  It runs on the TORCH
+        # device rather than on an evoxc backend, so it uses the same "iree"
+        # backend spelling the other device routes use (the facade declines for any
+        # other name), and its fallback is ALWAYS specialized+numpy -- the explicit
+        # arm included: a per-tree iree compile can never amortize after a decline
+        # (the same reasoning as the batch route's non-explicit arms), so the
+        # explicit spelling drives ``backend`` only, never ``fallback_backend``.
+        if explicit:
+            name = resolve_backend_name(backend, iree_device_index)
+            return Route(False, name, "numpy",
+                         "EVOGP_EVAL_MODE=fused: always attempt the fused (Triton) "
+                         f"evaluator on the explicit {name!r} backend (specialized "
+                         "fallback on numpy)", engine="fused")
+        if not device_available():
+            return Route(False, "numpy", "numpy",
+                         "EVOGP_EVAL_MODE=fused: no CUDA/HIP device usable from torch "
+                         "-> specialized on numpy")
+        minimum = resolve_fused_min_pop()
+        if int(pop_size) < minimum:
+            return Route(False, "numpy", "numpy",
+                         f"EVOGP_EVAL_MODE=fused: pop_size={int(pop_size)} < {minimum} "
+                         f"({FUSED_MIN_POP_ENV}) -> specialized on numpy")
+        return Route(False, "iree", "numpy",
+                     f"EVOGP_EVAL_MODE=fused: device available and pop_size={int(pop_size)} "
+                     f">= {minimum} ({FUSED_MIN_POP_ENV}) -> fused (Triton) "
+                     "(specialized fallback on numpy)", engine="fused")
     if mode == "dense":
         name = (
             resolve_backend_name(backend, iree_device_index)
@@ -1620,7 +1725,8 @@ def should_use_dense(
     evaluator with ``resolve_route(...).backend`` and, on
     :class:`DenseUnsupported`, continues on the specialized engine with
     ``resolve_route(...).fallback_backend``.  It is ``False`` for the ``batch``
-    engine as well (that route is reported by ``Route.engine``, never by this
+    engine as well, and for the ``fused`` engine (those routes are reported by
+    ``Route.engine`` / ``Route.use_batch`` / ``Route.use_fused``, never by this
     flag).  ``pop_size`` is the population about to be evaluated (``1`` for a
     ``Tree``); ``rows``/``tree_len`` describe the data plane and are optional --
     without ``tree_len`` the rows rule can only apply the

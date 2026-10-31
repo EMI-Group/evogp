@@ -5,7 +5,7 @@ import sympy as sp
 
 from .utils import *
 from .descriptor import GenerateDescriptor
-from . import batch_engine, dense_engine, evoxc_engine
+from . import batch_engine, dense_engine, evoxc_engine, fused_engine
 
 
 def _comparison_as_value(res):
@@ -75,8 +75,8 @@ class Tree:
             x.shape[1] == self.input_len
         ), f"x shape should be {self.input_len}, but got {x.shape[1]}"
 
-        # The route policy decides the engine (dense / batch / specialized) and the
-        # backend; a single tree is a population of one, so under the default ``auto``
+        # The route policy decides the engine (dense / batch / fused / specialized) and
+        # the backend; a single tree is a population of one, so under the default ``auto``
         # route it never starts a per-tree iree compile.  A decline falls back below,
         # deliberately covering only that engine's own exception type.
         route = dense_engine.resolve_route(1)
@@ -110,6 +110,21 @@ class Tree:
                 return res[0]
             except dense_engine.DenseUnsupported as exc:
                 backend = dense_engine.decline_backend(route, exc)
+        elif route.engine == "fused":
+            try:
+                res = fused_engine.evaluate_fused(
+                    self.node_value.unsqueeze(0),
+                    self.node_type.unsqueeze(0),
+                    self.subtree_size.unsqueeze(0),
+                    self.input_len,
+                    self.output_len,
+                    x,
+                    per_row=is_expand_input,
+                    backend=backend,
+                )
+                return res[0]
+            except fused_engine.FusedUnsupported:
+                backend = route.fallback_backend
 
         pop = evoxc_engine.decode_population(
             self.node_value.unsqueeze(0),
@@ -192,6 +207,21 @@ class Tree:
                 )
             except dense_engine.DenseUnsupported as exc:
                 backend = dense_engine.decline_backend(route, exc)
+        elif route.engine == "fused":
+            try:
+                return fused_engine.sr_fitness_fused(
+                    self.node_value[None, :],
+                    self.node_type[None, :],
+                    self.subtree_size[None, :],
+                    self.input_len,
+                    self.output_len,
+                    inputs,
+                    labels,
+                    use_MSE=use_MSE,
+                    backend=backend,
+                )
+            except fused_engine.FusedUnsupported:
+                backend = route.fallback_backend
 
         pop = evoxc_engine.decode_population(
             self.node_value[None, :],

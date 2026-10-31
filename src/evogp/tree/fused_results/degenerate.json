@@ -1,0 +1,1758 @@
+{
+ "schema": "evogp-fused-envelope-v1",
+ "kind": "degenerate",
+ "created_utc": "2026-10-30T21:50:53Z",
+ "protocol": {
+  "warmup": 2,
+  "reps": 5,
+  "one_process_per_cell": true
+ },
+ "failures": 0,
+ "records": [
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "degenerate",
+   "created_utc": "2026-10-30T21:50:15Z",
+   "cell": "p256-L64-i32-N1",
+   "pop": 256,
+   "rows": 1,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": "one data row: a single row lane, so n_rb is 1 and the launch is pure per-tree work",
+   "geometry": {
+    "scratch_bytes": 65536,
+    "scratch_mib": 0.0625,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 1,
+    "num_warps_resolved": 1,
+    "n_rb": 1
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=256 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=256 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 433.8692089659162,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.10524498065933585,
+       0.12335600331425667,
+       0.09914598194882274,
+       0.0960109755396843,
+       0.09187398245558143
+      ],
+      "median_ms": 0.09914598194882274,
+      "min_ms": 0.09187398245558143,
+      "max_ms": 0.12335600331425667,
+      "mean_ms": 0.1031263847835362
+     },
+     "loss": {
+      "first_call_ms": 25.805240031331778,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.1367270015180111,
+       0.12641696957871318,
+       0.1209089532494545,
+       0.14123902656137943,
+       0.13611698523163795
+      ],
+      "median_ms": 0.13611698523163795,
+      "min_ms": 0.1209089532494545,
+      "max_ms": 0.14123902656137943,
+      "mean_ms": 0.13228178722783923
+     },
+     "per_row": {
+      "first_call_ms": 1.5794450300745666,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.09756704093888402,
+       0.09388400940224528,
+       0.08815398905426264,
+       0.08751999121159315,
+       0.08611200610175729
+      ],
+      "median_ms": 0.08815398905426264,
+      "min_ms": 0.08611200610175729,
+      "max_ms": 0.09756704093888402,
+      "mean_ms": 0.09064740734174848
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 24,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 24,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 24,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 3,
+     "fused_kernel_launches": 24,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 1,
+     "fused_scratch_entries": 1,
+     "fused_scratch_reuses": 23,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.162109375,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 0.2294921875,
+     "peak_reserved_mib": 2.0,
+     "delta_allocated_mib": 0.0673828125,
+     "delta_reserved_mib": 0.0
+    },
+    "parity": {
+     "value_vs_torch_batched": {
+      "shape": [
+       256,
+       1,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 5670.46728515625,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "loss_vs_torch_batched": {
+      "shape": [
+       256
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 32146724.0,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "per_row_vs_torch_batched": {
+      "shape": [
+       256,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 8977.1806640625,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "value_vs_reference_eval": {
+      "shape": [
+       256,
+       1,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 5670.46728515625,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "loss_vs_reference_eval": {
+      "shape": [
+       256
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 32146724.0,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "per_row_vs_reference_eval": {
+      "shape": [
+       256,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 8977.1806640625,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     }
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 46.63969500688836,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.645156965125352,
+       4.4279450085014105,
+       4.432673973497003,
+       4.418655997142196,
+       4.462737997528166
+      ],
+      "median_ms": 4.432673973497003,
+      "min_ms": 4.418655997142196,
+      "max_ms": 4.645156965125352,
+      "mean_ms": 4.4774339883588254
+     },
+     "loss": {
+      "first_call_ms": 4.490269988309592,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.5129070058465,
+       4.48790198424831,
+       4.498543043155223,
+       4.482488031499088,
+       4.535916028544307
+      ],
+      "median_ms": 4.498543043155223,
+      "min_ms": 4.482488031499088,
+      "max_ms": 4.535916028544307,
+      "mean_ms": 4.503551218658686
+     },
+     "per_row": {
+      "first_call_ms": 4.416565992869437,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.364246968179941,
+       4.368180991150439,
+       4.351148963905871,
+       4.31213597767055,
+       4.3562380014918745
+      ],
+      "median_ms": 4.3562380014918745,
+      "min_ms": 4.31213597767055,
+      "max_ms": 4.368180991150439,
+      "mean_ms": 4.350390180479735
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      256,
+      1,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 5670.46728515625,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      256
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 32146724.0,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "per_row_vs_torch_batched": {
+     "shape": [
+      256,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8977.1806640625,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 44.708558898383444,
+    "loss_vs_torch_batched": 33.04909402378989,
+    "per_row_vs_torch_batched": 49.416232302436356
+   },
+   "degenerate_case": "rows_1",
+   "population": "generated",
+   "reference": "torch-batched arm and src/evogp/tests/reference_eval.py (imported as reference_eval; an independent oracle fed the population rows directly, so it shares neither the engine's decode nor the kernel)",
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "degenerate",
+   "created_utc": "2026-10-30T21:50:24Z",
+   "cell": "p256-L64-i32-N1000",
+   "pop": 256,
+   "rows": 1000,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": "1000 rows is not a multiple of the 256-lane block: n_rb 4 with a partial last block, i.e. the masked tail of the row axis",
+   "geometry": {
+    "scratch_bytes": 65536000,
+    "scratch_mib": 62.5,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=256 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=256 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 440.1990110054612,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.1313200336880982,
+       0.15485199401155114,
+       0.1465679961256683,
+       0.11686398647725582,
+       0.10617898078635335
+      ],
+      "median_ms": 0.1313200336880982,
+      "min_ms": 0.10617898078635335,
+      "max_ms": 0.15485199401155114,
+      "mean_ms": 0.13115659821778536
+     },
+     "loss": {
+      "first_call_ms": 27.179742988664657,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.15851500211283565,
+       0.12894399696961045,
+       0.12508698273450136,
+       0.11517800157889724,
+       0.11640600860118866
+      ],
+      "median_ms": 0.12508698273450136,
+      "min_ms": 0.11517800157889724,
+      "max_ms": 0.15851500211283565,
+      "mean_ms": 0.12882599839940667
+     },
+     "per_row": {
+      "first_call_ms": 1.6806719941087067,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.09710900485515594,
+       0.09122997289523482,
+       0.10902300709858537,
+       0.08803501259535551,
+       0.086651009041816
+      ],
+      "median_ms": 0.09122997289523482,
+      "min_ms": 0.086651009041816,
+      "max_ms": 0.10902300709858537,
+      "mean_ms": 0.09440960129722953
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 24,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 24,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 24,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 3,
+     "fused_kernel_launches": 24,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 2,
+     "fused_scratch_entries": 2,
+     "fused_scratch_reuses": 22,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.287109375,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 66.3623046875,
+     "peak_reserved_mib": 68.0,
+     "delta_allocated_mib": 66.0751953125,
+     "delta_reserved_mib": 66.0
+    },
+    "parity": {
+     "value_vs_torch_batched": {
+      "shape": [
+       256,
+       1000,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 118248632.0,
+      "finite_points": 256000,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "loss_vs_torch_batched": {
+      "shape": [
+       256
+      ],
+      "max_abs": 65536.0,
+      "max_rel": 2.3390646219922928e-07,
+      "ref_abs_max": 14274788327424.0,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "per_row_vs_torch_batched": {
+      "shape": [
+       256,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 8977.1806640625,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "value_vs_reference_eval": {
+      "shape": [
+       256,
+       1000,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 118248632.0,
+      "finite_points": 256000,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "loss_vs_reference_eval": {
+      "shape": [
+       256
+      ],
+      "max_abs": 2097152.0,
+      "max_rel": 2.512514356567408e-07,
+      "ref_abs_max": 14274786230272.0,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "per_row_vs_reference_eval": {
+      "shape": [
+       256,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 8977.1806640625,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     }
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 49.51466299826279,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.711759043857455,
+       4.5997879933565855,
+       4.675470991060138,
+       4.670868976972997,
+       4.676308017224073
+      ],
+      "median_ms": 4.675470991060138,
+      "min_ms": 4.5997879933565855,
+      "max_ms": 4.711759043857455,
+      "mean_ms": 4.66683900449425
+     },
+     "loss": {
+      "first_call_ms": 4.445970000233501,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.772176966071129,
+       4.768323036842048,
+       4.638144979253411,
+       4.660276987124234,
+       4.7290700022131205
+      ],
+      "median_ms": 4.7290700022131205,
+      "min_ms": 4.638144979253411,
+      "max_ms": 4.772176966071129,
+      "mean_ms": 4.713598394300789
+     },
+     "per_row": {
+      "first_call_ms": 4.57328901393339,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.672718001529574,
+       4.429737979080528,
+       4.440826014615595,
+       4.412142967339605,
+       4.414037044625729
+      ],
+      "median_ms": 4.429737979080528,
+      "min_ms": 4.412142967339605,
+      "max_ms": 4.672718001529574,
+      "mean_ms": 4.473892401438206
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      256,
+      1000,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 118248632.0,
+     "finite_points": 256000,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      256
+     ],
+     "max_abs": 65536.0,
+     "max_rel": 2.3390646219922928e-07,
+     "ref_abs_max": 14274788327424.0,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "per_row_vs_torch_batched": {
+     "shape": [
+      256,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8977.1806640625,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 35.60363837679921,
+    "loss_vs_torch_batched": 37.80625208820193,
+    "per_row_vs_torch_batched": 48.5557305181651
+   },
+   "degenerate_case": "rows_1000",
+   "population": "generated",
+   "reference": "torch-batched arm and src/evogp/tests/reference_eval.py (imported as reference_eval; an independent oracle fed the population rows directly, so it shares neither the engine's decode nor the kernel)",
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "degenerate",
+   "created_utc": "2026-10-30T21:50:33Z",
+   "cell": "p256-L64-i1-N1024",
+   "pop": 256,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 1,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": "input_len 1: every VAR node reads the same single input row",
+   "geometry": {
+    "scratch_bytes": 67108864,
+    "scratch_mib": 64.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=256 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=256 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 440.2772350003943,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.1303449971601367,
+       0.12609799159690738,
+       0.11378701310604811,
+       0.10724697494879365,
+       0.10051199933513999
+      ],
+      "median_ms": 0.11378701310604811,
+      "min_ms": 0.10051199933513999,
+      "max_ms": 0.1303449971601367,
+      "mean_ms": 0.11559779522940516
+     },
+     "loss": {
+      "first_call_ms": 27.072134951595217,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.13835699064657092,
+       0.12910203076899052,
+       0.12148503446951509,
+       0.11713500134646893,
+       0.14411500887945294
+      ],
+      "median_ms": 0.12910203076899052,
+      "min_ms": 0.11713500134646893,
+      "max_ms": 0.14411500887945294,
+      "mean_ms": 0.13003881322219968
+     },
+     "per_row": {
+      "first_call_ms": 1.6531129949726164,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.10306399781256914,
+       0.09608699474483728,
+       0.09116902947425842,
+       0.08877000072970986,
+       0.090317043941468
+      ],
+      "median_ms": 0.09116902947425842,
+      "min_ms": 0.08877000072970986,
+      "max_ms": 0.10306399781256914,
+      "mean_ms": 0.09388141334056854
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 24,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 24,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 24,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 3,
+     "fused_kernel_launches": 24,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 2,
+     "fused_scratch_entries": 2,
+     "fused_scratch_reuses": 22,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.138671875,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 66.138671875,
+     "peak_reserved_mib": 68.0,
+     "delta_allocated_mib": 66.0,
+     "delta_reserved_mib": 66.0
+    },
+    "parity": {
+     "value_vs_torch_batched": {
+      "shape": [
+       256,
+       1024,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 1.7183406519064986e+17,
+      "finite_points": 250880,
+      "nan_points": 11264,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "loss_vs_torch_batched": {
+      "shape": [
+       256
+      ],
+      "max_abs": 131072.0,
+      "max_rel": 2.3650510172501527e-07,
+      "ref_abs_max": 2.883490695748258e+31,
+      "finite_points": 245,
+      "nan_points": 11,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "per_row_vs_torch_batched": {
+      "shape": [
+       256,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 5697.2626953125,
+      "finite_points": 245,
+      "nan_points": 11,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "value_vs_reference_eval": {
+      "shape": [
+       256,
+       1024,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 1.7183406519064986e+17,
+      "finite_points": 250880,
+      "nan_points": 11264,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "loss_vs_reference_eval": {
+      "shape": [
+       256
+      ],
+      "max_abs": 134217728.0,
+      "max_rel": 2.8810509888899105e-07,
+      "ref_abs_max": 2.883490695748258e+31,
+      "finite_points": 245,
+      "nan_points": 11,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "per_row_vs_reference_eval": {
+      "shape": [
+       256,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 5697.2626953125,
+      "finite_points": 245,
+      "nan_points": 11,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     }
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 47.9247160255909,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.431449982803315,
+       4.417065007146448,
+       4.4612360070459545,
+       4.366430977825075,
+       4.46046597789973
+      ],
+      "median_ms": 4.431449982803315,
+      "min_ms": 4.366430977825075,
+      "max_ms": 4.4612360070459545,
+      "mean_ms": 4.427329590544105
+     },
+     "loss": {
+      "first_call_ms": 4.46417200146243,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.506814002525061,
+       4.4455089955590665,
+       4.677977005485445,
+       4.5991530059836805,
+       4.435579001437873
+      ],
+      "median_ms": 4.506814002525061,
+      "min_ms": 4.435579001437873,
+      "max_ms": 4.677977005485445,
+      "mean_ms": 4.533006402198225
+     },
+     "per_row": {
+      "first_call_ms": 4.443434008862823,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.440871998667717,
+       4.418639000505209,
+       4.589098040014505,
+       4.439173033460975,
+       4.469272040296346
+      ],
+      "median_ms": 4.440871998667717,
+      "min_ms": 4.418639000505209,
+      "max_ms": 4.589098040014505,
+      "mean_ms": 4.47141082258895
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      256,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 1.7183406519064986e+17,
+     "finite_points": 250880,
+     "nan_points": 11264,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      256
+     ],
+     "max_abs": 131072.0,
+     "max_rel": 2.3650510172501527e-07,
+     "ref_abs_max": 2.883490695748258e+31,
+     "finite_points": 245,
+     "nan_points": 11,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "per_row_vs_torch_batched": {
+     "shape": [
+      256,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 5697.2626953125,
+     "finite_points": 245,
+     "nan_points": 11,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 38.94512969308068,
+    "loss_vs_torch_batched": 34.90893191749521,
+    "per_row_vs_torch_batched": 48.71031340661137
+   },
+   "degenerate_case": "input_len_1",
+   "population": "generated",
+   "reference": "torch-batched arm and src/evogp/tests/reference_eval.py (imported as reference_eval; an independent oracle fed the population rows directly, so it shares neither the engine's decode nor the kernel)",
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "degenerate",
+   "created_utc": "2026-10-30T21:50:42Z",
+   "cell": "p256-L64-i32-N1024",
+   "pop": 256,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": "Forest.zero_generate: every tree is the single CONST 0 node, so the walk never reads an input row and every tree is structurally identical",
+   "geometry": {
+    "scratch_bytes": 67108864,
+    "scratch_mib": 64.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=256 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=256 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 437.78110103448853,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.13258703984320164,
+       0.12500700540840626,
+       0.10667601600289345,
+       0.10398001177236438,
+       0.09904702892526984
+      ],
+      "median_ms": 0.10667601600289345,
+      "min_ms": 0.09904702892526984,
+      "max_ms": 0.13258703984320164,
+      "mean_ms": 0.11345942039042711
+     },
+     "loss": {
+      "first_call_ms": 26.624988997355103,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.16285997116938233,
+       0.13413600390776992,
+       0.12338504893705249,
+       0.11706800432875752,
+       0.11762400390580297
+      ],
+      "median_ms": 0.12338504893705249,
+      "min_ms": 0.11706800432875752,
+      "max_ms": 0.16285997116938233,
+      "mean_ms": 0.13101460644975305
+     },
+     "per_row": {
+      "first_call_ms": 1.6191040049307048,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.09775103535503149,
+       0.09727897122502327,
+       0.08997699478641152,
+       0.08788699051365256,
+       0.10353000834584236
+      ],
+      "median_ms": 0.09727897122502327,
+      "min_ms": 0.08788699051365256,
+      "max_ms": 0.10353000834584236,
+      "mean_ms": 0.09528480004519224
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 24,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 24,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 24,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 3,
+     "fused_kernel_launches": 24,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 2,
+     "fused_scratch_entries": 2,
+     "fused_scratch_reuses": 22,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.2900390625,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 66.4150390625,
+     "peak_reserved_mib": 68.0,
+     "delta_allocated_mib": 66.125,
+     "delta_reserved_mib": 66.0
+    },
+    "parity": {
+     "value_vs_torch_batched": {
+      "shape": [
+       256,
+       1024,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 118248632.0,
+      "finite_points": 262144,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "loss_vs_torch_batched": {
+      "shape": [
+       256
+      ],
+      "max_abs": 32768.0,
+      "max_rel": 2.2884127304223512e-07,
+      "ref_abs_max": 13940222328832.0,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "per_row_vs_torch_batched": {
+      "shape": [
+       256,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 8977.1806640625,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "value_vs_reference_eval": {
+      "shape": [
+       256,
+       1024,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 118248632.0,
+      "finite_points": 262144,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "loss_vs_reference_eval": {
+      "shape": [
+       256
+      ],
+      "max_abs": 1048576.0,
+      "max_rel": 3.4326194509048946e-07,
+      "ref_abs_max": 13940221280256.0,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "per_row_vs_reference_eval": {
+      "shape": [
+       256,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 8977.1806640625,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     }
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 48.460313002578914,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.387154011055827,
+       4.399121971800923,
+       4.373378003947437,
+       4.373217991087586,
+       4.3888569925911725
+      ],
+      "median_ms": 4.387154011055827,
+      "min_ms": 4.373217991087586,
+      "max_ms": 4.399121971800923,
+      "mean_ms": 4.384345794096589
+     },
+     "loss": {
+      "first_call_ms": 4.437302995938808,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.437615978531539,
+       4.474968009162694,
+       4.424760001711547,
+       4.455677000805736,
+       4.427551000844687
+      ],
+      "median_ms": 4.437615978531539,
+      "min_ms": 4.424760001711547,
+      "max_ms": 4.474968009162694,
+      "mean_ms": 4.444114398211241
+     },
+     "per_row": {
+      "first_call_ms": 4.402599006425589,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.344853980001062,
+       4.387463035527617,
+       4.263361042831093,
+       4.045782028697431,
+       4.0551829733885825
+      ],
+      "median_ms": 4.263361042831093,
+      "min_ms": 4.045782028697431,
+      "max_ms": 4.387463035527617,
+      "mean_ms": 4.219328612089157
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      256,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 118248632.0,
+     "finite_points": 262144,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      256
+     ],
+     "max_abs": 32768.0,
+     "max_rel": 2.2884127304223512e-07,
+     "ref_abs_max": 13940222328832.0,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "per_row_vs_torch_batched": {
+     "shape": [
+      256,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8977.1806640625,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 41.125964161774014,
+    "loss_vs_torch_batched": 35.9655891597975,
+    "per_row_vs_torch_batched": 43.82613209353534
+   },
+   "degenerate_case": "all_const_pop",
+   "population": "all_const",
+   "reference": "torch-batched arm and src/evogp/tests/reference_eval.py (imported as reference_eval; an independent oracle fed the population rows directly, so it shares neither the engine's decode nor the kernel)",
+   "status": "ok"
+  },
+  {
+   "schema": "evogp-fused-envelope-v1",
+   "kind": "degenerate",
+   "created_utc": "2026-10-30T21:50:52Z",
+   "cell": "p256-L64-i32-N1024",
+   "pop": 256,
+   "rows": 1024,
+   "tree_len": 64,
+   "input_len": 32,
+   "max_layer_cnt": 5,
+   "protocol": {
+    "one_process_per_cell": true,
+    "arms_sequential_in_process": true,
+    "sync_bracketed": true,
+    "warmup": 2,
+    "reps": 5
+   },
+   "env": {
+    "requested_eval_mode": "fused",
+    "raw": {
+     "EVOGP_EVAL_MODE": null,
+     "EVOGP_EVOXC_BACKEND": null,
+     "EVOGP_FUSED_BLOCK_ROWS": null,
+     "EVOGP_FUSED_NUM_WARPS": null,
+     "EVOGP_FUSED_MAX_SCRATCH_MB": null,
+     "EVOGP_FUSED_MIN_POP": null,
+     "EVOGP_FUSED_HOST_MEMO": null,
+     "EVOGP_DENSE_MAX_TREE_LEN": null,
+     "EVOGP_EVOXC_ARTIFACT_DIR": null,
+     "TRITON_CACHE_DIR": "/tmp/triton-fused-cache"
+    },
+    "resolved": {
+     "block_rows_cap": 256,
+     "num_warps": 1,
+     "max_scratch_mb": 8192,
+     "min_pop": 64,
+     "evoxc_backend": "numpy"
+    },
+    "fused_backend": "torch device (cuda/rocm); the fused route builds no evoxc graph",
+    "fused_available": true
+   },
+   "note": "single-node CONST trees with constants spread over [-1, 1), so the population is not degenerate in VALUE (differs from all_const_pop)",
+   "geometry": {
+    "scratch_bytes": 67108864,
+    "scratch_mib": 64.0,
+    "max_scratch_mb": 8192,
+    "envelope_ok": true,
+    "block_rows_resolved": 256,
+    "num_warps_resolved": 1,
+    "n_rb": 4
+   },
+   "route": {
+    "inherited": {
+     "eval_mode": null,
+     "engine": "dense",
+     "use_fused": false,
+     "use_dense": true,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "auto policy: device available and pop_size=256 >= 64 (EVOGP_DENSE_AUTO_MIN_POP) -> dense on iree (specialized fallback on numpy)"
+    },
+    "fused_requested": {
+     "eval_mode": "fused",
+     "engine": "fused",
+     "use_fused": true,
+     "use_dense": false,
+     "backend": "iree",
+     "fallback_backend": "numpy",
+     "reason": "EVOGP_EVAL_MODE=fused: device available and pop_size=256 >= 64 (EVOGP_FUSED_MIN_POP) -> fused (Triton) (specialized fallback on numpy)"
+    }
+   },
+   "fused": {
+    "timings": {
+     "value": {
+      "first_call_ms": 434.79779904009774,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.12554298155009747,
+       0.11486996663734317,
+       0.1068880083039403,
+       0.10702299186959863,
+       0.1021159696392715
+      ],
+      "median_ms": 0.10702299186959863,
+      "min_ms": 0.1021159696392715,
+      "max_ms": 0.12554298155009747,
+      "mean_ms": 0.11128798360005021
+     },
+     "loss": {
+      "first_call_ms": 26.576742995530367,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.16479199985042214,
+       0.13222498819231987,
+       0.12098700972273946,
+       0.11469400487840176,
+       0.11348404223099351
+      ],
+      "median_ms": 0.12098700972273946,
+      "min_ms": 0.11348404223099351,
+      "max_ms": 0.16479199985042214,
+      "mean_ms": 0.12923640897497535
+     },
+     "per_row": {
+      "first_call_ms": 1.6225120052695274,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       0.10263797594234347,
+       0.10279100388288498,
+       0.09203603258356452,
+       0.08691201219335198,
+       0.08575303945690393
+      ],
+      "median_ms": 0.09203603258356452,
+      "min_ms": 0.08575303945690393,
+      "max_ms": 0.10279100388288498,
+      "mean_ms": 0.09402601281180978
+     }
+    },
+    "served": true,
+    "served_via": "public_api",
+    "launches": 24,
+    "launch_counter": "fused_kernel_launches",
+    "expected_launches": 24,
+    "stats_delta": {
+     "fused_block_rows": 0,
+     "fused_calls": 24,
+     "fused_declines": 0,
+     "fused_kernel_compiles": 3,
+     "fused_kernel_launches": 24,
+     "fused_num_warps": 0,
+     "fused_scratch_allocs": 2,
+     "fused_scratch_entries": 2,
+     "fused_scratch_reuses": 22,
+     "fused_xt_entries": 1,
+     "fused_xt_hits": 15,
+     "fused_xt_maxsize": 0,
+     "fused_xt_misses": 1
+    },
+    "memory": {
+     "baseline_allocated_mib": 0.2900390625,
+     "baseline_reserved_mib": 2.0,
+     "peak_allocated_mib": 66.4150390625,
+     "peak_reserved_mib": 68.0,
+     "delta_allocated_mib": 66.125,
+     "delta_reserved_mib": 66.0
+    },
+    "parity": {
+     "value_vs_torch_batched": {
+      "shape": [
+       256,
+       1024,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 118248632.0,
+      "finite_points": 262144,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "loss_vs_torch_batched": {
+      "shape": [
+       256
+      ],
+      "max_abs": 32768.0,
+      "max_rel": 2.2884127304223512e-07,
+      "ref_abs_max": 13940222328832.0,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "per_row_vs_torch_batched": {
+      "shape": [
+       256,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 8977.1806640625,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "value_vs_reference_eval": {
+      "shape": [
+       256,
+       1024,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 118248632.0,
+      "finite_points": 262144,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     },
+     "loss_vs_reference_eval": {
+      "shape": [
+       256
+      ],
+      "max_abs": 1048576.0,
+      "max_rel": 3.4326194509048946e-07,
+      "ref_abs_max": 13940221280256.0,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": false
+     },
+     "per_row_vs_reference_eval": {
+      "shape": [
+       256,
+       1
+      ],
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "ref_abs_max": 8977.1806640625,
+      "finite_points": 256,
+      "nan_points": 0,
+      "nan_mismatch": 0,
+      "inf_mismatch": 0,
+      "bitwise_equal": true
+     }
+    }
+   },
+   "torch_batched": {
+    "timings": {
+     "value": {
+      "first_call_ms": 46.20001598959789,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.631828982383013,
+       4.5761410146951675,
+       4.544541006907821,
+       4.376675002276897,
+       4.544613999314606
+      ],
+      "median_ms": 4.544613999314606,
+      "min_ms": 4.376675002276897,
+      "max_ms": 4.631828982383013,
+      "mean_ms": 4.534760001115501
+     },
+     "loss": {
+      "first_call_ms": 4.62597596924752,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.192413995042443,
+       4.5961809810251,
+       4.478191956877708,
+       4.332140029873699,
+       4.107859975192696
+      ],
+      "median_ms": 4.332140029873699,
+      "min_ms": 4.107859975192696,
+      "max_ms": 4.5961809810251,
+      "mean_ms": 4.341357387602329
+     },
+     "per_row": {
+      "first_call_ms": 4.020169028081,
+      "cache_after_first_call": null,
+      "warmup": 2,
+      "reps": 5,
+      "samples_ms": [
+       4.320315027143806,
+       4.405648040119559,
+       4.381006001494825,
+       4.516410990618169,
+       4.154163994826376
+      ],
+      "median_ms": 4.381006001494825,
+      "min_ms": 4.154163994826376,
+      "max_ms": 4.516410990618169,
+      "mean_ms": 4.355508810840547
+     }
+    }
+   },
+   "parity": {
+    "value_vs_torch_batched": {
+     "shape": [
+      256,
+      1024,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 118248632.0,
+     "finite_points": 262144,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    },
+    "loss_vs_torch_batched": {
+     "shape": [
+      256
+     ],
+     "max_abs": 32768.0,
+     "max_rel": 2.2884127304223512e-07,
+     "ref_abs_max": 13940222328832.0,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": false
+    },
+    "per_row_vs_torch_batched": {
+     "shape": [
+      256,
+      1
+     ],
+     "max_abs": 0.0,
+     "max_rel": 0.0,
+     "ref_abs_max": 8977.1806640625,
+     "finite_points": 256,
+     "nan_points": 0,
+     "nan_mismatch": 0,
+     "inf_mismatch": 0,
+     "bitwise_equal": true
+    }
+   },
+   "ratios": {
+    "value_vs_torch_batched": 42.46390350264135,
+    "loss_vs_torch_batched": 35.806654282980226,
+    "per_row_vs_torch_batched": 47.60098711900767
+   },
+   "degenerate_case": "single_node_pop",
+   "population": "single_node",
+   "reference": "torch-batched arm and src/evogp/tests/reference_eval.py (imported as reference_eval; an independent oracle fed the population rows directly, so it shares neither the engine's decode nor the kernel)",
+   "status": "ok"
+  }
+ ]
+}
