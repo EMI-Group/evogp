@@ -1,15 +1,26 @@
-torch
+# Runtime core. `evoxc` (EvoX Compiler) is the evaluation engine every
+# evaluation route runs on, and `evox` 2.0.0a1 is the functional framework this
+# release line aligns with.  Both are PyPI distributions; a development setup can
+# equally use the sibling checkouts (`pip install /path/to/evoxc`, and the
+# `--pre` line for evox: `pip install "evox>=2.0.0a1"`).
+evoxc>=0.1.0
+evox>=2.0.0a1
+numpy
 scikit_learn
 sympy
-numpy
 networkx
 
-# evoxc (EvoX Compiler) is required at runtime. It is a sibling project,
-# not a PyPI dependency of EvoGP, so install it from its source checkout, e.g.
-#   pip install /path/to/evoxc
-#
-# Optional extras:
-#   iree-base-compiler / iree-base-runtime (~3.11.x)  # compiled (GPU/accelerated) evoxc backends
-#   pygraphviz  # optional, for visualize tree
-#   jax  # optional, for jax-based problem
-#   brax  # optional, for brax benchmark
+# Optional, NOT installed by this file:
+#   torch  # the tensor-native GP stack (`evogp.tree`/`algorithm`/`problem`/`pipeline`),
+#          # the plain-torch numerics oracle and the benchmark baseline:
+#          #   pip install "evogp[torch]"
+#   triton # the fused Triton evaluation route (`EVOGP_EVAL_MODE=fused`); needs torch
+#          # and a CUDA-visible device (AMD GPUs under ROCm included), and a writable
+#          # TRITON_CACHE_DIR:
+#          #   pip install "evogp[fused]"
+#   iree-base-compiler / iree-base-runtime (~3.11.x)  # the `iree` backend of the
+#          # dense / specialized / batch routes: pip install "evogp[iree]"
+#   pygraphviz  # optional, for Tree.to_png (also needs the Graphviz `dot` binary)
+#   jax  # optional, for the jax-based problems
+#   brax  # optional, for the brax benchmark
+#   pytest  # optional, to run the test suites: pip install "evogp[dev]"
