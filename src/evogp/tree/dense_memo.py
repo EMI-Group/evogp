@@ -140,6 +140,17 @@ class DenseMemo(OrderedDict):
             while len(self) > self.maxsize:
                 self.popitem(last=False)
 
+    def note_hit(self) -> None:
+        """Count a hit on an entry this table holds, served WITHOUT a lookup.
+
+        The fused route keeps the entry it served last in a single-slot fast path
+        in front of its :data:`PLAN_MEMO` (``fused_engine._LAST``) and reports that
+        hit here, so ``*_hits`` keeps meaning "a warm call that did no host work"
+        instead of splitting into two counters.  Nothing is read or moved: the
+        entry is already the most recently used one.
+        """
+        self.hits += 1
+
     def reset(self) -> None:
         """Drop every entry and zero the counters."""
         with self._lock:

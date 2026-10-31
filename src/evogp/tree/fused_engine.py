@@ -392,6 +392,61 @@ def resolve_max_scratch_mb(value: Optional[int] = None) -> int:
     return mb
 
 
+#: Memo of the three RESOLVED geometry knobs, keyed on their RAW ambient values
+#: (``None`` for a knob the caller passed explicitly, the value itself otherwise).
+#: Every warm call needs the triple (it is part of the prepared-call key and of the
+#: envelope verdict), every call must SEE an ambient flip, but only a flip changes
+#: the answer -- so the readers' cost is split: one ``os.environ.get`` per knob
+#: (0.66 us) is paid per call and the parse/validation (1.9 us for all three) runs
+#: on a miss.  A miss still goes through the three resolvers, which own the
+#: defaults, the ``_pow2_floor`` rule and the ``ValueError`` messages, so an
+#: unusable value raises exactly what it always raised.  Bounded (a knob sweep
+#: cannot grow it); dropped by :func:`clear_fused_cache` as hygiene, not
+#: correctness -- like :data:`_ENVELOPE_MEMO`, no entry can go stale, because its
+#: key carries every input of the answer.
+_GEOMETRY_MEMO: Dict[Tuple[Any, Any, Any], Tuple[int, int, int]] = {}
+_GEOMETRY_MEMO_MAX = 8
+
+
+def _geometry(
+    block_rows: Optional[int] = None,
+    num_warps: Optional[int] = None,
+    max_scratch_mb: Optional[int] = None,
+) -> Tuple[int, int, int]:
+    """The call's resolved ``(block_rows, num_warps, max_scratch_mb)`` triple.
+
+    The three geometry knobs as ONE resolution, memoized on their raw values in
+    :data:`_GEOMETRY_MEMO` (see there).  The resolvers the memo delegates to are
+    :func:`resolve_block_rows` / :func:`resolve_num_warps` /
+    :func:`resolve_max_scratch_mb`, i.e. the single source of the validation and the
+    error messages, so this reader can only ever be faster, never more lenient.
+    """
+    get = os.environ.get
+    raw = (
+        get(BLOCK_ROWS_ENV) if block_rows is None else block_rows,
+        get(NUM_WARPS_ENV) if num_warps is None else num_warps,
+        get(MAX_SCRATCH_MB_ENV) if max_scratch_mb is None else max_scratch_mb,
+    )
+    try:
+        resolved = _GEOMETRY_MEMO.get(raw)
+    except TypeError:  # an unhashable explicit value: resolve without the memo
+        return (
+            resolve_block_rows(block_rows),
+            resolve_num_warps(num_warps),
+            resolve_max_scratch_mb(max_scratch_mb),
+        )
+    if resolved is None:
+        resolved = (
+            resolve_block_rows(block_rows),
+            resolve_num_warps(num_warps),
+            resolve_max_scratch_mb(max_scratch_mb),
+        )
+        if len(_GEOMETRY_MEMO) >= _GEOMETRY_MEMO_MAX:
+            _GEOMETRY_MEMO.clear()
+        _GEOMETRY_MEMO[raw] = resolved
+    return resolved
+
+
 def resolve_min_pop(value: Optional[int] = None) -> int:
     """The route's pop-size threshold (``EVOGP_FUSED_MIN_POP``, default 16).
 
@@ -519,16 +574,19 @@ def clear_fused_cache() -> None:
     Registered with :func:`evoxc_engine._register_cache_reset` at import time, so
     ``evoxc_engine.clear_cache()`` -- the single in-memory invalidation point of
     the engine -- flushes this route too.  Nothing here touches the disk.  Dropping
-    :data:`_ENVELOPE_MEMO` is hygiene, not correctness: its keys carry every input of
-    the verdict, so no entry can go stale.  Dropping :data:`PLAN_MEMO` is the route
-    out of the one case its identity key does not see: a write into a population or
-    data tensor that bypasses torch's version counter (a numpy view of the same
-    memory, a foreign kernel), which no torch-level identity can detect.
+    :data:`_ENVELOPE_MEMO` / :data:`_GEOMETRY_MEMO` is hygiene, not correctness: their
+    keys carry every input of the answer, so no entry can go stale.  Dropping
+    :data:`PLAN_MEMO` -- and with it the single-slot fast path (:data:`_LAST`) -- is
+    the route out of the one case its identity key does not see: a write into a
+    population or data tensor that bypasses torch's version counter (a numpy view of
+    the same memory, a foreign kernel), which no torch-level identity can detect.
     """
     with _STATS_LOCK:
         for name in list(_STATS):
             _STATS[name] = 0
         _ENVELOPE_MEMO.clear()
+        _GEOMETRY_MEMO.clear()
+    _drop_last()
     XT_MEMO.reset()
     TAG_MEMO.reset()
     PLAN_MEMO.reset()
@@ -935,8 +993,8 @@ def _prepare(
     input_len: int,
     output_len: int,
     backend: Optional[str],
-    block_rows: Optional[int],
-    num_warps: Optional[int],
+    block_rows: int,
+    num_warps: int,
 ) -> _Prepared:
     """Every check and normalisation the two entry points share.
 
@@ -949,6 +1007,11 @@ def _prepare(
     checks and the multi-output (``OUT_NODE``) refusal (:func:`_refuse_out_node`).
     A malformed population therefore gets the ``ValueError`` it deserves instead of
     a decline.
+
+    ``block_rows`` / ``num_warps`` are the call's ALREADY RESOLVED geometry
+    (:func:`_geometry`, which both entry points resolve once and pass here, into the
+    envelope and into the key build) -- they are never re-read from the environment
+    in this function.
     """
     pop, tree_len = _population_shape(batch_subtree_size)
     if int(output_len) < 1:
@@ -1001,8 +1064,8 @@ def _prepare(
         pop=pop,
         tree_len=tree_len,
         device=device,
-        block_rows=resolve_block_rows(block_rows),
-        num_warps=resolve_num_warps(num_warps),
+        block_rows=int(block_rows),
+        num_warps=int(num_warps),
     )
 
 
@@ -1021,6 +1084,12 @@ class _Call:
     :attr:`run` -- the launch BOUND to all of it (``fused_kernels.bind_value`` /
     ``bind_loss``: one kernel specialization, one option dict, one scratch block),
     so a warm call is ``call.run(destination)`` and nothing else.
+
+    It also carries the facts :func:`_last_call` compares for the single-entry fast
+    path (:data:`_LAST`): the call's ``kind``, the RAW operands it was prepared from
+    (``x_raw`` / ``labels_raw``), their ``_version`` vector, the resolved scalars and
+    the resolved geometry.  Those are exactly the key's inputs, so a fast-path hit
+    proves what a :data:`PLAN_MEMO` hit proves.
     """
 
     __slots__ = (
@@ -1040,16 +1109,33 @@ class _Call:
         "out_shape",
         "pins",
         "run",
+        "kind",
+        "x_raw",
+        "labels_raw",
+        "versions",
+        "input_len",
+        "output_len",
+        "use_mse",
+        "backend",
+        "geometry",
     )
 
     def __init__(
         self,
         prepared: _Prepared,
         *,
+        kind: str,
         rows: int,
         per_row: bool,
         data: torch.Tensor,
         labels: Optional[torch.Tensor],
+        x_raw: Any,
+        labels_raw: Any,
+        input_len: int,
+        output_len: int,
+        use_mse: bool,
+        backend: Optional[str],
+        geometry: Tuple[int, int, int],
         budget_mb: int,
         out_shape: Tuple[int, ...],
         pins: Tuple[Any, ...],
@@ -1073,6 +1159,99 @@ class _Call:
         self.out_shape = out_shape
         self.pins = pins
         self.run = run
+        self.kind = kind
+        self.x_raw = x_raw
+        self.labels_raw = labels_raw
+        self.input_len = int(input_len)
+        self.output_len = int(output_len)
+        self.use_mse = bool(use_mse)
+        self.backend = backend
+        self.geometry = geometry
+        # The identity vector of :func:`_last_call`, recorded where the entry is
+        # built (i.e. once per prepared call, never per call).
+        versions = [
+            prepared.node_value._version,
+            prepared.node_type._version,
+            prepared.subtree_size._version,
+            x_raw._version,
+        ]
+        if labels_raw is not None:
+            versions.append(labels_raw._version)
+        self.versions = tuple(versions)
+
+
+#: The single-entry FAST PATH in front of :data:`PLAN_MEMO`: the prepared call
+#: served last.  A training loop, an elite re-evaluation and every benchmark loop
+#: call with the very same tensors again, so the whole plan key -- four
+#: ``(id, _version)`` pairs, three resolved knobs, a tuple build and the table's
+#: lock -- can be replaced by one short-circuit identity scan (:func:`_last_call`):
+#: ~0.4 us instead of ~3.7.  It is not a second table and not a second semantics:
+#: the entry is a plain :data:`PLAN_MEMO` value, the comparison proves exactly what
+#: the key proves (same tensor OBJECTS -- kept alive by the entry's ``pins``, same
+#: ``_version`` vector, same resolved scalars and geometry), a hit is counted as a
+#: plan hit, and ``clear_fused_cache()`` / ``evoxc_engine.clear_cache()`` drop it
+#: with the table.
+_LAST: Optional[_Call] = None
+
+
+def _last_call(
+    kind: str,
+    batch_node_value: Any,
+    batch_node_type: Any,
+    batch_subtree_size: Any,
+    x_raw: Any,
+    labels_raw: Any,
+    input_len: int,
+    output_len: int,
+    use_mse: bool,
+    backend: Optional[str],
+    block_rows: Optional[int],
+    num_warps: Optional[int],
+    max_scratch_mb: Optional[int],
+) -> Optional[_Call]:
+    """The :data:`_LAST` entry when it IS the call being made, else ``None``.
+
+    Written as one short-circuit chain, cheapest comparison first (object identity,
+    then the resolved scalars, then the ``_version`` vector, then the geometry -- the
+    only part that reads the environment).  Every operand is a ``torch.Tensor`` here
+    by construction: a non-tensor operand can never have produced a ``_LAST`` entry
+    (its key was ``None``) and the ``is`` test rejects it anyway.
+    """
+    call = _LAST
+    if call is None or call.kind != kind:
+        return None
+    if (
+        call.node_value is not batch_node_value
+        or call.node_type is not batch_node_type
+        or call.subtree_size is not batch_subtree_size
+        or call.x_raw is not x_raw
+        or call.labels_raw is not labels_raw
+        or call.input_len != input_len
+        or call.output_len != output_len
+        or call.use_mse != use_mse
+        or call.backend != backend
+    ):
+        return None
+    versions = [
+        batch_node_value._version,
+        batch_node_type._version,
+        batch_subtree_size._version,
+        x_raw._version,
+    ]
+    if labels_raw is not None:
+        versions.append(labels_raw._version)
+    if call.versions != tuple(versions):
+        return None
+    if call.geometry != _geometry(block_rows, num_warps, max_scratch_mb):
+        return None
+    PLAN_MEMO.note_hit()
+    return call
+
+
+def _drop_last() -> None:
+    """Forget the fast path's entry (``clear_fused_cache`` / ``clear_cache``)."""
+    global _LAST
+    _LAST = None
 
 
 def _identity(tensor: Any) -> Optional[Tuple[int, int]]:
@@ -1122,9 +1301,7 @@ def _value_key(
     output_len: int,
     per_row: bool,
     backend: Optional[str],
-    block_rows: Optional[int],
-    num_warps: Optional[int],
-    max_scratch_mb: Optional[int],
+    geometry: Tuple[int, int, int],
 ) -> Optional[Tuple[Any, ...]]:
     """Key of the value path's :data:`PLAN_MEMO` entry, or ``None`` (never memoized).
 
@@ -1136,14 +1313,16 @@ def _value_key(
       it must be part of the key rather than re-checked per call; the raw spelling
       is enough -- two spellings of one backend get two entries, which is harmless
       -- and resolving the name costs 3.4 us, more than the entry saves);
-    * ``EVOGP_FUSED_BLOCK_ROWS`` / ``EVOGP_FUSED_NUM_WARPS`` /
-      ``EVOGP_FUSED_MAX_SCRATCH_MB`` as resolved, so flipping a knob between two
-      calls is a MISS and can never inherit an old verdict or an old geometry.
+    * ``geometry`` -- the call's already resolved
+      ``(block_rows, num_warps, max_scratch_mb)`` triple (:func:`_geometry`), so
+      flipping a knob between two calls changes the key and can never inherit an old
+      verdict or an old geometry.  It is resolved ONCE per call by the entry point
+      and handed to the key, the prepare and the envelope, instead of each of them
+      re-reading the environment.
 
     An argument the key cannot normalise (a non-string ``backend``, a non-integer
-    ``input_len``, an unusable knob) answers ``None``: the caller then takes the
-    full path, which raises the error it always raised, with the message it always
-    had.
+    ``input_len``) answers ``None``: the caller then takes the full path, which
+    raises the error it always raised, with the message it always had.
     """
     operands = _operand_key(
         (batch_node_value, batch_node_type, batch_subtree_size, x)
@@ -1153,19 +1332,16 @@ def _value_key(
     if backend is not None and not isinstance(backend, str):
         return None
     try:
-        geometry = (
+        scalars = (
             "value",
             bool(per_row),
             int(input_len),
             int(output_len),
             backend,
-            resolve_block_rows(block_rows),
-            resolve_num_warps(num_warps),
-            resolve_max_scratch_mb(max_scratch_mb),
         )
     except (TypeError, ValueError):
         return None
-    return operands + geometry
+    return operands + scalars + geometry
 
 
 def _loss_key(
@@ -1178,16 +1354,14 @@ def _loss_key(
     output_len: int,
     use_MSE: bool,
     backend: Optional[str],
-    block_rows: Optional[int],
-    num_warps: Optional[int],
-    max_scratch_mb: Optional[int],
+    geometry: Tuple[int, int, int],
 ) -> Optional[Tuple[Any, ...]]:
     """:data:`PLAN_MEMO` key of the loss path (:func:`_value_key` plus the labels).
 
     ``use_MSE`` is in the key because it is a kernel constexpr (a different loss,
     not a different launch of the same one), and the label operand is keyed like
-    every other input.  The backend is keyed as the raw SPELLING, for the reason
-    :func:`_value_key` gives.
+    every other input.  The backend is keyed as the raw SPELLING and the geometry as
+    the call's already resolved triple, for the reasons :func:`_value_key` gives.
     """
     operands = _operand_key(
         (
@@ -1203,19 +1377,16 @@ def _loss_key(
     if backend is not None and not isinstance(backend, str):
         return None
     try:
-        geometry = (
+        scalars = (
             "loss",
             int(input_len),
             int(output_len),
             bool(use_MSE),
             backend,
-            resolve_block_rows(block_rows),
-            resolve_num_warps(num_warps),
-            resolve_max_scratch_mb(max_scratch_mb),
         )
     except (TypeError, ValueError):
         return None
-    return operands + geometry
+    return operands + scalars + geometry
 
 
 def _value_call(
@@ -1227,15 +1398,15 @@ def _value_call(
     x: Any,
     per_row: bool,
     backend: Optional[str],
-    block_rows: Optional[int],
-    num_warps: Optional[int],
-    max_scratch_mb: Optional[int],
+    geometry: Tuple[int, int, int],
 ) -> _Call:
     """Build (and validate) the value path's prepared call -- a :data:`PLAN_MEMO` miss.
 
     The body of the value path up to the launch, exactly as it was before the
     table existed: :func:`_prepare`, then ``x``'s contract, then the envelope, then
     the one prep step (:func:`_transposed`).  Raises exactly what it always raised.
+    ``geometry`` is the call's resolved ``(block_rows, num_warps, max_scratch_mb)``
+    triple (:func:`_geometry`), resolved once by the entry point.
     """
     raw_x = x
     prepared = _prepare(
@@ -1245,8 +1416,8 @@ def _value_call(
         input_len,
         output_len,
         backend,
-        block_rows,
-        num_warps,
+        geometry[0],
+        geometry[1],
     )
     if not isinstance(x, torch.Tensor):
         raise FusedUnsupported(
@@ -1273,17 +1444,25 @@ def _value_call(
     # Both kernels materialize the ``(pop, rows, out_len)`` buffer here, hence
     # ``holds_values=True``.
     budget_mb = _check_envelope(
-        prepared.pop, prepared.tree_len, rows, max_scratch_mb,
+        prepared.pop, prepared.tree_len, rows, geometry[2],
         block_rows=prepared.block_rows, num_warps=prepared.num_warps,
         out_len=int(output_len), holds_values=True,
     )
     data = x if per_row else _transposed(x)
     return _Call(
         prepared,
+        kind="value",
         rows=rows,
         per_row=per_row,
         data=data,
         labels=None,
+        x_raw=raw_x,
+        labels_raw=None,
+        input_len=int(input_len),
+        output_len=int(output_len),
+        use_mse=False,
+        backend=backend,
+        geometry=geometry,
         budget_mb=budget_mb,
         out_shape=(prepared.pop, rows, int(output_len)),
         pins=(batch_node_value, batch_node_type, batch_subtree_size, raw_x, x),
@@ -1317,9 +1496,7 @@ def _loss_call(
     labels: Any,
     use_MSE: bool,
     backend: Optional[str],
-    block_rows: Optional[int],
-    num_warps: Optional[int],
-    max_scratch_mb: Optional[int],
+    geometry: Tuple[int, int, int],
 ) -> _Call:
     """Build (and validate) the loss path's prepared call -- a :data:`PLAN_MEMO` miss.
 
@@ -1327,6 +1504,8 @@ def _loss_call(
     existed: :func:`_prepare`, then ``inputs``/``labels``' contract, then the
     envelope (no value buffer on the single-output path, hence
     ``holds_values=False``), then the one prep step and the flat label view.
+    ``geometry`` is the call's resolved ``(block_rows, num_warps, max_scratch_mb)``
+    triple (:func:`_geometry`), resolved once by the entry point.
     """
     raw_inputs, raw_labels = inputs, labels
     prepared = _prepare(
@@ -1336,8 +1515,8 @@ def _loss_call(
         input_len,
         output_len,
         backend,
-        block_rows,
-        num_warps,
+        geometry[0],
+        geometry[1],
     )
     if not isinstance(inputs, torch.Tensor):
         raise FusedUnsupported(
@@ -1375,7 +1554,7 @@ def _loss_call(
     # The single-output kernel's only output is the ``(pop, n_rb)`` chart (no value
     # buffer); ``out_len >= 2`` still materializes the accumulator.
     budget_mb = _check_envelope(
-        prepared.pop, prepared.tree_len, rows, max_scratch_mb,
+        prepared.pop, prepared.tree_len, rows, geometry[2],
         block_rows=prepared.block_rows, num_warps=prepared.num_warps,
         out_len=int(output_len), holds_values=False,
     )
@@ -1385,10 +1564,18 @@ def _loss_call(
     label_view = label_column.reshape(-1) if int(output_len) == 1 else label_column
     return _Call(
         prepared,
+        kind="loss",
         rows=rows,
         per_row=False,
         data=data,
         labels=label_view,
+        x_raw=raw_inputs,
+        labels_raw=raw_labels,
+        input_len=int(input_len),
+        output_len=int(output_len),
+        use_mse=bool(use_MSE),
+        backend=backend,
+        geometry=geometry,
         budget_mb=budget_mb,
         out_shape=(prepared.pop,),
         # The pins are the tensors the KEY was built from (the raw operands), not
@@ -1509,36 +1696,54 @@ def _evaluate_fused(
     every benchmark loop do -- is one key build, one dict lookup and the launch;
     everything the prepare used to redo per call happens on a miss only.
     """
-    key = _value_key(
+    global _LAST
+    # Fast path first: the call this route served last, again (a training loop, an
+    # elite re-evaluation, a benchmark loop).  One identity scan instead of the key
+    # build + the table lookup; see :func:`_last_call`.
+    call = _last_call(
+        "value",
         batch_node_value,
         batch_node_type,
         batch_subtree_size,
         x,
+        None,
         input_len,
         output_len,
-        per_row,
+        False,
         backend,
         block_rows,
         num_warps,
         max_scratch_mb,
     )
-    call = PLAN_MEMO.lookup(key) if key is not None else None
     if call is None:
-        call = _value_call(
+        geometry = _geometry(block_rows, num_warps, max_scratch_mb)
+        key = _value_key(
             batch_node_value,
             batch_node_type,
             batch_subtree_size,
+            x,
             input_len,
             output_len,
-            x,
             per_row,
             backend,
-            block_rows,
-            num_warps,
-            max_scratch_mb,
+            geometry,
         )
-        if key is not None:
-            PLAN_MEMO.store(key, call)
+        call = PLAN_MEMO.lookup(key) if key is not None else None
+        if call is None:
+            call = _value_call(
+                batch_node_value,
+                batch_node_type,
+                batch_subtree_size,
+                input_len,
+                output_len,
+                x,
+                per_row,
+                backend,
+                geometry,
+            )
+            if key is not None:
+                PLAN_MEMO.store(key, call)
+        _LAST = call
     # A caller-supplied destination is validated BEFORE the launch (fail fast,
     # never after the kernel has run) and is per CALL, so it is never memoized.
     destination = None
@@ -1649,7 +1854,11 @@ def _sr_fitness_fused(
     (:data:`PLAN_MEMO`, keyed by :func:`_loss_key`, so the label view and the
     transposed input block are part of the entry) and the launch.
     """
-    key = _loss_key(
+    global _LAST
+    # Fast path first, exactly as on the value path (a loss call and a value call
+    # of the same population are different ``kind``s, so they cannot cross-hit).
+    call = _last_call(
+        "loss",
         batch_node_value,
         batch_node_type,
         batch_subtree_size,
@@ -1657,30 +1866,43 @@ def _sr_fitness_fused(
         labels,
         input_len,
         output_len,
-        use_MSE,
+        bool(use_MSE),
         backend,
         block_rows,
         num_warps,
         max_scratch_mb,
     )
-    call = PLAN_MEMO.lookup(key) if key is not None else None
     if call is None:
-        call = _loss_call(
+        geometry = _geometry(block_rows, num_warps, max_scratch_mb)
+        key = _loss_key(
             batch_node_value,
             batch_node_type,
             batch_subtree_size,
-            input_len,
-            output_len,
             inputs,
             labels,
+            input_len,
+            output_len,
             use_MSE,
             backend,
-            block_rows,
-            num_warps,
-            max_scratch_mb,
+            geometry,
         )
-        if key is not None:
-            PLAN_MEMO.store(key, call)
+        call = PLAN_MEMO.lookup(key) if key is not None else None
+        if call is None:
+            call = _loss_call(
+                batch_node_value,
+                batch_node_type,
+                batch_subtree_size,
+                input_len,
+                output_len,
+                inputs,
+                labels,
+                use_MSE,
+                backend,
+                geometry,
+            )
+            if key is not None:
+                PLAN_MEMO.store(key, call)
+        _LAST = call
     # A caller-supplied destination is validated BEFORE the launch (fail fast,
     # never after the kernel has run) and is per CALL, so it is never memoized.
     destination = None
