@@ -20,6 +20,9 @@ What lives here and nowhere else:
   points (``ARTIFACT_DIR_ENV`` = ``EVOGP_BENCH_ARTIFACT_DIR``, default
   ``DEFAULT_ARTIFACT_DIR``): ``arm_knob_env``/``apply_arm_env`` resolve the
   ``{artifact_dir}`` placeholder from it, so several processes can share one cache;
+* the fused (Triton) route's knobs (``FUSED_ENV_VARS``: the five ``EVOGP_FUSED_*``
+  variables), cleared like every other route knob so a caller's exported geometry or
+  memory envelope can never decide what another arm of the round measures;
 * the timing helper (sync-bracketed, warmup + reps, median/min/max/samples);
 * the value digest used to prove cross-process numeric agreement;
 * the environment block written into every record.
@@ -183,6 +186,10 @@ EVOXC_ARMS: Dict[str, Dict[str, Optional[str]]] = {
             "EVOGP_BATCH_COMPILE_WORKERS": "8",
         },
     },
+    # the fused (Triton) route: one launch per (tree, row-block), no evoxc graph; the
+    # explicit-backend spelling is unconditional, the bare one is the shipped policy
+    "evoxc-fused-iree": {"eval_mode": "fused", "backend": "iree", "family": "evoxc"},
+    "evoxc-fused": {"eval_mode": "fused", "backend": None, "family": "evoxc"},
 }
 TORCH_ARMS: Dict[str, Dict[str, Any]] = {
     "torch-per-tree": {"impl": "per_tree", "family": "torch"},
@@ -249,6 +256,12 @@ DENSE_ENV_VARS: Tuple[str, ...] = (
     "EVOGP_DENSE_AUTO_BUDGET_MB",
     "EVOGP_DENSE_AUTO_MAX_ROWS",
 )
+#: The FUSED route's knobs (``evogp.tree.fused_engine``): the kernel geometry, the memory
+#: envelope and the transpose table's size (``HOST_MEMO`` is IMPORT-TIME).
+FUSED_ENV_VARS: Tuple[str, ...] = (
+    "EVOGP_FUSED_MIN_POP", "EVOGP_FUSED_BLOCK_ROWS", "EVOGP_FUSED_NUM_WARPS",
+    "EVOGP_FUSED_MAX_SCRATCH_MB", "EVOGP_FUSED_HOST_MEMO",
+)
 #: The opt-in persistent on-disk executable tier: ONE env var, and it is the DENSE
 #: route's AND the batch route's (the batch route keeps its bodies in the ``batch/``
 #: subdirectory of that directory).  Named here so it is cleared like every other route
@@ -256,9 +269,11 @@ DENSE_ENV_VARS: Tuple[str, ...] = (
 #: so only ``evoxc-batch-iree-artifact`` turns it on.
 ARTIFACT_ENV_VARS: Tuple[str, ...] = ("EVOGP_EVOXC_ARTIFACT_DIR",)
 #: Every env var the arms clear before applying their own knob spec, so a route knob
-#: can never leak between arms (``BATCH_ENV_VARS`` + ``DENSE_ENV_VARS`` + the disk
-#: tier's ``ARTIFACT_ENV_VARS``).
-ROUTE_ENV_VARS: Tuple[str, ...] = BATCH_ENV_VARS + DENSE_ENV_VARS + ARTIFACT_ENV_VARS
+#: can never leak between arms (``BATCH_ENV_VARS`` + ``DENSE_ENV_VARS`` + the fused
+#: route's ``FUSED_ENV_VARS`` + the disk tier's ``ARTIFACT_ENV_VARS``).
+ROUTE_ENV_VARS: Tuple[str, ...] = (
+    BATCH_ENV_VARS + DENSE_ENV_VARS + FUSED_ENV_VARS + ARTIFACT_ENV_VARS
+)
 #: The counter names the batch route's compile misses can live under, in preference
 #: order.  ``evogp.tree.batch_engine.batch_cache_stats()`` names its two front tables
 #: explicitly: ``batch_exec_*`` describes ``BATCH_EXEC_MEMO`` -- the real compile
@@ -1152,4 +1167,15 @@ def route_decision(
             rows, eval_mode=decision["eval_mode"], **shape
         )
     )
+    if decision["eval_mode"] == "fused":
+        # ask the ONE resolver: without this a SERVED call renders as ``fused/numpy ->
+        # fused`` (``resolve_backend_name(None, None)`` answers ``numpy``)
+        route = dense_engine.resolve_route(
+            pop, rows=rows, backend=backend, eval_mode=eval_mode, tree_len=tree_len,
+        )
+        decision["backend"] = route.backend
+        decision["engine"] = route.engine
+        decision["would_use_fused"] = bool(route.use_fused)
+        decision["fused_fallback_backend"] = route.fallback_backend
+        decision["fused_reason"] = route.reason
     return decision

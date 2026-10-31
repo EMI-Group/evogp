@@ -286,9 +286,17 @@ def route_text(records, cell: str, workload: str) -> str:
     backend = route.get("backend") or "?"
     kind = route.get("kind")
     if kind is None:
-        kind = "dense" if route.get("would_use_dense") else "specialized"
+        engine = route.get("engine")
+        if engine in ("batch", "fused"):
+            kind = engine
+        elif mode == "fused":
+            kind = "fused"
+        else:
+            kind = "dense" if route.get("would_use_dense") else "specialized"
     text = f"{mode}/{backend} → {kind}"
     annotations: List[str] = []
+    if kind == "fused" and not route.get("would_use_fused"):
+        annotations.append("declined")  # the medians are the specialized fallback
     if kind == "batch":
         # the flat-vs-banded distinction is the one knob that changes the merge
         # cost by an order of magnitude, so it belongs in the routing column;

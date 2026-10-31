@@ -5,12 +5,12 @@ The harness writes **one JSON per (cell, arm)**; the fused round additionally wr
 (cell, arm, workload) triples do I actually have a number for?" -- is what this script
 does once, mechanically:
 
-    python src/evogp/tree/fused_results/campaign_index.py \\
-        --results src/evogp/tree/fused_results/main \\
-        --probes  src/evogp/tree/fused_results/probes
+    python test/benchmark/evoxc/results/t1a1_fused/campaign_index.py \\
+        --results test/benchmark/evoxc/results/t1a1_fused/main \\
+        --probes  test/benchmark/evoxc/results/t1a1_fused/probes
 
 It writes ``campaign.json`` (schema ``evogp-fused-campaign-v1``) next to a human
-summary (``campaign.md``) in ``--out``, default ``src/evogp/tree/fused_results`` -- the
+summary (``campaign.md``) in ``--out``, default ``test/benchmark/evoxc/results/t1a1_fused`` -- the
 node's own result root, NOT the campaign directory: the harness's driver record is
 ``<results>/campaign.json`` already, so an index written there would overwrite it.  The
 index is therefore ``<node>/fused_results/campaign.json``, sitting next to ``main/`` and
@@ -50,7 +50,7 @@ import os
 import sys
 import time
 
-#: This node's result root (``src/evogp/tree/fused_results``): the index and the
+#: This node's result root (``test/benchmark/evoxc/results/t1a1_fused``): the index and the
 #: summary are written here, next to the campaign (``main/``) and probe (``probes/``)
 #: directories.
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -357,7 +357,7 @@ def build_index(results: str, probes_dir: str) -> dict:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python src/evogp/tree/fused_results/campaign_index.py",
+        prog="python test/benchmark/evoxc/results/t1a1_fused/campaign_index.py",
         description=(
             "Index a fused campaign (one JSON per cell x arm) and its probe records into "
             "one campaign.json (one entry per cell x arm x workload) plus a summary."
@@ -365,10 +365,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--results", default=DEFAULT_RESULTS,
                         help="campaign directory (the harness's --out), default "
-                             "src/evogp/tree/fused_results/main")
+                             "test/benchmark/evoxc/results/t1a1_fused/main")
     parser.add_argument("--probes", default=DEFAULT_PROBES,
                         help="probe directory (fused_probe.py --out files), default "
-                             "src/evogp/tree/fused_results/probes")
+                             "test/benchmark/evoxc/results/t1a1_fused/probes")
     parser.add_argument("--out", default=_HERE,
                         help="where campaign.json is written; default this node's "
                              "fused_results directory (NOT --results: the harness's own "

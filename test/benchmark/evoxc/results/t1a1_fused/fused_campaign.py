@@ -1,36 +1,36 @@
 """Thin driver: the ``test/benchmark/evoxc`` campaign with the two FUSED arms registered.
 
 The harness (``test/benchmark/evoxc``) is the campaign of record for every evaluation
-route, and its arm registry is an import-time snapshot of ``common.EVOXC_ARMS`` that
-names the shipped routes only.  The fused (Triton) route therefore cannot be measured
-by ``campaign.py`` until its two arms are registered, and the harness is OUTSIDE this
-node's write scope -- so the registration lives here, in the node that owns the route,
-and this script is the driver a fused round is run with::
+route, and ``evoxc-fused-iree`` / ``evoxc-fused`` are now entries of its own registry
+(``common.EVOXC_ARMS``), so ``campaign.py --arms all|evoxc`` schedules them directly and
+``worker.py`` records the route's own counters.  This driver is the one the campaign of
+record was run with and stays runnable as-is: registering an arm the harness already
+names keeps the harness's own spec, so it is a no-op today and remains the way to run a
+fused round against a checkout whose registry predates the two entries::
 
-    TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache \\
-    PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1 \\
-        /tmp/rocvenv/bin/python src/evogp/tree/fused_results/fused_campaign.py \\
-        --out src/evogp/tree/fused_results/main \\
+    TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache \
+    PYTHONPATH=src:/root/evoxc:test/benchmark/evoxc EVOXC_DISABLE_LOCATIONS=1 \
+        /tmp/rocvenv/bin/python test/benchmark/evoxc/results/t1a1_fused/fused_campaign.py \
+        --out test/benchmark/evoxc/results/t1a1_fused/main \
         --cells p256-L32-i8-N1024 --arms evoxc-fused-iree
 
-**Where records land.**  ``src/evogp/tree/fused_results/main/`` -- the harness's own
-``test/benchmark/evoxc/results/`` directory is outside this node's write scope, so a
-fused round writes into this node's result directory instead (one subdirectory per
-cell, one JSON per (cell, arm), exactly the layout ``check.py`` gates).  The default is
-the same directory ``campaign_index.py`` reads.
+**Where records land.**  ``test/benchmark/evoxc/results/t1a1_fused/main/`` -- the
+harness's own ``results/`` directory, where every round's evidence of record lives (one
+subdirectory per cell, one JSON per (cell, arm), exactly the layout ``check.py`` gates).
+The default is the same directory ``campaign_index.py`` reads.
 
 What this script does, and nothing else:
 
 1. puts ``<repo>/src``, ``<repo>/test/benchmark/evoxc`` and the evoxc checkout on
-   ``sys.path`` (the repo root is five directory hops up from this file, so nothing
+   ``sys.path`` (the repo root is found by ascending to the harness directory, so nothing
    here is tied to the worktree the module happens to live in);
 2. registers the two fused arms in ``common.EVOXC_ARMS`` and appends their names to
    ``common.ALL_ARMS`` (that list is an import-time snapshot, i.e. appending to
    ``EVOXC_ARMS`` alone would leave ``--arms all`` blind to them);
 3. because ``campaign.py`` runs every config in its OWN worker process (whose
-   ``common`` has the stock registry, so ``arms.apply_arm_env`` would raise ``KeyError``
-   there), it also installs a ``subprocess`` proxy on the ``campaign`` module that
-   rewrites each ``python <harness>/worker.py ...`` command into
+   ``common`` may have a registry without the arms, so ``arms.apply_arm_env`` would raise
+   ``KeyError`` there), it also installs a ``subprocess`` proxy on the ``campaign`` module
+   that rewrites each ``python <harness>/worker.py ...`` command into
    ``python -c <bootstrap> <harness>/worker.py ...``, the bootstrap registering the
    same two arms before the worker runs.  Nothing on disk is modified: the proxy is
    scoped to the ``campaign`` module and restored when the campaign returns;
@@ -46,28 +46,28 @@ from __future__ import annotations
 import os
 import sys
 
-#: ``<repo>`` -- four directory hops up from this file
-#: (``<repo>/src/evogp/tree/fused_results/fused_campaign.py``; five hops counted from
-#: the file itself).  :func:`_find_repo_root` adds a bounded ascending guard so a copy
-#: placed one level deeper still finds the harness instead of silently mis-resolving.
+#: ``<repo>`` -- found by :func:`_find_repo_root` from this file's own location (it lives
+#: INSIDE the harness now: ``<repo>/test/benchmark/evoxc/results/t1a1_fused/``), so no hop
+#: count is baked in and a copy placed one level deeper still finds the checkout.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def _find_repo_root(start: str) -> str:
     """Resolve ``<repo>`` from this file's location, without naming a worktree.
 
-    The canonical depth is ``<repo>/src/evogp/tree/fused_results/``; the bounded ascending
-    scan is only a guard against a copy placed deeper (it looks for the harness directory),
-    so it either finds the checkout that contains this file or gives up and returns the
-    canonical answer.
+    This file lives INSIDE the harness now (``<repo>/test/benchmark/evoxc/results/
+    t1a1_fused/``), so the scan looks for the harness directory itself -- the one that
+    holds ``campaign.py`` and ``common.py`` -- by ascending from this file, and takes the
+    three hops back up from it.  A bounded scan instead of a fixed hop count is what keeps
+    a copy placed one level deeper finding the checkout instead of mis-resolving.
     """
-    root = os.path.abspath(os.path.join(start, "..", "..", "..", ".."))
-    probe = root
-    for _ in range(6):
-        if os.path.isdir(os.path.join(probe, "test", "benchmark", "evoxc")):
-            return probe
+    probe = os.path.abspath(start)
+    for _ in range(8):
+        if (os.path.isfile(os.path.join(probe, "campaign.py"))
+                and os.path.isfile(os.path.join(probe, "common.py"))):
+            return os.path.abspath(os.path.join(probe, "..", "..", ".."))
         probe = os.path.dirname(probe)
-    return root
+    return os.path.abspath(os.path.join(start, "..", "..", "..", "..", ".."))
 
 
 _REPO_ROOT = _find_repo_root(_HERE)
