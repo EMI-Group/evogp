@@ -8,6 +8,9 @@ Both routes keep zero host syncs, zero readbacks and zero transfers between the 
 The economics, convergence and losses of both are the report of record `DEVICE_LOOP.md` (harness `measure_generation.py`, raw numbers `evidence/device_loop.json`).
 Design idiom is copied from Evox 2.0 (`/root/evox/src/evox/DESIGN.md`): frozen config dataclasses holding static leaves only, state as a dataclass whose leaves are `evoxc` tensors, and plain module-level functions in the `init(config, key) -> state` / `step(config, state, evaluate) -> state` step protocol.
 `evox` 2.0 has no tree/GP/symbolic-regression component (verified), so this is EvoGP's contribution to the Evox family rather than a port of something existing.
+The three-repo split of that effort: from `evoxc` this subtree requires the compiled engine (`build` / `run` / `build_cached`) plus one contribution still awaiting merge — the native DLPack device export of `evoxc.core.Tensor` (commit `474bf72`, the task's evoxc worktree checkout).
+Against an `evoxc` without it (`/root/evoxc` HEAD `9f66fec` raises `DeviceError` for a device payload) the fused objective declines onto the host hand-off: correct, but one upload and one readback per call.
+From `evox` it takes the design idiom and, for a `StdWorkflow` run (`../evox_ext/`), the opt-in `StdWorkflow(cache_dir=...)` step-artifact cache (commit `b8fcc58f` in the task's evox worktree, which turns a repeated iree cold start from 1.30 s into 0.07 s).
 ## API Surface
 - `_constants.py` — `MAX_STACK`, `MAX_FULL_DEPTH`, `NType`, `Func`, `FUNCS_NAMES` plus the derived `FUNC_ARITY` / `FUNC_TYPE` / `FUNC_IDS`.
   It does NOT import `../tree/utils.py` (that module does `import torch`, and importing it would drag in all of `evogp.tree`): it reads the ids out of that same file with `ast`, so the tree layer stays the single source of truth and nothing is re-typed.

@@ -337,14 +337,45 @@ or above that envelope it takes `dense`+`iree` at population ≥ 64; below that 
 fallback it takes `specialized`+`numpy`, because a per-shape or per-structure compile cannot amortize there. `auto`
 never selects `batch`, and `EVOGP_EVAL_MODE` overrides the whole policy for any single route.
 
+### Performance summary — what the joint optimization achieved (2.0.0a1)
+
+Every number below is a warm median from a committed record, and each claim names the file it comes from; this is the
+one-screen summary, the per-cell tables and the reproduce blocks are further down.
+
+- **Four routes, one default.** `auto` takes `fused` first on any CUDA-visible device, `dense`+`iree` at population ≥ 64
+  when it cannot, and `specialized`+`numpy` everywhere else; `batch` stays opt-in (table above).
+- **A whole population in one call:** `Forest.batch_forward` reads **0.0780–0.1460 ms** against **4.0–26.5 ms** for the
+  plain-PyTorch batched evaluator — **46×–182×** (per-cell table under *Headline* below; the records are
+  [`test/benchmark/evoxc/results/t1a1_auto_r2/README.md`](test/benchmark/evoxc/results/t1a1_auto_r2/README.md) §3).
+- **The loss and per-row surfaces agree:** `SR_fitness` **0.1000–0.1728 ms** (**33.6×–153.4×**) and `forward`
+  **0.0716–0.1110 ms** (**47.1×–145.3×**) on the same records.
+- **A whole GP generation:** **2.80–3.09 ms**, of which evaluation is **0.39–0.43 ms (13.9–15.4 %)** — **7.8×–104.0×**
+  the batched torch arm, with the operator layer as the loop's bottleneck (same file, §7).
+- **The host-glue round** (`PLAN_MEMO` plus one bound launch per shape) cuts `batch_forward` by **22.6–37.9 %**,
+  `SR_fitness` by **18.9–29.6 %** and `forward` by **23.0–41.8 %** against the pre-round tree in a same-session A/B, and a
+  warm call is now **88–96 % kernel time** (same file §5–§6, read against
+  [`results/t1a1_auto/`](test/benchmark/evoxc/results/t1a1_auto/README.md), the pre-round column).
+- **Cold start is one Triton JIT, never one compile per shape:** 1.64–1.67 s for the value kernel, 0.94–0.99 s for the
+  loss kernel and 0.32 s for the per-row surface from an empty cache, ~2 ms from a warm disk cache
+  ([`src/evogp/tree/FUSED.md`](src/evogp/tree/FUSED.md) §5).
+- **The torch-free stack carries the same evaluation into a whole loop:** ≈1.1–1.4 ms per generation device-resident,
+  **4.2×–17.1×** the torch stack's `StandardPipeline.step` and **2.0×–2.2×** the torch stack on its own `fused` route
+  ([`src/evogp/gp/DEVICE_LOOP.md`](src/evogp/gp/DEVICE_LOOP.md) §1–§2).
+- **The speed is value-exact on the value surfaces:** bitwise against `torch-batched` on the arithmetic and ternary
+  function sets (`max_abs = 0.0` on every finite point), differing only in NaN payload bits elsewhere, with losses
+  **≤3.8e-7 relative** ([`src/evogp/tree/FUSED.md`](src/evogp/tree/FUSED.md) §6 and
+  [`test/benchmark/evoxc/VALIDATION.md`](test/benchmark/evoxc/VALIDATION.md)).
+
 ### Headline: the shipped default (`auto` → `fused`)
 
 Warm medians, one process per config, `Forest.batch_forward` (one whole population, value surface), N=1024 unless
 stated; `dense` is the same-window control, `torch-batched` the plain-PyTorch batched evaluator of the benchmark
-harness. The column of record is `evoxc-auto` of
-[`test/benchmark/evoxc/results/t1a1_auto/`](test/benchmark/evoxc/results/t1a1_auto/README.md) — no `EVOGP_EVAL_MODE`
+harness. The shipped-default column is `evoxc-auto` as re-measured in
+[`test/benchmark/evoxc/results/t1a1_auto_r2/`](test/benchmark/evoxc/results/t1a1_auto_r2/README.md) (the verdict of
+record is that file — `results/t1a1_auto/README.md` quotes it and keeps the pre-round records), with no `EVOGP_EVAL_MODE`
 and no `EVOGP_EVOXC_BACKEND` exported, i.e. exactly what a plain install does (design and route semantics in
-[`src/evogp/tree/FUSED.md`](src/evogp/tree/FUSED.md)):
+[`src/evogp/tree/FUSED.md`](src/evogp/tree/FUSED.md)); the last column is the same column BEFORE the host-glue round, from
+`results/t1a1_auto/`'s own per-cell records:
 
 | cell (pop × tree length × inputs × rows) | `auto` (shipped default) | `torch-batched` | speed-up | PRE-host-glue-round `auto` |
 |---|---|---|---|---|
@@ -526,7 +557,8 @@ stack's `python -m evogp.sr_test` on that target (`-0.226` recorded there) — t
 selection operator, so they are never expected to agree bit-for-bit.
 
 **Status, honestly:** the stack is complete along the canonical flow and tested by its own suite
-(`python -m pytest src/evogp/gp/tests`, 318 tests; the three device-gated modules skip on a box without a device), and a
+(`python -m pytest src/evogp/gp/tests`, 345 cases: 309 passed / 36 skipped on a device box, where the three
+device-gated modules run instead of skipping; on a box without a device those modules skip), and a
 whole generation loop runs **device-resident**: `graph_eval.GraphEvaluator` (two `evoxc.run` calls per generation) or
 `fused_eval.FusedDeviceEvaluator` (one, over the sibling Triton kernel) on `backend="iree"`, with **zero readbacks and
 zero transfers**, at **1.16–1.40 ms per generation** (variation + fused evaluation) — **4.1×–16.9× faster than the torch
@@ -746,13 +778,17 @@ and `--tournament-size` size it, and `--quiet` silences the per-generation lines
 python -m pytest src/evogp/tests -q --ignore=src/evogp/tests/test_equivalence.py   # fast subset
 python -m pytest src/evogp/tests -q                                                # full, incl. the differential file
 
-# the functional stack (needs no torch and no device; 318 tests, ~55 s on a device box,
-# where the three device-gated modules run instead of skipping)
+# the functional stack (needs no torch and no device; 345 cases — 309 passed / 36 skipped,
+# ~43 s on a device box, where the three device-gated modules run instead of skipping)
 python -m pytest src/evogp/gp/tests -q
+
+# the repo gate: all three paths in one run (1 585 passed / 43 skipped / 0 failed, ~163 s;
+# the benchmark harness half reads 40 passed on its own)
+python -m pytest src/evogp/tests src/evogp/gp/tests test/benchmark/evoxc -q
 ```
 
-The torch suite (`src/evogp/tests`, 1 262 cases: 1 255 pass / 7 skip / 0 fail in ~122 s on the device reference box — see the
-fused-route note below) checks the evaluation engine against an independent plain-torch
+The torch suite (`src/evogp/tests`, 1 283 cases: 1 276 passed / 7 skipped / 0 failed in ~118 s on the device reference
+box — see the fused-route note below) checks the evaluation engine against an independent plain-torch
 reference evaluator (randomized and adversarial tree sets, plus any golden fixtures found), the route policy and the
 per-route knobs, generation/splice invariants, the public API surface, and runs a tiny convergence smoke test; the
 engine tests run on CPU with the default `numpy` backend, while the API/test harness places some tensors on `"cuda"`
@@ -767,7 +803,7 @@ goldens, declines, the six-cell timing and the tuning grid) and the campaign of 
 --allow-missing --allow-digest-mismatch`, read against `results/t1a1_baseline/`); the verdict, the numbers and the
 residual gaps are in [`src/evogp/tree/FUSED.md`](src/evogp/tree/FUSED.md). That net pins the shipped policy both ways —
 `test_auto_selects_fused_above_the_floor` and `test_auto_keeps_the_pre_fused_policy_below_the_floor_or_without_triton` —
-and reads 39 passed on a device box with Triton.
+and reads 42 passed on a device box with Triton.
 
 The differential file (`test_equivalence.py`) also validates `.npz` golden fixtures found in `$EVOGP_GOLDEN_DIR`,
 `test/goldens/` and `src/evogp/tests/goldens/`: every `.npz` in those directories must use the documented fixture
