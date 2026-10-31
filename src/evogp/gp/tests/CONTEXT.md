@@ -30,7 +30,7 @@ It is a separate suite from `src/evogp/tests/` (the torch stack's suite) and is 
 - Tests must not assume execution order: every layer memoizes graphs process-wide (`evogp.gp.clear_cache()` is the reset, and `tests/test_gp_stack_encoding.py` and the driver tests rely on it).
 - The driver tests use a deterministic synthetic objective (`-size[:, 0]`, "shorter trees win") for the contract properties and a small real `SymbolicRegression` only where numerics matter, so the suite stays in seconds.
 ## Notes for Agents
-- Run: `EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src:/root/evoxc /tmp/rocvenv/bin/python -m pytest src/evogp/gp/tests -q` → 291 passed in ~45 s on a device box; the two device modules account for 20 of those cases and skip (→ 271 passed) where `iree` or a visible device is missing.
+- Run: `EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src:/root/evoxc /tmp/rocvenv/bin/python -m pytest src/evogp/gp/tests -q` → 318 passed in ~52 s on a device box; the three DEVICE-GATED modules (`test_gp_stack_device_*`) account for 52 of those cases and skip where `iree` or a visible device is missing (→ 266 passed / 52 skipped).
 - The `subprocess` purity tests re-invoke `sys.executable` with `PYTHONPATH` overridden; keep them independent of the ambient `PYTHONPATH` (that is the whole point).
 - A new module in `src/evogp/gp/` is automatically covered by the source-grep test (it globs the directory), so a stray `import torch` fails without any test edit.
 - Convergence is asserted only loosely on the host (a material improvement over generation 0 on a 64 × 30 × 300-cell run), because the exact trajectory is a property of the RNG stream and of the operator constants, not of the driver; the device module asserts its own short trajectory against the numpy one instead.
