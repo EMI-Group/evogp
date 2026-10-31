@@ -26,16 +26,26 @@ things, and they are kept here -- once -- so the tests themselves stay about
     :func:`evogp.gp.crossover.splice`.  Together they pin the splice semantics
     on the *rich* function set (where the recomputation cannot disambiguate
     ``Func.IF``/``ADD`` from leaves, but a bit-exact oracle comparison can).
+
+``usable_device_kind`` / ``DEVICE_SKIP_REASON`` / ``is_device_tensor`` / ``to_host``
+    The device gate and the two transport helpers every DEVICE-GATED module
+    needs.  ``conftest.py`` pins the numpy backend for hermeticity, so a device
+    test has to pass ``backend="iree"`` + an explicit ``evoxc.Device`` itself;
+    these helpers keep the "is a device usable here" probe and the explicit
+    download in one place instead of one copy per module.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import importlib.util
+from typing import Optional
 
 import numpy as np
 
 import evoxc
 
+from evogp.gp import encoding
 from evogp.gp._constants import FUNC_ARITY
 from evogp.gp.config import GPTreeConfig
 from evogp.gp.crossover import splice
@@ -56,7 +66,52 @@ __all__ = [
     "reference_splice_row",
     "splice_with_positions",
     "assert_row_equal",
+    "DEVICE_SKIP_REASON",
+    "usable_device_kind",
+    "is_device_tensor",
+    "to_host",
 ]
+
+#: Why a device test module skips when :func:`usable_device_kind` returns ``None``.
+DEVICE_SKIP_REASON = (
+    "no evoxc device to run on: the device path needs the iree compiler + "
+    "runtime and a visible rocm/cuda device"
+)
+
+
+def usable_device_kind() -> Optional[str]:
+    """``"rocm"`` / ``"cuda"`` when an iree-driven device is usable, else ``None``.
+
+    Three conditions, all probed without compiling anything: the ``iree``
+    compiler and runtime Python packages (the ``iree`` backend is the only one
+    that runs on a device), and a device ``evoxc`` itself enumerates.  The probe
+    is deliberately lenient -- any probing error means "not available here", so
+    the calling module skips instead of failing on a host where one half is
+    missing.
+    """
+    if importlib.util.find_spec("iree.compiler") is None:
+        return None
+    if importlib.util.find_spec("iree.runtime") is None:
+        return None
+    try:
+        devices = evoxc.devices()
+    except Exception:  # noqa: BLE001 - a probe must never fail the collection
+        return None
+    for kind in ("rocm", "cuda"):
+        if any(device.kind == kind for device in devices):
+            return kind
+    return None
+
+
+def is_device_tensor(value) -> bool:
+    """``True`` for a concrete ``evoxc`` tensor that lives on a device."""
+    return isinstance(value, evoxc.Tensor) and value.device.kind != "cpu"
+
+
+def to_host(value) -> np.ndarray:
+    """One channel/fitness tensor as a host numpy array (an explicit download)."""
+    return encoding._as_numpy(value, "channel")
+
 
 #: A function set with no ``Func.IF`` (0) and no ``Func.ADD`` (1), so a node is
 #: a function iff its opcode is ``>= 2`` and the size channel can be recomputed
