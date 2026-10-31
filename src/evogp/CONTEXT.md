@@ -72,7 +72,7 @@ Cross-cutting problems only; per-directory detail lives in the child CONTEXT.md 
 - **Specialized route economics** (numpy backend — the sub-64-population / CPU-box / fallback route): warm `Forest.SR_fitness` is 2.4 ms at p16, 9.3 ms at p64 and 36 ms at p256 (`L=32`, `i8`, `N=1024`).
   A warm call is one `evoxc.run` per non-constant tree (~129 µs per tree at `N=1024`), and the host decode is only 7-11 % of it (11 % at p16, 9 % at p64, 7 % at p256).
   Constant trees never compile, duplicate structures and elites hit the cache, and a changed batch size or tree shape re-compiles, so keep shapes stable in hot loops.
-  Specialized+iree stays compile-bound (~0.27 s per tree structure in the campaign), which is why `auto` sends device-box populations down the dense route instead.
+  Specialized+iree stays compile-bound (~0.27 s per tree structure in the campaign), which is why `auto` now sends device-box populations to the fused route first and to the dense route second.
 - **Dense route economics**: one dense graph compiles in 3.1-3.4 s at `L=32` and 6.1 s at `L=64` (opt level O1 is the optimum — O2/O3 are ~40 % slower warm and save no compile time), and it is one compile per (shape, used-function-id set) reused by every population of that shape.
   A warm dense call is now graph-bound: `evoxc.run` is 67-80 % of it and the host glue ≈20 %, with one sync readback and one small upload left.
   `Forest.forward` at p256-L32-i32 went 2.50 → 0.68 ms and `batch_forward` 3.61 → 1.95 ms (host front tables + resident input staging, `EVOGP_DENSE_HOST_MEMO` = 16 entries, inspectable via `dense_cache_stats()`).
