@@ -2,12 +2,11 @@
 deliberate torch boundary in this subtree.
 
 The device hand-off is evoxc's NATIVE DLPack export (``Tensor.__dlpack__``
--> ``torch.from_dlpack``), so no private payload handle is touched; the
-transitional ``_device_interop`` shim that used to do this is kept only as
-the fallback reference (it measured FASTER on the evaluation lane: 0.384 /
-0.382 / 0.385 ms against 0.478 / 0.480 / 0.491 ms at pop 256 / 1000 / 4096,
-of which 35-45 us is the required ``torch.cuda.synchronize()`` and the rest
-the protocol bookkeeping -- see the module notes in ``CONTEXT.md``).
+-> ``torch.from_dlpack``) in the input direction and a kernel-written device
+buffer in the output direction, so no private payload handle is touched and no
+import step exists at all: ``FusedDeviceEvaluator`` passes the exported
+``evoxc`` fitness buffer to the kernel as ``out=``, so a device call ends with
+the result already in the tensor the variation graph reads.
 
 Why a boundary at all
 ---------------------
@@ -448,9 +447,9 @@ class FusedEvaluator:
     What it adds over :func:`sr_fitness_fused_channels` is residency of the DATA:
     ``x``/``y`` are uploaded once, on the first evaluation, and reused (a
     training loop keeps one dataset for thousands of generations).  The channel
-    tables still upload on every call -- the population changes every generation,
-    and ``evoxc`` has no zero-copy device export, so they cannot come from a
-    device tensor without a host round trip anyway.
+    tables still upload on every call -- this is the HOST route, whose input is a
+    numpy population; a device population takes :class:`FusedDeviceEvaluator`,
+    which exports the channels instead of uploading them.
 
     Nothing is imported and nothing is uploaded by the constructor, so building
     one on a CPU-only box is free; :meth:`available` is the probe.
@@ -1004,20 +1003,21 @@ class FusedDeviceEvaluator:
     conversion   the ``Forest`` legacy triple, computed in torch on the device
                  (``_legacy_triple_device``)
     kernel       ``fused_engine.sr_fitness_fused`` -- the loss is reduced
-                 in-kernel, so the only device output is ``(pop_size,)``
-    fitness      negate + non-finite -> ``-inf`` in torch, then written into
-                 this evaluator's ``evoxc`` device fitness buffer (exported to
-                 torch ONCE, so the write is a device-local ``copy_`` of one
-                 ``(pop_size,)`` vector) -- which the variation graph consumes
-                 directly, no readback
+                 in-kernel and written into this evaluator's ``evoxc`` device
+                 fitness buffer through its ``out=`` parameter (the buffer is
+                 exported to torch ONCE, so the kernel's destination IS the
+                 buffer the variation graph reads)
+    fitness      ``-loss`` and non-finite -> ``-inf``, applied IN PLACE on that
+                 same ``(pop_size,)`` buffer -- no allocation, no copy, no
+                 import step, no readback
     ============ =============================================================
 
     Cost profile: one DLPack capsule per channel per call (no bytes move), one
-    kernel launch, one device-local copy of the fitness vector, one device sync
-    (see below) and the ``OUT_NODE`` guard -- a single boolean readback (~0.04
-    ms on this box, and it is read after the conversion is enqueued so the wait
-    covers that work too).  ``x``/``y`` are uploaded to torch once per device and
-    reused; nothing is uploaded by the constructor.
+    kernel launch, two tiny in-place ops on the ``(pop_size,)`` buffer, one
+    device sync (see below) and the ``OUT_NODE`` guard -- a single boolean
+    readback (~0.04 ms on this box, and it is read after the conversion is
+    enqueued so the wait covers that work too).  ``x``/``y`` are uploaded to
+    torch once per device and reused; nothing is uploaded by the constructor.
 
     The fitness buffer is REUSED between calls (that is what keeps the device
     route free of allocations and host round trips), so the tensor returned by
@@ -1213,8 +1213,14 @@ class FusedDeviceEvaluator:
         engine = _require_engine()
         x_tensor, y_tensor = self._resident(torch_module, launch)
         pop_size = int(op_tensor.shape[0])
+        target, view = self._fitness_buffer(
+            torch_module, launch, device_of(opcode), pop_size
+        )
+        # The kernel writes the finished ``(pop_size,)`` loss straight INTO the
+        # exported buffer (``out=``): no result allocation and no copy into a
+        # second tensor.
         try:
-            loss = engine.sr_fitness_fused(
+            engine.sr_fitness_fused(
                 value,
                 node_type,
                 subtree_size,
@@ -1223,30 +1229,22 @@ class FusedDeviceEvaluator:
                 x_tensor,
                 y_tensor,
                 use_MSE=self.use_mse,
+                out=view,
             )
         except engine.FusedUnsupported as exc:
             raise FusedUnavailable(
                 f"the fused route declined this call: {exc}"
             ) from exc
-        if int(loss.numel()) != pop_size:
-            raise RuntimeError(
-                f"the fused kernel returned {int(loss.numel())} values for a "
-                f"population of {pop_size}"
-            )
-        fitness = torch_module.where(
-            torch_module.isfinite(loss),
-            -loss,
-            torch_module.full_like(loss, float("-inf")),
+        # The fitness contract (MAXIMIZED, non-finite -> -inf) in place on the
+        # same buffer: ``-loss`` and then every non-finite entry -- including the
+        # ``+inf`` a ``-inf`` loss turns into -- mapped to ``-inf``.
+        view.neg_()
+        view.nan_to_num_(
+            nan=float("-inf"), posinf=float("-inf"), neginf=float("-inf")
         )
-        target, view = self._fitness_buffer(
-            torch_module, loss.device, device_of(opcode), pop_size
-        )
-        # A device-local copy of one ``(pop_size,)`` vector into the buffer the
-        # variation graph reads: the export above is the ONLY zero-copy hand-off
-        # this route needs (evoxc exports device buffers; it does not import
-        # them), and ``copy_`` plus the sync below make the write visible to the
-        # next ``evoxc.run`` even though iree's HAL uses its own stream.
-        view.copy_(fitness)
+        # The one mandatory cross-runtime fence: iree's HAL adds none of its own,
+        # so the next ``evoxc.run`` must not read the buffer before torch's
+        # writes land.
         torch_module.cuda.synchronize(view.device)
         return target
 
@@ -1257,9 +1255,9 @@ class FusedDeviceEvaluator:
         Built once per (torch device, evoxc device, population size) through the
         SAME public hand-off the channels use -- host ``evoxc.zeros`` uploaded
         with ``Tensor.to``, then exported to torch with
-        :func:`export_to_torch` -- so the torch view shares the buffer the
-        variation graph will read, and a ``copy_`` into it is visible to evoxc
-        without any re-import.
+        :func:`export_to_torch` -- so the torch view is the kernel's ``out=``
+        destination and the variation graph reads that same buffer: one write, no
+        copy, no import step.
         """
         key = (str(device), int(pop_size))
         cached = self._fitness

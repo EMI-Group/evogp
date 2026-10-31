@@ -592,6 +592,233 @@ def test_the_fitness_buffer_follows_the_population_size(tree_config, device, fus
 
 
 # --------------------------------------------------------------------------- #
+# the kernel's ``out=`` destination: the write replaces the copy
+# --------------------------------------------------------------------------- #
+def _engine():
+    """The sibling facade, resolved lazily (never imported at module scope)."""
+    return importlib.import_module("evogp.tree.fused_engine")
+
+
+def _torch_triple(torch_module, channels):
+    """``(value, node_type, subtree_size)`` as torch tensors on the launch device."""
+    launch = fused_eval.export_to_torch(channels[0]).device
+    return tuple(
+        torch_module.as_tensor(array, device=launch)
+        for array in _legacy_triple_on_device(torch_module, channels)
+    ), launch
+
+
+def test_the_loss_entry_point_writes_into_a_caller_supplied_out_buffer(
+    device_state, device, torch_module, data
+):
+    """``sr_fitness_fused(out=...)`` writes the loss INTO the given evoxc buffer.
+
+    The evaluator no longer copies a kernel result into its fitness buffer, so the
+    engine's ``out=`` has to be a real destination: the same values as the
+    allocating call, bitwise, visible through the ``evoxc`` handle, and returned
+    as the very tensor that was passed in (no second allocation).
+    """
+    engine = _engine()
+    (value, node_type, subtree_size), launch = _torch_triple(
+        torch_module, _device_channels(device_state)
+    )
+    x, y = data
+    x_tensor = torch_module.as_tensor(x, device=launch)
+    y_tensor = torch_module.as_tensor(y[:, None], device=launch)
+    arguments = (value, node_type, subtree_size, 2, 1, x_tensor, y_tensor)
+
+    reference = engine.sr_fitness_fused(*arguments)
+    buffer = evoxc.zeros((POP_SIZE,), evoxc.float32).to(device)
+    view = fused_eval.export_to_torch(buffer)
+    view.fill_(-7.0)
+    torch_module.cuda.synchronize(view.device)
+
+    result = engine.sr_fitness_fused(*arguments, out=view)
+
+    assert result is view, "out= must be the destination, not a source to copy from"
+    expected = reference.detach().cpu().numpy()
+    np.testing.assert_array_equal(
+        view.detach().cpu().numpy(), expected, err_msg="the buffer carries the loss"
+    )
+    np.testing.assert_array_equal(
+        to_host(buffer), expected, err_msg="the evoxc handle sees the same write"
+    )
+    assert np.any(expected != -7.0), "the sentinel must have been overwritten"
+
+
+@pytest.mark.parametrize(
+    "case", ("not-a-tensor", "wrong-shape", "wrong-dtype", "not-contiguous", "needs-grad")
+)
+def test_the_loss_entry_point_rejects_an_out_it_cannot_write(
+    case, device_state, device, torch_module, data
+):
+    """A destination the kernel cannot write is a ``ValueError``, never a guess."""
+    engine = _engine()
+    (value, node_type, subtree_size), launch = _torch_triple(
+        torch_module, _device_channels(device_state)
+    )
+    x, y = data
+    arguments = (
+        value,
+        node_type,
+        subtree_size,
+        2,
+        1,
+        torch_module.as_tensor(x, device=launch),
+        torch_module.as_tensor(y[:, None], device=launch),
+    )
+    if case == "not-a-tensor":
+        out = np.zeros(POP_SIZE, dtype=np.float32)
+    elif case == "wrong-shape":
+        out = torch_module.zeros(POP_SIZE + 1, device=launch)
+    elif case == "wrong-dtype":
+        out = torch_module.zeros(POP_SIZE, dtype=torch_module.float64, device=launch)
+    elif case == "not-contiguous":
+        out = torch_module.zeros((POP_SIZE, 2), device=launch)[:, 0]
+        assert not out.is_contiguous()
+    else:
+        out = torch_module.zeros(
+            POP_SIZE, device=launch, requires_grad=True
+        )
+
+    with pytest.raises(ValueError) as info:
+        engine.sr_fitness_fused(*arguments, out=out)
+    assert "out" in str(info.value), str(info.value)
+
+
+def test_the_loss_entry_point_rejects_out_with_a_contradicting_out_device(
+    device_state, device, torch_module, data
+):
+    """``out`` and ``out_device`` cannot disagree about where the loss lives."""
+    engine = _engine()
+    (value, node_type, subtree_size), launch = _torch_triple(
+        torch_module, _device_channels(device_state)
+    )
+    x, y = data
+    out = torch_module.zeros(POP_SIZE, device=launch)
+    with pytest.raises(ValueError) as info:
+        engine.sr_fitness_fused(
+            value,
+            node_type,
+            subtree_size,
+            2,
+            1,
+            torch_module.as_tensor(x, device=launch),
+            torch_module.as_tensor(y[:, None], device=launch),
+            out=out,
+            out_device="cpu",
+        )
+    assert "out_device" in str(info.value), str(info.value)
+
+
+def test_the_device_route_hands_the_kernel_its_exported_buffer(
+    monkeypatch, fused_device, device_state
+):
+    """The evaluator's fitness buffer IS the kernel's ``out`` (no copy anywhere).
+
+    Pinned by observing the call: the tensor the route hands to
+    ``sr_fitness_fused(out=...)`` is the same storage the returned ``evoxc``
+    tensor exports, and it already carries the finished (maximized) fitness once
+    the call returns.
+    """
+    engine = _engine()
+    original = engine.sr_fitness_fused
+    seen = {}
+
+    def spy(*args, **kwargs):  # noqa: ANN002, ANN003 - a pass-through recorder
+        seen["out"] = kwargs.get("out")
+        seen["result"] = original(*args, **kwargs)
+        return seen["result"]
+
+    monkeypatch.setattr(engine, "sr_fitness_fused", spy)
+    fitness = fused_device.evaluate(device_state)
+
+    assert fused_device.last_route == "device"
+    assert seen["out"] is not None, "the route must pass out=, not copy afterwards"
+    assert seen["result"] is seen["out"], "the kernel writes into the buffer"
+    view = fused_eval.export_to_torch(fitness)
+    assert seen["out"].data_ptr() == view.data_ptr(), (
+        "the kernel's destination and the returned evoxc tensor must be one storage"
+    )
+    np.testing.assert_array_equal(
+        seen["out"].detach().cpu().numpy(), to_host(fitness)
+    )
+    # The in-place fitness epilogue ran on that same buffer (maximized, no NaN).
+    assert np.all(np.isfinite(to_host(fitness)) | np.isneginf(to_host(fitness)))
+
+
+def test_the_value_entry_point_writes_into_a_caller_supplied_out_buffer(
+    device_state, device, torch_module, data
+):
+    """``evaluate_fused(out=...)`` fills the given ``(pop, rows, out_len)`` buffer.
+
+    Same contract on the value path: the kernel's own buffer shape, a write into
+    the caller's storage (visible through the ``evoxc`` handle) and no copy after
+    the launch -- ``per_row=True`` returns a squeezed VIEW of it.
+    """
+    engine = _engine()
+    (value, node_type, subtree_size), launch = _torch_triple(
+        torch_module, _device_channels(device_state)
+    )
+    x, _y = data
+    rows = int(x.shape[0])
+    x_tensor = torch_module.as_tensor(x, device=launch)
+    arguments = (value, node_type, subtree_size, 2, 1, x_tensor)
+
+    reference = engine.evaluate_fused(*arguments, per_row=False)
+    assert tuple(int(dim) for dim in reference.shape) == (POP_SIZE, rows, 1)
+
+    buffer = evoxc.zeros((POP_SIZE, rows, 1), evoxc.float32).to(device)
+    view = fused_eval.export_to_torch(buffer)
+    view.fill_(-7.0)
+    torch_module.cuda.synchronize(view.device)
+
+    result = engine.evaluate_fused(*arguments, per_row=False, out=view)
+    assert result is view, "out= must be the value buffer itself"
+    expected = reference.detach().cpu().numpy()
+    np.testing.assert_array_equal(view.detach().cpu().numpy(), expected)
+    np.testing.assert_array_equal(to_host(buffer), expected)
+    assert np.any(expected != -7.0), "the sentinel must have been overwritten"
+
+    # ``per_row=True`` writes ``(pop, 1, out_len)`` and returns a squeezed view
+    # (one input row per tree, so the data block is the first ``pop`` rows).
+    per_tree = (value, node_type, subtree_size, 2, 1, x_tensor[:POP_SIZE])
+    per_row_buffer = evoxc.zeros((POP_SIZE, 1, 1), evoxc.float32).to(device)
+    per_row_view = fused_eval.export_to_torch(per_row_buffer)
+    squeezed = engine.evaluate_fused(
+        *per_tree, per_row=True, out=per_row_view
+    )
+    assert tuple(int(dim) for dim in squeezed.shape) == (POP_SIZE, 1)
+    assert squeezed.data_ptr() == per_row_view.data_ptr()
+
+
+def test_the_value_entry_point_rejects_an_out_of_the_wrong_rank(
+    device_state, device, torch_module, data
+):
+    """The value path's destination is the 3-D kernel buffer, not the 2-D result."""
+    engine = _engine()
+    (value, node_type, subtree_size), launch = _torch_triple(
+        torch_module, _device_channels(device_state)
+    )
+    x, _y = data
+    rows = int(x.shape[0])
+    out = torch_module.zeros((POP_SIZE, 1), device=launch)  # the per-row RESULT
+    with pytest.raises(ValueError) as info:
+        engine.evaluate_fused(
+            value,
+            node_type,
+            subtree_size,
+            2,
+            1,
+            torch_module.as_tensor(x, device=launch),
+            per_row=False,
+            out=out,
+        )
+    assert "out must have shape" in str(info.value), str(info.value)
+    assert str((POP_SIZE, rows, 1)) in str(info.value), str(info.value)
+
+
+# --------------------------------------------------------------------------- #
 # the conversion: bitwise the host bridge, on every cell
 # --------------------------------------------------------------------------- #
 #: A hand-built population that exercises the padding rule on purpose:

@@ -1032,6 +1032,7 @@ def _launch(
     num_warps: int,
     out_len: int = 1,
     max_scratch_mb: Optional[int] = None,
+    out_values: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, Dict[str, int]]:
     """Shared launch: geometry, scratch, dispatch on the (device, flags) key.
 
@@ -1045,6 +1046,14 @@ def _launch(
     (the facade passes its resolved ``EVOGP_FUSED_MAX_SCRATCH_MB``; ``None`` uses
     :data:`DEFAULT_SCRATCH_BUDGET_MB`).
 
+    ``out_values`` is the caller's ``(pop, rows, out_len)`` VALUE buffer: when
+    given it is written instead of a fresh allocation (both kernels store every
+    element they own -- the multi-output one zeroes its slice first -- so a
+    recycled buffer is safe).  It is used on the ``reduce=False`` value path and,
+    on the loss path, as the multi-output accumulator; the loss path's own
+    ``(pop, n_rb)`` chart is always allocated because its shape comes from the
+    launch geometry.
+
     ``out_len == 1`` runs :func:`_fused_kernel` (the single-output protocol, its
     original code path, unchanged); ``out_len >= 2`` runs
     :func:`_fused_multi_kernel`, whose accumulator is the ``(pop, rows, out_len)``
@@ -1055,6 +1064,15 @@ def _launch(
     if out_len < 1:
         raise ValueError(f"out_len must be >= 1, got {out_len}")
     multi = out_len > 1
+    if out_values is not None and tuple(int(size) for size in out_values.shape) != (
+        pop,
+        int(rows),
+        out_len,
+    ):
+        raise ValueError(
+            f"out_values must have shape {(pop, int(rows), out_len)}, got "
+            f"{tuple(int(size) for size in out_values.shape)}"
+        )
     geom = plan(rows, per_row=per_row, block_rows=block_rows, num_warps=num_warps)
     device_index = _device_index(node_value.device)
     n_prog = pop * geom["n_rb"]
@@ -1067,8 +1085,12 @@ def _launch(
     if multi:
         # The multi-output kernel accumulates INTO the prediction buffer, so the
         # loss path needs it materialized even though only the chart is returned.
-        values = torch.empty(
-            (pop, rows, out_len), dtype=torch.float32, device=node_value.device
+        values = (
+            out_values
+            if out_values is not None
+            else torch.empty(
+                (pop, rows, out_len), dtype=torch.float32, device=node_value.device
+            )
         )
         if reduce:
             out = torch.empty(
@@ -1085,8 +1107,12 @@ def _launch(
         label_ptr = labels
         value_ptr = partial_ptr = out
     else:
-        out = torch.empty(
-            (pop, rows, out_len), dtype=torch.float32, device=node_value.device
+        out = (
+            out_values
+            if out_values is not None
+            else torch.empty(
+                (pop, rows, out_len), dtype=torch.float32, device=node_value.device
+            )
         )
         # ``labels`` and the partial chart are behind the REDUCE constexpr, i.e.
         # never traced on this path; the value buffer stands in for both so the
@@ -1151,6 +1177,7 @@ def launch_value(
     num_warps: int = DEFAULT_NUM_WARPS,
     out_len: int = 1,
     max_scratch_mb: Optional[int] = None,
+    out: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Evaluate the population's value: ``(pop, rows, out_len)`` fp32 (fresh).
 
@@ -1158,9 +1185,11 @@ def launch_value(
     PRETRANSPOSED ``(input_len, rows)`` block otherwise; the facade owns that
     conversion (it is the only host-visible prep in the call path).  ``out_len >= 2``
     selects the multi-output protocol (``OUT_NODE`` tags, the accumulated chart),
-    ``out_len == 1`` the original single-output walk.
+    ``out_len == 1`` the original single-output walk.  ``out`` is an optional
+    caller-supplied ``(pop, rows, out_len)`` float32 buffer that is written
+    instead of a fresh one (the caller validates device/dtype/contiguity).
     """
-    out, _geom = _launch(
+    values, _geom = _launch(
         node_value=node_value,
         node_type=node_type,
         subtree_size=subtree_size,
@@ -1176,8 +1205,9 @@ def launch_value(
         num_warps=num_warps,
         out_len=int(out_len),
         max_scratch_mb=max_scratch_mb,
+        out_values=out,
     )
-    return out
+    return values
 
 
 def launch_loss(
