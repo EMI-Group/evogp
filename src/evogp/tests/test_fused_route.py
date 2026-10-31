@@ -505,6 +505,77 @@ def test_multi_output_loss_parity(out_len, use_mse):
     _assert_same(loss, _oracle(forest, inputs, labels=labels, use_mse=use_mse), context, rtol=1e-6)
 
 
+# --- 3b. the OUT_NODE refusal (a single-output request over tagged rows) ----------- #
+def _miswired_forest():
+    """REAL ``output_len = 2`` rows handed to the engine as a single-output population.
+
+    This is what a wrong ``GenerateDescriptor.output_len`` / ``Forest(input_len, 1, ...)``
+    produces: the tags on the rows are the out-nodes' own.  Before the shared rule
+    (``evogp.tree.multi_output``) the fused kernel read such a type as a ternary ``if``
+    and returned a plausible wrong number; the facade now refuses it host-side.
+    """
+    genuine = _forest(_multi_population(), input_len=4, output_len=2, pad_to=32)
+    return Forest(
+        4,
+        1,
+        genuine.batch_node_value,
+        genuine.batch_node_type,
+        genuine.batch_subtree_size,
+    )
+
+
+def test_refuse_out_node_tags_in_single_output_mode():
+    """The direct facade refuses, and it is NOT a decline: nothing is launched."""
+    forest = _miswired_forest()
+    assert bool((forest.batch_node_type & OUT_NODE).any()), "the fixture lost its tags"
+    call = (forest.batch_node_value, forest.batch_node_type, forest.batch_subtree_size)
+    broadcast, labels = _data(16, 4), _data(16, 1, seed=41)
+    per_row = _data(forest.pop_size, 4, seed=43)
+    before = fused_engine.fused_cache_stats()
+    for context, thunk in (
+        ("evaluate_fused", lambda: fused_engine.evaluate_fused(*call, 4, 1, broadcast, per_row=False)),
+        (
+            "evaluate_fused[per_row]",
+            lambda: fused_engine.evaluate_fused(*call, 4, 1, per_row, per_row=True),
+        ),
+        (
+            "sr_fitness_fused",
+            lambda: fused_engine.sr_fitness_fused(*call, 4, 1, broadcast, labels),
+        ),
+    ):
+        with pytest.raises(ValueError, match="OUT_NODE") as caught:
+            thunk()
+        assert str(caught.value).startswith("row 0: node "), (
+            f"{context}: the refusal must name row and node, got {str(caught.value)!r}"
+        )
+    declines, launches = _deltas(before, fused_engine.fused_cache_stats())
+    assert (declines, launches) == (0, 0), (
+        "the OUT_NODE refusal must happen before any launch and must not be counted as a "
+        f"DECLINE (a decline falls back and serves): declines={declines} launches={launches}"
+    )
+
+
+def test_refuse_out_node_tags_through_the_public_api(monkeypatch):
+    """``EVOGP_EVAL_MODE=fused`` and ``auto`` raise ``ValueError`` -- never a number."""
+    for mode in ("fused", "auto"):
+        monkeypatch.setenv("EVOGP_EVAL_MODE", mode)
+        forest, x = _miswired_forest(), _data(16, 4)
+        with pytest.raises(ValueError, match="OUT_NODE"):
+            forest.batch_forward(x)
+        with pytest.raises(ValueError, match="OUT_NODE"):
+            forest.SR_fitness(x, _data(16, 1, seed=47))
+        with pytest.raises(ValueError, match="OUT_NODE"):
+            forest.forward(_data(forest.pop_size, 4, seed=49))
+
+
+def test_the_same_rows_are_served_once_output_len_says_two():
+    """The refusal is scoped to ``output_len == 1``: the tagged rows still evaluate."""
+    genuine = _forest(_multi_population(), input_len=4, output_len=2, pad_to=32)
+    x = _data(16, 4)
+    got = _served(lambda: genuine.batch_forward(x), "batch_forward[multi, out_len=2]")
+    _assert_same(got, _oracle(genuine, x), "batch_forward[multi, out_len=2]")
+
+
 # --- 4. route wiring --------------------------------------------------------------- #
 @pytest.mark.parametrize("pop_size", [1, 16, 64, 256])
 def test_route_policy_selects_fused(pop_size):

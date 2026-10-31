@@ -808,6 +808,7 @@ was arm-order drift, which is why §15's protocol keeps the order alternation.
 - `EVOGP_FUSED_BLOCK_ROWS` values between two powers of two silently become the lower one (reported in the
   stats, not refused).
 - `MAX_OUT_LEN` is 8: a wider multi-output population declines by name.
+- A single-output request over an `OUT_NODE`-tagged population is REFUSED host-side in `fused_engine._prepare` (`evogp.tree.multi_output.check_multi_output`, a `ValueError` naming row and node) before any launch — the kernel's type mapping is unchanged and its "any other type is a ternary `if`" fall-through is now UNREACHABLE for validated input, so a mis-wired `output_len` cannot produce a plausible wrong number on this route (the tag is not a decline: `fused_declines` / `fused_kernel_launches` stay flat, pinned by `tests/test_fused_route.py` and `fused_check --stage declines`).
 - The records under `test/benchmark/evoxc/results/t1a1_fused/` predate §16.4, so their `geometry.scratch_bytes` is the older round figure and
   their geometric keys carry no value-buffer/chart terms. Their `envelope_ok` is unaffected: all 79 stored records
   still pass today's rule, which `fused_envelope.py --stage records` re-checks read-only (it never rewrites them).
