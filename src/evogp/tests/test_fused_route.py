@@ -335,7 +335,8 @@ def _fused_route(monkeypatch):
     """
     monkeypatch.setenv("EVOGP_EVAL_MODE", "fused")
     for name in ("EVOGP_EVOXC_BACKEND", "EVOGP_FUSED_MIN_POP", "EVOGP_FUSED_MAX_SCRATCH_MB",
-                 "EVOGP_FUSED_BLOCK_ROWS", "EVOGP_FUSED_NUM_WARPS"):
+                 "EVOGP_FUSED_BLOCK_ROWS", "EVOGP_FUSED_NUM_WARPS",
+                 "EVOGP_FUSED_DISPATCH"):
         monkeypatch.delenv(name, raising=False)
     yield
 
@@ -801,3 +802,181 @@ def test_clear_cache_resets_the_fused_tables():
         assert fused_engine.fused_cache_stats()[key] == 0, f"{key} survived clear_cache()"
     got = _served(lambda: forest.batch_forward(x), "batch_forward[after clear_cache]")
     _assert_same(got, _oracle(forest, x), "batch_forward[after clear_cache]")
+
+
+# --- 7. the launch path (``EVOGP_FUSED_DISPATCH``: pre-bound vs ``JITFunction.run``) --- #
+# The route's per-call cost at the small cells is dominated by Triton's PYTHON
+# dispatcher, not by the kernel (``FUSED.md`` §18), so the shipped path binds the
+# ``CompiledKernel`` once per prepared call and serves every later call directly.
+# These cases pin the contract that makes that safe: the knob's spellings, the
+# counters, bitwise equality with the historical dispatch, the re-arm point and the
+# two declines.
+def _dispatch_stats():
+    """``fused_kernels.dispatch_stats()``, i.e. the launch path's own counters."""
+    from evogp.tree import fused_kernels
+
+    return fused_kernels.dispatch_stats()
+
+
+def test_resolve_dispatch_spellings(monkeypatch):
+    """``bound`` is the default, ``jit`` the A/B arm, and a typo is a caller error."""
+    from evogp.tree import fused_kernels
+
+    monkeypatch.delenv(fused_kernels.DISPATCH_ENV, raising=False)
+    assert fused_kernels.resolve_dispatch() == "bound", "the shipped default moved"
+    assert fused_kernels.resolve_dispatch("") == "bound", "an empty value means the default"
+    assert fused_kernels.resolve_dispatch(" BOUND ") == "bound", "spellings are normalised"
+    assert fused_kernels.resolve_dispatch("jit") == "jit"
+    monkeypatch.setenv(fused_kernels.DISPATCH_ENV, "jit")
+    assert fused_kernels.resolve_dispatch() == "jit", "the env knob is not read"
+    with pytest.raises(ValueError) as excinfo:
+        fused_kernels.resolve_dispatch("gpu-graph")
+    message = str(excinfo.value)
+    assert fused_kernels.DISPATCH_ENV in message and "bound" in message and "jit" in message, (
+        f"the ValueError must name the knob and both spellings, got {message!r}"
+    )
+
+
+def test_jit_mode_serves_every_call_through_the_dispatcher(monkeypatch):
+    """``EVOGP_FUSED_DISPATCH=jit`` reproduces the pre-change dispatch exactly."""
+    monkeypatch.setenv("EVOGP_FUSED_DISPATCH", "jit")
+    fused_engine.clear_fused_cache()
+    forest = _random_forest(16, ["+", "*"])
+    x = _data(8, forest.input_len)
+    got = [forest.batch_forward(x) for _ in range(3)]
+    for index, value in enumerate(got):
+        _assert_same(value, _oracle(forest, x), f"batch_forward[jit mode, call {index}]")
+    stats, launches = _dispatch_stats(), fused_engine.fused_cache_stats()
+    assert stats["bound_launches"] == 0, (
+        f"jit mode must never serve a pre-bound launch, counted {stats}"
+    )
+    assert stats["jit_launches"] == int(launches["fused_kernel_launches"]) == 3, (
+        "every call of a jit-mode plan pays the dispatcher (3 calls, 3 dispatches); "
+        f"dispatch={stats} launches={launches['fused_kernel_launches']}"
+    )
+
+
+def test_bound_mode_serves_warm_calls_after_one_dispatch():
+    """The default binds the kernel on the first call and skips the dispatcher after."""
+    fused_engine.clear_fused_cache()
+    forest = _random_forest(16, ["+", "*"])
+    x = _data(8, forest.input_len)
+    outputs = [forest.batch_forward(x) for _ in range(4)]
+    stats = _dispatch_stats()
+    assert stats["declines"] == 0, (
+        f"the pre-bound dispatch declined on this box: {stats} -- the route silently "
+        "served the historical path, so the timings would be the old ones"
+    )
+    assert (stats["jit_launches"], stats["bound_launches"]) == (1, 3), (
+        "one prepared call = ONE dispatcher pass, then the pre-bound kernel; counted "
+        f"{stats}"
+    )
+    for index, value in enumerate(outputs):
+        _assert_same(value, _oracle(forest, x), f"batch_forward[bound mode, call {index}]")
+    assert stats["bound_launches"] + stats["jit_launches"] == int(
+        fused_engine.fused_cache_stats()["fused_kernel_launches"]
+    ), "every served call is exactly one launch, bound or dispatched"
+
+
+def test_bound_and_jit_agree_bitwise(monkeypatch):
+    """The two launch paths are the SAME device code: value, loss and per-row agree."""
+    fused_engine.clear_fused_cache()
+    forest = _random_forest(24, ["+", "*", "sin"])
+    x, labels = _data(12, forest.input_len), _data(12, 1, seed=5)
+    per_row = _data(forest.pop_size, forest.input_len, seed=11)
+
+    def run_all():
+        # TWICE: one prepared call per surface, then one WARM call per surface -- the
+        # warm half is where the two launch paths differ.
+        run_all_once()
+        return run_all_once()
+
+    def run_all_once():
+        return (
+            forest.batch_forward(x),
+            forest.SR_fitness(x, labels),
+            forest.forward(per_row),
+        )
+
+    monkeypatch.setenv("EVOGP_FUSED_DISPATCH", "jit")
+    fused_engine.clear_fused_cache()
+    jit_value, jit_loss, jit_per_row = run_all()
+    jit_stats = _dispatch_stats()
+
+    monkeypatch.setenv("EVOGP_FUSED_DISPATCH", "bound")
+    fused_engine.clear_fused_cache()
+    bound_value, bound_loss, bound_per_row = run_all()
+    bound_stats = _dispatch_stats()
+
+    assert jit_stats["bound_launches"] == 0 and bound_stats["bound_launches"] > 0, (
+        f"the two arms did not take different paths: jit={jit_stats} bound={bound_stats}"
+    )
+    for name, want, got in (
+        ("batch_forward", jit_value, bound_value),
+        ("SR_fitness", jit_loss, bound_loss),
+        ("forward", jit_per_row, bound_per_row),
+    ):
+        assert torch.equal(want, got), (
+            f"{name}: the pre-bound launch changed a value (max|delta|="
+            f"{float((want - got).abs().max())!r}) -- it must be the same device code"
+        )
+
+
+def test_clear_fused_cache_rearms_the_dispatch():
+    """``clear_fused_cache()`` drops the bound kernel with the plan (the invalidation)."""
+    fused_engine.clear_fused_cache()
+    forest = _random_forest(16, ["+", "*"])
+    x = _data(8, forest.input_len)
+    first = forest.batch_forward(x)
+    forest.batch_forward(x)
+    before = _dispatch_stats()
+    assert (before["jit_launches"], before["bound_launches"]) == (1, 1), before
+
+    fused_engine.clear_fused_cache()
+    after_clear = _dispatch_stats()
+    assert after_clear == {"bound_launches": 0, "jit_launches": 0, "declines": 0}, (
+        f"the launch-path counters must reset with the route's tables, got {after_clear}"
+    )
+    again = forest.batch_forward(x)
+    _assert_same(again, first, "batch_forward[after clear_fused_cache]")
+    assert _dispatch_stats()["jit_launches"] == 1, (
+        "a cleared plan must re-arm (one dispatcher pass) instead of reusing the "
+        "previous binding"
+    )
+
+
+def test_active_launch_hooks_decline(monkeypatch):
+    """A registered Triton launch hook keeps the historical dispatch (profilers)."""
+    triton_knobs = pytest.importorskip("triton.knobs")
+    hook = triton_knobs.HookChain()
+    seen = []
+    hook.add(lambda *args, **kwargs: seen.append(1))
+    monkeypatch.setattr(triton_knobs.runtime, "launch_enter_hook", hook)
+    fused_engine.clear_fused_cache()
+    forest = _random_forest(16, ["+", "*"])
+    x = _data(8, forest.input_len)
+    got = [forest.batch_forward(x) for _ in range(3)]
+    stats = _dispatch_stats()
+    assert stats["declines"] >= 1, (
+        "an ACTIVE launch hook must decline the pre-bound path (it would skip the "
+        f"hook); counted {stats}"
+    )
+    assert stats["bound_launches"] == 0, stats
+    assert seen, "the hook itself must have run (the C launcher still calls it)"
+    for index, value in enumerate(got):
+        _assert_same(value, _oracle(forest, x), f"batch_forward[hooked, call {index}]")
+
+
+def test_unusable_launcher_declines(monkeypatch):
+    """A backend launcher of another shape keeps the historical dispatch, silently."""
+    from evogp.tree import fused_kernels
+
+    monkeypatch.setattr(fused_kernels, "_launcher_takes_launch_args", lambda launcher: False)
+    fused_engine.clear_fused_cache()
+    forest = _random_forest(16, ["+", "*"])
+    x = _data(8, forest.input_len)
+    got = [forest.batch_forward(x) for _ in range(3)]
+    stats = _dispatch_stats()
+    assert stats["bound_launches"] == 0 and stats["declines"] >= 1, stats
+    for index, value in enumerate(got):
+        _assert_same(value, _oracle(forest, x), f"batch_forward[declined, call {index}]")
