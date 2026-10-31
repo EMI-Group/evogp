@@ -51,10 +51,13 @@ route:
 Measured on the six benchmark cells the fused route is 41x-157x faster than the
 ``torch-batched`` arm on the value path (0.0995-0.1673 ms against 4.05-26.25 ms),
 32x-131x on the loss path and 42x-127x per-tree (campaign of record ``FUSED.md``
-§0/§2), and the part that is left is the launch itself: the kernel is 51-78 % of a
-warm call and the host glue 0.031-0.062 ms (``FUSED.md`` §3; the six-cell sweep
-that preceded the campaign read 48.6x-167.6x on the value path and is kept for the
-record there).  The ``BLOCK_R``/warp sweep and the per-cell table are the module
+§0/§2), and the warm call no longer decomposes into stages: the prepared call is
+memoized, the launch is pre-bound (``EVOGP_FUSED_DISPATCH=bound``, ``jit`` restoring
+``JITFunction.run``) and the whole call reads cheaper than one independently timed
+launch, so only its total is quotable -- 0.0449-0.1152 ms ``batch_forward`` on the
+shipped default (``FUSED.md`` §18; the six-cell sweep that preceded the campaign read
+48.6x-167.6x on the value path and is kept for the record there).  The
+``BLOCK_R``/warp sweep and the per-cell table are the module
 docstring of :mod:`evogp.tree.fused_engine`, reproduced by ``fused_check.py``.
 
 Geometry
