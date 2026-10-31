@@ -100,6 +100,7 @@ The dense-vs-specialized route is resolved DOWNSTREAM of this layer, inside `../
 Nothing in `problem/` reads `EVOGP_EVAL_MODE`, and `SymbolicRegression`'s `execute_mode` is validated by `Forest.SR_fitness` then dropped — it never reaches or influences the engine.
 Do not reorder the imports in `__init__.py`: sibling modules use `from . import BaseProblem` (which requires `.base` to have been imported first by `__init__`), so `.base` must stay first.
 Submodules must keep heavy optional dependencies **inside functions** (established pattern); a new top-level `import jax/genesis/...` breaks `import evogp.problem` for everyone.
+Nothing here is reusable from a torch-free path: `custom_loss.py` binds `inspect_function` from `..tree.utils`, which has a module-scope `import torch` (`../tree/utils.py:4`), and `import evogp.problem` pulls torch transitively through `symbolic_regression.py:3` (plus `evogp.tree` via every module's `Forest`/`CombinedForest` import).
 
 ## Optional-dependency matrix
 | Module | External packages needed to import the module | Needed to actually run the problem |
