@@ -46,6 +46,11 @@ dense compile and 25–500× cheaper than a `batch` merged compile. The one thin
 `EVAL_MODES`/`ENGINES` tuples; it has since been updated to `("dense","specialized","batch","fused","auto")` /
 `("specialized","dense","batch","fused")` and the suite is green (1 255 passed / 7 skipped / 0 failed).
 
+Kernel round (§17): the walk now keeps its top three stack slots in registers (`STACK_WINDOW` 3, gated to
+`BLOCK_R >= 32`), which takes the DEVICE kernel **−10.9 % on `p4096-L64` / −12.4 % on its loss path and −3.8…−4.5 % on
+the 123-node `d7` cell**, leaves the `p256` cells at −1…−8 % and the per-row surface bit-identically unchanged, with
+every value digest identical to the pre-change tree. The per-call metric cannot resolve that (its null spread is
+±5–12 %, §17.5) and the remaining headroom is the Triton LAUNCH path, not the kernel body (§17.7).
 Scope and envelope, re-measured (§11–§15): the route serves `output_len` 1 up to `fused_engine.MAX_OUT_LEN` (8) with a
 **bitwise** multi-output value path, and over the 12-cell envelope it is **35.8×–206×** the `torch-batched` arm,
 **32.2×–155 847×** `specialized` and **16.3×–495×** the shipped `dense` default, i.e. it loses no measured cell on any
@@ -170,6 +175,19 @@ host glue is **≈12 %** of a warm `batch_forward` at ``p256`` (14 µs of 76 µs
 (host glue ≈ 15 %, but on a 1–7 ms call). Absolute host glue is flat at 0.031–0.062 ms across three orders of
 population size, i.e. it is Python-level per-call overhead, not data movement; the remaining headroom in the route
 is host-side. `transpose(cold)` 0.019 ms is what the identity memo removes from every warm call.
+
+**What "kernel" means in this table, and where the device time really is.** The `kernel` column times a *call* of
+`fused_kernels.launch_value`, i.e. Triton's `JITFunction.run` — argument binding, cache lookup, launch metadata,
+`cuLaunchKernel` — not the executed kernel. Torch-profiler device durations on the same populations
+(`ProfilerActivity.CUDA`, 40 launches per sample) read **16.5 µs at `p256-L64` / 56.7 at `p4096-L64` / 86.0 on the
+123-node `d7` cell** against the 0.063 / 0.111 / 0.137 ms "kernel" column, so a warm `batch_forward` is
+**≈22 % device time at `p256`, ≈25 % at `p1000`, ≈51 % at `p4096` and ≈63 % at `d7`**, and the rest of the
+"kernel" bucket is the Python launcher plus the facade's host glue. The two statements are consistent (the table
+measures the launch, the profiler the kernel) but they bracket the headroom differently: a kernel-level win of
+*k* % moves the shipped per-call metric by only `k × device share` (22–63 %), while a launch-path win moves it
+one-for-one. §17 is the kernel round and works inside that bound; the launcher is what §7's remaining-gap note now
+points at.
+
 
 ---
 
@@ -325,8 +343,10 @@ trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
    the baseline of record (4.0547 vs 4.0044 ms `bf` at `p256-L32`). Do not quote the loss path tighter than
    "32–131× in this campaign, up to ~147× measured previously".
 4. **Host glue is 22–49 % of a warm call** (0.031–0.062 ms) — route resolution, `_prepare`, the scratch lookup
-   and the `contiguous` epilogue. The kernel itself is 0.06–0.13 ms. Further gains need host-side work, not kernel
-   work.
+   and the `contiguous` epilogue. The `launch_value` CALL is another 0.060–0.135 ms, and the DEVICE kernel inside it
+   is only **16.5–86 µs** (§3's profiler column, §17.1), i.e. 22 % of a `p256` call, 51 % of `p4096` and 63 % of
+   `d7`. Further gains on the small cells need the LAUNCH PATH (Triton's Python `JITFunction.run`, not the kernel
+   body) — that is the largest single item left and nothing has been tried against it yet (§17.7).
 5. **The multi-output loss path materializes the predictions.** `output_len >= 2` writes the `(pop, rows, out_len)`
    prediction buffer to device memory (zeroed, then read-modify-written at every tagged node — the accumulator is
    that buffer, see §11) and reduces it in the same kernel, where the single-output path folds in registers and moves
@@ -347,7 +367,13 @@ trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
 9. **The unmeasured class is tiny rows at tiny trees**: `rows <= 64` with `tree_len` 8–32 and pops 1–8, where the
    kernel's ~0.09 ms launch floor is the whole call and a single per-tree numpy run could undercut it. Every measured
    cell is at `tree_len >= 64` (rows 1–16 384, pops 1–8 192), so nothing here prices that corner.
-10. **Route mechanics that are not gaps but bound what can be measured**: prep is device-side only (no host work to
+10. **The per-call metric has a ±5–12 % noise floor** and cannot resolve kernel work: the null experiment
+   (A against A, same tree, three order-alternated passes, the campaign's 2 warmup + 10 sync-bracketed reps) spreads
+   −10.3 … +1.0 % on `value`, −12.3 … +0.0 % on `loss` and −5.7 … +1.4 % on `per_row`, and at reps 100 a systematic
+   ±2–4 % first-arm advantage remains (§17.5). Any future round that quotes a < 5 % per-call delta as a result is
+   quoting the noise, so kernel work is gated on the torch-profiler device durations and the per-call table is a
+   cross-check only.
+11. **Route mechanics that are not gaps but bound what can be measured**: prep is device-side only (no host work to
     attribute), there is NO per-stage timer surface (the split is reconstructed by `fused_check._stage_split`), the
     value path has no zero-copy device export (a `(pop, rows, 1)` tensor stays allocated, 1 MB – 8 GB, and is never
     read back), `--stage goldens` still skips `src/evogp/tests/goldens/06_multi_output.npz` (§11 is its coverage),
@@ -613,6 +639,12 @@ Records `test/benchmark/evoxc/results/t1a1_fused/sweep/sweep.json`: 12 configs �
 | B1024-W2 | 0.096 | 0.157 | 0.114 | 0.165 | 1.19 |
 | B1024-W4 | 0.081 | 0.140 | 0.108 | 0.164 | 1.07 |
 
+Re-run after §17's kernel change (`fused_check --stage tuning`, the same 12 configs × 6 cells, public API): the
+minimax config is `B512-W2` (worst-cell ratio 0.015 on `p256-L64-i32-N1024`) and the shipped `256/1` reads 0.016 —
+**1.06× the minimax ratio**, with `B512-W1` (0.017) and `B256-W2` (0.016) in the same band. The register window did
+not move the geometry optimum, and a 6 % worst-cell difference over a metric with a ±5–12 % noise floor is not a
+reason to change a default (§17.2).
+
 **256 / 1 stays.** It is the outright best config on both large-population cells (1.00), 1.10–1.12 on the others by
 the min statistic; the only config with a lower minimax (`B1024-W4`, 1.07) wins solely on `p256-L64-i32-N1024`, whose
 own within-record spread (52 %) exceeds the 18 % gap, so no change is justified by this protocol. The clearly-bad
@@ -824,6 +856,111 @@ was arm-order drift, which is why §15's protocol keeps the order alternation.
   3 151 lines (one self-contained battery).
 
 ---
+
+## 17. The kernel-performance round — the register-window stack
+The host-glue round (§3) left the route with a warm call that is 22–63 % DEVICE time (§3, profiler column), so this
+round attacked the kernel body in `tree/fused_kernels.py` and nothing else. Its verdict: one candidate cleared the
+±3 % noise bar and ships (a three-slot register window over the walk's memory stack, gated to wide blocks);
+everything else was measured and reverted. **The shipped per-call metric cannot resolve kernel work below
+5–7 %** — see "the metric" below — so every number here is a torch-profiler device duration on 40 launches per
+sample, and the six-cell public-API table is quoted with its noise floor.
+
+### 17.1 Profile of record (device µs, `BLOCK_R` 256 / 1 warp, HEAD `e391cda`)
+| cell | value | loss (MSE) | per_row |
+|---|---|---|---|
+| `p256-L32-i8-N1024` | 17.03 | 17.07 | 12.27 |
+| `p256-L64-i32-N1024` | 16.54 | 16.90 | 12.34 |
+| `p256-L64-i32-N4096` | 24.40 | 25.46 | 12.24 |
+| `p1000-L64-i32-N1024` | 24.06 | 25.27 | 13.60 |
+| `p4096-L64-i32-N1024` | 56.70 | 56.99 | 16.73 |
+| `p2048-L128-i32-N1024-d7` | 86.20 | 86.01 | 45.49 |
+Ablations at the same geometries (`p256-L64` / `p4096-L64` / `d7`), each a stripped-down variant of the same kernel:
+metadata skeleton with no vector work **6.8 / 36.7 / –**; no stack LOADS 15.4 / 43.2 / 71.7; no stack STORES
+13.1 / 38.3 / 65.4; neither **10.6 / 28.1 / 49.5**; no `x` loads 14.5 / 46.8 / 71.4; the op ladder replaced by a tiny
+op (diagnostic only) 14.8 / 51.4 / 75.3.
+Three cost centres, in order: (1) the **scalar metadata chain** — one `node_type` and one `node_value` load plus the
+per-node branch resolution per node, ~40 % of the iterations' work; (2) **vector stack traffic** — 6.6 / 28.6 /
+36.2 µs, i.e. 40 % / 50 % / 42 % of the kernel, because all `BLOCK_R` lanes execute both operand selects on every
+pop and store on every push; (3) the **inlined op ladder** — 2–11 µs, and only when the function mix is unlucky.
+Branch divergence is **not** a cost centre: the 4 node kinds are predicated selects, both operands are always
+computed, and a per-kind reordering therefore cannot pay (measured: reordering the arithmetic path branch-free,
+i.e. `pre_unmasked_*`, is −1…−6 %, all of it recovered by the window below).
+
+### 17.2 Candidate matrix (measured, `p4096` / `p256-L64` device µs unless noted)
+| candidate | result | verdict |
+|---|---|---|
+| **register window over the top K stack slots** (`K = 3`) | 56.7 → 50.5 (−10.9 %) / 16.5 → 15.8 (−4.0 %) at K = 3, and the same win on the loss path | **SHIPS**, gated (§17.3) |
+| same, K = 1 / 2 / 4 / 6 / 8 | K = 4 → 55.6, K = 6 → 71.2, K = 8 → 97.4 at `p4096` (select pressure) | K = 3 is the optimum |
+| same, ungated (every geometry) | per_row **+7 % / +7 % / +11 %** (`p256-L64-N4096` / `p4096` / `d7`) | rejected → gated to `BLOCK_R >= 32` |
+| pre-load BOTH operands before the branch (`pre_masked_*`) | +2…+14 % | reverted |
+| pre-load, unmasked (`pre_unmasked_*`) | −1…−6 %, fully recovered by the window | reverted as redundant |
+| row block as the OUTER grid dimension (node loop inner) | flat (±1 %) | reverted |
+| `num_stages` 1 / 4 | flat | reverted |
+| packed / int32 metadata conversion at prepare time | not pursued: the ablation puts the chain's cost in its DEPENDENCE (one load per node feeding the branch), not in the load's width, and narrowing it would change the channel schema the facade caches on | dropped |
+| geometry: `BLOCK_R`/warps re-run of §14 | minimax `512/2`, **1.06×** the shipped `256/1`'s worst cell | default unchanged (< 5 %) |
+
+### 17.3 What ships
+`STACK_WINDOW = 3` keeps the walk's top three stack slots in registers (`w0/w1/w2`), the memory stack keeps the deep
+tail, and both halves use the SAME clamped slot index, so the values are bit-identical by construction — a
+population deeper than 3 is served exactly as before (the `d7` cell's depth histogram reaches past the window).
+The window is compiled out at `BLOCK_R < 32` (`_WINDOW_MIN_BLOCK`): a register tile pays only when a lane carries a
+vector of rows, and the per-row surface (`BLOCK_R == 1`, one data point per tree) is the measured regression above,
+so that geometry keeps the old code **verbatim** (a constexpr branch, not a mask). It is a Python constant of the
+trace, so it adds no launch parameter and no specialization key, and `_fused_multi_kernel` is untouched (its cost is
+the prediction accumulator, §7.5).
+
+### 17.4 The A/B (kernel-only, 3 alternating passes, medians)
+| cell | value A → B | loss A → B | per_row A → B |
+|---|---|---|---|
+| `p256-L32-i8-N1024` | 17.06 → 16.58 (−2.8 %) | 17.07 → 16.87 (−1.2 %) | 12.27 → 12.29 (0.0 %) |
+| `p256-L64-i32-N1024` | 16.54 → 15.26 (−7.7 %) | 16.90 → 15.74 (−6.9 %) | 12.34 → 13.28 (+7.6 %, ungated) |
+| `p256-L64-i32-N4096` | 24.40 → 23.61 (−3.2 %) | 25.46 → 24.62 (−3.3 %) | 12.24 → 12.29 (0.0 %) |
+| `p1000-L64-i32-N1024` | 24.06 → 22.15 (−7.9 %) | 25.27 → 22.81 (−9.7 %) | 13.60 → 14.53 (+6.9 %, ungated) |
+| `p4096-L64-i32-N1024` | **56.70 → 50.52 (−10.9 %)** | **56.99 → 49.90 (−12.4 %)** | 16.73 → 16.75 (0.0 %) |
+| `p2048-L128-i32-N1024-d7` | 86.20 → 82.93 (−3.8 %) | 86.01 → 82.10 (−4.5 %) | 45.49 → 45.21 (−0.6 %) |
+The `per_row` column's two "+" entries are the UNGATED window (what it cost before the gate); gated, the surface
+reproduced its baseline to 0.0 % on all six cells. The `p256-L64` row's B column comes from the ungated build, which
+is the same code at `BLOCK_R` 256 (the gate only changes the `BLOCK_R == 1` specialization). Value and loss digests are identical between the arms on every
+cell (`batch_forward` and `SR_fitness` outputs, sha256), i.e. bitwise.
+
+### 17.5 The metric — why this round reports kernel µs
+The shipped per-call metric (one process per cell, sync-bracketed warm medians, reps 10) is too noisy at these call
+lengths to resolve the change, and the null experiment says so: **A against A** — the same tree, two arms,
+three order-alternated passes each, reps 10 — spreads **−10.3 … +1.0 %** on `value`, **−12.3 … +0.0 %** on `loss`
+and **−5.7 … +1.4 %** on `per_row`; at reps 100 it still carries a systematic ±2–4 % first-arm advantage (the
+`per_row` surface, whose compiled code is IDENTICAL, read +2.4 … +4.2 % in one campaign and +1.6 … +7.4 % in
+another). The A/B above the fold is therefore the profiler, and the per-call table below is quoted as the record's
+own before/after with that floor attached:
+| cell | value A → B | loss A → B | per_row A → B |
+|---|---|---|---|
+| `p256-L32-i8-N1024` | 0.0736 → 0.0769 | 0.0857 → 0.0904 | 0.0696 → 0.0735 |
+| `p256-L64-i32-N1024` | 0.0725 → 0.0753 | 0.0855 → 0.0909 | 0.0689 → 0.0728 |
+| `p256-L64-i32-N4096` | 0.0812 → 0.0836 | 0.0912 → 0.0937 | 0.0687 → 0.0725 |
+| `p1000-L64-i32-N1024` | 0.0811 → 0.0823 | 0.0912 → 0.0919 | 0.0702 → 0.0744 |
+| `p4096-L64-i32-N1024` | 0.1142 → 0.1108 (−3.0 %) | 0.1232 → 0.1197 (−2.8 %) | 0.0735 → 0.0747 |
+| `p2048-L128-i32-N1024-d7` | 0.1403 → 0.1449 | 0.1540 → 0.1551 | 0.0996 → 0.1069 |
+Only `p4096` reads in the expected direction at this resolution; everything else is inside the null spread (the
+`per_row` column is expected to be EXACTLY zero and is not, which is the floor's own proof).
+
+### 17.6 Gates after the change
+`fused_check --stage all` → **PARITY 56/56** comparisons inside tolerance (value `max_abs = 0.0` on all three
+function sets, loss `max_rel` ≤ 3.8e-07), **MULTI 65/65**, **GOLDENS 10/10** inside 1e-4, **DECLINES 57/57**,
+**WIRED 32/32**, **TIMING** worst-cell 61.06× `value` / 51.32× `loss` against `torch-batched` (0.065–0.139 ms
+`value`, `cold` 369–393 ms for the first value launch and 1.9 ms for a warm disk-cache load), **TUNING** minimax
+`512/2` at 1.06× the shipped `256/1` (default unchanged). `pytest src/evogp/tests -q` → **1 276 passed, 7 skipped,
+0 failed in 120 s** — the same counts as before the change.
+
+### 17.7 What this leaves
+- **The launch path, not the kernel, is the p256 headroom.** A warm `batch_forward` at `p256` is 0.065 ms of which
+  ~0.060 ms is the `launch_value` CALL and only 0.0165 ms the kernel, so the Triton launcher's own Python
+  (`JITFunction.run` → binding, cache lookup, `cuLaunchKernel`) is now the largest single item. A pre-bound
+  `CompiledKernel` dispatch is the next candidate and would move the per-call metric one-for-one; nothing in this
+  round touched it.
+- **The metadata chain** (one `node_type` + one `node_value` load and a 4-way resolution per node, ~40 % of the
+  iterations' work) is the largest remaining IN-kernel item and the hardest: it is the walk itself, and every
+  variant that pre-loaded the operands outside the branch lost more in registers than it saved in loads.
+- **The floor is measured, not assumed**: `STACK_WINDOW` 4 and above is worse than 3, `num_stages` and the grid
+  order are flat, and geometry is a 1.06× decision at best.
 
 ## Measured detail (moved from tree/CONTEXT.md)
 
