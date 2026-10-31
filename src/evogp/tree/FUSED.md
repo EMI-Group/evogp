@@ -639,7 +639,7 @@ serves below the threshold, and `auto` selects fused from the threshold up (the 
 
 ---
 
-## 14. Block/warp sweep — the default is the minimax at 256 / 1
+## 14. Block/warp sweep — the default sits on a flat minimax top at 256 / 1
 
 The table below is the earlier window's 12-config × 4-cell sweep (`test/benchmark/evoxc/results/t1a1_fused/sweep/sweep.json`), value medians in ms, one process per (config, cell).
 `worst` there = the config's slowest cell relative to that cell's best config.
@@ -659,9 +659,9 @@ The table below is the earlier window's 12-config × 4-cell sweep (`test/benchma
 | B1024-W2 | 0.096 | 0.157 | 0.114 | 0.165 | 1.19 |
 | B1024-W4 | 0.081 | 0.140 | 0.108 | 0.164 | 1.07 |
 
-The current verdict is `fused_check --stage tuning` (12 configs × 6 cells through the public API, one process per config+cell, `worst value ratio` = the config's worst cell's fused/torch-batched ratio): the minimax IS the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` at 1.00× (worst value ratio 0.009 on `p256-L64-i32-N4096`, mean 0.008, worst loss 0.011), with `B128-W1` (0.010) and `B512-W1` / `B512-W2` / `B512-W4` (0.010–0.011) inside the same noise band.
-The earlier window's reading — minimax `B512-W2`, the shipped `256/1` at 1.06× of it — is that round's window, kept as history.
-Neither sweep moves the default: the current one puts the shipped config on top, and in the earlier table the lower-minimax `B1024-W4` (1.07) wins solely on `p256-L64-i32-N1024`, whose own within-record spread (52 %) exceeds the 18 % gap.
+The verdict is `fused_check --stage tuning` (12 configs × 6 cells through the public API, one process per config+cell, `worst value ratio` = the config's worst cell's fused/torch-batched ratio): across the two measured windows the minimax alternates between the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` (0.009) and `B512-W2` (0.009), so the shipped default is inside **1.00–1.05×** of the best cell (worst value ratio 0.009–0.010 on `p256-L64-i32-N4096`, worst loss 0.011; every other configuration sits at 0.010–0.037, with `B128-W1` 0.010 and `B512-W1` / `B512-W4` 0.010–0.011 inside the same noise band).
+The latest re-run of the stage reads minimax `B512-W2` at 0.009 against the shipped `256/1` at 0.010, i.e. 1.05× — grid noise on a flat surface, not a policy change, exactly as the previous window's opposite reading (`256/1` on top at 1.00×) was.
+Neither sweep moves the default: both tuning windows sit on the same flat top, and in the earlier table the lower-minimax `B1024-W4` (1.07) wins solely on `p256-L64-i32-N1024`, whose own within-record spread (52 %) exceeds the 18 % gap.
 The clearly-bad region is narrow blocks with many warps (128 lanes × 4 warps: 1.67–3.04×), consistent with the walk being a scalar loop-carried dependency chain.
 
 ---
@@ -910,7 +910,7 @@ i.e. `pre_unmasked_*`, is −1…−6 %, all of it recovered by the window below
 | row block as the OUTER grid dimension (node loop inner) | flat (±1 %) | reverted |
 | `num_stages` 1 / 4 | flat | reverted |
 | packed / int32 metadata conversion at prepare time | not pursued: the ablation puts the chain's cost in its DEPENDENCE (one load per node feeding the branch), not in the load's width, and narrowing it would change the channel schema the facade caches on | dropped |
-| geometry: `BLOCK_R`/warps re-run of §14 | minimax IS the shipped `256/1` (worst value ratio 0.009, 1.00× itself); `B128-W1` 0.010 and `B512-W1` / `B512-W2` / `B512-W4` 0.010–0.011 in the same band | default stands as the measured optimum |
+| geometry: `BLOCK_R`/warps re-run of §14 | minimax alternates between the shipped `256/1` and `B512-W2` (0.009 each) across the two measured windows, the shipped default 1.00–1.05× of the best cell; `B128-W1` 0.010 and `B512-W1` / `B512-W4` 0.010–0.011 in the same band | surface flat within ~5 %; default kept |
 
 ### 17.3 What ships
 `STACK_WINDOW = 3` keeps the walk's top three stack slots in registers (`w0/w1/w2`), the memory stack keeps the deep
@@ -959,7 +959,7 @@ Only `p4096` reads in the expected direction at this resolution; everything else
 `fused_check --stage all` → **PARITY 56/56** comparisons inside tolerance (value `max_abs = 0.0` on all three
 function sets, loss `max_rel` ≤ 3.8e-07), **MULTI 65/65**, **GOLDENS 10/10** inside 1e-4, **DECLINES 57/57**,
 **WIRED 32/32**, **TIMING** worst-cell 102.59× `value` / 90.99× `loss` against `torch-batched`, **TUNING** minimax
-= the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` at 1.00× (worst value ratio 0.009 on `p256-L64-i32-N4096`; default).
+alternates between the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` and `B512-W2` (0.009 each) across the two measured windows, with the shipped default at 0.010 on `p256-L64-i32-N4096`, i.e. 1.00–1.05× (default kept).
 `pytest src/evogp/tests -q` → **1 308 passed, 7 skipped, 0 failed**.
 
 ### 17.7 What this leaves
@@ -972,7 +972,8 @@ function sets, loss `max_rel` ≤ 3.8e-07), **MULTI 65/65**, **GOLDENS 10/10** i
   iterations' work) is the largest remaining IN-kernel item and the hardest: it is the walk itself, and every
   variant that pre-loaded the operands outside the branch lost more in registers than it saved in loads.
 - **The floor is measured, not assumed**: `STACK_WINDOW` 4 and above is worse than 3, `num_stages` and the grid
-  order are flat, and the geometry minimax IS the shipped `256/1` at 1.00× (§14: worst value ratio 0.009; every other
+  order are flat, and the geometry minimax alternates between the shipped `256/1` and `512/2` across the two measured
+  windows with the default inside 1.00–1.05× (§14: worst value ratio 0.009–0.010 on `p256-L64-i32-N4096`; every other
   config sits at 0.010–0.037, so no alternative clears the noise floor).
 
 ## Measured detail (moved from tree/CONTEXT.md)
