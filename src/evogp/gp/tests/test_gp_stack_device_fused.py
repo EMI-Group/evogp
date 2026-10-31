@@ -1,21 +1,24 @@
-"""DEVICE-GATED tests: the zero-copy interop shim and the device-native fused evaluator.
+"""DEVICE-GATED tests: the native DLPack hand-off and the device-native fused evaluator.
 
-Two modules landed for the device-native fused route and this is their net:
+Two surfaces are under test and this is their net:
 
-``evogp.gp._device_interop``
-    the LOCAL, explicitly temporary DLPack bridge between an ``evoxc`` DEVICE
-    tensor and a torch tensor (``export_to_torch`` / ``import_from_torch``).  It
-    is the only place in this subtree that shares a pointer with torch, and its
-    failure mode has to be a loud :class:`InteropUnavailable` naming the host
-    path -- never a silently reinterpreted buffer.
+``evogp.gp.fused_eval``'s native interop
+    the standard DLPack protocol between an ``evoxc`` DEVICE tensor and torch --
+    the evoxc tensor exports (``Tensor.__dlpack__``), ``torch.from_dlpack``
+    consumes, and ``evoxp.gp.fused_eval.export_to_torch`` validates what came
+    back (shape / dtype / device kind / DLPack device id).  It is the only place
+    in this subtree that shares a pointer with torch, and its failure mode has to
+    be a loud :class:`InteropUnavailable` naming the host path -- never a
+    silently reinterpreted buffer.  The RETURN direction needs no native import:
+    the evaluator owns an ``evoxc`` device fitness buffer, exports it once, and
+    writes the kernel's result into it with a device-local ``copy_``.
 
 ``evogp.gp.fused_eval.FusedDeviceEvaluator``
     the route built on it: device channels -> zero-copy torch views -> the
     legacy triple computed in torch on the device -> the sibling Triton kernel
-    -> the ``(pop_size,)`` fitness adopted back as an ``evoxc`` device tensor
-    (which the variation graph consumes without a readback), with a host
-    fallback that is RECORDED (``last_route`` / ``route_counts`` /
-    ``last_fallback``).
+    -> the ``(pop_size,)`` fitness written into that device buffer (which the
+    variation graph consumes without a readback), with a host fallback that is
+    RECORDED (``last_route`` / ``route_counts`` / ``last_fallback``).
 
 What this module pins, in order:
 
@@ -27,10 +30,10 @@ What this module pins, in order:
 * ``export_to_torch`` declines a host tensor, a numpy array and a bare channel
   triple with a message naming the fallback, and otherwise returns a torch view
   that SHARES the buffer: mutating it is visible through the evoxc tensor;
-* ``import_from_torch`` round-trips values onto the same device, is accepted as
-  ``variation``'s fitness argument (the elite rows then carry those values), and
-  refuses a non-contiguous tensor (unless ``copy=True``), a wrong-device tensor,
-  an unsupported dtype and a non-torch object;
+* the device route's fitness buffer IS an evoxc device tensor whose torch view
+  shares its memory, so a write through the view is consumed by a ``variation``
+  graph without any import step, and the buffer is reused across calls (its
+  torch view and the evoxc handle are the same storage every time);
 * ``_legacy_triple_device`` is BITWISE-equal to the host bridge
   (``encoding.to_legacy_triple``) for a fresh population, for a population after
   five chained ``variation`` calls (stale cells past the live length included)
@@ -46,10 +49,10 @@ What this module pins, in order:
   ``FusedDeviceEvaluator`` produce the SAME channels as the same chain driven by
   ``GraphEvaluator`` (fitness may drift inside 1e-6), keep the state
   device-resident and advance the key every generation;
-* import discipline: the shim imports with only ``src`` on ``PYTHONPATH`` (no
-  ``evoxc``, no torch) and its probe answers ``False`` there instead of raising,
-  and this test module itself resolves torch lazily.  The subtree's own source
-  grep lives in ``test_gp_stack_purity.py`` and already covers both new modules.
+* import discipline: ``evogp.gp.fused_eval`` imports with only ``src`` on
+  ``PYTHONPATH`` (no ``evoxc``, no torch) and its probes answer ``False`` there
+  instead of raising, and this test module itself resolves torch lazily.  The
+  subtree's own source grep lives in ``test_gp_stack_purity.py``.
 
 Everything is DEVICE-GATED on the same probe the other device modules use
 (``gp_operator_support.usable_device_kind``) plus the interop/fused probes, and
@@ -83,7 +86,6 @@ from evogp.gp import (
     smoke,
     step,
 )
-from evogp.gp import _device_interop as interop
 from evogp.gp import encoding, fused_eval, graph_eval
 from evogp.gp import variation as V
 from evogp.gp._constants import FUNC_TYPE, NType
@@ -126,11 +128,11 @@ def _gate_reason():
             "the device-native fused route needs triton (the fused kernel is "
             "JIT-compiled at the first call)"
         )
-    if not interop.interop_available(DEVICE_KIND):
+    if not fused_eval.interop_available(DEVICE_KIND):
         return (
-            "the zero-copy interop is not available on this box: no torch "
-            "CUDA/HIP device, no iree HAL DLPack helpers, or an evoxc without an "
-            "IreeDevicePayload"
+            "the native device hand-off is not available on this box: no torch "
+            "CUDA/HIP device, no triton, or an evoxc whose device payloads do "
+            "not export DLPack (verify with fused_eval.interop_available)"
         )
     if not fused_eval.fused_available():
         return (
@@ -256,7 +258,7 @@ def _legacy_triple_on_device(torch_module, channels):
     ``FUNC_TYPE`` table on the launch device, three torch tensors out.
     """
     opcode, payload, size = (
-        interop.export_to_torch(tensor) for tensor in channels
+        fused_eval.export_to_torch(tensor) for tensor in channels
     )
     table = torch_module.as_tensor(np.asarray(FUNC_TYPE, np.int32), device=opcode.device)
     value, node_type, subtree_size = fused_eval._legacy_triple_device(  # noqa: SLF001
@@ -319,59 +321,57 @@ def test_the_module_only_runs_where_the_device_route_is_usable():
     assert SKIP_REASON is None
     assert _gate_reason() is None
     assert DEVICE_KIND in ("rocm", "cuda")
-    assert interop.interop_available() is True
-    assert interop.interop_available(DEVICE_KIND) is True
+    assert fused_eval.interop_available() is True
+    assert fused_eval.interop_available(DEVICE_KIND) is True
     assert fused_eval.fused_available() is True
 
 
 # --------------------------------------------------------------------------- #
 # interop_available(): a probe, never a raise
 # --------------------------------------------------------------------------- #
-def test_interop_available_declines_the_kinds_the_shim_cannot_serve():
+def test_interop_available_declines_the_kinds_the_native_path_cannot_serve():
     """``cpu``, an unknown kind and the other build's kind are all ``False``.
 
-    The shim only serves kinds whose DLPack code it knows AND whose torch view is
-    the same physical device: the host path already covers ``cpu``, and a
-    ``cuda`` capsule on a ROCm build (or ``rocm`` on an NVIDIA build) would be a
-    silent misinterpretation of the pointer.
+    The hand-off only serves kinds whose DLPack code maps onto a torch device of
+    the same physical kind: the host path already covers ``cpu``, and a ``cuda``
+    capsule on a ROCm build (or ``rocm`` on an NVIDIA build) would be a silent
+    misinterpretation of the pointer.
     """
-    assert interop.interop_available("cpu") is False
-    assert interop.interop_available("vulkan") is False
+    assert fused_eval.interop_available("cpu") is False
+    assert fused_eval.interop_available("vulkan") is False
     other_build = "cuda" if DEVICE_KIND == "rocm" else "rocm"
-    assert interop.interop_available(other_build) is False
-    # It answers for whatever it is handed instead of raising.
-    assert interop.interop_available(object()) is False
+    assert fused_eval.interop_available(other_build) is False
+    # A probe answers, it never raises -- whatever it is handed.
+    assert fused_eval.interop_available(object()) is False
 
 
 def test_the_dispatch_probes_see_a_device_and_only_a_device(
     device_state, host_state, device
 ):
-    """``is_device_tensor`` / ``device_of`` / ``hal_device`` on both kinds of tensor.
+    """``is_device_tensor`` / ``device_of`` on both kinds of tensor.
 
-    These three are what :meth:`FusedDeviceEvaluator.evaluate` dispatches on
-    before any transfer, so they must be free of host round trips and free of
-    exceptions: ``False`` for everything that is not a device tensor, and an
+    These two are what :meth:`FusedDeviceEvaluator.evaluate` dispatches on before
+    any transfer, so they must be free of host round trips, free of torch and free
+    of exceptions: ``False`` for everything that is not a device tensor, and an
     :class:`InteropUnavailable` (not a wrong device) when a device is asked of a
-    host buffer.
+    host buffer.  Both read the tensor's own public metadata, never a private
+    payload handle.
     """
     for name in CHANNELS:
         tensor = getattr(device_state, name)
-        assert interop.is_device_tensor(tensor) is True, name
-        assert interop.device_of(tensor) == device
-        assert interop.is_device_tensor(getattr(host_state, name)) is False, name
-        with pytest.raises(interop.InteropUnavailable):
-            interop.device_of(getattr(host_state, name))
-    assert interop.is_device_tensor(np.zeros((2, 2), np.float32)) is False
-    assert interop.is_device_tensor(None) is False
-    # One HAL device per evoxc device: the memo may only ever be a fast path, and
-    # a payload's own runtime device is what it records.
-    assert interop.hal_device(device_state.opcode) is interop.hal_device(
-        device_state.payload
-    )
+        assert fused_eval.is_device_tensor(tensor) is True, name
+        assert fused_eval.device_of(tensor) == device
+        assert fused_eval.is_device_tensor(getattr(host_state, name)) is False, name
+        with pytest.raises(fused_eval.InteropUnavailable):
+            fused_eval.device_of(getattr(host_state, name))
+    assert fused_eval.is_device_tensor(np.zeros((2, 2), np.float32)) is False
+    assert fused_eval.is_device_tensor(None) is False
+    with pytest.raises(fused_eval.InteropUnavailable):
+        fused_eval.device_of(object())
 
 
 # --------------------------------------------------------------------------- #
-# export: zero-copy, or a loud refusal naming the fallback
+# export: zero-copy through the public DLPack protocol, or a loud refusal
 # --------------------------------------------------------------------------- #
 EXPORT_REJECTIONS = (
     pytest.param(lambda host, device: host.opcode, id="host-evoxc-tensor"),
@@ -382,6 +382,7 @@ EXPORT_REJECTIONS = (
         lambda host, device: tuple(to_host(getattr(host, name)) for name in CHANNELS),
         id="bare-channel-triple",
     ),
+    pytest.param(lambda host, device: object(), id="not-a-tensor"),
 )
 
 
@@ -391,8 +392,8 @@ def test_export_to_torch_declines_a_non_device_buffer(
 ):
     """Only a device payload can be shared; everything else names the host path."""
     argument = make_argument(host_state, device)
-    with pytest.raises(interop.InteropUnavailable) as info:
-        interop.export_to_torch(argument)
+    with pytest.raises(fused_eval.InteropUnavailable) as info:
+        fused_eval.export_to_torch(argument)
     message = str(info.value).lower()
     assert "host path" in message, (
         "a refusal must name the fallback the caller can use; got: " + str(info.value)
@@ -406,10 +407,14 @@ def test_export_to_torch_rejects_a_contradicting_device_kind(device_state):
     a ``ValueError`` (a capsule minted for the wrong device type would be a
     silently wrong mapping, so it never gets that far).
     """
-    exported = interop.export_to_torch(device_state.opcode, device_kind=DEVICE_KIND)
-    assert tuple(exported.shape) == tuple(int(dim) for dim in device_state.opcode.shape)
+    exported = fused_eval.export_to_torch(
+        device_state.opcode, device_kind=DEVICE_KIND
+    )
+    assert tuple(exported.shape) == tuple(
+        int(dim) for dim in device_state.opcode.shape
+    )
     with pytest.raises(ValueError):
-        interop.export_to_torch(device_state.opcode, device_kind="cpu")
+        fused_eval.export_to_torch(device_state.opcode, device_kind="cpu")
 
 
 @pytest.mark.parametrize("name", CHANNELS)
@@ -418,7 +423,7 @@ def test_export_returns_a_sharing_view_of_every_channel(
 ):
     """Shape, dtype, device and VALUES of the exported view match the evoxc tensor."""
     tensor = getattr(device_state, name)
-    exported = interop.export_to_torch(tensor)
+    exported = fused_eval.export_to_torch(tensor)
     assert isinstance(exported, torch_module.Tensor)
     assert tuple(exported.shape) == tuple(int(dim) for dim in tensor.shape)
     assert str(exported.dtype) == f"torch.{CHANNEL_DTYPES[name]}"
@@ -437,7 +442,7 @@ def test_mutating_the_torch_view_is_visible_through_the_evoxc_tensor(
 ):
     """No copy anywhere: a write through one handle is a write through the other.
 
-    This is the whole point of the shim (the fused route reads the population
+    This is the whole point of the hand-off (the fused route reads the population
     through these views), so it is measured on a THROWAWAY population rather than
     on the module fixture -- the mutation is real.
     """
@@ -445,7 +450,7 @@ def test_mutating_the_torch_view_is_visible_through_the_evoxc_tensor(
         run_config, 11, pop_size=POP_SIZE, backend="iree", device=device
     )
     before = to_host(population.opcode)
-    exported = interop.export_to_torch(population.opcode)
+    exported = fused_eval.export_to_torch(population.opcode)
     exported.add_(1)
     np.testing.assert_array_equal(
         to_host(population.opcode),
@@ -455,42 +460,65 @@ def test_mutating_the_torch_view_is_visible_through_the_evoxc_tensor(
     # ...and a SECOND export sees the same bytes, i.e. both views are live on one
     # buffer rather than two snapshots.
     np.testing.assert_array_equal(
-        interop.export_to_torch(population.opcode).detach().cpu().numpy(), before + 1
+        fused_eval.export_to_torch(population.opcode).detach().cpu().numpy(),
+        before + 1,
     )
-    assert exported.data_ptr() == interop.export_to_torch(
+    assert exported.data_ptr() == fused_eval.export_to_torch(
         population.opcode
     ).data_ptr(), "two exports of one evoxc tensor must share the pointer"
 
 
+def test_export_to_torch_declines_a_buffer_whose_metadata_disagrees(
+    device_state, monkeypatch, torch_module
+):
+    """A shape/dtype/device disagreement is a loud refusal, never a reinterpretation.
+
+    The guard exists because a DLPack capsule is a raw pointer: if what torch
+    hands back does not describe the same buffer the evoxc tensor describes, the
+    caller would be reading the wrong bytes -- so the call declines (and the
+    evaluator falls back) instead of returning the tensor.
+    """
+    real_from_dlpack = torch_module.from_dlpack
+
+    def falsifying_from_dlpack(tensor, *args, **kwargs):
+        return real_from_dlpack(tensor, *args, **kwargs).reshape(-1)
+
+    monkeypatch.setattr(torch_module, "from_dlpack", falsifying_from_dlpack)
+    with pytest.raises(fused_eval.InteropUnavailable) as info:
+        fused_eval.export_to_torch(device_state.opcode)
+    assert "shape" in str(info.value).lower(), str(info.value)
+
+
 # --------------------------------------------------------------------------- #
-# import: zero-copy back onto the device, consumable by a variation graph
+# the return direction: an evoxc device buffer the variation graph consumes
 # --------------------------------------------------------------------------- #
-def test_import_from_torch_feeds_a_variation_graph(
+def test_a_torch_write_into_an_exported_buffer_feeds_a_variation_graph(
     run_config, device_state, device, torch_module
 ):
-    """An imported tensor IS an evoxc device tensor: the graph consumes it as is.
+    """A written-through buffer IS an evoxc device tensor: the graph consumes it.
 
-    ``variation`` takes the fitness vector as an ``evoxc`` tensor without
-    uploading it again, so the elite rows of the returned state must carry
-    exactly the imported values.
+    This is the return direction the evaluator uses (it owns an ``evoxc`` device
+    buffer, exports it ONCE, and ``copy_``s every kernel result into it), so the
+    elite rows of the state ``variation`` returns must carry exactly the written
+    values -- with no import step and no host round trip.
     """
     fitness = np.linspace(0.5, 3.0, POP_SIZE, dtype=np.float32)
     expected_elites = np.argsort(-fitness, kind="stable")[:ELITE_COUNT]
-    launch = interop.export_to_torch(device_state.opcode).device
-    tensor = torch_module.as_tensor(fitness, device=launch).contiguous()
 
-    imported = interop.import_from_torch(tensor, like=device_state.opcode)
-    assert isinstance(imported, evoxc.Tensor)
-    assert is_device_tensor(imported)
-    assert imported.device == device
-    assert tuple(int(dim) for dim in imported.shape) == (POP_SIZE,)
-    assert np.dtype(imported.dtype) == np.float32
-    np.testing.assert_array_equal(to_host(imported), fitness)
+    buffer = evoxc.zeros((POP_SIZE,), evoxc.float32).to(device)
+    view = fused_eval.export_to_torch(buffer)
+    view.copy_(torch_module.as_tensor(fitness, device=view.device))
+    torch_module.cuda.synchronize(view.device)
+
+    assert fused_eval.is_device_tensor(buffer)
+    assert buffer.device == device
+    assert tuple(int(dim) for dim in buffer.shape) == (POP_SIZE,)
+    np.testing.assert_array_equal(to_host(buffer), fitness)
 
     offspring, next_key = V.variation(
         run_config,
         device_state,
-        imported,
+        buffer,
         SEED,
         elite_count=ELITE_COUNT,
         backend="iree",
@@ -500,7 +528,7 @@ def test_import_from_torch_feeds_a_variation_graph(
     np.testing.assert_array_equal(
         recorded[:ELITE_COUNT],
         fitness[expected_elites],
-        err_msg="the elite rows must carry the imported fitness values",
+        err_msg="the elite rows must carry the written fitness values",
     )
     assert np.all(np.isneginf(recorded[ELITE_COUNT:])), (
         "offspring are unevaluated until the next evaluate call"
@@ -516,65 +544,51 @@ def test_import_from_torch_feeds_a_variation_graph(
     assert is_device_tensor(next_key)
 
 
-def test_import_from_torch_refuses_to_copy_a_non_contiguous_tensor(
-    device_state, torch_module
+def test_the_device_route_writes_into_one_reused_fitness_buffer(
+    device_state, fused_device
 ):
-    """A non-contiguous layout cannot be adopted: ``ValueError``, not a copy.
+    """The returned tensor is a persistent device buffer, not a fresh allocation.
 
-    ``copy=True`` is the ONE place the shim accepts a copy, and it says so in the
-    error message -- a silent ``.contiguous()`` would be a half-zero-copy a hot
-    loop cannot see.
+    The route exists to keep a generation free of host round trips, so the fitness
+    comes back as the SAME evoxc buffer every call (the kernel result is copied
+    into it on the device) and its torch view is the same storage -- which is what
+    lets ``variation`` consume it zero-copy.
     """
-    width = int(device_state.opcode.shape[1])
-    launch = interop.export_to_torch(device_state.opcode).device
-    wide = torch_module.arange(
-        POP_SIZE * width, dtype=torch_module.int32, device=launch
-    ).reshape(POP_SIZE, width)
-    view = wide[:, ::2]
-    assert not view.is_contiguous()
-
-    with pytest.raises(ValueError) as info:
-        interop.import_from_torch(view, like=device_state.opcode)
-    assert "copy=True" in str(info.value), str(info.value)
-
-    copied = interop.import_from_torch(view, like=device_state.opcode, copy=True)
-    assert is_device_tensor(copied)
-    assert tuple(int(dim) for dim in copied.shape) == tuple(int(dim) for dim in view.shape)
-    np.testing.assert_array_equal(to_host(copied), view.cpu().numpy())
+    first = fused_device.evaluate(device_state)
+    second = fused_device.evaluate(device_state)
+    assert first is second, "the fitness buffer must be reused, not re-allocated"
+    assert fused_eval.is_device_tensor(first)
+    view = fused_eval.export_to_torch(first)
+    np.testing.assert_array_equal(
+        view.detach().cpu().numpy(),
+        to_host(first),
+        err_msg="the buffer's torch view and its evoxc handle are one storage",
+    )
+    np.testing.assert_array_equal(to_host(second), to_host(first))
 
 
-IMPORT_REJECTIONS = (
-    pytest.param(
-        lambda t, launch: t.zeros((POP_SIZE, 32), dtype=t.int32),
-        interop.InteropUnavailable,
-        "not the torch view of the evoxc",
-        id="cpu-tensor",
-    ),
-    pytest.param(
-        lambda t, launch: t.zeros((POP_SIZE, 32), dtype=t.complex64, device=launch),
-        interop.InteropUnavailable,
-        "does not support",
-        id="unsupported-dtype",
-    ),
-    pytest.param(
-        lambda t, launch: np.zeros((POP_SIZE, 32), np.int32),
-        TypeError,
-        "torch tensor",
-        id="not-a-tensor",
-    ),
-)
+def test_the_fitness_buffer_follows_the_population_size(tree_config, device, fused_device):
+    """A different population size gets its own buffer (the shape is static).
 
-
-@pytest.mark.parametrize("make_argument,expected,message", IMPORT_REJECTIONS)
-def test_import_from_torch_declines_a_tensor_it_cannot_adopt(
-    make_argument, expected, message, device_state, torch_module
-):
-    """A wrong device, an unsupported dtype or a non-tensor never gets adopted."""
-    launch = interop.export_to_torch(device_state.opcode).device
-    argument = make_argument(torch_module, launch)
-    with pytest.raises(expected) as info:
-        interop.import_from_torch(argument, like=device_state.opcode)
-    assert message in str(info.value), str(info.value)
+    Every leaf of a ``GPState`` has a run-constant shape, so the fitness buffer is
+    keyed by the shape too: a smaller/larger population must not read back a
+    buffer of the wrong length, and the smaller shape has to keep working after
+    the larger one was served.
+    """
+    small_pop = POP_SIZE // 2
+    small = init_population(
+        tree_config, 3, pop_size=small_pop, backend="iree", device=device
+    )
+    first = fused_device.evaluate(small)
+    assert tuple(int(dim) for dim in first.shape) == (small_pop,)
+    larger = init_population(
+        tree_config, 3, pop_size=POP_SIZE * 2, backend="iree", device=device
+    )
+    second = fused_device.evaluate(larger)
+    assert tuple(int(dim) for dim in second.shape) == (POP_SIZE * 2,)
+    assert first is not second
+    third = fused_device.evaluate(small)
+    assert tuple(int(dim) for dim in third.shape) == (small_pop,)
 
 
 # --------------------------------------------------------------------------- #
@@ -814,7 +828,7 @@ def test_a_failed_device_attempt_falls_back_and_is_recorded(
 
     def refusing_export(tensor, **kwargs):
         attempts.append(tensor)
-        raise interop.InteropUnavailable(
+        raise fused_eval.InteropUnavailable(
             "simulated: this box cannot share the pointer; the host path still "
             "serves this call"
         )
@@ -837,7 +851,7 @@ def test_a_failed_device_attempt_falls_back_and_is_recorded(
         context="fallback",
     )
 
-    # Positive control: with the shim restored, the same evaluator serves the
+    # Positive control: with the export restored, the same evaluator serves the
     # device route again (so the assertion above is about the injected failure).
     monkeypatch.setattr(fused_eval, "export_to_torch", real_export)
     raw = fused_device.evaluate(device_state)
@@ -909,21 +923,21 @@ def test_a_five_generation_chain_matches_the_in_graph_chain(
 # --------------------------------------------------------------------------- #
 # import discipline
 # --------------------------------------------------------------------------- #
-def test_the_shim_imports_and_declines_without_evoxc():
+def test_the_fused_module_imports_and_declines_without_evoxc():
     """``src`` alone on ``PYTHONPATH``: no evoxc, no torch, and a probe that answers.
 
-    The shim is the torch side of this subtree, so its import must still be free
-    of torch/evox/evoxc (the graph-facing code resolves them at call time); with
-    no evoxc there is simply nothing to share, and every probe must say ``False``
-    instead of raising.
+    ``fused_eval`` is the torch side of this subtree, so its import must still be
+    free of torch/evox/evoxc (everything is resolved through ``importlib`` at call
+    time); with no evoxc there is simply nothing to share, and every probe must
+    say ``False`` instead of raising.
     """
     assert SRC.name == "src", SRC
     code = (
         "import sys\n"
         "import numpy as np\n"
-        "from evogp.gp import _device_interop as interop\n"
+        "from evogp.gp import fused_eval as interop\n"
         "eager = sorted(n for n in ('torch', 'evox', 'evoxc') if n in sys.modules)\n"
-        "assert not eager, f'importing the shim pulled in {eager}'\n"
+        "assert not eager, f'importing fused_eval pulled in {eager}'\n"
         "try:\n"
         "    interop.export_to_torch(np.zeros((2, 2), np.float32))\n"
         "except interop.InteropUnavailable as exc:\n"

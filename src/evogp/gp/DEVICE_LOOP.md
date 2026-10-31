@@ -167,30 +167,30 @@ Both device routes stay 5–630× cheaper than numpy on either population; what 
 ## 6. How the device-native fused route works
 
 The route exists because the Triton kernel is the evaluator whose cost is flat in population and rows — the one shape the in-graph route cannot match — and the only thing standing between a device-resident loop and it was the round trip: `evoxc`'s documented interop is host-only (`from_numpy` is a zero-copy host wrap; a device tensor is read back through an explicit `to(Device("cpu", 0))`), while the kernel needs torch device tensors.
-`_device_interop.py` is that bridge, and it is deliberately LOCAL and TEMPORARY — it should be deleted the day `evoxc` grows a first-class device-payload DLPack export/import.
+`evoxc` has since grown a first-class device-payload export (`Tensor.__dlpack__` / `__dlpack_device__`), so the bridge is the standard DLPack protocol itself: `fused_eval.export_to_torch` is `torch.from_dlpack` plus the validation, and the transitional shim that used to borrow the private `IreeDevicePayload` / `HalDevice` handles is gone.
 
 How a call goes (`fused_eval.FusedDeviceEvaluator`):
 
 | step | mechanism |
 |---|---|
 | channels in | three `evoxc` DEVICE tensors (metadata-only dispatch: `is_device_tensor`, one shared device, 2-D population — anything else takes the host path) |
-| export | `payload.device_array._device.create_dlpack_capsule(payload.device_array._buffer_view, code, device_id)` → `torch.utils.dlpack.from_dlpack(capsule)` — a SHARING view, no bytes move (proven by mutating the torch view and seeing it through the `evoxc` tensor) |
+| export | `torch.from_dlpack(evoxc_tensor)` after checking `__dlpack_device__()` against the tensor's own device — a SHARING view, no bytes move (proven by mutating the torch view and seeing it through the `evoxc` tensor) |
 | conversion | `_legacy_triple_device`: `to_legacy_triple`'s `where` chain rewritten in torch on the device (function node ⇒ function id + `FUNC_TYPE` marker, leaf ⇒ payload + opcode, padding ⇒ zeros), bitwise-equal to the host bridge |
 | kernel | `evogp.tree.fused_engine.sr_fitness_fused` on the legacy triple; the SR loss is reduced in-kernel, so the only device output is `(pop_size,)` |
-| post | negate + non-finite → `-inf` in torch (the fitness contract), then `hal.from_dlpack_capsule(tensor.__dlpack__())` → an `IreeDevicePayload` → an `evoxc.Tensor` on the same device |
-| consume | `workflow.step` hands that tensor straight to the variation graph — no readback, so the generation stays ONE graph run |
+| post | negate + non-finite → `-inf` in torch (the fitness contract), then `view.copy_(fitness)` into the evaluator's persistent `evoxc` device buffer (`evoxc.zeros((pop,), float32).to(device)`, exported once) plus ONE `torch.cuda.synchronize()` |
+| consume | `workflow.step` hands that same `evoxc` tensor straight to the variation graph — no readback and no import step, so the generation stays ONE graph run |
 
 DLPack type codes are single-sourced (`DEVICE_TYPE_CODES`: `rocm`/`hip` → 10, `cuda` → 2) and every other kind declines, `cpu` included, because the host path already covers it.
-Validation is hard rather than silent: a non-`evoxc` or host payload, an unsupported dtype, a device mismatch, a shape/dtype disagreement between the payload metadata and the exported tensor, or a non-contiguous import without `copy=True` raises `InteropUnavailable` instead of handing back a reinterpreted buffer.
-Synchronization is an assumption with a tripwire rather than a theorem: iree's HIP driver and torch share the process' default stream, so pointer sharing needs no fence — validated by the chained-generation parity check in `tests/test_gp_stack_device_fused.py` (five `workflow.step` generations whose channels must match the in-graph route bit for bit), which is what breaks if that ever stops being true.
+Validation is hard rather than silent: a non-`evoxc` or host payload, an unsupported dtype, a device mismatch, a shape/dtype/contiguity disagreement between the `evoxc` tensor and what `torch.from_dlpack` handed back, or a device-kind contradiction raises `InteropUnavailable` instead of handing back a reinterpreted buffer.
+Synchronization is an assumption with a tripwire rather than a theorem: iree's HIP driver and torch share the process' default stream, but the WRITE direction (torch → iree) takes one explicit `torch.cuda.synchronize()` per device call because iree's HAL adds no fence of its own; the tripwire is the chained-generation parity check in `tests/test_gp_stack_device_fused.py` (five `workflow.step` generations whose channels must match the in-graph route bit for bit), which is what breaks if the assumption ever stops holding.
 `x`/`y` are uploaded once at construction, the `FUNC_TYPE` table is memoized per device, and `TRITON_CACHE_DIR` is defaulted to `$TMPDIR/evogp-triton-cache` when the caller has not set it (`/tmp/evogp-triton-cache` in this record) because this box's `$HOME` is read-only.
 
 Fallback, never a wrong number: when the interop or the kernel refuses (a cpu device, an unsupported dtype, a torch device mismatch, a population outside the kernel's scratch envelope) the call RETRIES on the host route and returns its numpy vector.
 The route actually taken is visible in `.last_route` (`"device"` / `"host"`), counted in `.route_counts`, and the reason in `.last_fallback`; the harness records all three per cell (`evaluator` in the JSON), which is how "no silent fallback" in §3 is a measurement and not a claim.
 The one thing not caught is the host route's own `FusedUnavailable`: when that raises, no fused route exists on this box at all, and `.available()` already said so.
 
-Upstream plan: the shim borrows two private surfaces (`IreeDevicePayload.device_array`, `HalDevice.create_dlpack_capsule` / `from_dlpack_capsule`) that `evoxc` does not export yet.
-When it does, `_device_interop.export_to_torch` / `import_from_torch` become one-line `evoxc` calls and the module disappears; until then it stays a validated, declining, single-purpose bridge and not a second code path.
+The export direction is now a one-line `evoxc` call; the import direction has no native equivalent (`external_call` refuses a device-resident return and evoxc's `from_dlpack` is host-only), which is why the return leg is a persistent `evoxc` buffer the graph consumes rather than a per-call import.
+`register_external_kernel(..., device_resident=True)` imports a kernel-returned `torch.Tensor` zero-copy instead, but it costs one graph run around the call (+0.20 ms measured, 0.56 vs 0.36 ms) and forces the sync inside the kernel, so the buffer route stays the shipped one.
 
 ## 7. Fused (Triton) vs in-graph: the head-to-head, and where the crossover went
 
@@ -255,6 +255,6 @@ EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src:/root/evoxc /tmp/rocvenv/bin/python \
 
 `--side` is one of `gp`, `gp-fused`, `numpy`, `torch`, `torch-fused`, `fused`; the default (`--cells`) grid runs all six sides per cell, each in its own process (the parent re-executes itself, so no cell's compile, allocator or RNG state can leak into another), and merges the children's JSON into one file (30 records, 378 s of child wall in this campaign).
 `--side fused` is the §7 head-to-head, `--sides` narrows the grid, `--no-guard` skips the `rocm-smi` idle probe (`--guard-wait` is its timeout), and `--json <path>` writes the record — the parent merges its children's into that one file.
-A `gp-fused` run additionally needs a writable `TRITON_CACHE_DIR` (the harness defaults it) and torch+triton importable; `_device_interop.interop_available` is the probe that decides whether the device route exists at all.
+A `gp-fused` run additionally needs a writable `TRITON_CACHE_DIR` (the harness defaults it) and torch+triton importable; `fused_eval.interop_available` is the probe that decides whether the device route exists at all (it round-trips one element through the native DLPack export, so an evoxc without it answers `False` instead of failing mid-call).
 
 Environment of record: python 3.12.3, torch 2.13.0+rocm7.1 (HIP 7.1.52802), triton 3.7.1, numpy 2.5.4, iree-base-compiler / iree-base-runtime 3.11.0, evoxc `9f66fec` (checkout `/root/evoxc`), `evogp` `d00d95b` (the tree that produced these numbers), GPU `AMD Instinct MI300X VF`.
