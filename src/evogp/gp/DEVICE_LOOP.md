@@ -11,22 +11,22 @@ Sides: `gp` = the device path (`init_gp(backend="iree", device="rocm")` + `graph
 
 | cell | side | evaluation ms | operator ms | total ms | total min–max | cold s |
 |---|---|---:|---:|---:|---:|---:|
-| p64-N1024 | **gp (device)** | 0.673 | 0.517 | **1.209** | 1.19–1.23 | 7.03 |
-| p64-N1024 | numpy | 5.675 | 4.202 | 10.099 | 9.56–11.08 | 0.08 |
-| p64-N1024 | torch | 2.445 | 2.504 | 4.949 | 4.85–5.20 | 3.57 |
-| p64-N1024 | torch-fused | 0.221 | 2.400 | 2.621 | 2.57–2.78 | 0.62 |
-| p256-N1024 | **gp (device)** | 0.816 | 0.669 | **1.480** | 1.47–1.51 | 6.33 |
-| p256-N1024 | numpy | 19.113 | 5.016 | 36.059 | 34.38–36.72 | 0.09 |
-| p256-N1024 | torch | 2.931 | 2.493 | 5.425 | 5.28–5.59 | 3.60 |
-| p256-N1024 | torch-fused | 0.227 | 2.419 | 2.647 | 2.58–2.77 | 0.61 |
-| p1000-N1024 | **gp (device)** | 1.681 | 1.268 | **2.951** | 2.91–3.09 | 6.35 |
-| p1000-N1024 | numpy | 58.800 | 7.611 | 69.600 | 67.19–72.73 | 0.14 |
-| p1000-N1024 | torch | 4.903 | 2.596 | 7.499 | 7.29–8.07 | 3.56 |
-| p1000-N1024 | torch-fused | 0.239 | 2.459 | 2.698 | 2.43–2.88 | 0.62 |
-| p256-N4096 | **gp (device)** | 1.782 | 0.699 | **2.475** | 2.44–2.49 | 6.38 |
-| p256-N4096 | numpy | 62.706 | 5.010 | 76.123 | 74.39–76.58 | 0.13 |
-| p256-N4096 | torch | 3.732 | 2.510 | 6.242 | 6.13–6.43 | 3.54 |
-| p256-N4096 | torch-fused | 0.218 | 2.321 | 2.538 | 2.42–2.78 | 0.63 |
+| p64-N1024 | **gp (device)** | 0.576 | 0.504 | **1.066** | 1.05–1.09 | 4.70 |
+| p64-N1024 | numpy | 5.666 | 4.136 | 9.798 | 9.13–10.22 | 0.08 |
+| p64-N1024 | torch | 2.359 | 2.440 | 4.798 | 4.74–5.05 | 3.45 |
+| p64-N1024 | torch-fused | 0.214 | 2.340 | 2.554 | 2.36–2.63 | 0.62 |
+| p256-N1024 | **gp (device)** | 0.729 | 0.656 | **1.387** | 1.37–1.40 | 4.61 |
+| p256-N1024 | numpy | 21.094 | 4.980 | 34.734 | 33.37–39.34 | 0.09 |
+| p256-N1024 | torch | 2.903 | 2.537 | 5.440 | 4.96–5.67 | 3.61 |
+| p256-N1024 | torch-fused | 0.218 | 2.399 | 2.617 | 2.46–2.73 | 0.61 |
+| p1000-N1024 | **gp (device)** | 1.464 | 1.218 | **2.751** | 2.65–2.93 | 4.66 |
+| p1000-N1024 | numpy | 57.750 | 7.120 | 70.352 | 68.37–74.66 | 0.14 |
+| p1000-N1024 | torch | 4.856 | 2.578 | 7.433 | 7.12–8.14 | 3.51 |
+| p1000-N1024 | torch-fused | 0.216 | 2.390 | 2.606 | 2.42–2.68 | 0.61 |
+| p256-N4096 | **gp (device)** | 1.546 | 0.691 | **2.213** | 2.19–2.25 | 4.59 |
+| p256-N4096 | numpy | 60.759 | 4.930 | 74.382 | 72.74–78.65 | 0.13 |
+| p256-N4096 | torch | 3.631 | 2.546 | 6.177 | 5.96–6.35 | 3.50 |
+| p256-N4096 | torch-fused | 0.213 | 2.230 | 2.443 | 2.38–2.66 | 0.61 |
 
 `operator` is `total - evaluation` on the torch side (measured around the `problem.evaluate` call) and the measured variation-graph lane on the two `evogp.gp` sides, each lane carries its own sync bracket, so the two `evogp.gp` segments sum to within ±2 % of `total` rather than to it exactly — read them against `total`.
 `cold` is the first `step` of the process: two IREE compiles for `gp`, one dense compile for `torch`, the Triton JIT for `torch-fused`, nothing for `numpy`.
@@ -35,12 +35,13 @@ Sides: `gp` = the device path (`init_gp(backend="iree", device="rocm")` + `graph
 
 | cell | torch / gp | torch-fused / gp | torch-operator / gp total | numpy / gp |
 |---|---:|---:|---:|---:|
-| p64-N1024 | 4.09× | 2.17× | 2.07× | 8.35× |
-| p256-N1024 | 3.67× | 1.79× | 1.68× | 24.37× |
-| p1000-N1024 | 2.54× | **0.91×** | **0.88×** | 23.59× |
-| p256-N4096 | 2.52× | 1.03× | 1.01× | 30.76× |
+| p64-N1024 | 4.50× | 2.40× | 2.29× | 9.19× |
+| p256-N1024 | 3.92× | 1.89× | 1.83× | 25.04× |
+| p1000-N1024 | 2.70× | **0.95×** | **0.94×** | 25.57× |
+| p256-N4096 | 2.79× | 1.10× | 1.15× | 33.61× |
 
-The third column is the honest one: at pop 1000 the torch stack's *operator layer alone* (2.596 ms) is cheaper than a whole `evogp.gp` generation (2.951 ms), and on the fused route that layer is 91 % of the generation.
+The third column is the honest one: at pop 1000 the torch stack's *operator layer alone* (2.578 ms) is 0.94× a whole `evogp.gp` generation (2.751 ms), and on the fused route that layer is 92 % of the generation.
+The fourth column is why the numpy route is a correctness backend and not a loop backend: a generation of the same stack on the host evaluator is 9–34× dearer.
 
 ## 3. What one generation costs structurally
 
@@ -53,15 +54,17 @@ The third column is the honest one: at pop 1000 the torch stack's *operator laye
 The device counts are measured, not asserted: `structure` in every `gp` record of the JSON reads `generation_runs=2, variation_runs=1, evaluation_runs=1, syncs=0, host_readbacks=0, transfers=0` at all four cells.
 The previous device driver (before commit `2f81f12`) paid 3 `evoxc.run` calls, 2 syncs and 2 H2D uploads per generation for the same work, because the elite splice was its own graph and the fitness vector was read back every generation.
 `workflow.step` adds no host work around the two graphs: it hands the previous state's device fitness vector and the next key straight into the variation graph (the key is already a device tensor after generation 0), which is why the measured syncs, readbacks and transfers stay at zero rather than merely small.
-Cold start is where the device path pays: 6.3–7.0 s, i.e. two IREE compiles (variation ≈ 2.1 s, evaluation the rest), against 3.5 s for the torch dense compile, 0.6 s for the Triton JIT and 0.08–0.15 s for numpy.
-Because the warm gap is 1.4–74 ms per generation, that cold cost pays back in **1–5 generations** against every side except `torch-fused` (5–90 generations there, and never at pop 1000, where the gp route is slower warm as well):
+Cold start is where the device path pays: 4.6–4.7 s, i.e. two IREE compiles (variation ≈ 2.1 s, evaluation the rest), against 3.5 s for the torch dense compile, 0.6 s for the Triton JIT and 0.08–0.15 s for numpy.
+Because the warm gap is 0.2–72 ms per generation, that cold cost pays back only over hundreds to thousands of generations — `payback = (gp cold − side cold) / (side warm − gp warm)`, i.e. the generation after which the two routes have spent the same wall time:
 
 | cell | vs numpy | vs torch | vs torch-fused |
 |---|---:|---:|---:|
-| p64-N1024 | 1 gen | 1 gen | 5 gens |
-| p256-N1024 | 1 gen | 1 gen | 5 gens |
-| p1000-N1024 | 1 gen | 1 gen | never |
-| p256-N4096 | 1 gen | 1 gen | 90 gens |
+| p64-N1024 | 529 gens | 335 gens | 2 742 gens |
+| p256-N1024 | 136 gens | 247 gens | 3 251 gens |
+| p1000-N1024 | 67 gens | 244 gens | never |
+| p256-N4096 | 62 gens | 276 gens | 17 330 gens |
+
+Every cell is a warm-throughput statement, not a short-run one: against `torch-fused` the device path needs thousands of generations (17 330 on the wide-row cell, whose 0.23 ms warm margin cannot amortize a 4 s compile) and at pop 1000 it never pays back, because the gp route is slower warm there as well.
 
 ## 4. Convergence: does the device path do the same work?
 
@@ -92,12 +95,12 @@ The timed lane runs on an evolved population, so the trees are longer than gener
 
 | cell | gp fresh | gp evolved | numpy fresh | numpy evolved |
 |---|---:|---:|---:|---:|
-| p64-N1024 | 0.665 | 0.673 | 2.731 | 5.675 |
-| p256-N1024 | 0.807 | 0.816 | 11.882 | 19.113 |
-| p1000-N1024 | 1.705 | 1.681 | 38.341 | 58.800 |
-| p256-N4096 | 1.791 | 1.782 | 32.898 | 62.706 |
+| p64-N1024 | 0.572 | 0.576 | 2.674 | 5.666 |
+| p256-N1024 | 0.722 | 0.729 | 11.250 | 21.094 |
+| p1000-N1024 | 1.507 | 1.464 | 37.351 | 57.750 |
+| p256-N4096 | 1.547 | 1.546 | 32.542 | 60.759 |
 
-The in-graph evaluation is flat in tree length (its cost is the `max_nodes`-static gather chain), while the host numpy evaluator grows 1.5–2.1× as the population deepens — so the numpy-path totals above are an evolved-population number, and a numpy step on a fresh population is 20–40 % cheaper than the column in §1.
+The in-graph evaluation is flat in tree length (its cost is the `max_nodes`-static child-read chain, and the first child is a static slice), while the host numpy evaluator grows 1.5–2.1× as the population deepens — so the numpy-path totals above are an evolved-population number, and a numpy step on a fresh population is 30–53 % cheaper than the column in §1.
 
 ## 6. Fused (Triton) vs in-graph: the open question, settled
 
@@ -105,28 +108,29 @@ Head-to-head on the same channels, the same `x`/`y`, medians of 15, transfers in
 
 | cell | in-graph | transfer | transfer (queued) | fused from host | fused from device | fused from device (queued) | in-graph / fused |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| p64-N1024 | 0.673 | 0.270 | 0.314 | 0.318 | 0.847 | 0.632 | **0.80×** |
-| p256-N1024 | 0.794 | 0.325 | 0.407 | 0.420 | 1.003 | 0.827 | **0.79×** |
-| p1000-N1024 | 1.672 | 0.423 | 0.553 | 0.795 | 1.370 | 1.348 | 1.22× |
-| p256-N4096 | 1.748 | 0.311 | 0.395 | 0.379 | 0.979 | 0.774 | 1.79× |
+| p64-N1024 | 0.567 | 0.266 | 0.354 | 0.317 | 0.823 | 0.672 | **0.69×** |
+| p256-N1024 | 0.717 | 0.310 | 0.352 | 0.431 | 0.921 | 0.783 | **0.78×** |
+| p1000-N1024 | 1.481 | 0.438 | 0.521 | 0.790 | 1.382 | 1.311 | 1.07× |
+| p256-N4096 | 1.535 | 0.311 | 0.382 | 0.386 | 1.009 | 0.769 | 1.52× |
 
-**Verdict: from device-resident channels the routes cross over inside this grid — the in-graph route wins at pop 256 (1.26×), the fused route wins at pop 1000 (1.22×) and on the wide-data cell (1.79×), and pop 64 is a coin-flip (in-graph 1.25× on the composed lane, fused 1.06× on the optimistic one).**
-How to read the columns: `fused from device` is the representative lane — download, host decode, kernel and the fitness upload composed inside ONE timed repetition, which is what a device loop actually pays and what the `in-graph / fused` ratio and `faster_route` use; `fused from device (queued)` is the SUM of two separately measured medians (the transfer behind a device run plus the host-channels kernel), so it excludes the per-call compose overhead and reads 0.02–0.22 ms below the quiet composed lane — an optimistic bound, not a measurement.
-The mechanism is what the two routes' shapes predict: the Triton kernel is flat in population and rows (0.218–0.239 ms across all four cells), the in-graph evaluation grows with `pop × rows` (0.673 → 1.782 ms), and the transfer toll it must first recover is 0.270–0.423 ms idle / 0.314–0.553 ms behind a device run, i.e. 18–41 % of the in-graph call (31–41 % at pop ≤ 256).
-So the fused route is a loss wherever that fixed toll exceeds the in-graph headroom (pop ≤ 256) and a win once the in-graph gather chain outgrows it (pop 1000, and by the widest margin on the row axis).
-From host channels — what the numpy-backed operator layer would hand an evaluator — the fused route is 2.12× / 1.89× / 2.10× / 4.61× faster on all four cells, which is the case `fused_eval.py` was written for and the case that costs nothing extra.
-That settles the caveat in `fused_eval.py`'s verdict in both directions: `FusedEvaluator` from host channels is a clear win everywhere, and from DEVICE channels it is a ~1.2–1.8× win exactly where the in-graph route's `pop × rows` gather traffic dominates, while staying a loss at the small populations a GP loop lives in.
+**Verdict: from device-resident channels the routes cross over inside this grid — the in-graph route wins pop 64 (1.45× on the composed lane, 1.19× on the optimistic one) and pop 256 (1.28× / 1.09×), the fused route wins pop 1000 (1.07× composed, 1.13× optimistic) and the wide-row cell (1.52× composed, 2.00× optimistic).**
+How to read the columns: `fused from device` is the representative lane — download, host decode, kernel and the fitness upload composed inside ONE timed repetition, which is what a device loop actually pays and what the `in-graph / fused` ratio and `faster_route` use; `fused from device (queued)` is the SUM of two separately measured medians (the transfer behind a device run plus the host-channels kernel), so it excludes the per-call compose overhead and reads 0.07–0.24 ms below the quiet composed lane — an optimistic bound, not a measurement.
+The mechanism is what the two routes' shapes predict: the Triton kernel is flat in population and rows (0.213–0.218 ms across all four cells), the in-graph evaluation grows with `pop × rows` (0.567 → 1.535 ms), and the transfer toll it must first recover is 0.266–0.438 ms idle / 0.352–0.521 ms behind a device run, i.e. 21–47 % of the in-graph call (47 % at pop 64, 43 % at pop 256).
+So the fused route is a loss wherever that fixed toll exceeds the in-graph headroom (pop ≤ 256) and a win once the in-graph child-read chain outgrows it (pop 1000, and by the widest margin on the row axis).
+From host channels — what the numpy-backed operator layer would hand an evaluator — the fused route is 1.79× / 1.66× / 1.87× / 3.98× faster: a clear win everywhere, but a smaller one than the 2.1–4.6× of the previous round precisely because the in-graph route got cheaper.
+That settles the caveat in `fused_eval.py`'s verdict in both directions: `FusedEvaluator` from host channels is a clear win everywhere, and from DEVICE channels it is a 1.1–2.0× win exactly where the in-graph route's `pop × rows` traffic dominates, while staying a loss at the small populations a GP loop lives in.
 The default device route is therefore **not** changed: `graph_eval.GraphEvaluator` stays the shipped `evaluate=` for a device loop, because it wins the cells a GP loop actually spends its generations in, and because the composed lane above still does not charge the fused route for the one thing a device loop needs, the upload of the fitness vector back to the variation graph.
 Parity of the fused lanes against in-graph: max relative 1.2e-07 / 1.7e-07 / 3.4e-07 / 2.2e-07 with zero finiteness mismatches, i.e. three to four orders of magnitude inside the 1e-4 acceptance box.
 ## 7. Where we lose, and why
 
-- **pop 1000 × 1024 rows vs the torch fused route: 2.951 vs 2.698 ms (0.91×).** The in-graph evaluation is 1.681 ms there against the Triton kernel's 0.239, a 1.44 ms deficit that the operator layer's 1.19 ms advantage (1.268 variation vs 2.459 torch) cannot cover; the same comparison against the *default* torch route is a 2.54× win.
-- **pop 256 × 4096 rows is parity (1.03×) for the same reason**: the row axis widens in-graph evaluation to 1.782 ms while the kernel stays at 0.218, and what keeps the cell even is that the torch pipeline still pays 2.51 ms of operator work.
-- **Our operator layer is 2.0× cheaper than the torch one at pop 1000 (1.268 vs 2.596 ms) and that is still not enough there**: the torch operator layer alone costs 0.88× a whole `evogp.gp` generation, so at large populations the win has to come from evaluation, and on the fused route it does not.
-- **The numpy route is not competitive for a loop** (8.4× / 24.4× / 23.6× / 30.8× behind the device path): its evaluation is the host evaluator, which is 1.5–2.1× dearer again on evolved (longer) populations. The parent's reference figure of 4.1/5.0/7.4 ms for a numpy-backend step is not reproducible here — a single `SymbolicRegression.evaluate` on a *fresh* p256 population already costs 11.9 ms (19.1 evolved), so that column must have been measured on a different workload (fewer rows, shallower descriptor or a different evaluator).
-- **Cold start**: 6.3–7.0 s vs 0.6 s (fused) / 3.5 s (torch default) / 0.1 s (numpy). Irrelevant for a long run (payback of 1–5 generations against every side but `torch-fused`) but it dominates any short benchmark and it is why the artifact cache exists.
-- **The `gp` side reads 4–5 % above the earlier same-box figures** (1.209/1.480/2.951 against 1.162/1.422/2.811 ms at pop 64/256/1000, a previous round): this harness times each lane inside its own sync bracket and the card is shared (a foreign python is resident on it; the idle probe recorded 0–1 % use per cell), so the medians sit inside the run-to-run spread rather than at the best-case reading.
-- **Variance**: totals span 1.19–1.23 (p64), 1.47–1.51 (p256), 2.91–3.09 (p1000) and 2.44–2.49 ms (p256-N4096); the torch side is wider (7.29–8.07 at p1000) because its engine call allocates per generation. No cell looks bimodal, so the medians in §1 are stable to a few percent; an earlier full grid in this session agreed with it within ~1.5 % on every `gp` cell.
+- **pop 1000 × 1024 rows vs the torch fused route: 2.751 vs 2.606 ms (0.95×), i.e. parity inside the run-to-run spread rather than a win.** The in-graph evaluation is 1.464 ms there against the Triton kernel's 0.216, a 1.25 ms deficit that now just exceeds the operator layer's 1.17 ms advantage (1.218 variation vs 2.390 torch, plus ~0.07 ms of lane bracket), so the generation lands 0.15 ms (5 %) behind; the same comparison against the *default* torch route is a 2.70× win.
+  What remains is structural: the kernel is flat in population, so at pop 1000 it evaluates 1 024 rows for 0.216 ms while the in-graph route reads `2 × width` child values per column in traced tensors — the first child is already a static slice (it was a third gather before), and only a fused device-side evaluator removes the rest.
+- **pop 256 × 4096 rows is a narrow win (1.10×) and the narrowest in the grid after pop 1000**: the row axis widens in-graph evaluation to 1.546 ms against the kernel's 0.213, and what decides the cell is the fused route's 2.230 ms operator layer, not our evaluation — a wider row axis or a smaller population flips it.
+- **Our operator layer is 2.1× cheaper than the torch one at pop 1000 (1.218 vs 2.578 ms) and that is still not quite enough there**: the torch operator layer alone costs 0.94× a whole `evogp.gp` generation, so at large populations the win has to come from evaluation, and on the fused route it does not.
+- **The numpy route is not competitive for a loop** (9.2× / 25.0× / 25.6× / 33.6× behind the device path): its evaluation is the host evaluator, which is 1.5–2.1× dearer again on evolved (longer) populations. The parent's reference figure of 4.1/5.0/7.4 ms for a numpy-backend step is not reproducible here — a single `SymbolicRegression.evaluate` on a *fresh* p256 population already costs 11.3 ms (21.1 evolved), so that column must have been measured on a different workload (fewer rows, shallower descriptor or a different evaluator).
+- **Cold start**: 4.6–4.7 s vs 0.6 s (fused) / 3.5 s (torch default) / 0.1 s (numpy). Irrelevant for a long run (payback of 62–529 generations against numpy, ~250–340 against torch, thousands against `torch-fused` and never at pop 1000, per §3) but it dominates any short benchmark and it is why the artifact cache exists.
+- **Run-to-run spread decides the close cells**: two full grids in this session (the second is this record) agreed to ≤2.7 % on every `gp` cell, but the `torch-fused` lane moved 2.44–2.61 ms at p256-N4096 and 2.61–2.80 ms at p1000 between them, so a cell decided by less than ~10 % is called parity here — pop 1000 read 1.02× on the first grid and 0.95× on this one, and is documented as the parity it is.
+- **Variance**: totals span 1.05–1.09 (p64), 1.37–1.40 (p256), 2.65–2.93 (p1000) and 2.19–2.25 ms (p256-N4096); the torch side is wider (7.12–8.14 at p1000) because its engine call allocates per generation. No cell looks bimodal, so the medians in §1 are stable to a few percent.
 
 ## 8. Reproduce
 
@@ -146,4 +150,4 @@ EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src:/root/evoxc /tmp/rocvenv/bin/python \
 `--side` is one of `gp`, `numpy`, `torch`, `torch-fused`, `fused`; the default (`--cells`) grid runs all five sides per cell, each in its own process (the parent re-executes itself, so no cell's compile or RNG state can leak into another), and merges the children's JSON into one file.
 `--side fused` is the §6 head-to-head, `--sides` narrows the grid, `--no-guard` skips the `rocm-smi` idle probe (`--guard-wait` is its timeout), and `--json <path>` writes the record — the parent merges its children's into that one file.
 
-Environment of record: python 3.12.3, torch 2.13.0+rocm7.1 (HIP 7.1.52802), triton 3.7.1, numpy 2.5.4, iree-base-compiler / iree-base-runtime 3.11.0, evoxc `9f66fec` (checkout `/root/evoxc`), `evogp` `1f8e48c` (the tree that produced these numbers), GPU `AMD Instinct MI300X VF`.
+Environment of record: python 3.12.3, torch 2.13.0+rocm7.1 (HIP 7.1.52802), triton 3.7.1, numpy 2.5.4, iree-base-compiler / iree-base-runtime 3.11.0, evoxc `9f66fec` (checkout `/root/evoxc`), `evogp` `73ac61d` (the tree that produced these numbers), GPU `AMD Instinct MI300X VF`.
