@@ -347,6 +347,10 @@ trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
    is only **16.5–86 µs** (§3's profiler column, §17.1), i.e. 22 % of a `p256` call, 51 % of `p4096` and 63 % of
    `d7`. Further gains on the small cells need the LAUNCH PATH (Triton's Python `JITFunction.run`, not the kernel
    body) — that is the largest single item left and nothing has been tried against it yet (§17.7).
+   **Closed by §18**: with `EVOGP_FUSED_DISPATCH` on its `bound` default (the shipped setting) the per-call
+   `JITFunction.run` is gone from the warm path and `batch_forward` reads 0.052–0.122 ms on the six cells
+   (−17 % to −38 % against the `jit` column of the same ABBA session), which lifts the device share of a
+   `p256` call from 22 % to ≈31 %.
 5. **The multi-output loss path materializes the predictions.** `output_len >= 2` writes the `(pop, rows, out_len)`
    prediction buffer to device memory (zeroed, then read-modify-written at every tagged node — the accumulator is
    that buffer, see §11) and reduces it in the same kernel, where the single-output path folds in registers and moves
@@ -1029,3 +1033,73 @@ All five call sites carry the fused attempt between the dense one and the specia
 There is NO per-stage timer surface on this route (the split must be reconstructed by timing `_prepare` / `_transposed` / `fused_kernels.launch_value` / `launch_loss` separately, which is what `fused_check._stage_split` does), and there is no readback stage at all.
 `import triton` happens only inside `fused_kernels.kernels()`, so `import evogp.tree` stays GPU/triton-free; `TRITON_CACHE_DIR` must be writable or the first launch dies with `OSError: [Errno 30] Read-only file system: '/root/.triton'` — on this box `$HOME` is read-only, so every fused run needs `TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache`.
 `fused_check.py` is ~3.1k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is one self-contained dev battery (parity sets, the golden cross-check, the decline matrix, the wiring gate, the six-cell timing and the geometry sweep share one workload builder and one comparison helper), so do not split it into modules.
+
+---
+## 18. The launch path — a pre-bound `CompiledKernel` dispatch (§17.7's remaining item)
+
+**Why this was the lever.** §3's profiler row says the device kernel is 16.5 µs at `p256-L64` while the shipped
+`batch_forward` used to read 0.078–0.086 ms: the other ~60 µs were Python. A **CPU-only** decomposition of one warm
+launch (no per-sample sync, so the numbers are launch cost and not device time) put **22.9 µs in
+`JITFunction.run`** — signature binding, option resolution, `compute_cache_key`, the kernel-cache lookup, the
+`launch_metadata` construction and the hook plumbing — against **5.1 µs for the backend launcher itself**
+(`HIPLauncher.__call__`: 10 positional params plus `*args`). Everything else in the call was small and already
+memoized (`torch.empty` of the value buffer 2.4 µs, `_value_key` 3.2, `PLAN_MEMO` lookup 0.7, `_bump` 0.3,
+`resolve_route` 3.5). So the fix is not kernel work: call the compiled kernel directly.
+
+**What ships** (`fused_kernels._BoundLaunch`, `EVOGP_FUSED_DISPATCH`). A specialization's first prepared call still
+goes through `JITFunction.run(..., warmup=False)` — that call is what produces/loads the compiled kernel — and it
+*arms* a launch descriptor from the resulting `CompiledKernel`: `kernel.run` (the backend launcher),
+`kernel.function` (the raw `CUfunction`), `kernel.packed_metadata`, the grid, the launch stream getter
+(`triton.runtime.driver.active.get_current_stream`, 0.1 µs), the launch options and the device index. Every later
+warm call calls the launcher with the already-bound argument tuple and **skips** binder, cache lookup, options and
+metadata construction. The descriptor is stored on the memoized plan, so `PLAN_MEMO` invalidation and
+`clear_fused_cache()` re-arm it (pinned by `test_clear_fused_cache_rearms_the_dispatch`). Nothing about the numerics
+changes: the same compiled kernel, the same arguments, the same grid and stream — `test_bound_and_jit_agree_bitwise`
+asserts `torch.equal` on `batch_forward` / `SR_fitness` / `forward` output.
+
+**The Triton API it binds to: 3.7.1** (`/tmp/rocvenv/lib/python3.12/site-packages/triton/`), i.e.
+`JITFunction.run(jit.py:708)` returning a `CompiledKernel` whose `.run` property is `HIPLauncher` on ROCm (and
+`CudaLauncher` on CUDA — the same shape). `CompiledKernel.__getitem__(grid, stream)` is the *documented*
+`(grid, stream)` runner, but on this Triton it takes a 3-tuple grid (`IndexError: tuple index out of range` on a
+2-tuple), so the code calls `ck.run` directly — the same ~5 µs, one level lower. Every step is **feature-detected**
+(`_launcher_takes_launch_args` inspects `type(launcher).__call__` for 9 positional parameters plus varargs; the launch
+hooks are `HookChain`s and are skipped only when their `.calls` list is empty — `_hook_active`), and anything
+unusable increments `_STATS["declines"]` and serves the call through `JITFunction.run` as before, so an older or
+newer Triton silently degrades to today's path rather than breaking. `import triton` stays lazy;
+`fused_kernel_launches`, the memo invalidation, the `EVOGP_FUSED_*` knobs and the sync-free warm path are untouched;
+no new `.item()` anywhere, and `dispatch_stats()` (`bound_launches` / `jit_launches` / `declines`, surfaced as
+`fused_bound_launches` / `fused_dispatch_declines` in `scratch_stats()`) makes the served path observable.
+
+**The A/B (ABBA, one process per cell, idle-GPU guard, warm medians; `EVOGP_FUSED_DISPATCH` is the only difference).**
+`jit` = today's path, `bound` = the shipped default; µs, six harness cells:
+
+| cell | `bf` jit → bound | Δ | `SR_fitness` jit → bound | Δ | `forward` jit → bound | Δ |
+|---|---|---|---|---|---|---|
+| `p256-L32-i8` | 79.3 → **52.4** | −33.9 % | 114.0 → **71.1** | −37.6 % | 78.7 → **48.3** | −38.6 % |
+| `p256-L64` | 85.0 → **52.6** | −38.1 % | 104.7 → **62.7** | −40.1 % | 77.2 → **48.3** | −37.4 % |
+| `p256-L64-N4096` | 89.8 → **66.5** | −26.0 % | 104.9 → **78.0** | −25.6 % | 78.2 → **49.9** | −36.2 % |
+| `p1000-L64` | 84.7 → **64.0** | −24.4 % | 109.9 → **75.9** | −30.9 % | 76.2 → **52.8** | −30.7 % |
+| `p4096-L64` | 113.9 → **94.9** | −16.7 % | 138.9 → **102.6** | −26.1 % | 85.8 → **50.1** | −41.6 % |
+| `p2048-L128-d7` | 157.2 → **121.5** | −22.7 % | 172.1 → **136.6** | −20.6 % | 118.9 → **81.9** | −31.1 % |
+
+The floors were ≥30 % on `p256-L32` / `p256-L64` / `p1000`, ≥10 % on `p4096` / `d7`: the two `p256` cells clear 30 %
+(−34 % / −38 %), `p1000` lands at −24 % (short of its 30 % because 1 000 trees cost more device time per launch,
+§17.1), and `p4096` / `d7` clear 10 % with room. `SR_fitness` and `forward` are never regressed and improve more
+than `batch_forward` (their larger host share). A same-session single-process spot check at `p256-L64` read
+value 0.0624 → 0.0369 ms and loss 0.0760 → 0.0431 ms with the device at 16.4–16.8 µs, consistent with the campaign.
+Against the harness's `torch-batched` arm in the same sessions, the bound column is **75–217×** on `batch_forward`
+(4 017 / 4 586 / 5 019 / 5 263 / 10 494 / 26 320 µs on the six cells).
+
+**The new floor.** A warm `p256` `batch_forward` is now ≈52 µs of which ≈16.5 µs is the kernel (**≈31 %**, up from
+≈22 %), ≈5 µs is the backend launcher (≈10 %, was ≈27 % for `JITFunction.run`'s 23 µs) and ≈30 µs is the facade's
+host glue (route resolution, `_prepare`-memo lookup, key build, the `contiguous` epilogue). At `p4096` the split is
+≈57 µs device / 5 launcher / ≈33 host; on `d7` ≈86 µs device of 122 µs. So the launch path is no longer the
+bottleneck: the small-cell headroom left is the ≈30 µs of per-call Python in the facade, and the device share is
+what bounds any further kernel-level win.
+
+**Not pursued, with the measurement that closed it.** A HIP/CUDA graph capture of the launch (`torch.cuda.CUDAGraph`,
+replayed on the same static buffers) measures **5.8 µs CPU and 14.5 µs device per replay** — no better than the
+pre-bound path (≈5.1 µs) and it would need a stale-buffer invalidation protocol on top, so it was dropped. The
+`batch_forward` surface also cannot repay more per-call work: `gp_step` is unchanged (2.84–3.24 ms against
+2.86–3.39 ms on the `jit` column) because a generation is 91 % operators (§4), which is why this round is priced
+per call and not per loop.
