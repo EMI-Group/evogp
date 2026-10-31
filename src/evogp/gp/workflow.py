@@ -41,6 +41,32 @@ generation** (the readback of ``evaluate``'s ``(pop_size,)`` result); the
 operator graph stages the channels host-side internally, which is
 :mod:`evogp.gp.variation`'s own (pre-existing) behaviour, not a driver sync.
 
+Device-resident runs
+--------------------
+A run whose population lives as ``evoxc`` tensors ON A DEVICE stays there for
+the whole loop, and the driver is what makes that possible end to end:
+
+* :func:`init_gp` returns the device state directly
+  (``encoding.init_population(..., backend="iree", device="rocm")``);
+* the objective is the device-resident in-graph evaluator
+  (:class:`evogp.gp.graph_eval.GraphEvaluator`), which returns its
+  ``(pop_size,)`` fitness as a DEVICE tensor and never syncs -- so the useful
+  work of a generation (variation + evaluation) is two ``evoxc.run`` calls;
+* :func:`step` reads that vector back ONCE (the driver's single sync: the
+  history/elite bookkeeping needs the numbers), picks the elite rows on the
+  host, uploads that small index vector and runs the elite splice as a traced
+  graph ON THE DEVICE, so the channels are never downloaded and never
+  re-uploaded;
+* :func:`run` alternates ``evaluate -> one readback -> variation -> splice`` and
+  downloads exactly once more, at the end, to report
+  :attr:`GPResult.best_channels` as host rows.
+
+Both fitness kinds are accepted from the SAME ``evaluate`` callable: a numpy
+array (the host path, unchanged) or an ``evoxc`` tensor, whose device is then
+the run's device.  Nothing has to be declared: an objective that returns a
+device tensor drives the device path, and the fitness contract (MAXIMIZED,
+non-finite = ``-inf``) is applied on the readback either way.
+
 The RNG is the state
 --------------------
 ``GPState.key`` is the *next* generation's key: ``init_population`` produces the
@@ -56,7 +82,7 @@ from typing import Callable, Optional, Tuple
 
 import numpy as np
 
-from . import _runtime, encoding
+from . import _runtime, encoding, graph_eval
 from . import variation as _variation
 from .config import GPConfig, GPTreeConfig
 from .state import UNEVALUATED, GPState, population_size
@@ -111,13 +137,14 @@ class GPResult:
             unchanged to re-evaluate that tree (``problem.evaluate`` /
             ``predict`` and :func:`evogp.gp.encoding.validate_channels` /
             :func:`evogp.gp.encoding.to_legacy_triple` read it as a population
-            of one).
+            of one).  They are HOST rows even for a device-resident run: the
+            driver downloads the winning row once, at the end.
         best_generation: 0-based index of the generation that produced
             :attr:`best_channels`.
         generations: Number of generation steps actually performed.
         state: The final population state (the generation after the last
             evaluated one; ``run(generations=0)`` returns the initial
-            population).
+            population).  A device run returns device-resident channels.
     """
 
     best_fitness: float
@@ -151,11 +178,17 @@ def init_gp(
             state's ``key`` is the *next* generation's key.
         pop_size: number of trees; see ``config``.
         backend: evoxc backend name (``"numpy"`` default).
-        device: evoxc device string.
+        device: evoxc device spelling (``"cpu"`` default, ``"rocm"`` /
+            ``"rocm:0"`` on this AMD box) or an ``evoxc.Device``.
         validate: run the host-side encoding validation on the result.
 
     Returns:
         A :class:`~evogp.gp.state.GPState` with an all-``-inf`` fitness vector.
+        ``backend``/``device`` naming a real device (e.g. ``backend="iree",
+        device="rocm"``) makes that state DEVICE-RESIDENT -- its channels, its
+        fitness vector and its key all live on the device, which is what a
+        device-resident run (:func:`step` / :func:`run` with a
+        :class:`evogp.gp.graph_eval.GraphEvaluator`) is built from.
     """
     return encoding.init_population(
         config,
@@ -191,26 +224,71 @@ def _configs(config, pop_size: Optional[int]) -> Tuple[GPTreeConfig, GPConfig]:
     return tree_config, gp_config
 
 
-def _fitness(state: GPState, evaluate: Callable) -> np.ndarray:
-    """The host readback of one evaluation (the driver's only sync point)."""
+def _fitness(state: GPState, evaluate: Callable) -> Tuple[np.ndarray, object]:
+    """The host readback of one evaluation (the driver's only sync point).
+
+    Returns:
+        ``(values, raw)`` -- the ``[pop_size]`` float32 host fitness (fresh,
+        writable, non-finite mapped to ``-inf``) and the object ``evaluate``
+        returned, which :func:`_variation_fitness` may hand back to the operator
+        layer unchanged when it already lives on the device.
+
+    The two accepted kinds are told apart by :func:`evogp.gp._runtime.is_tensor`,
+    never by asking the caller: a numpy array takes the host path the driver has
+    always had, an ``evoxc`` tensor is read back through
+    :func:`evogp.gp.graph_eval.readback_fitness` (one sync, and a device buffer
+    is moved to the host first because ``evoxc`` never transfers implicitly).
+    """
     if not callable(evaluate):
         raise TypeError(
             f"evaluate must be callable (channels -> [pop_size] fitness), got "
             f"{type(evaluate).__name__}"
         )
     expected = population_size(state)
+    raw = evaluate(state)
+    if _runtime.is_tensor(raw):
+        shape = tuple(int(dim) for dim in raw.shape)
+        if len(shape) != 1 or shape[0] != expected:
+            raise ValueError(
+                f"evaluate returned shape {shape}; the contract is a "
+                f"[pop_size={expected}] float32 fitness vector"
+            )
+        # The ONE readback of a generation. `readback_fitness` owns the D2H move
+        # and the repo-wide non-finite -> -inf rule (`StandardPipeline.step` maps
+        # NaN to -inf in place; the driver does the same so an unevaluable tree
+        # can never win a tournament).
+        return graph_eval.readback_fitness(raw, expected), raw
     values = np.array(
-        encoding._as_numpy(evaluate(state), "fitness"), dtype=np.float32, copy=True
+        encoding._as_numpy(raw, "fitness"), dtype=np.float32, copy=True
     )
     if values.ndim != 1 or int(values.shape[0]) != expected:
         raise ValueError(
             f"evaluate returned shape {values.shape}; the contract is a "
             f"[pop_size={expected}] float32 fitness vector"
         )
-    # `StandardPipeline.step` maps NaN to -inf in place; the driver does the
-    # same on the readback so an unevaluable tree can never win a tournament.
     values[np.isnan(values)] = float(UNEVALUATED)
-    return values
+    return values, raw
+
+
+def _variation_fitness(raw, values: np.ndarray):
+    """The fitness vector handed to :func:`evogp.gp.variation.variation`.
+
+    A device objective just produced a device tensor that the driver read back a
+    moment ago, so passing that tensor on saves the ``pop_size``-element upload
+    a device generation would otherwise pay.  The substitution is made only when
+    the readback is entirely finite: then the device vector and the sanitized
+    host vector hold the same values (the in-graph ``non-finite -> -inf`` map is
+    a no-op) and the operator layer sees identical input either way.  A
+    population that produced a non-finite fitness falls back to the host vector,
+    which is what carries the sanitizing, so the operator layer never sees a NaN.
+    """
+    if not _runtime.is_tensor(raw):
+        return values
+    if np.dtype(raw.dtype) != np.dtype(np.float32):
+        return values
+    if tuple(int(dim) for dim in raw.shape) != (int(values.shape[0]),):
+        return values
+    return raw if bool(np.isfinite(values).all()) else values
 
 
 def _elite_indices(fitness: np.ndarray, elite_count: int) -> np.ndarray:
@@ -247,18 +325,56 @@ def _elite_fn(pop_size: int, width: int):
     return operator
 
 
+def _state_device(state: GPState):
+    """The device a state's channels live on, or ``None`` for a host population.
+
+    Reads the tensors' own metadata only (``Tensor.device`` is a host-side field,
+    not a sync), which is how the driver decides between the two splice routes:
+    a device-resident population never downloads its channels, and a host
+    population keeps the byte-for-byte path it has always had.
+    """
+    channels = _runtime.as_channels(state)
+    if not all(_runtime.is_tensor(channel) for channel in channels):
+        return None
+    device = channels[0].device
+    return None if device.kind == "cpu" else device
+
+
 def _inject_elites(parent: GPState, offspring: GPState, index: np.ndarray,
-                   backend: str, device: str) -> Tuple[object, object, object]:
-    """Prepend the selected parent rows to the offspring rows."""
+                   backend: str, device: str,
+                   target=None) -> Tuple[object, object, object]:
+    """Prepend the selected parent rows to the offspring rows.
+
+    Args:
+        parent: the evaluated generation (the elite rows are copied out of it).
+        offspring: the operator layer's offspring.
+        index: ``[pop_size]`` int32 global row indices -- elite rows from the
+            first half of the merged buffer, kept offspring rows from the second.
+        backend: evoxc backend name.
+        device: evoxc device spelling (the host path passes it through verbatim).
+        target: the device of a device-resident population (``None`` on the host
+            path).  When set, the index vector is uploaded once and the whole
+            splice runs on that device, so neither the channels nor the result
+            ever reach the host.
+    """
     evoxc_module = _runtime.evoxc()
     pop_size, width = (int(dim) for dim in offspring.opcode.shape)
     parent_channels = parent.channels()
     offspring_channels = offspring.channels()
+    if target is not None:
+        index = _runtime.to_device(
+            np.ascontiguousarray(index, dtype=np.int32), target
+        )
+        device_key = _runtime.device_text(target)
+    else:
+        device_key = (
+            device if isinstance(device, str) else _runtime.device_text(device)
+        )
     memo_key = (
         pop_size,
         width,
         backend,
-        device,
+        device_key,
         tuple(str(tensor.dtype) for tensor in parent_channels),
     )
     specs = tuple(
@@ -271,7 +387,7 @@ def _inject_elites(parent: GPState, offspring: GPState, index: np.ndarray,
         lambda: _elite_fn(pop_size, width),
         specs,
         backend,
-        device,
+        device if target is None else target,
     )
     return evoxc_module.run(
         built,
@@ -285,18 +401,34 @@ def _inject_elites(parent: GPState, offspring: GPState, index: np.ndarray,
     )
 
 
-def _advance(config, state: GPState, fitness: np.ndarray, *, key=None,
-             backend: str = "numpy", device: str = "cpu") -> GPState:
-    """The next generation from an already evaluated ``state``."""
+def _advance(config, state: GPState, fitness: np.ndarray, key=None,
+             backend: str = "numpy", device: str = "cpu",
+             fitness_input=None) -> GPState:
+    """The next generation from an already evaluated ``state``.
+
+    Args:
+        config: the run's config.
+        state: the evaluated population.
+        fitness: its host fitness readback (``[pop_size]``, sanitized).
+        key: the RNG key to vary with (``None`` continues ``state.key``).
+        backend: evoxc backend name.
+        device: evoxc device spelling.
+        fitness_input: the object ``evaluate`` returned, when it is an ``evoxc``
+            tensor -- :func:`_variation_fitness` decides whether it can replace
+            the host vector (no upload on a device generation).
+    """
     _tree_config, gp_config = _configs(config, population_size(state))
     pop_size = population_size(state)
     elite_count = int(gp_config.elite_count)
     elite_idx = _elite_indices(fitness, elite_count)
+    # A device-resident population keeps every channel on the device; a host
+    # population takes the host path unchanged.
+    target = _state_device(state)
 
     offspring, next_key = _variation.variation(
         config,
         state,
-        fitness,
+        _variation_fitness(fitness_input, fitness),
         state.key if key is None else key,
         backend=backend,
         device=device,
@@ -313,7 +445,7 @@ def _advance(config, state: GPState, fitness: np.ndarray, *, key=None,
             ]
         ).astype(np.int32)
         opcode, payload, size = _inject_elites(
-            state, offspring, index, backend, device
+            state, offspring, index, backend, device, target
         )
         next_fitness = np.empty(pop_size, dtype=np.float32)
         next_fitness[:elite_count] = fitness[elite_idx]
@@ -322,14 +454,20 @@ def _advance(config, state: GPState, fitness: np.ndarray, *, key=None,
         opcode, payload, size = offspring.channels()
         next_fitness = np.full(pop_size, float(UNEVALUATED), dtype=np.float32)
 
+    # The elite rows are bit-identical copies of evaluated parents, so their
+    # fitness is genuinely known; the offspring are unevaluated until the next
+    # `evaluate` call.  A device population gets that vector back on its own
+    # device (a `pop_size`-element upload) so the state stays resident.
+    if target is not None:
+        fitness_vector = _runtime.to_device(next_fitness, target)
+    else:
+        fitness_vector = _runtime.evoxc().from_numpy(next_fitness)
+
     return GPState(
         opcode=opcode,
         payload=payload,
         size=size,
-        # The elite rows are bit-identical copies of evaluated parents, so their
-        # fitness is genuinely known; the offspring are unevaluated until the
-        # next `evaluate` call.
-        fitness=_runtime.evoxc().from_numpy(next_fitness),
+        fitness=fitness_vector,
         key=next_key,
     )
 
@@ -358,16 +496,25 @@ def step(
         evaluate: ``channels -> (pop_size,) float32``, MAXIMIZED, non-finite =
             ``-inf``.  Called exactly once per ``step`` and never traced.  A
             ``SymbolicRegression`` / ``CustomLoss`` instance, its ``.evaluate``,
-            its ``.evaluate_graph`` or any engine adapter all qualify.
+            its ``.evaluate_graph`` or any engine adapter all qualify.  The
+            result may be a numpy array (the host path) or an ``evoxc`` tensor;
+            a DEVICE tensor is what makes the whole splice device-resident --
+            nothing has to be declared, the driver detects the kind
+            (:class:`evogp.gp.graph_eval.GraphEvaluator` is the device
+            objective).
         key: the RNG key to vary with; ``None`` (the default) continues the
             state's own key, which is what a loop wants.
         backend: evoxc backend name (``"numpy"`` default).
-        device: evoxc device string.
+        device: evoxc device spelling (``"cpu"`` default).
 
     Returns:
         The next generation: channels of ``elite_count`` elite rows followed by
         the offspring rows, a fitness vector that carries the elite's known
-        fitness and ``-inf`` for every offspring, and the advanced key.
+        fitness and ``-inf`` for every offspring, and the advanced key.  For a
+        device-resident ``state`` all of these live on the same device and the
+        channels are never downloaded -- the only host transfer of the
+        generation is the one fitness readback (:func:`_fitness`), whose
+        numbers the elite search and the history share.
 
     Raises:
         ValueError: when ``evaluate`` returns the wrong shape and when the state
@@ -376,7 +523,13 @@ def step(
     """
     fitness = _fitness(state, evaluate)
     return _advance(
-        config, state, fitness, key=key, backend=backend, device=device
+        config,
+        state,
+        fitness[0],
+        key=key,
+        backend=backend,
+        device=device,
+        fitness_input=fitness[1],
     )
 
 
@@ -384,7 +537,12 @@ def step(
 # the loop
 # --------------------------------------------------------------------------- #
 def _row_numpy(state: GPState, row: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """One individual of ``state`` as fresh ``int32``/``float32``/``int32`` rows."""
+    """One individual of ``state`` as fresh ``int32``/``float32``/``int32`` rows.
+
+    The one download of a device run (``encoding._as_numpy`` moves a device
+    buffer to the host explicitly), and it happens once, after the loop, when
+    :class:`GPResult` is assembled.
+    """
     opcode, payload, size = state.channels()
     return (
         np.array(encoding._as_numpy(opcode, "opcode"), dtype=np.int32)[row].copy(),
@@ -415,14 +573,17 @@ def run(
         config: a ``(GPTreeConfig, GPConfig)`` pair (or a bare
             ``GPTreeConfig`` plus ``pop_size``).
         evaluate: ``channels -> (pop_size,) float32`` (MAXIMIZED); see
-            :func:`step`.
+            :func:`step`.  A numpy-returning objective runs the host loop, a
+            device-tensor-returning one (``GraphEvaluator``) runs the
+            device-resident loop; the two are interchangeable per call.
         generations: number of generations to run (``>= 0``).
         key: the int seed (or concrete ``evoxc`` key) of generation 0.  The rest
             of the RNG stream is carried in the state, so this is the only knob
             a reproducible run needs.
         pop_size: only for a bare ``GPTreeConfig`` (a pair carries it).
         backend: evoxc backend name (``"numpy"`` default).
-        device: evoxc device string.
+        device: evoxc device spelling (``"cpu"`` default, ``"rocm"`` /
+            ``"rocm:0"`` on this AMD box) or an ``evoxc.Device``.
         callback: optional ``callback(generation, state, fitness)`` called after
             every evaluated generation with the 0-based generation index, the
             population that was just evaluated and its ``[pop_size]`` float32
@@ -431,8 +592,10 @@ def run(
     Returns:
         A :class:`GPResult`.  ``result.best_fitness_history`` is the
         per-generation best (monotone, see the class docstring),
-        ``result.best_channels`` the winning tree, and ``result.state`` the
-        final population.
+        ``result.best_channels`` the winning tree as HOST numpy rows (downloaded
+        once, at the end, even for a device run), and ``result.state`` the final
+        population -- device-resident when ``backend``/``device`` (or a device
+        ``evaluate``) made the run a device run.
 
     Raises:
         ValueError: for a negative / non-int ``generations``, a mismatched
@@ -457,7 +620,7 @@ def run(
 
     for generation in range(generations):
         evaluated = state
-        fitness = _fitness(evaluated, evaluate)
+        fitness, raw = _fitness(evaluated, evaluate)
 
         generation_best = float(np.max(fitness))
         best_history.append(generation_best)
@@ -473,7 +636,14 @@ def run(
         if callback is not None:
             callback(generation, evaluated, fitness)
 
-        state = _advance(config, evaluated, fitness, backend=backend, device=device)
+        state = _advance(
+            config,
+            evaluated,
+            fitness,
+            backend=backend,
+            device=device,
+            fitness_input=raw,
+        )
 
     best_channels = (
         None if best_state is None else _row_numpy(best_state, best_row)
