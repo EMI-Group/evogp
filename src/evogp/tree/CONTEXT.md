@@ -77,8 +77,6 @@ The scratch block is shared per `(device, n_prog, stack_cap, BLOCK_R)` shape cla
 ## Environment knobs (read per call unless noted)
 An unusable value raises `ValueError` naming the variable (except `EVOGP_DENSE_ALLOW_UNSAFE_SCATTER`, where anything but unset/`0` counts as set). Full semantics: the owning module docstring, `DENSE_EVAL.md` §3–§4, `BATCH_EVAL.md` §9, `FUSED.md`.
 - `EVOGP_EVAL_MODE` (`auto`) — master route switch: `dense` (alias `dynamic`) / `specialized` / `batch` / `fused` / `auto`; `auto` = fused (Triton) from `EVOGP_FUSED_MIN_POP` up when `triton` is importable and the envelope fits, else dense+iree from `EVOGP_DENSE_AUTO_MIN_POP` up, else specialized; `auto` never `batch`.
-- `EVOGP_FUSED_MIN_POP` (`16`) — `auto`'s fused-route population threshold (and the explicit `fused` mode's): the measured flat-kernel crossover (`dense_engine.auto_fused_decline`).
-- `EVOGP_FUSED_MAX_SCRATCH_MB` (`8192`) — the fused route's memory envelope, the third gate of `auto`'s fused decision (`fused_engine.envelope_decline`).
 - `EVOGP_DENSE_AUTO_MIN_POP` (`64`) — `auto`'s dense population threshold (call-count break-even knob).
 - `EVOGP_DENSE_AUTO_BUDGET_MB` (`8192`) — memory envelope of `auto`'s rows rule and of its trace-cap raise (`pop_size * tree_len * rows * 4` bytes; `rows` = data rows, one per tree on `per_row=True`).
 - `EVOGP_DENSE_AUTO_MAX_ROWS` (`0`) — optional TIGHTENING row pin inside that envelope (`0`/unset = unpinned).
