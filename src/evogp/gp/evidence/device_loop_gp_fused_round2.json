@@ -1,0 +1,1160 @@
+{
+  "children": [
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "gp-fused",
+        "--pop",
+        "64",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-generation-3290499/gp-fused-64x1024.json"
+      ],
+      "pop": 64,
+      "rows": 1024,
+      "side": "gp-fused",
+      "wall_s": 13.07
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "gp-fused",
+        "--pop",
+        "256",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-generation-3290499/gp-fused-256x1024.json"
+      ],
+      "pop": 256,
+      "rows": 1024,
+      "side": "gp-fused",
+      "wall_s": 13.17
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "gp-fused",
+        "--pop",
+        "1000",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-generation-3290499/gp-fused-1000x1024.json"
+      ],
+      "pop": 1000,
+      "rows": 1024,
+      "side": "gp-fused",
+      "wall_s": 13.57
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "gp-fused",
+        "--pop",
+        "4096",
+        "--rows",
+        "1024",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-generation-3290499/gp-fused-4096x1024.json"
+      ],
+      "pop": 4096,
+      "rows": 1024,
+      "side": "gp-fused",
+      "wall_s": 13.49
+    },
+    {
+      "command": [
+        "/tmp/rocvenv/bin/python",
+        "-m",
+        "evogp.gp.measure_generation",
+        "--side",
+        "gp-fused",
+        "--pop",
+        "256",
+        "--rows",
+        "4096",
+        "--warmup",
+        "5",
+        "--reps",
+        "15",
+        "--generations",
+        "20",
+        "--seed",
+        "0",
+        "--json",
+        "/tmp/evogp-measure-generation-3290499/gp-fused-256x4096.json"
+      ],
+      "pop": 256,
+      "rows": 4096,
+      "side": "gp-fused",
+      "wall_s": 13.29
+    }
+  ],
+  "command": "/tmp/rocvenv/bin/python -m evogp.gp.measure_generation --sides gp-fused --json /tmp/genesis/task_71752cfe84d40424/prof/new_loop.json",
+  "config": {
+    "cells": [
+      [
+        64,
+        1024
+      ],
+      [
+        256,
+        1024
+      ],
+      [
+        1000,
+        1024
+      ],
+      [
+        4096,
+        1024
+      ],
+      [
+        256,
+        4096
+      ]
+    ],
+    "generations": 20,
+    "gp_knobs": {
+      "crossover_prob": 0.9,
+      "elite_count": 2,
+      "mutation_prob": 0.2,
+      "tournament_size": 4
+    },
+    "protocol": "one process per (side, cell); warm medians of --reps timed repetitions with torch.cuda.synchronize() around each; idle-device guard per child",
+    "reps": 15,
+    "seed": 0,
+    "sides": [
+      "gp-fused"
+    ],
+    "warmup": 5,
+    "workload": {
+      "const_prob": 0.5,
+      "const_range": [
+        -5.0,
+        5.0
+      ],
+      "input_len": 8,
+      "layer_leaf_prob": 0.2,
+      "max_layer_cnt": 4,
+      "max_nodes": 32,
+      "sample_cnt": 8,
+      "using_funcs": [
+        "+",
+        "-",
+        "*",
+        "/"
+      ]
+    }
+  },
+  "guards": [
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        0.0
+      ],
+      "ok": true,
+      "pop": 64,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "gp-fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "gp-fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 1000,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "gp-fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 4096,
+      "resident_processes": [],
+      "rows": 1024,
+      "side": "gp-fused",
+      "waited_s": 0.2
+    },
+    {
+      "busy": false,
+      "gpu_use_pct": [
+        1.0
+      ],
+      "ok": true,
+      "pop": 256,
+      "resident_processes": [],
+      "rows": 4096,
+      "side": "gp-fused",
+      "waited_s": 0.2
+    }
+  ],
+  "records": [
+    {
+      "backend": "iree",
+      "cold_ms": 3404.1838,
+      "device": "rocm",
+      "evaluator": {
+        "available": true,
+        "device_available": true,
+        "fallback": null,
+        "route": "device"
+      },
+      "fresh_evaluation": {
+        "max_ms": 0.5409,
+        "mean_ms": 0.4531,
+        "median_ms": 0.4524,
+        "min_ms": 0.4079,
+        "reps": 15,
+        "samples_ms": [
+          0.5409,
+          0.4727,
+          0.4676,
+          0.4351,
+          0.4675,
+          0.4863,
+          0.4613,
+          0.446,
+          0.4524,
+          0.4348,
+          0.4079,
+          0.4549,
+          0.4124,
+          0.4348,
+          0.4213
+        ]
+      },
+      "pop": 64,
+      "rows": 1024,
+      "side": "gp-fused",
+      "structure": {
+        "evaluate_route": "device",
+        "evaluation_runs": 0,
+        "fused_launches": 1,
+        "generation_runs": 1,
+        "host_readbacks": 0,
+        "host_route_launches": 0,
+        "last_fallback": null,
+        "route_counts": {
+          "device": 74,
+          "host": 0
+        },
+        "route_note": "device route: the channels never leave the device (zero-copy DLPack views) and the driver consumes the device fitness tensor, so a generation is one variation graph run with no channel transfer and no fitness readback; the remaining host touch is the evaluator's OUT_NODE guard (a single boolean readback) inside the evaluation lane",
+        "syncs": 0,
+        "transfers": 0,
+        "variation_runs": 1
+      },
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.5859,
+          "mean_ms": 0.5515,
+          "median_ms": 0.5488,
+          "min_ms": 0.5338,
+          "reps": 15,
+          "samples_ms": [
+            0.5527,
+            0.557,
+            0.5667,
+            0.5381,
+            0.5428,
+            0.5859,
+            0.5763,
+            0.5421,
+            0.5596,
+            0.5338,
+            0.5356,
+            0.5426,
+            0.538,
+            0.5488,
+            0.553
+          ]
+        },
+        "total": {
+          "max_ms": 1.1444,
+          "mean_ms": 1.1135,
+          "median_ms": 1.117,
+          "min_ms": 1.0887,
+          "reps": 15,
+          "samples_ms": [
+            1.1066,
+            1.1444,
+            1.1021,
+            1.1293,
+            1.0944,
+            1.1356,
+            1.1181,
+            1.0887,
+            1.104,
+            1.1246,
+            1.1192,
+            1.0996,
+            1.0946,
+            1.1246,
+            1.117
+          ]
+        },
+        "variation": {
+          "max_ms": 0.5933,
+          "mean_ms": 0.5769,
+          "median_ms": 0.574,
+          "min_ms": 0.5626,
+          "reps": 15,
+          "samples_ms": [
+            0.5698,
+            0.5933,
+            0.5816,
+            0.5739,
+            0.5865,
+            0.5846,
+            0.5888,
+            0.5793,
+            0.574,
+            0.563,
+            0.5626,
+            0.5718,
+            0.5729,
+            0.5851,
+            0.566
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -7.692033,
+          -4.804387,
+          -4.804387,
+          -2.896472,
+          -2.896472,
+          -2.896472,
+          -2.896472,
+          -2.896472,
+          -2.611154,
+          -2.611154,
+          -2.580666,
+          -2.5612,
+          -1.564783,
+          -1.564783,
+          -1.540227,
+          -1.502522,
+          -1.479782,
+          -1.438826,
+          -1.402574,
+          -1.376907
+        ],
+        "median": [
+          -43.311756,
+          -17.261068,
+          -16.034729,
+          -14.874931,
+          -14.730766,
+          -14.710601,
+          -11.797751,
+          -7.493378,
+          -12.249826,
+          -12.680161,
+          -4.86587,
+          -3.35533,
+          -2.990382,
+          -3.190102,
+          -2.92803,
+          -2.620394,
+          -2.615937,
+          -2.626199,
+          -2.252385,
+          -7.097546
+        ]
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/triton"
+    },
+    {
+      "backend": "iree",
+      "cold_ms": 3433.0644,
+      "device": "rocm",
+      "evaluator": {
+        "available": true,
+        "device_available": true,
+        "fallback": null,
+        "route": "device"
+      },
+      "fresh_evaluation": {
+        "max_ms": 0.5523,
+        "mean_ms": 0.4959,
+        "median_ms": 0.493,
+        "min_ms": 0.4469,
+        "reps": 15,
+        "samples_ms": [
+          0.5523,
+          0.5379,
+          0.5194,
+          0.4595,
+          0.5182,
+          0.4938,
+          0.4875,
+          0.4661,
+          0.4726,
+          0.4833,
+          0.5004,
+          0.4469,
+          0.4844,
+          0.5232,
+          0.493
+        ]
+      },
+      "pop": 256,
+      "rows": 1024,
+      "side": "gp-fused",
+      "structure": {
+        "evaluate_route": "device",
+        "evaluation_runs": 0,
+        "fused_launches": 1,
+        "generation_runs": 1,
+        "host_readbacks": 0,
+        "host_route_launches": 0,
+        "last_fallback": null,
+        "route_counts": {
+          "device": 74,
+          "host": 0
+        },
+        "route_note": "device route: the channels never leave the device (zero-copy DLPack views) and the driver consumes the device fitness tensor, so a generation is one variation graph run with no channel transfer and no fitness readback; the remaining host touch is the evaluator's OUT_NODE guard (a single boolean readback) inside the evaluation lane",
+        "syncs": 0,
+        "transfers": 0,
+        "variation_runs": 1
+      },
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.6303,
+          "mean_ms": 0.5987,
+          "median_ms": 0.5998,
+          "min_ms": 0.5647,
+          "reps": 15,
+          "samples_ms": [
+            0.6303,
+            0.6145,
+            0.5805,
+            0.6174,
+            0.603,
+            0.6116,
+            0.5912,
+            0.6181,
+            0.597,
+            0.5998,
+            0.581,
+            0.6018,
+            0.5988,
+            0.5713,
+            0.5647
+          ]
+        },
+        "total": {
+          "max_ms": 1.2625,
+          "mean_ms": 1.2212,
+          "median_ms": 1.2212,
+          "min_ms": 1.1717,
+          "reps": 15,
+          "samples_ms": [
+            1.2523,
+            1.2625,
+            1.2368,
+            1.1949,
+            1.2486,
+            1.2001,
+            1.1717,
+            1.1923,
+            1.2003,
+            1.2106,
+            1.2427,
+            1.2212,
+            1.1833,
+            1.2581,
+            1.2431
+          ]
+        },
+        "variation": {
+          "max_ms": 0.6816,
+          "mean_ms": 0.6628,
+          "median_ms": 0.663,
+          "min_ms": 0.6456,
+          "reps": 15,
+          "samples_ms": [
+            0.6649,
+            0.6768,
+            0.6645,
+            0.6765,
+            0.6456,
+            0.6499,
+            0.6764,
+            0.663,
+            0.6542,
+            0.669,
+            0.6625,
+            0.6497,
+            0.6816,
+            0.6513,
+            0.6565
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -7.692033,
+          -7.692033,
+          -6.756296,
+          -5.707755,
+          -5.707755,
+          -3.414513,
+          -2.949415,
+          -2.464817,
+          -1.574375,
+          -1.574375,
+          -1.527214,
+          -1.527214,
+          -1.520405,
+          -0.724795,
+          -0.724795,
+          -0.460114,
+          -0.460114,
+          -0.460114,
+          -0.460114,
+          -0.460114
+        ],
+        "median": [
+          -46.461422,
+          -19.899679,
+          -16.126898,
+          -15.62845,
+          -15.776736,
+          -15.779724,
+          -14.199324,
+          -14.784168,
+          -14.030853,
+          -13.401813,
+          -13.569339,
+          -12.19256,
+          -11.617377,
+          -11.028605,
+          -8.076544,
+          -6.74484,
+          -5.24239,
+          -4.620671,
+          -3.424262,
+          -2.467039
+        ]
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/triton"
+    },
+    {
+      "backend": "iree",
+      "cold_ms": 3571.8534,
+      "device": "rocm",
+      "evaluator": {
+        "available": true,
+        "device_available": true,
+        "fallback": null,
+        "route": "device"
+      },
+      "fresh_evaluation": {
+        "max_ms": 0.5434,
+        "mean_ms": 0.4737,
+        "median_ms": 0.4852,
+        "min_ms": 0.4255,
+        "reps": 15,
+        "samples_ms": [
+          0.5434,
+          0.5086,
+          0.5114,
+          0.5114,
+          0.5007,
+          0.4978,
+          0.444,
+          0.4485,
+          0.4259,
+          0.4867,
+          0.4352,
+          0.4255,
+          0.4293,
+          0.452,
+          0.4852
+        ]
+      },
+      "pop": 1000,
+      "rows": 1024,
+      "side": "gp-fused",
+      "structure": {
+        "evaluate_route": "device",
+        "evaluation_runs": 0,
+        "fused_launches": 1,
+        "generation_runs": 1,
+        "host_readbacks": 0,
+        "host_route_launches": 0,
+        "last_fallback": null,
+        "route_counts": {
+          "device": 74,
+          "host": 0
+        },
+        "route_note": "device route: the channels never leave the device (zero-copy DLPack views) and the driver consumes the device fitness tensor, so a generation is one variation graph run with no channel transfer and no fitness readback; the remaining host touch is the evaluator's OUT_NODE guard (a single boolean readback) inside the evaluation lane",
+        "syncs": 0,
+        "transfers": 0,
+        "variation_runs": 1
+      },
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.6211,
+          "mean_ms": 0.5486,
+          "median_ms": 0.544,
+          "min_ms": 0.5202,
+          "reps": 15,
+          "samples_ms": [
+            0.6211,
+            0.5399,
+            0.5499,
+            0.5411,
+            0.5202,
+            0.5874,
+            0.5498,
+            0.525,
+            0.551,
+            0.5314,
+            0.5328,
+            0.5491,
+            0.544,
+            0.5424,
+            0.5444
+          ]
+        },
+        "total": {
+          "max_ms": 1.9089,
+          "mean_ms": 1.4171,
+          "median_ms": 1.3534,
+          "min_ms": 1.34,
+          "reps": 15,
+          "samples_ms": [
+            1.3617,
+            1.3504,
+            1.34,
+            1.5064,
+            1.3827,
+            1.3429,
+            1.352,
+            1.3534,
+            1.4248,
+            1.4972,
+            1.9089,
+            1.3899,
+            1.3527,
+            1.3493,
+            1.3441
+          ]
+        },
+        "variation": {
+          "max_ms": 0.8189,
+          "mean_ms": 0.7992,
+          "median_ms": 0.7945,
+          "min_ms": 0.7887,
+          "reps": 15,
+          "samples_ms": [
+            0.7887,
+            0.8022,
+            0.7904,
+            0.7889,
+            0.8005,
+            0.8021,
+            0.7921,
+            0.7913,
+            0.8136,
+            0.7899,
+            0.7945,
+            0.8189,
+            0.808,
+            0.8151,
+            0.7923
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -5.988708,
+          -5.988708,
+          -4.362157,
+          -4.362157,
+          -2.556242,
+          -2.440491,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.429559
+        ],
+        "median": [
+          -44.067329,
+          -18.439083,
+          -15.964047,
+          -15.368632,
+          -14.788993,
+          -11.702979,
+          -9.963754,
+          -9.557068,
+          -8.246567,
+          -6.446914,
+          -5.759512,
+          -5.399454,
+          -4.982333,
+          -5.169722,
+          -4.645123,
+          -4.334732,
+          -4.098106,
+          -3.877808,
+          -4.334732,
+          -3.55072
+        ]
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/triton"
+    },
+    {
+      "backend": "iree",
+      "cold_ms": 3537.0491,
+      "device": "rocm",
+      "evaluator": {
+        "available": true,
+        "device_available": true,
+        "fallback": null,
+        "route": "device"
+      },
+      "fresh_evaluation": {
+        "max_ms": 0.5292,
+        "mean_ms": 0.4667,
+        "median_ms": 0.4642,
+        "min_ms": 0.4224,
+        "reps": 15,
+        "samples_ms": [
+          0.5292,
+          0.4814,
+          0.5164,
+          0.4768,
+          0.4643,
+          0.4642,
+          0.4609,
+          0.4576,
+          0.4646,
+          0.4521,
+          0.4224,
+          0.4698,
+          0.4376,
+          0.4593,
+          0.4434
+        ]
+      },
+      "pop": 4096,
+      "rows": 1024,
+      "side": "gp-fused",
+      "structure": {
+        "evaluate_route": "device",
+        "evaluation_runs": 0,
+        "fused_launches": 1,
+        "generation_runs": 1,
+        "host_readbacks": 0,
+        "host_route_launches": 0,
+        "last_fallback": null,
+        "route_counts": {
+          "device": 74,
+          "host": 0
+        },
+        "route_note": "device route: the channels never leave the device (zero-copy DLPack views) and the driver consumes the device fitness tensor, so a generation is one variation graph run with no channel transfer and no fitness readback; the remaining host touch is the evaluator's OUT_NODE guard (a single boolean readback) inside the evaluation lane",
+        "syncs": 0,
+        "transfers": 0,
+        "variation_runs": 1
+      },
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.6067,
+          "mean_ms": 0.5733,
+          "median_ms": 0.571,
+          "min_ms": 0.5482,
+          "reps": 15,
+          "samples_ms": [
+            0.5709,
+            0.5724,
+            0.5564,
+            0.5482,
+            0.5693,
+            0.5714,
+            0.571,
+            0.5586,
+            0.5512,
+            0.5786,
+            0.5942,
+            0.5605,
+            0.5995,
+            0.6067,
+            0.5902
+          ]
+        },
+        "total": {
+          "max_ms": 1.4033,
+          "mean_ms": 1.2347,
+          "median_ms": 1.2296,
+          "min_ms": 1.18,
+          "reps": 15,
+          "samples_ms": [
+            1.1801,
+            1.2723,
+            1.2323,
+            1.4033,
+            1.2578,
+            1.2095,
+            1.2433,
+            1.2302,
+            1.2296,
+            1.2273,
+            1.1974,
+            1.2408,
+            1.18,
+            1.2166,
+            1.1994
+          ]
+        },
+        "variation": {
+          "max_ms": 0.6836,
+          "mean_ms": 0.653,
+          "median_ms": 0.6564,
+          "min_ms": 0.625,
+          "reps": 15,
+          "samples_ms": [
+            0.6602,
+            0.6756,
+            0.6282,
+            0.6676,
+            0.6372,
+            0.6616,
+            0.6564,
+            0.6519,
+            0.6836,
+            0.67,
+            0.625,
+            0.6323,
+            0.6466,
+            0.6357,
+            0.6636
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -5.906959,
+          -5.906959,
+          -3.429124,
+          -2.919271,
+          -2.440491,
+          -1.415881,
+          -1.415881,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.475866,
+          -0.361789,
+          -0.361789,
+          -0.248677,
+          -0.248677,
+          -0.248677
+        ],
+        "median": [
+          -47.367748,
+          -18.551577,
+          -15.850959,
+          -15.554489,
+          -14.784168,
+          -11.702979,
+          -10.477187,
+          -9.557068,
+          -8.606524,
+          -6.886969,
+          -6.468942,
+          -6.045103,
+          -5.410527,
+          -5.016468,
+          -4.362157,
+          -3.681404,
+          -3.476042,
+          -3.426161,
+          -2.7355,
+          -2.440491
+        ]
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/triton"
+    },
+    {
+      "backend": "iree",
+      "cold_ms": 3446.0318,
+      "device": "rocm",
+      "evaluator": {
+        "available": true,
+        "device_available": true,
+        "fallback": null,
+        "route": "device"
+      },
+      "fresh_evaluation": {
+        "max_ms": 0.4912,
+        "mean_ms": 0.45,
+        "median_ms": 0.4432,
+        "min_ms": 0.4104,
+        "reps": 15,
+        "samples_ms": [
+          0.4826,
+          0.4656,
+          0.4417,
+          0.467,
+          0.4912,
+          0.4757,
+          0.4255,
+          0.4368,
+          0.4196,
+          0.4342,
+          0.436,
+          0.4104,
+          0.4494,
+          0.4432,
+          0.4708
+        ]
+      },
+      "pop": 256,
+      "rows": 4096,
+      "side": "gp-fused",
+      "structure": {
+        "evaluate_route": "device",
+        "evaluation_runs": 0,
+        "fused_launches": 1,
+        "generation_runs": 1,
+        "host_readbacks": 0,
+        "host_route_launches": 0,
+        "last_fallback": null,
+        "route_counts": {
+          "device": 74,
+          "host": 0
+        },
+        "route_note": "device route: the channels never leave the device (zero-copy DLPack views) and the driver consumes the device fitness tensor, so a generation is one variation graph run with no channel transfer and no fitness readback; the remaining host touch is the evaluator's OUT_NODE guard (a single boolean readback) inside the evaluation lane",
+        "syncs": 0,
+        "transfers": 0,
+        "variation_runs": 1
+      },
+      "timing": {
+        "evaluation": {
+          "max_ms": 0.5943,
+          "mean_ms": 0.5546,
+          "median_ms": 0.549,
+          "min_ms": 0.5294,
+          "reps": 15,
+          "samples_ms": [
+            0.5509,
+            0.5585,
+            0.5657,
+            0.5445,
+            0.5294,
+            0.551,
+            0.5764,
+            0.5487,
+            0.549,
+            0.5943,
+            0.5459,
+            0.5459,
+            0.541,
+            0.5826,
+            0.5354
+          ]
+        },
+        "total": {
+          "max_ms": 1.2443,
+          "mean_ms": 1.1629,
+          "median_ms": 1.1626,
+          "min_ms": 1.1276,
+          "reps": 15,
+          "samples_ms": [
+            1.1509,
+            1.2443,
+            1.1778,
+            1.1626,
+            1.1679,
+            1.1725,
+            1.1414,
+            1.1276,
+            1.1334,
+            1.172,
+            1.1396,
+            1.2046,
+            1.1631,
+            1.134,
+            1.1519
+          ]
+        },
+        "variation": {
+          "max_ms": 0.6603,
+          "mean_ms": 0.6315,
+          "median_ms": 0.6265,
+          "min_ms": 0.615,
+          "reps": 15,
+          "samples_ms": [
+            0.6267,
+            0.615,
+            0.6569,
+            0.6238,
+            0.6217,
+            0.6202,
+            0.6386,
+            0.6191,
+            0.6399,
+            0.6603,
+            0.6291,
+            0.6238,
+            0.6538,
+            0.6265,
+            0.6172
+          ]
+        }
+      },
+      "trajectory": {
+        "best": [
+          -7.828916,
+          -7.828916,
+          -6.207567,
+          -5.521075,
+          -4.474734,
+          -3.232423,
+          -3.232423,
+          -3.232423,
+          -2.338112,
+          -2.338112,
+          -2.230547,
+          -2.165831,
+          -1.488983,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031,
+          -0.547031
+        ],
+        "median": [
+          -49.657982,
+          -19.762177,
+          -15.951865,
+          -15.688729,
+          -15.514141,
+          -15.584616,
+          -14.736004,
+          -14.863642,
+          -12.424857,
+          -11.156321,
+          -10.228287,
+          -9.73369,
+          -8.493938,
+          -6.825123,
+          -6.741661,
+          -6.595137,
+          -6.798714,
+          -5.717532,
+          -5.405651,
+          -5.140036
+        ]
+      },
+      "triton_cache_dir": "/tmp/genesis/task_71752cfe84d40424/triton"
+    }
+  ],
+  "versions": {
+    "created_utc": "2026-10-31T08:05:43Z",
+    "cuda": null,
+    "evogp_sha": "4ef18d3a62c04cdeeef2000c2bc28ade5206c131",
+    "evoxc_file": "/root/evoxc/.genesis/foreign_repos/evoxc/evoxc/__init__.py",
+    "evoxc_sha": "9f66feca58e9fcf21617e955212cdeb5ae80593a",
+    "evoxc_version": "0.0.0+unknown",
+    "gpu": "AMD Instinct MI300X VF",
+    "hip": "7.1.52802",
+    "iree_base_compiler": "3.11.0",
+    "iree_base_runtime": "3.11.0",
+    "knobs": {
+      "EVOXC_DISABLE_LOCATIONS": "1"
+    },
+    "numpy": "2.5.4",
+    "python": "3.12.3",
+    "python_executable": "/tmp/rocvenv/bin/python",
+    "torch": "2.13.0+rocm7.1",
+    "triton": "3.7.1"
+  }
+}

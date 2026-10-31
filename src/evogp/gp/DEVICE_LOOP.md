@@ -275,3 +275,43 @@ A `gp-fused` run additionally needs a writable `TRITON_CACHE_DIR` (the harness d
 Environment of record: python 3.12.3, torch 2.13.0+rocm7.1 (HIP 7.1.52802), triton 3.7.1, numpy 2.5.4, iree-base-compiler / iree-base-runtime 3.11.0, `evogp` `a2053ee` (the tree that produced the `gp-fused` column, with `out=`), GPU `AMD Instinct MI300X VF`.
 The `gp`/`numpy`/`torch`/`torch-fused`/`fused` columns are the ones of the record at `d00d95b` and were not re-measured; the `gp-fused` column was re-measured against `evoxc` `474bf72` — the commit that adds the native DLPack device export, reached as a checkout through the task's evoxc worktree — because the `/root/evoxc` HEAD `9f66fec` still refuses `Tensor.__dlpack__` on a device payload (`DeviceError`).
 The run's idle-device guard read `ok: true` on all five cells; the `guards` block records one co-resident idle python holding VRAM at 0–1 % GPU use throughout, which is why the close cells (pop 64) are read as parity.
+
+## §9 Round 2 of the variation lane: the two lane divergences are gone, the lane is not faster
+
+Two divergences the audit found are fixed in this round (see `gp/CONTEXT.md`):
+
+* **non-finite fitness**: `variation._sanitize_fitness` now maps EVERY non-finite value (NaN, `+inf`, `-inf`) to `-inf` in-graph — the rule the host paths already applied — so a `+inf` can no longer win a tournament slot or an elite row on the device lane (`workflow._fitness`'s numpy branch got the same `~np.isfinite` fix);
+* **the tie rule**: `selection`'s `rank` mode now ranks with a stable ASCENDING `argsort` of `-fitness` (first-maximal row wins), matching `variation._argmax_order` and the torch stack, instead of `argsort(..., descending=True)` whose flip resolved ties to the LAST row.
+
+Both are pinned by new tests on both lanes (`test_gp_stack_operators_variation.py::{test_a_non_finite_fitness_can_never_become_an_elite, test_a_non_finite_fitness_cannot_win_a_tournament, test_the_elite_tie_rule_prefers_the_lower_row_index}`, `test_gp_stack_operators_selection.py::test_rank_mode_breaks_ties_towards_the_lower_row_index`, `test_gp_stack_device_driver.py::test_a_non_finite_fitness_can_never_become_a_device_elite[inf]`).
+
+### Re-measured per-generation table (`--sides gp-fused`, same protocol: one process per cell, warm medians of 15, idle-device guard, raw numbers `evidence/device_loop_gp_fused_round2.json`)
+
+| cell | evaluation | operator | total | previous total |
+|------|-----------:|---------:|------:|---------------:|
+| p64      | 0.549 | 0.574 | 1.117 | 1.149 |
+| p256     | 0.600 | 0.663 | 1.221 | 1.189 |
+| p1000    | 0.544 | 0.794 | 1.353 | 1.372 |
+| p4096    | 0.571 | 0.656 | 1.230 | 1.231 |
+| p256×4096| 0.549 | 0.626 | 1.163 | 1.179 |
+
+**Verdict: no measurable gain.** Every cell is inside the ±0.03–0.05 ms box noise of the previous round (p256 reads 0.663 against 0.638, p1000 0.794 against 0.810), so the two correctness fixes plus the elite-slice simplification (`variation._assemble_elites` takes the kept offspring rows with a static `slice` instead of an index `gather`) are neutral on the clock. The targets of this round (operator ≤ 0.45 ms at p256/p4096, ≤ 0.55 ms at p1000) were **not met**.
+
+Where the operator lane's ~0.6 ms actually goes (component cost on the device, acceptance config, standalone graphs at p256, medians of 30, ~0.09 ms of per-run floor included):
+
+| component | p256 |
+|-----------|-----:|
+| floor (one dispatch, five device inputs) | ~0.09 |
+| `split_n(key, 5)` alone | 0.095 |
+| two `select_indices` (tournament 4) | 0.137 |
+| `draw_positions` | 0.093 |
+| one `_splice_traced` (3 channels) | 0.156 |
+| `apply_mutation("subtree")` (generator + splice) | 0.345 |
+| `_elite_order` / `_assemble_elites` | ~0.10 |
+
+The two facts that explain the plateau:
+
+* **op count is not the clock.** 1 526 lowered stablehlo ops (`456` constants, `242` reshapes, `140` gathers), but chained elementwise ops are free: 200 / 400 / 800 chained `add`s on `[256, 32]` all read ~0.077 ms. The cost sits in the non-fusable ops — the counter-based RNG (each `uniform`/`randint` hashes its whole tensor at ~4–5 ns per element), the gathers, the one sort and the per-run dispatch floor.
+* **the generator is the whale.** `mutation_kind="subtree"` re-runs the whole padded generator as its donor: 3 × `[pop, 15]` uniform draws plus the arity-cdf chain. Folding those three draws into one `[pop, 45]` uniform and reading the two index draws off it (measured, then reverted) shortened the graph by ~200 ops and bought 0.06 ms of the mutation stage and nothing end to end — the RNG cost is per ELEMENT, not per draw, so the element count has to fall to pay, and every reduction there changes the offspring distribution (which the round's rule forbids).
+
+The next lever is therefore the generator's element count, not its op count: e.g. generating the subtree-mutation donor on a smaller static layout (a shorter `max_layer_cnt` for the donor only) changes the mutation distribution and would have to be re-validated against the torch reference before it can ship.
