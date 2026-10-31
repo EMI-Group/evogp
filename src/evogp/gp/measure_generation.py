@@ -6,7 +6,7 @@ side dispatch calls.  Torch is resolved through :func:`importlib.import_module`
 inside the functions (the boundary :mod:`evogp.gp.fused_eval` uses), because the
 sibling purity test forbids the literal import statement in this subtree.
 
-One cell is a ``(pop_size, rows)`` pair.  Five sides answer "what does ONE GP
+One cell is a ``(pop_size, rows)`` pair.  Six sides answer "what does ONE GP
 generation cost?" on the same data, and the last one settles the fused-vs-in-
 graph question of :mod:`evogp.gp.fused_eval`:
 
@@ -15,6 +15,13 @@ graph question of :mod:`evogp.gp.fused_eval`:
                 device="rocm")`` + :class:`evogp.gp.graph_eval.GraphEvaluator`
                 + :func:`evogp.gp.workflow.step` -- two ``evoxc.run`` calls, no
                 host sync and no transfer per generation.
+``gp-fused``    the same DEVICE-RESIDENT driver with the DEVICE-NATIVE fused
+                evaluator (:class:`evogp.gp.fused_eval.FusedDeviceEvaluator`):
+                the Triton kernel reads the device channels through zero-copy
+                DLPack views (the legacy triple is converted in torch on the
+                device) and hands the fitness back as an ``evoxc`` DEVICE
+                tensor, so a generation is still ONE ``evoxc.run`` of the
+                variation graph and no readback.
 ``numpy``       the same driver on numpy with the host
                 :class:`evogp.gp.problem.SymbolicRegression` evaluator (the CPU
                 reference of this stack).
@@ -40,8 +47,9 @@ Protocol (every number in ``DEVICE_LOOP.md`` depends on it):
   sample go into the JSON, because a shared card is noisy).
 * **A device sync around every timed repetition** (``torch.cuda.synchronize()``,
   device-wide, so it also waits for the ``evoxc``/IREE work on the card).  The
-  ``gp`` side gets one sync bracket per generation -- what a real loop pays --
-  plus a second, separately-timed lane for the evaluation/variation split.
+  device-resident sides (``gp``, ``gp-fused``) get one sync bracket per
+  generation -- what a real loop pays -- plus a second, separately-timed lane
+  each for the evaluation and the variation segment.
 * **Idle-device guard** before each timed process: ``rocm-smi --showuse`` /
   ``--showpids`` are recorded and the harness waits while the card is busy.
 
@@ -49,7 +57,7 @@ Run the grid (this is the report-of-record command)::
 
     EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src:/root/evoxc \
         /tmp/rocvenv/bin/python -m evogp.gp.measure_generation \
-            --cells 64,256,1000,256x4096 \
+            --cells 64,256,1000,4096,256x4096 \
             --json src/evogp/gp/evidence/device_loop.json
 
 ``--cells`` is a comma list of ``POP`` (rows default 1024) or ``POPxROWS``;
@@ -58,12 +66,14 @@ process with ``--side``/``--pop``/``--rows`` (what the parent spawns, and what
 every committed number was produced by).  The honest headline of a side is its
 ``total``: one whole generation (evaluation + select/cross/mutate) with the
 device synced.  The ``evaluation``/``variation`` columns decompose it and sum to
-slightly MORE than ``total`` on the ``gp`` side (each segment carries its own
-sync bracket); the torch side takes its split inside the step through a timed
-problem wrapper, so ``operator = total - evaluation``.  The torch stack selects
-by truncation (``survival_rate=0.3``, ``elite_rate=0.01``, the benchmark
-campaign's wiring) while ``evogp.gp`` uses a tournament of 4, so the two sides
-are deliberately *not* the same operator mix.
+``total`` within a few percent on the device-resident sides (``gp``,
+``gp-fused``): each segment carries its own sync bracket, so the two sum and the
+one-bracket ``total`` can disagree by a few percent and ``total`` is the number
+to quote; the torch side takes its split inside the step through a timed problem
+wrapper, so ``operator = total - evaluation``.  The torch stack selects by
+truncation (``survival_rate=0.3``, ``elite_rate=0.01``, the benchmark campaign's
+wiring) while ``evogp.gp`` uses a tournament of 4, so the two sides are
+deliberately *not* the same operator mix.
 """
 from __future__ import annotations
 
@@ -121,12 +131,12 @@ GP_KNOBS: Dict[str, Any] = {
 }
 
 #: The grid: ``POP`` or ``POPxROWS`` (rows default :data:`ROWS`).
-CELLS: Tuple[str, ...] = ("64", "256", "1000", "256x4096")
+CELLS: Tuple[str, ...] = ("64", "256", "1000", "4096", "256x4096")
 ROWS = 1024
 SEED = 0
 
 #: Sides of the grid (``fused`` is the head-to-head, not a driver side).
-SIDES: Tuple[str, ...] = ("gp", "numpy", "torch", "torch-fused", "fused")
+SIDES: Tuple[str, ...] = ("gp", "gp-fused", "numpy", "torch", "torch-fused", "fused")
 
 #: Timed repetitions / discarded warm-up generations / trajectory length.
 REPS = 15
@@ -257,6 +267,22 @@ def _gp_objective(tree: GPTreeConfig, x: np.ndarray, y: np.ndarray, backend: str
     return evaluator.evaluate, _sync
 
 
+def _fused_device_objective(x: np.ndarray, y: np.ndarray):
+    """``(evaluate, sync, evaluator)`` of the DEVICE-NATIVE fused route.
+
+    ``evaluate`` is :meth:`evogp.gp.fused_eval.FusedDeviceEvaluator.evaluate`:
+    the channels stay where they are (zero-copy DLPack views into the Triton
+    kernel) and the ``(pop_size,)`` fitness comes back as an ``evoxc`` DEVICE
+    tensor, exactly what :func:`evogp.gp.workflow.step` wants for a generation
+    with no readback.  The evaluator is returned too, because the launch count
+    and the route actually taken are its own counters (never an assumption).
+    """
+    from . import fused_eval  # noqa: PLC0415 - local: it owns the torch boundary
+
+    evaluator = fused_eval.FusedDeviceEvaluator(x, y)
+    return evaluator.evaluate, _sync, evaluator
+
+
 def _tap(fitness) -> Callable[[Any], Any]:
     """An ``evaluate`` that hands a precomputed fitness tensor straight back.
 
@@ -376,6 +402,32 @@ def count_runs(config, evaluate, *, backend: str, device: str, seed: int) -> Dic
     }
 
 
+def count_fused_launches(
+    evaluator, config, *, backend: str, device: str, seed: int
+) -> Dict[str, Any]:
+    """How many Triton launches one generation of ``gp-fused`` makes.
+
+    Counted on the evaluator's OWN route counter
+    (:attr:`evogp.gp.fused_eval.FusedDeviceEvaluator.route_counts`), so a call
+    that quietly fell back to the host route is visible as ``host`` launches
+    plus the reason, instead of being reported as a kernel launch.  One
+    generation is one evaluation, so ``fused_launches`` is the per-generation
+    kernel count.
+    """
+    state = init_gp(config, seed, backend=backend, device=device)
+    before = dict(evaluator.route_counts)
+    fitness = evaluator.evaluate(state)
+    after = dict(evaluator.route_counts)
+    step(config, state, _tap(fitness), backend=backend, device=device)
+    return {
+        "fused_launches": int(after["device"] - before["device"]),
+        "host_route_launches": int(after["host"] - before["host"]),
+        "route_counts": after,
+        "evaluate_route": evaluator.last_route,
+        "last_fallback": evaluator.last_fallback,
+    }
+
+
 def measure_gp(
     pop: int,
     rows: int = ROWS,
@@ -385,18 +437,42 @@ def measure_gp(
     reps: int = REPS,
     generations: int = GENERATIONS,
     seed: int = SEED,
+    fused: bool = False,
 ) -> Dict[str, Any]:
-    """One cell of the ``evogp.gp`` stack on ``backend`` (device or numpy)."""
+    """One cell of the ``evogp.gp`` stack on ``backend`` (device or numpy).
+
+    ``fused=True`` keeps the DEVICE-RESIDENT driver (``backend="iree"`` plus the
+    per-stack device) and swaps only the objective for the device-native fused
+    evaluator -- the ``gp-fused`` side.
+    """
     tree, gp_config, x, y = make_configs(pop, rows, seed)
     config = (tree, gp_config)
+    if fused:
+        backend = "iree"
     device = "cpu" if backend == "numpy" else _device_kind()
-    evaluate, sync = _gp_objective(tree, x, y, backend)
+    evaluator = None
+    if fused:
+        evaluate, sync, evaluator = _fused_device_objective(x, y)
+    else:
+        evaluate, sync = _gp_objective(tree, x, y, backend)
     state = init_gp(config, seed, backend=backend, device=device)
     cold, _ = _median(
         lambda: step(config, state, evaluate, backend=backend, device=device),
         iters=1,
         warmup=0,
         sync=sync,
+    )
+    # the FIRST call of the process: which route actually served it (a kernel
+    # launch, or the host fallback and its reason) is a fact, not an assumption
+    first_call = (
+        None
+        if evaluator is None
+        else {
+            "route": evaluator.last_route,
+            "fallback": evaluator.last_fallback,
+            "available": bool(evaluator.available()),
+            "device_available": bool(evaluator.device_available()),
+        }
     )
     state, timing = _gp_segments(
         config, state, evaluate, sync, backend=backend, device=device,
@@ -407,7 +483,7 @@ def measure_gp(
     fresh_state = init_gp(config, seed, backend=backend, device=device)
     fresh, _ = _median(lambda: evaluate(fresh_state), reps, 1, sync)
     record: Dict[str, Any] = {
-        "side": "numpy" if backend == "numpy" else "gp",
+        "side": "gp-fused" if fused else ("numpy" if backend == "numpy" else "gp"),
         "pop": int(pop),
         "rows": int(rows),
         "backend": backend,
@@ -420,10 +496,28 @@ def measure_gp(
             generations=generations,
         ),
     }
+    if evaluator is not None:
+        record["evaluator"] = first_call
     if backend != "numpy":
-        record["structure"] = count_runs(
+        structure = count_runs(
             config, evaluate, backend=backend, device=device, seed=seed
         )
+        if evaluator is not None:
+            structure.update(
+                count_fused_launches(
+                    evaluator, config, backend=backend, device=device, seed=seed
+                )
+            )
+            # the device route's ONLY host touch, stated rather than glossed over
+            structure["route_note"] = (
+                "device route: the channels never leave the device (zero-copy "
+                "DLPack views) and the driver consumes the device fitness "
+                "tensor, so a generation is one variation graph run with no "
+                "channel transfer and no fitness readback; the remaining host "
+                "touch is the evaluator's OUT_NODE guard (a single boolean "
+                "readback) inside the evaluation lane"
+            )
+        record["structure"] = structure
     return record
 
 
@@ -810,16 +904,22 @@ def measure_side(
 ) -> Dict[str, Any]:
     """Dispatch one side of one cell."""
     triton_dir = None
-    if side in ("torch-fused", "fused"):
+    if side in ("torch-fused", "gp-fused", "fused"):
         # BEFORE any fused work: this box's $HOME is read-only, so triton's
         # default cache path dies with OSError [Errno 30] on the first launch.
         from . import fused_eval  # noqa: PLC0415
 
         triton_dir = fused_eval.ensure_triton_cache_dir()
-    if side in ("gp", "numpy"):
+    if side in ("gp", "gp-fused", "numpy"):
         record = measure_gp(
-            pop, rows, backend="iree" if side == "gp" else "numpy", warmup=warmup,
-            reps=reps, generations=generations, seed=seed,
+            pop,
+            rows,
+            backend="numpy" if side == "numpy" else "iree",
+            warmup=warmup,
+            reps=reps,
+            generations=generations,
+            seed=seed,
+            fused=side == "gp-fused",
         )
     elif side in TORCH_EVAL_MODES:
         record = measure_torch(
