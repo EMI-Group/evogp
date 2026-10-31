@@ -22,6 +22,7 @@ Absolute scale is irrelevant, only monotonicity matters — `StandardPipeline(fi
 Plain class, no ABC/metaclass; declares `evaluate(self, forest)`, `problem_dim` (property) and `solution_dim` (property), all raising `NotImplementedError`.
 `problem_dim`/`solution_dim` are the numbers fed into `GenerateDescriptor(input_len=..., output_len=...)` in every example, so they must be `int`s that match the forest the user builds.
 `BaseProblem` is used only as a type hint in `StandardPipeline.__init__`; the dimension cross-checks in the pipeline are commented out (`standard.py:22-23`), so a mismatch surfaces later inside `Forest.batch_forward`/`SR_fitness` asserts.
+`evaluate(forest)` is the whole surface here: there is no `__call__`, `predict` or `loss` method (unlike `evogp.gp`'s problem layer, which exposes `predict`/`loss`/`evaluate`/`__call__` over numpy channels), and `BaseProblem` is a plain class with no ABC/metaclass, so the contract is duck-typed only.
 
 ### `symbolic_regression.py` — `SymbolicRegression`
 `__init__(datapoints=None, labels=None, func=None, num_inputs=None, num_data=100, lower_bounds=-1, upper_bounds=1, execute_mode="auto")`.
@@ -72,7 +73,7 @@ Importable as `from evogp.problem import CustomLoss` (and via the deep path); it
 
 ## Module map / routing
 - `base.py` → `BaseProblem` abstract contract every class here inherits.
-- `symbolic_regression.py` → regression benchmark, the only problem that also accepts `CombinedForest`.
+- `symbolic_regression.py` → regression benchmark; accepts a plain `Forest` only (a `CombinedForest` raises `NotImplementedError` at `symbolic_regression.py:70-77`).
 - `classification.py` → accuracy benchmark over sklearn datasets.
 - `transformation.py` → feature-construction benchmark (correlation fitness + `new_feature`).
 - `brax_problem.py` → Brax locomotion control (torch↔jax loop inside `evaluate`).
@@ -93,11 +94,13 @@ The `evaluate` return value must be a 1-D torch tensor of length `pop_size` (ass
 Higher fitness must mean "better" for every problem class — negate error-style metrics as `SymbolicRegression` and `CustomLoss` do.
 `problem_dim`/`solution_dim` must be ints consistent with the forest the user generates, because the pipeline's consistency asserts are disabled.
 Input data (`datapoints`, `labels`) is expected to live on `cuda` and be float32; `Forest.batch_forward`/`SR_fitness` call `check_tensor`, which silently moves tensors to cuda, detaches and casts non-tensors, so a CPU tensor will not raise here but will silently be moved.
+Hard-coded `"cuda"` sites (no `device=` argument anywhere in this layer): `symbolic_regression.py:46`, `:50`, `:56`; `classification.py:29`, `:53`, `:54`; `transformation.py:34`, `:35` and the `.cuda()` in `new_feature` at `transformation.py:49`; `go2_env.py:12` (default argument).
 No problem in this layer is ever pure-torch: `Classification`, `Transformation`, `CustomLoss`, the robotics problems and `SymbolicRegression` all forward through `Forest.batch_forward`/`Forest.forward`/`Forest.SR_fitness`, which run the evoxc engine (`../tree/evoxc_engine.py`, reached from `../tree/forest.py` and `../tree/tree.py`); only the metric reduction (MSE/MAE, softmax+argmax, correlation) runs in Python/torch.
 The dense-vs-specialized route is resolved DOWNSTREAM of this layer, inside `../tree/forest.py` (`dense_engine.should_use_dense`, which reads `EVOGP_EVAL_MODE`): `Forest.forward`/`batch_forward` dispatch to `dense_engine.evaluate_dense(...)` or fall back to `evoxc_engine.evaluate(pop, x, per_row=True/False)`, and `Forest.SR_fitness` to `dense_engine.sr_fitness_dense(...)` or `evoxc_engine.sr_fitness(pop, inputs, labels, use_MSE=use_MSE)`.
 Nothing in `problem/` reads `EVOGP_EVAL_MODE`, and `SymbolicRegression`'s `execute_mode` is validated by `Forest.SR_fitness` then dropped — it never reaches or influences the engine.
 Do not reorder the imports in `__init__.py`: sibling modules use `from . import BaseProblem` (which requires `.base` to have been imported first by `__init__`), so `.base` must stay first.
 Submodules must keep heavy optional dependencies **inside functions** (established pattern); a new top-level `import jax/genesis/...` breaks `import evogp.problem` for everyone.
+Nothing here is reusable from a torch-free path: `custom_loss.py` binds `inspect_function` from `..tree.utils`, which has a module-scope `import torch` (`../tree/utils.py:4`), and `import evogp.problem` pulls torch transitively through `symbolic_regression.py:3` (plus `evogp.tree` via every module's `Forest`/`CombinedForest` import).
 
 ## Optional-dependency matrix
 | Module | External packages needed to import the module | Needed to actually run the problem |

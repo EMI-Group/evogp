@@ -42,8 +42,9 @@ finite-space `max_abs = 0.0` everywhere), losses agree to **≤ 3.8e-7 relative*
 compile and no re-prep** (5/5 transforms hit, 5/5 scratch reuses, 0 compiles, 0 declines). Cold start is a one-time
 **1.64–1.67 s (value) + 0.94–0.99 s (loss) + 0.32 s (per-row)** Triton JIT from an empty cache — 4× cheaper than a
 dense compile and 25–500× cheaper than a `batch` merged compile. The one thing to fix is cross-node bookkeeping:
-`src/evogp/tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` still pins the pre-fused
-`EVAL_MODES`/`ENGINES` tuples and is the **single** failing test in the suite (1206 passed / 7 skipped).
+`src/evogp/tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` used to pin the pre-fused
+`EVAL_MODES`/`ENGINES` tuples; it has since been updated to `("dense","specialized","batch","fused","auto")` /
+`("specialized","dense","batch","fused")` and the suite is green (1 255 passed / 7 skipped / 0 failed).
 
 Scope and envelope, re-measured (§11–§15): the route serves `output_len` 1 up to `fused_engine.MAX_OUT_LEN` (8) with a
 **bitwise** multi-output value path, and over the 12-cell envelope it is **35.8×–206×** the `torch-batched` arm,
@@ -293,19 +294,22 @@ trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
 
 ## 7. Honest residual gaps (with numbers)
 
-1. **One stale test is the only suite failure.** `pytest src/evogp/tests -q` → **1 failed, 1206 passed, 7 skipped,
-   0 errors in 118.0 s**; the failure is `test_dense_policy.py::test_eval_mode_tables_stay_canonical`, which pins
-   `EVAL_MODES == ("dense","specialized","batch","auto")` / `ENGINES == ("specialized","dense","batch")` while
-   `dense_engine` now ships `("dense","specialized","batch","fused","auto")` /
-   `("specialized","dense","batch","fused")`. It is a cross-node edit (see `fused_sibling_patches.md` §1), not a
-   library defect. Everything else passes, and `CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= python -c "import
-   evogp.tree"` works with `torch.cuda.is_available() == False`, `fused_available() == False` and
+1. **The suite is green** (the two stale assertions the campaign opened with have since been fixed, in
+   `tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` and in `tests/test_fused_route.py`).
+   `pytest src/evogp/tests -q` → **1 255 passed, 7 skipped, 0 failed in ~122 s** on the device reference box (39 of
+   them in `test_fused_route.py`, which compiles and launches the real kernel).
+   `CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= python -c "import evogp.tree"` works with
+   `torch.cuda.is_available() == False`, `fused_available() == False` and
    `resolve_route(256, eval_mode="fused").engine == "specialized"` — the route degrades to the policy's CPU answer
    and the import needs no GPU.
-2. **No pytest covers the fused route at all** (`rg "fused" src/evogp/tests/` is empty apart from the stale tuple
-   pin). The gate is `fused_check.py`'s stages plus this campaign; a smoke test that drives one 64-population cell
-   through `Forest.SR_fitness` with `EVOGP_EVAL_MODE=fused` and asserts `fused_kernel_launches` moved would be the
-   cheapest regression net.
+2. **The pytest net is `tests/test_fused_route.py`** (39 cases: value/loss parity against `reference_eval` on the
+   three function sets, single-node and constant populations, a deep chain, protected div and NaN/Inf placement,
+   multi-output value + loss, the route policy above and below `EVOGP_FUSED_MIN_POP`, `fused_kernel_launches` as the
+   served-call proof, the decline matrix including `output_len > MAX_OUT_LEN`, non-contiguous inputs and the
+   `subtree_size` clamp). It is not complete: there is no case for `out=` (shape / aliasing / an identity `out`), no
+   MAE (`use_MSE=False`) loss case, no multi-output `per_row=True` case with weighted outputs, and no rows axis that
+   lands exactly ON a `BLOCK_R = 256` boundary (the widest tested cell is 160 rows).
+   `fused_check.py`'s stages plus this campaign remain the measurement gate.
 3. **Loss ratios in this campaign land 4–17 % below the previously reported ones** while the value surface matches:
    value 40.8/43.6/44.9/46.4/72.9/156.9× here against 38.9/45.8/42.8/45.5/71.0/153.5× reported (all within ±5 %);
    loss 32.1/32.6/38.6/34.2/59.7/130.9× here against 33.5/39.1/40.7/38.4/69.0/146.6×. The absolute loss medians here
@@ -415,7 +419,7 @@ $PY -m evogp.tree.fused_envelope --stage records    # read-only: stored envelope
 # 7. end-to-end and the hermetic suite (run the suite AFTER all timing — parts of it touch the GPU)
 EVOGP_EVAL_MODE=fused EVOGP_EVOXC_BACKEND=iree $PY -m evogp.sr_test     # best fitness -0.2259 in ~10.4 s
 $PY -m evogp.sr_test                                                    # default auto: -0.2259 in ~16.1 s
-PYTHONPATH=src:/root/evoxc $PY -m pytest src/evogp/tests -q             # 1 failed / 1206 passed / 7 skipped
+PYTHONPATH=src:/root/evoxc $PY -m pytest src/evogp/tests -q             # 1 255 passed / 7 skipped / 0 failed
 CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= PYTHONPATH=src:/root/evoxc $PY -c "import evogp.tree"
 ```
 

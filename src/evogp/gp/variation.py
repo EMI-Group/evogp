@@ -176,12 +176,16 @@ def _resident_fitness(fitness, pop_size: int, device):
 
 
 def _sanitize_fitness(evoxc_module, fitness):
-    """In-graph ``non-finite -> -inf`` -- the repo-wide fitness rule.
+    """In-graph ``NaN -> -inf`` -- the NaN half of the repo-wide fitness rule.
 
     A ``NaN`` compares false against everything, so it would corrupt both the
     tournament and the elite ranking.  Applying the rule inside the graph is
     what makes a device-fed generation safe WITHOUT the host readback that
     ``workflow._fitness`` uses to sanitize its own copy.
+    Only ``NaN`` is rewritten here: an ``inf`` passes through unchanged, where
+    the host paths (``problem._fitness_from_loss``, ``graph_eval``,
+    ``fused_eval``) map every non-finite value to ``-inf``.  A ``+inf`` fitness
+    therefore keeps winning selection on this lane instead of being demoted.
     """
     shape = (int(fitness.shape[0]),)
     return evoxc_module.select(
