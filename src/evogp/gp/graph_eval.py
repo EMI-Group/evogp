@@ -196,10 +196,15 @@ def _uncovered_rows(evoxc_module, function, kind, func_id, used_ids):
     mask turns that into the repo-wide "unevaluable" marker (``-inf``), which is
     the only signal a graph can produce without a host sync.
 
-    A ``TFUNC`` node is excluded: ternary ``if`` is dispatched structurally
-    (``op_i == NType.TFUNC``), so it needs no id in the chain.  With the default
-    ``used_ids`` (every id of :class:`Func`) the mask cannot fire at all, which
-    is why :func:`_structure_inputs` skips tracing it in that case.
+    A ``TFUNC`` node is excluded when ``Func.IF`` is in ``used_ids``: ternary
+    ``if`` is dispatched structurally (``op_i == NType.TFUNC``), so it needs no
+    id in the chain.  Without ``Func.IF`` in the set the body does not emit the
+    ternary at all (``problem._graph_body``: its third-child gather is the
+    dearest read of the walk and a set without ``if`` cannot produce one), so
+    such a row IS uncovered and is marked ``-inf`` like any other id outside the
+    chain.  With the default ``used_ids`` (every id of :class:`Func`) the mask
+    cannot fire at all, which is why :func:`_structure_inputs` skips tracing it
+    in that case.
     """
     if len(used_ids) >= Func.END:  # pragma: no cover - the caller skips it
         return None
@@ -208,10 +213,13 @@ def _uncovered_rows(evoxc_module, function, kind, func_id, used_ids):
         covered = evoxc_module.logical_or(
             covered, evoxc_module.equal(func_id, _runtime.i32(evoxc_module, fid))
         )
-    dispatchable = evoxc_module.logical_and(
-        function,
-        evoxc_module.not_equal(kind, _runtime.i32(evoxc_module, NType.TFUNC)),
-    )
+    if Func.IF in used_ids:
+        dispatchable = function
+    else:
+        dispatchable = evoxc_module.logical_and(
+            function,
+            evoxc_module.not_equal(kind, _runtime.i32(evoxc_module, NType.TFUNC)),
+        )
     unknown = evoxc_module.logical_and(
         dispatchable, evoxc_module.logical_not(covered)
     )

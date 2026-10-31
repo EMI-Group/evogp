@@ -195,9 +195,7 @@ def _elite_order(evoxc_module, fitness):
 
     Sorting the negated vector ASCENDING with ``stable=True`` is the in-graph
     spelling of ``np.argsort(-fitness, kind="stable")``: a tie keeps the lower
-    row index, which is the rule :func:`evogp.gp.workflow._elite_indices` uses
-    on the host (and the reason ``descending=True`` must not be used -- it flips
-    the tie order).
+    row index (and ``descending=True`` must not be used -- it flips that order).
     """
     return evoxc_module.cast(
         evoxc_module.argsort(
