@@ -283,7 +283,7 @@ def _device_type_code(kind: str) -> int:
 def _check_kind_against_torch(torch_module: Any, kind: str) -> None:
     """Refuse a device kind this torch build cannot be the same device as.
 
-    The eVOXC kind and torch's build are two spellings of one physical device:
+    The evoxc kind and torch's build are two spellings of one physical device:
     a ROCm build reports ``torch.version.hip`` and only ``rocm``/``hip`` buffers
     live on it, an NVIDIA build has no ``hip`` and only ``cuda`` buffers do.  A
     capsule minted with the wrong DLPack code would be a silent misinterpretation
