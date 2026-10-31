@@ -508,7 +508,7 @@ row (NaN/nonsense cells behind the tree).
 - `output_len > MAX_OUT_LEN` declines with a reason naming `MAX_OUT_LEN` (clean: no kernel compiled, no scratch
   allocated), and `output_len = 0` raises `ValueError` (a shape contract, not a route decline).
 - The battery's matrices read: decline/contract **54/54** (two-sided on `output_len`: 2 served, above `MAX_OUT_LEN`
-  declined; 24/24 before the hardening round of §16), wiring **31/31** (the public-API leg drives a multi-output
+  declined; 24/24 before the hardening round of §16), wiring **32/32** (the public-API leg drives a multi-output
   population and asserts one `fused_calls`, no `fused_declines` and the specialized reference's numbers), parity
   **60/60** (the single-output set of §6; 56/56 before §16) and goldens **10/10**.
 - `--stage goldens` still SKIPS `src/evogp/tests/goldens/06_multi_output.npz` — it is the single-output golden gate
@@ -578,7 +578,7 @@ At the shipped 16 the route is 26.5× ahead of the fallback at pop 16 and 10.1×
 plane is the one unmeasured class where a single per-tree numpy run could undercut the kernel's ~0.09 ms launch floor;
 and 16 keeps a single `Tree.forward` / `Tree.SR_fitness` (pop 1) on the specialized route instead of paying a ~1.4 s
 cold Triton JIT for a one-shot call. `EVOGP_FUSED_MIN_POP=0` stays refused (a pop-size threshold must be `>= 1`), an
-explicitly named backend still serves below the threshold, and `auto` still never selects fused.
+explicitly named backend still serves below the threshold, and `auto` selects fused from the threshold up (the default on a device box, `dense_engine.auto_fused_decline`).
 
 ---
 
@@ -855,10 +855,10 @@ stated above; where they overlap, the campaign's own tables win):
   in-process and asserts they equal the `specialized` reference (value bitwise or ≤1e-6 relative, loss ≤1e-5), that
   the facade SERVED each call (its counters move), that `resolve_route` names fused on `iree` with a `numpy`
   fallback while `pop_size == 1` / a population below `EVOGP_FUSED_MIN_POP` / a box with no device stay
-  `specialized`+`numpy`, that `auto` never selects it, and that a multi-output population (`output_len=2`) is SERVED
+  `specialized`+`numpy`, that `auto` selects it from `EVOGP_FUSED_MIN_POP` up on a device box and never below it, and that a multi-output population (`output_len=2`) is SERVED
   by `_fused_multi_kernel` with the specialized reference's numbers, one `fused_calls` and no `fused_declines`;
   `--stage timing --wired` re-times the six cells through the same public calls. Recorded: 60/60 oracle comparisons,
-  10/10 goldens at 1e-4, 54/54 decline/contract checks, 31/31 wiring checks (the `--stage multi` set of §11 adds
+  10/10 goldens at 1e-4, 54/54 decline/contract checks, 32/32 wiring checks (the `--stage multi` set of §11 adds
   65/65 comparisons on top).
 
 The earlier six-cell sweep that preceded this campaign (kept for the record; `BLOCK_R` 256 / 1 warp): **48.6x-167.6x**

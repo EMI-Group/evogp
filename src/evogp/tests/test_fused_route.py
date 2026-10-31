@@ -20,13 +20,12 @@ RUN (repo root, torch-carrying venv, writable ``TRITON_CACHE_DIR``)::
 
     PYTHONPATH=src:/root/evoxc EVOXC_DISABLE_LOCATIONS=1 \\
       TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache \\
-      /tmp/rocvenv/bin/python -m pytest src/evogp/tree/fused_pytest_draft.py -q
+      /tmp/rocvenv/bin/python -m pytest src/evogp/tests/test_fused_route.py -q
 
-RELOCATION NOTE (this file is a DRAFT): move it to ``src/evogp/tests/test_fused_route.py``
--- rename only; the ``test_`` prefix is what makes pytest collect it there.  Nothing else
-changes: co-located ``import reference_eval`` resolves directly (the path fallback below
-only serves the draft's ``tree/`` home) and no conftest entry or ``sys.path`` edit is
-needed.
+HOME: this module lives in the SUITE (``src/evogp/tests/``), so its oracle is the
+co-located ``reference_eval.py`` and pytest's own ``sys.path`` insertion makes
+``import reference_eval`` resolve; the path fallback below only serves a copy run from
+elsewhere.
 """
 
 from __future__ import annotations

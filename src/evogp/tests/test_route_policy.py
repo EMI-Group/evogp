@@ -7,13 +7,17 @@ call sites ask (``Forest.forward`` / ``Forest.batch_forward`` /
 route -- not an ambient environment variable -- hands the concrete backend to the
 engine.  This module pins that policy:
 
-* the DEFAULT (``auto``, no explicit backend): on a device box dense on ``iree``
-  from ``EVOGP_DENSE_AUTO_MIN_POP`` (64) up and specialized on ``numpy`` below it
-  -- including ``pop_size == 1`` (``Tree``) -- with a ``numpy`` FALLBACK for the
-  dense attempt (a per-tree iree compile can never amortize);
-* no device at all (pure CPU box): specialized + ``numpy`` at every size;
+* the DEFAULT (``auto``, no explicit backend) -- section 6: on a device box with
+  ``triton`` importable the FUSED (Triton) route from ``EVOGP_FUSED_MIN_POP`` (16)
+  up, else dense on ``iree`` from ``EVOGP_DENSE_AUTO_MIN_POP`` (64) up, else
+  specialized on ``numpy`` below both -- including ``pop_size == 1`` (``Tree``) --
+  with a ``numpy`` FALLBACK for either compiled attempt (a per-tree iree compile
+  can never amortize);
+* no device at all (pure CPU box): specialized + ``numpy`` at every size, whether
+  ``triton`` is importable or not;
 * an explicitly NAMED backend (``backend=`` argument or ``EVOGP_EVOXC_BACKEND``)
-  keeps the historical rule exactly, and an explicit ``numpy`` never probes the
+  keeps the historical rule exactly, never reaches the fused route (that is what
+  ``EVOGP_EVAL_MODE=fused`` is for), and an explicit ``numpy`` never probes the
   device;
 * ``EVOGP_EVAL_MODE=specialized`` never uses dense; ``EVOGP_EVAL_MODE=dense``
   uses the device backend on a device box and ``numpy`` elsewhere;
@@ -36,12 +40,13 @@ engine.  This module pins that policy:
   ``evaluate_dense`` and ``sr_fitness_dense`` raise a ``device_fallback``
   ``DenseUnsupported`` that makes ``decline_backend`` continue on the route's
   DEVICE backend (``iree``) instead of the ordinary specialized+``numpy``
-  fallback -- see section 9;
+  fallback -- see section 10;
 * ``resolve_route`` and ``should_use_dense`` agree everywhere (one rule).
 
 Like ``test_dense_policy.py`` this module never builds or runs a graph:
-``backend="iree"`` is only a *name* here, and the device probe is a pinned
-process-global (``dense._DEVICE_AVAILABLE``), so nothing initializes CUDA.
+``backend="iree"`` and ``triton`` are only *names* here, and BOTH probes are
+pinned process-globals (``dense._DEVICE_AVAILABLE`` / ``dense._FUSED_AVAILABLE``),
+so nothing initializes CUDA and nothing imports triton.
 """
 
 from __future__ import annotations
@@ -50,6 +55,7 @@ import numpy as np
 import pytest
 
 from evogp.tree import NType, dense_engine as dense
+from evogp.tree import fused_engine
 from evogp.tree.utils import Func
 
 #: The engine's own name for the backend variable (never a stale copy).
@@ -66,14 +72,21 @@ TREE_LEN = 64
 ROWS_OK = dense.auto_row_allowance(ABOVE, TREE_LEN)
 ROWS_OVER = ROWS_OK + 1
 assert ROWS_OVER > 2048, "the reference shape must be well above the old ceiling"
+#: The fused route's pop-size crossover (``EVOGP_FUSED_MIN_POP``) and the row count
+#: its memory envelope is probed at.
+FUSED_POP = fused_engine.DEFAULT_MIN_POP
+FUSED_ROWS = 1024
+assert FUSED_POP == 16, "the documented default crossover"
 
 
 @pytest.fixture(autouse=True)
 def hermetic_knobs(monkeypatch):
-    """Clear the knobs, and pin the device probe to "no device" by default.
+    """Clear the knobs, and pin BOTH policy probes to "no device / no triton".
 
-    Every test then states the box it simulates explicitly, so the module's
-    expectations never depend on the machine running the suite.
+    Every test then states the box it simulates explicitly (``on_device_box`` /
+    ``on_fused_box``), so the module's expectations never depend on the machine
+    running the suite -- and a triton-equipped device box cannot quietly turn the
+    default route into the fused one underneath the dense/specialized assertions.
     """
     for name in (
         dense.EVAL_MODE_ENV,
@@ -82,15 +95,31 @@ def hermetic_knobs(monkeypatch):
         dense.AUTO_MIN_POP_ENV,
         dense.AUTO_MAX_ROWS_ENV,
         dense.AUTO_BUDGET_MB_ENV,
+        dense.FUSED_MIN_POP_ENV,
+        fused_engine.MAX_SCRATCH_MB_ENV,
+        fused_engine.BLOCK_ROWS_ENV,
+        fused_engine.NUM_WARPS_ENV,
         EVOXC_BACKEND_ENV,
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(dense, "_DEVICE_AVAILABLE", False)
+    monkeypatch.setattr(dense, "_FUSED_AVAILABLE", False)
 
 
 def on_device_box(monkeypatch, available=True):
     """Pin the route policy's device probe (monkeypatched global, no CUDA init)."""
     monkeypatch.setattr(dense, "_DEVICE_AVAILABLE", available)
+
+
+def on_fused_box(monkeypatch, available=True):
+    """Pin BOTH probes: a box whose device torch can see can also run Triton.
+
+    ``fused_route_available`` memoizes ``device_available() and
+    fused_available()``, so pinning its memo states the fused world without
+    importing triton (and without initializing CUDA).
+    """
+    monkeypatch.setattr(dense, "_DEVICE_AVAILABLE", available)
+    monkeypatch.setattr(dense, "_FUSED_AVAILABLE", available)
 
 
 # --------------------------------------------------------------------------- #
@@ -373,7 +402,203 @@ def test_auto_never_picks_batch_at_large_rows(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# 6. one rule: `should_use_dense` is the boolean view of `resolve_route`
+# 6. the fused (Triton) route is the DEFAULT on a device box
+# --------------------------------------------------------------------------- #
+def test_a_fused_box_resolves_fused_at_every_population_above_the_crossover(
+    monkeypatch,
+):
+    """A device + triton box takes ONE Triton launch instead of a compiled graph.
+
+    The fused route owns the whole population on the torch device, so it names the
+    same ``iree`` backend SPELLING the other device routes use while its fallback
+    stays the historical specialized+``numpy`` chain -- and ``use_dense`` is False:
+    ``Route.engine`` / ``Route.use_fused`` report it (never the dense flag),
+    exactly like the batch route.
+    """
+    on_fused_box(monkeypatch)
+    for pop in (FUSED_POP, 64, 256, 1000, 10 ** 4):
+        route = dense.resolve_route(pop)
+        assert route.engine == "fused", route.reason
+        assert route.use_fused is True and route.use_batch is False, pop
+        assert route.use_dense is False, pop
+        assert route.backend == "iree" and route.fallback_backend == "numpy", pop
+        assert dense.should_use_dense(pop) is False, pop
+        assert dense.FUSED_MIN_POP_ENV in route.reason, route.reason
+
+
+def test_the_fused_crossover_keeps_a_small_population_on_specialized(monkeypatch):
+    """Below ``EVOGP_FUSED_MIN_POP`` nothing moved: specialized on ``numpy``.
+
+    ``pop_size == 1`` is ``Tree.forward`` / ``Tree.SR_fitness``; a cold Triton JIT
+    for a one-shot call is what the 16-tree crossover exists to avoid.
+    """
+    on_fused_box(monkeypatch)
+    for pop in (1, 8, FUSED_POP - 1):
+        route = dense.resolve_route(pop)
+        assert route.engine == "specialized", route.reason
+        assert route.use_fused is False and route.use_dense is False, pop
+        assert route.backend == "numpy" and route.fallback_backend == "numpy", pop
+
+
+def test_fused_min_pop_is_the_one_knob_that_moves_the_fused_crossover(monkeypatch):
+    """``EVOGP_FUSED_MIN_POP`` moves the fused boundary and touches nothing else.
+
+    Raising it to the dense threshold hands pop 64-127 back to dense on ``iree``
+    (the historical rule) and keeps the fused route from 128 up.
+    """
+    on_fused_box(monkeypatch)
+    assert dense.resolve_fused_min_pop() == FUSED_POP == 16
+    monkeypatch.setenv(dense.FUSED_MIN_POP_ENV, "128")
+    assert dense.resolve_fused_min_pop() == 128
+    for pop in (64, 127):
+        route = dense.resolve_route(pop)
+        assert route.engine == "dense", (pop, route.reason)
+        assert route.use_dense is True and route.backend == "iree", pop
+    assert dense.resolve_route(128).engine == "fused"
+
+
+def test_a_triton_less_device_box_keeps_the_historical_dense_rule(monkeypatch):
+    """The fixture's default world: a device box WITHOUT triton is unchanged.
+
+    That is what keeps every dense/specialized assertion in this file meaningful --
+    the policy falls through to the pre-fused dense rule verbatim.
+    """
+    on_device_box(monkeypatch)  # _FUSED_AVAILABLE stays pinned False
+    assert dense.fused_route_available() is False
+    decline = dense.auto_fused_decline(ABOVE)
+    assert decline is not None and "triton" in decline, decline
+    route = dense.resolve_route(ABOVE)
+    assert route.engine == "dense" and route.use_dense is True
+    assert route.backend == "iree" and route.fallback_backend == "numpy"
+    assert dense.resolve_route(BELOW).engine == "specialized"
+
+
+def test_fused_needs_a_device_and_not_only_triton(monkeypatch):
+    """The probe is an AND of two halves, and the device half is consulted FIRST.
+
+    ``fused_route_available`` memoizes ``device_available() and
+    fused_available()``, so triton alone routes nothing -- and even a memo pinned
+    to ``True`` cannot route a call on a box with no device.
+    """
+    monkeypatch.setattr(dense, "_FUSED_AVAILABLE", None)
+    on_device_box(monkeypatch, available=False)
+    monkeypatch.setattr(fused_engine, "fused_available", lambda: True)
+    assert dense.fused_route_available() is False
+    for pop in (FUSED_POP, ABOVE, 10 ** 4):
+        route = dense.resolve_route(pop)
+        assert route.engine == "specialized" and route.use_fused is False, pop
+        assert route.backend == "numpy", pop
+    assert "device" in dense.auto_fused_decline(ABOVE)
+    monkeypatch.setattr(dense, "_FUSED_AVAILABLE", True)
+    for pop in (FUSED_POP, ABOVE, 10 ** 4):
+        assert dense.resolve_route(pop).use_fused is False, pop
+
+
+def test_the_fused_memory_envelope_falls_through_to_dense(monkeypatch):
+    """A shape a launch could not hold is served by dense, never by fused.
+
+    ``auto_fused_decline`` applies ``fused_engine.envelope_decline`` -- the engine's
+    own three-term byte rule -- but only when the caller passed the shape, so the
+    wired call sites (which pass ``pop_size`` only) never see it and the engine
+    enforces it at call time.
+    """
+    on_fused_box(monkeypatch)
+    pop, rows, tree_len = 256, FUSED_ROWS, TREE_LEN
+    assert fused_engine.DEFAULT_MAX_SCRATCH_MB == 8192, "the shipped envelope"
+    assert fused_engine.envelope_decline(pop, tree_len, rows) is None
+    # output_len only enters the FUSED envelope (the value buffer); it fits here
+    assert (
+        dense.auto_fused_decline(pop, rows=rows, tree_len=tree_len, output_len=2)
+        is None
+    )
+    monkeypatch.setenv(fused_engine.MAX_SCRATCH_MB_ENV, "1")
+    decline = dense.auto_fused_decline(pop, rows=rows, tree_len=tree_len)
+    assert decline is not None
+    assert fused_engine.MAX_SCRATCH_MB_ENV in decline, decline
+    assert "memory envelope" in decline, decline
+    # ... and the policy falls past fused to the DENSE rule, whose own budget is
+    # far larger than this shape (68 MiB of ~8 GiB)
+    route = dense.resolve_route(pop, rows=rows, tree_len=tree_len)
+    assert route.engine == "dense" and route.use_dense is True, route.reason
+    assert route.backend == "iree" and route.fallback_backend == "numpy"
+    assert (
+        dense.auto_rows_decline(
+            rows, eval_mode="auto", pop_size=pop, tree_len=tree_len
+        )
+        is None
+    )
+    # without a shape the policy cannot apply the envelope at all
+    assert dense.auto_fused_decline(pop) is None
+    assert dense.resolve_route(pop).engine == "fused"
+
+
+def test_an_explicit_backend_never_reaches_the_fused_route(monkeypatch):
+    """A named backend is the user's choice; ``EVOGP_EVAL_MODE=fused`` asks for it.
+
+    That arm is the pre-policy rule untouched (dense iff the pop threshold is met),
+    and the fused probe leaves no trace: an explicit backend is never routed to the
+    Triton engine, so the memo stays ``None`` and the probe is never even called.
+    """
+    on_fused_box(monkeypatch)
+    explicit_iree = dense.resolve_route(ABOVE, backend="iree")
+    assert explicit_iree.engine == "dense" and explicit_iree.use_fused is False
+    assert explicit_iree.backend == "iree"
+    for pop in (FUSED_POP, ABOVE, 10 ** 4):
+        assert dense.resolve_route(pop, backend="numpy").engine == "specialized", pop
+    monkeypatch.setattr(dense, "_FUSED_AVAILABLE", None)
+    calls = []
+    monkeypatch.setattr(
+        fused_engine, "fused_available", lambda: calls.append(True) or True
+    )
+    monkeypatch.setenv(EVOXC_BACKEND_ENV, "numpy")
+    for pop in (FUSED_POP, ABOVE, 10 ** 4):
+        assert dense.resolve_route(pop).engine == "specialized", pop
+    assert dense._FUSED_AVAILABLE is None, "the fused probe was never taken"
+    assert calls == []
+
+
+def test_an_explicit_eval_mode_is_never_overridden_on_a_fused_box(monkeypatch):
+    """Only ``auto`` may pick fused: every explicit spelling owns its engine."""
+    on_fused_box(monkeypatch)
+    dense_route = dense.resolve_route(FUSED_POP, eval_mode="dense")
+    assert dense_route.engine == "dense" and dense_route.backend == "iree"
+    special = dense.resolve_route(FUSED_POP, eval_mode="specialized")
+    assert special.engine == "specialized" and special.backend == "numpy"
+    batch = dense.resolve_route(FUSED_POP, eval_mode="batch")
+    assert batch.engine == "batch" and batch.use_fused is False
+    assert dense.resolve_route(FUSED_POP, eval_mode="fused").engine == "fused"
+    # the same through the master switch, at a population where auto would be fused
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "dense")
+    assert dense.resolve_route(10 ** 4).engine == "dense"
+    monkeypatch.setenv(dense.EVAL_MODE_ENV, "specialized")
+    assert dense.resolve_route(10 ** 4).engine == "specialized"
+    # ... and the fused helper gates ``auto`` alone
+    for mode in ("dense", "dynamic", "specialized", "batch", "fused"):
+        assert dense.auto_fused_decline(FUSED_POP, eval_mode=mode) is None, mode
+
+
+def test_the_fused_probe_is_lazy_and_memoized(monkeypatch):
+    """One probe per process: the policy reads a bool, never an importer."""
+    on_device_box(monkeypatch)
+    monkeypatch.setattr(dense, "_FUSED_AVAILABLE", None)
+    calls = []
+    monkeypatch.setattr(
+        fused_engine, "fused_available", lambda: calls.append(True) or True
+    )
+    assert dense.fused_route_available() is True
+    assert dense.fused_route_available() is True
+    for pop in (FUSED_POP, ABOVE, 10 ** 4):
+        assert dense.resolve_route(pop).engine == "fused", pop
+    assert len(calls) == 1, calls
+    assert dense._FUSED_AVAILABLE is True
+    # a pinned memo pins the whole predicate: no probe, no device call
+    monkeypatch.setattr(dense, "_FUSED_AVAILABLE", False)
+    assert dense.fused_route_available() is False
+    assert len(calls) == 1
+
+
+# --------------------------------------------------------------------------- #
+# 7. one rule: `should_use_dense` is the boolean view of `resolve_route`
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("available", [True, False])
 @pytest.mark.parametrize(
@@ -410,7 +635,7 @@ def test_resolve_route_and_should_use_dense_agree(
 
 
 # --------------------------------------------------------------------------- #
-# 7. the opt-in batch route (`EVOGP_EVAL_MODE=batch`)
+# 8. the opt-in batch route (`EVOGP_EVAL_MODE=batch`)
 # --------------------------------------------------------------------------- #
 def test_batch_on_a_device_box_runs_iree_with_a_numpy_fallback(monkeypatch):
     """Batch is unconditional on a device box: iree, falling back to numpy.
@@ -533,7 +758,7 @@ def test_batch_route_equality_ignores_the_engine_field():
 
 
 # --------------------------------------------------------------------------- #
-# 8. `auto` NEVER selects the batch engine
+# 9. `auto` NEVER selects the batch engine
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("available", [True, False])
 @pytest.mark.parametrize("backend", [None, "numpy", "iree"])
@@ -550,7 +775,7 @@ def test_auto_never_selects_the_batch_route(
     population, its own ``EVOGP_BATCH_MIN_POP``), so it is never a silent default
     -- not at the large-pop device case that picks dense, and not at any
     ``dense`` / ``dynamic`` / ``specialized`` opt-in either.  Only
-    ``EVOGP_EVAL_MODE=batch`` (section 7) reaches it.
+    ``EVOGP_EVAL_MODE=batch`` (section 8) reaches it.
     """
     on_device_box(monkeypatch, available=available)
     for rows in (None, ROWS_OK, ROWS_OVER):
@@ -572,7 +797,7 @@ def dense_engine_backends():
 
 
 # --------------------------------------------------------------------------- #
-# 9. the `auto` trace-cap decline: which backend a wired call site continues on
+# 10. the `auto` trace-cap decline: which backend a wired call site continues on
 # --------------------------------------------------------------------------- #
 #: Node kinds the cap fixture is built from (single-sourced in ``tree/utils.py``).
 VAR = int(NType.VAR)
