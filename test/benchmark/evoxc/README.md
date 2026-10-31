@@ -58,14 +58,17 @@ results/        the evidence: baseline/ (frozen earlier round), final/ (after/,
                 batch_opt_round2/ and batch_opt_round3/ (the newest batch evidence,
                 rendered in "Round 3" below; each round has its own SUMMARY.md),
                 t1a1_baseline/ (the pre-fused default plus the torch baselines,
-                BASELINE.md), t1a1_auto/ (the shipped default, RENDERED.md +
-                README.md) and t1a1_fused/ (the explicit fused route, README.md plus
-                one subdirectory per campaign)
+                BASELINE.md), t1a1_auto/ (the shipped default's verdict page and
+                pre-change records, RENDERED.md + README.md), t1a1_auto_r2/ and
+                t1a1_auto_r3/ (the last two shipped-default windows, each with its
+                own RENDERED.md + README.md; r3 is the current one) and t1a1_fused/
+                (the explicit fused route, README.md plus one subdirectory per campaign)
 FINAL.md        report of record for the post-optimization dense/specialized campaign
 BATCH.md        report of record for the batch route round (§15 = round 3)
 SUMMARY.md      rendered report of the earlier baseline round
 VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreement
-results/t1a1_auto/README.md   report of record for the SHIPPED-DEFAULT campaign (auto -> fused)
+results/t1a1_auto_r3/README.md   report of record for the SHIPPED-DEFAULT campaign (auto -> fused)
+results/t1a1_auto/README.md      its verdict page, quoting t1a1_auto_r3 (pre-change records live here)
 results/t1a1_fused/README.md  report of record for the EXPLICIT fused column
 ```
 
@@ -328,8 +331,9 @@ The cap-5 cells are the stock generation with only the row stride made long, and
 
 ## Shipped-default campaign (auto -> fused)
 
-The shipped default is the fused route now, and this harness re-measures it: the report of record is [`results/t1a1_auto/README.md`](results/t1a1_auto/README.md) — the verdict, quoting the CURRENT numbers from [`results/t1a1_auto_r2/`](results/t1a1_auto_r2/README.md), whose `RENDERED.md` is the machine rendering of those records — read against [`results/t1a1_fused/README.md`](results/t1a1_fused/README.md) as the explicit `EVOGP_EVAL_MODE=fused` column of its own earlier session and `results/t1a1_baseline/` as the pre-fused default.
-`results/t1a1_auto/`'s own per-cell JSON are the PRE-host-glue-round evidence and were left untouched; `results/t1a1_auto_r2/` is the re-run after that round.
+The shipped default is the fused route now, and this harness re-measures it: the campaign of record is [`results/t1a1_auto_r3/README.md`](results/t1a1_auto_r3/README.md) — the verdict on the release tree, whose `RENDERED.md` is the machine rendering of those records — read against [`results/t1a1_fused/README.md`](results/t1a1_fused/README.md) as the explicit `EVOGP_EVAL_MODE=fused` column of its own earlier session and `results/t1a1_baseline/` as the pre-fused default.
+[`results/t1a1_auto/README.md`](results/t1a1_auto/README.md) stays the one-screen verdict page of the shipped default and quotes `results/t1a1_auto_r3/` now.
+`results/t1a1_auto_r3/` supersedes `results/t1a1_auto_r2/` for every number (same six cells, same arms, same workloads, same protocol, one round later), and both older directories keep their JSON untouched as evidence: `results/t1a1_auto/` is the PRE-host-glue-round window and `results/t1a1_auto_r2/` the previous round.
 
 * **What was measured**: six cells x `evoxc-auto` / `torch-batched` over `sr_fitness` + `batch_forward` + `forward` + `gp_step`
   (`p256-L32-i8-N1024`, `p256-L64-i32-N1024`, `p256-L64-i32-N4096`,
@@ -338,12 +342,13 @@ The shipped default is the fused route now, and this harness re-measures it: the
   **12 records / 356 checks / 0 failures** (6 declared digest WARN).
   The earlier four-arm round in `results/t1a1_auto/` (23 records, 640 checks) adds the same-window `evoxc-dense-iree` and `torch-per-tree` controls.
 * **Route proof**: every `evoxc-auto` record resolves `eval_mode auto` / `engine fused` /
-  `backend iree` with `served_every_workload true`, 24 `fused_kernel_launches`, 0 declines and
-  21 `PLAN_MEMO` hits against 3 misses, so the column is the kernel rather than a silent fallback.
-* **Headline**: **46.4×–181.5× faster than `torch-batched` per `batch_forward` call**
-  (33.6×–153.4× on `sr_fitness`, 47.1×–145.3× on `forward`) and **7.8×–104.0× per whole GP generation**, on warm medians of 0.0780–0.1460 ms `batch_forward` against 4.0–26.5 ms.
-* **What the host-glue round did**: a same-session `--tree-root` A/B against commit `9cc601d` cuts `batch_forward` by 22.6–37.9 %, `SR_fitness` by 18.9–29.6 % and `forward` by 23.0–41.8 %; the warm call is now 88–96 % kernel, and the GP loop is unchanged because a fresh population misses the plan memo every generation (`results/t1a1_auto_r2/README.md` §5–§7).
-* **Where a generation's cost sits**: evaluation is 13.9–15.4 % of the step (0.39–0.43 ms of 2.80–3.09 ms), so the operator layer is the loop's bottleneck.
+  `backend iree` with `served_every_workload true`, 24 `fused_kernel_launches` of which 21
+  are plan-fast-path (`fused_bound_launches`) calls, 0 declines, 21 `PLAN_MEMO` hits
+  against 3 misses and 3 kernel compiles, so the column is the kernel rather than a silent fallback.
+* **Headline**: **80.2×–228.9× faster than `torch-batched` per `batch_forward` call**
+  (60.2×–208.8× on `sr_fitness`, 85.8×–220.1× on `forward`) and **7.7×–99.8× per whole GP generation**, on warm medians of 0.0449–0.1152 ms `batch_forward` against 3.95–26.36 ms.
+* **What the round did**: a same-session four-way `--tree-root` A/B (`5a699ca` → `091a6a8` → `cfd2f92` → the measured tree) puts it at 1.31×–1.77× (`batch_forward`), 1.34×–1.65× (`sr_fitness`) and 1.55×–1.97× (`forward`), of which the fused plan fast path is 1.30×–1.77× and the route-policy memo the rest (3.1 %–22.2 % on `sr_fitness`); the `t1a1_auto_r2` tree re-run in the same session reproduces its committed medians within −11.3 %…+7.7 %, and a code-identical control reads 0.951–1.118 against the recorded ones (`results/t1a1_auto_r3/README.md` §4–§5, §8).
+* **Where a generation's cost sits**: evaluation is 14.2–15.4 % of the step (0.433–0.471 ms of 2.841–3.282 ms), so the operator layer is the loop's bottleneck, and the generation is unchanged by the round (0.968–1.140 against the previous tree).
 * **One excluded control**: `campaign.CELL_EXCLUSIONS` drops `evoxc-dense-iree` on
   `p2048-L128-i32-N1024-d7` — explicit dense past `EVOGP_DENSE_MAX_TREE_LEN` declines into
   per-structure specialized+iree with unbounded artifact growth and OOM-kills the job
@@ -351,8 +356,8 @@ The shipped default is the fused route now, and this harness re-measures it: the
   recorded in `campaign.json`'s `protocol.scope_dropped`).
 
 ```bash
-$PY campaign.py --out results/t1a1_auto_r2 --cells <the six ids above> --arms evoxc-auto,torch-batched --workloads sr_fitness,batch_forward,forward,gp_step
-python3 test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/t1a1_auto_r2 --allow-snapshot --allow-missing --allow-digest-mismatch
+$PY campaign.py --out results/t1a1_auto_r3 --cells <the six ids above> --arms evoxc-auto,torch-batched --workloads sr_fitness,batch_forward,forward,gp_step
+python3 test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/t1a1_auto_r3 --allow-snapshot --allow-missing --allow-digest-mismatch
 ```
 
 ## Final campaign: what was measured
@@ -368,7 +373,7 @@ training runs, the noise audit and the caveats. This section is the short versio
   `evoxc-dense-iree`, `evoxc-specialized-numpy`, `evoxc-specialized-iree`
   (the last on the `pop ∈ {16, 64}` cells only) — 130 records at HEAD in
   `results/final/after/`. The same harness's shipped-default column is now the fused
-  route, measured in `results/t1a1_auto/`
+  route, measured in `results/t1a1_auto_r3/`
   ([Shipped-default campaign](#shipped-default-campaign-auto---fused)).
 * **`before`**: the same harness in the same window against the pre-optimization
   snapshot `/tmp/evogp_preopt` (commit `530518e`) through `--tree-root` — 90 records
