@@ -524,16 +524,62 @@ def test_route_policy_selects_fused(pop_size):
         )
 
 
-@pytest.mark.parametrize("pop_size", [1, 16, 64, 256])
-def test_auto_never_selects_fused(pop_size, monkeypatch):
-    """The default policy never picks the opt-in fused route."""
+@pytest.mark.parametrize("pop_size", [16, 64, 256])
+def test_auto_selects_fused_above_the_floor(pop_size, monkeypatch):
+    """``auto`` -- the DEFAULT -- owns the fused route from ``EVOGP_FUSED_MIN_POP`` up.
+
+    The pre-policy contract this file used to pin ("``auto`` never selects fused") is
+    gone: on a device+triton box (the only box this module runs on) the default
+    resolves ``engine == "fused"`` from the floor up, on the ``iree`` backend
+    SPELLING with the historical specialized+``numpy`` fallback.  The REAL probes are
+    the oracle here -- nothing is pinned, so a rolled-back policy cannot pass.
+    The rest of the matrix (the floor moving, the no-triton / no-device worlds, the
+    fused envelope, the explicit-backend arm that never reaches fused) is pinned once
+    in ``test_route_policy.py`` section 6; this is the fused file's own guard that the
+    default did not silently go back.
+    """
     monkeypatch.delenv("EVOGP_EVAL_MODE", raising=False)
-    for backend in (None, "iree"):
-        route = dense_engine.resolve_route(pop_size, backend=backend)
-        assert route.engine != "fused", (
-            f"auto resolved to the fused engine at pop_size={pop_size} "
-            f"(backend={backend!r}, reason={route.reason!r}); the route is opt-in only"
-        )
+    minimum = fused_engine.resolve_min_pop()
+    assert minimum == fused_engine.DEFAULT_MIN_POP == 16, "the documented crossover"
+    assert pop_size >= minimum
+    assert torch.cuda.is_available() and fused_engine.fused_available(), (
+        "the module-level skip guarantees device + triton on this box"
+    )
+    route = dense_engine.resolve_route(pop_size)
+    assert route.engine == "fused", (pop_size, route.reason)
+    assert route.use_fused is True and route.use_dense is False
+    assert (route.backend, route.fallback_backend) == ("iree", "numpy"), (
+        f"pop_size={pop_size}: got {route.backend!r} / {route.fallback_backend!r}"
+    )
+
+
+def test_auto_keeps_the_pre_fused_policy_below_the_floor_or_without_triton(monkeypatch):
+    """The two guards of that default: the pop floor, and the availability probe.
+
+    Below ``EVOGP_FUSED_MIN_POP`` nothing moved -- specialized+``numpy``, the
+    ``Tree`` / small-population answer, because a cold Triton JIT cannot amortize
+    there -- and with the fused probe off ``auto`` is the historical
+    dense+iree-then-specialized rule verbatim.
+    """
+    monkeypatch.delenv("EVOGP_EVAL_MODE", raising=False)
+    floor = fused_engine.resolve_min_pop()
+    # the probe is ON here (the module-level skip guarantees it), so the answers
+    # below are the FLOOR's doing and not a silently unavailable route
+    assert dense_engine.fused_route_available() is True
+    for pop_size in (1, 8, floor - 1):
+        route = dense_engine.resolve_route(pop_size)
+        assert route.engine == "specialized", (pop_size, route.reason)
+        assert route.use_fused is False and route.use_dense is False
+        assert (route.backend, route.fallback_backend) == ("numpy", "numpy"), pop_size
+    assert dense_engine.resolve_route(floor).engine == "fused", "one tree more, fused"
+    # the pre-change world: the probe off (`triton` missing, or no device)
+    monkeypatch.setattr(dense_engine, "_FUSED_AVAILABLE", False)
+    for pop_size in (64, 256):
+        route = dense_engine.resolve_route(pop_size)
+        assert route.engine == "dense", (pop_size, route.reason)
+        assert route.use_dense is True and route.use_fused is False
+        assert (route.backend, route.fallback_backend) == ("iree", "numpy"), pop_size
+    assert dense_engine.resolve_route(floor - 1).engine == "specialized"
 
 
 def test_served_call_increments_launches_only():

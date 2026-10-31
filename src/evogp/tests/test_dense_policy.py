@@ -339,9 +339,11 @@ def test_eval_mode_tables_stay_canonical():
     alias value may point at it), listed before ``auto`` so the default stays the
     last entry, and named in ``ENGINES`` next to the two engines the policy had
     before it.
-    ``fused`` is the opt-in FOURTH engine: likewise a canonical mode listed before
-    ``auto``, never an alias (and no alias value points at it), and never selected by
-    ``auto``.
+    ``fused`` is the FOURTH engine: likewise a canonical mode listed before ``auto``
+    and never an alias (and no alias value points at it).  Its mode is a FORCING
+    spelling, not the only way in: ``auto`` itself picks the fused route on a
+    device+triton box from ``EVOGP_FUSED_MIN_POP`` up (see ``test_route_policy.py``
+    section 6); what stays off-limits to ``auto`` is the batch engine.
     """
     assert tuple(dense.EVAL_MODES) == ("dense", "specialized", "batch", "fused", "auto")
     assert tuple(dense.ENGINES) == ("specialized", "dense", "batch", "fused")
@@ -360,7 +362,8 @@ def test_eval_mode_tables_stay_canonical():
     assert "batch" in dense.EVAL_MODES and "batch" in dense.ENGINES
     assert "batch" not in dense.EVAL_MODE_ALIASES
     assert "batch" not in set(dense.EVAL_MODE_ALIASES.values())
-    # ... and the same for the opt-in fourth engine
+    # ... and the same for the fourth engine (auto's device-box default, but still
+    # reached by its own spelling only -- never through the alias table)
     assert "fused" in dense.EVAL_MODES and "fused" in dense.ENGINES
     assert "fused" not in dense.EVAL_MODE_ALIASES
     assert "fused" not in set(dense.EVAL_MODE_ALIASES.values())
