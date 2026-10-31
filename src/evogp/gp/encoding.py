@@ -140,12 +140,22 @@ def clear_cache() -> None:
 # host-side channel helpers (numpy; the tree layer's decode counterpart)
 # --------------------------------------------------------------------------- #
 def _as_numpy(value, name: str) -> np.ndarray:
-    """A concrete numpy view of a channel (``evoxc.Tensor`` or array-like)."""
+    """A concrete numpy view of a channel (``evoxc.Tensor`` or array-like).
+
+    A tensor that lives on a device is downloaded first (``.numpy()`` refuses a
+    device buffer), so the host-side helpers -- :func:`validate_channels`,
+    :func:`row_length`, the legacy bridge -- also accept the device-resident
+    channels of an ``iree`` run.  That download is why the operator layer never
+    routes a hot path through here.
+    """
     if isinstance(value, np.ndarray):
         return value
     numpy_method = getattr(value, "numpy", None)
     if callable(numpy_method):
-        return np.asarray(numpy_method())
+        device = getattr(value, "device", None)
+        if device is not None and getattr(device, "kind", "cpu") != "cpu":
+            value = value.to(_evoxc().Device("cpu", 0))
+        return np.asarray(value.numpy())
     try:
         return np.asarray(value)
     except Exception as exc:  # noqa: BLE001 - re-raised with the field name
@@ -588,6 +598,9 @@ def _generator_fn(config: GPTreeConfig, pop_size: int):
     executable memo in :func:`init_population` does that).
     """
     evoxc = _evoxc()
+    # Imported here, not at module scope: `_runtime` imports this module (it is
+    # the shared trace-primitive home of the operator layer).
+    from ._runtime import columns as column_index, cumsum_axis, f32, i32
 
     widths = config.padded_widths()
     offsets = _padded_offsets(config)
@@ -621,6 +634,12 @@ def _generator_fn(config: GPTreeConfig, pop_size: int):
         shape = (pop_size, total)
         scalar0f = evoxc.constant(evoxc.zeros((1,), evoxc.float32))
         scalar0i = evoxc.constant(evoxc.zeros((1,), evoxc.int32))
+        # Typed rank-0 literals: a Python int/float would promote the whole
+        # expression to int64/float64, which the strict stablehlo emitter
+        # rejects at the first concatenate of mismatched element types.
+        zero_i = i32(evoxc, 0)
+        one_i = i32(evoxc, 1)
+        zero_f = f32(evoxc, 0.0)
 
         # ---- node decisions of the whole padded population, in one batch ---
         r_leaf = evoxc.random.uniform(k_leaf, shape, 0.0, 1.0)
@@ -640,7 +659,7 @@ def _generator_fn(config: GPTreeConfig, pop_size: int):
                 count,
                 evoxc.cast(evoxc.less_equal(cdf_constant[index], r_func), evoxc.int32),
             )
-        func_id = evoxc.minimum(count, Func.END - 1)
+        func_id = evoxc.minimum(count, i32(evoxc, Func.END - 1))
         arity = evoxc.select(
             is_func,
             evoxc.gather(evoxc.constant(evoxc.from_numpy(arity_table)), func_id, axis=0),
@@ -661,7 +680,7 @@ def _generator_fn(config: GPTreeConfig, pop_size: int):
         leaf_payload = evoxc.select(
             is_const, const_value, evoxc.cast(var_index, evoxc.float32)
         )
-        payload = evoxc.select(is_func, 0.0, leaf_payload)
+        payload = evoxc.select(is_func, zero_f, leaf_payload)
         opcode = evoxc.select(
             is_func, func_id, evoxc.cast(is_const, evoxc.int32)
         )
@@ -698,8 +717,10 @@ def _generator_fn(config: GPTreeConfig, pop_size: int):
             children = evoxc.reshape(
                 sizes[depth + 1], (pop_size, widths[depth], arity_max)
             )
+            # `sum` accumulates in 64-bit, so the cast back keeps `size` int32
+            # (a mixed-dtype `concatenate` is rejected by the strict emitter).
             sizes[depth] = evoxc.multiply(
-                evoxc.add(evoxc.sum(children, axes=2), 1),
+                evoxc.add(evoxc.cast(evoxc.sum(children, axes=2), evoxc.int32), one_i),
                 evoxc.cast(real_levels[depth], evoxc.int32),
             )
 
@@ -710,24 +731,35 @@ def _generator_fn(config: GPTreeConfig, pop_size: int):
             siblings = evoxc.reshape(
                 sizes[depth], (pop_size, widths[depth - 1], arity_max)
             )
-            smaller = evoxc.subtract(evoxc.cumsum(siblings, axis=2), siblings)
+            smaller = evoxc.subtract(
+                cumsum_axis(evoxc, siblings, 2, zero_i), siblings
+            )
             prefix = evoxc.add(
                 evoxc.reshape(prefixes[-1], (pop_size, widths[depth - 1], 1)),
-                evoxc.add(1, smaller),
+                evoxc.add(one_i, smaller),
             )
             prefixes.append(
                 evoxc.select(
                     real_levels[depth],
                     evoxc.reshape(prefix, (pop_size, widths[depth])),
-                    scratch,
+                    i32(evoxc, scratch),
                 )
             )
 
-        # ---- one scatter of the whole padded grid into pre-order ----------
+        # ---- the padded grid back into pre-order --------------------------
         # The layout is flattened to 1-D because evoxc.scatter takes the
         # indices' shape as the "middle" axes and does not broadcast them
         # against the leading axis of a 2-D base; every row owns a disjoint
         # slice of the flat buffer, so this is the same write.
+        #
+        # The three channels are NOT three scatters: a program with two
+        # `stablehlo.scatter` ops whose window is scalar (rank-1 operand) fails
+        # to compile on the iree backend ("unresolved materialization from
+        # tensor<Kx1xi32> to tensor<Kxi32>"), so ONE scatter builds the inverse
+        # map (destination column -> source slot) once and each channel is then
+        # one row-wise gather.  Duplicate destinations (every dropped slot lands
+        # on the scratch column) are masked out below, so last-write-wins on
+        # them is irrelevant.
         index_flat = evoxc.reshape(
             evoxc.add(
                 evoxc.concatenate(prefixes, axis=1),
@@ -735,24 +767,35 @@ def _generator_fn(config: GPTreeConfig, pop_size: int):
             ),
             (flat,),
         )
+        slot_table = np.arange(flat, dtype=np.int32)
+        inverse_flat = evoxc.scatter(
+            evoxc.broadcast(zero_i, (pop_size * columns,)),
+            index_flat,
+            evoxc.constant(evoxc.from_numpy(slot_table)),
+            axis=0,
+        )
+        # The root's subtree size IS the row's live node count, so this is the
+        # padding mask without a second reduction.
+        keep = evoxc.less(column_index(evoxc, columns), sizes[0])
+        pad_len = pop_size * columns - flat
         outputs = []
-        for values, dtype in (
-            (opcode, evoxc.int32),
-            (payload, evoxc.float32),
-            (evoxc.concatenate(sizes, axis=1), evoxc.int32),
-        ):
-            # A 1-element zero constant broadcast to the flat buffer keeps the
-            # graph small (a full-size Constant would warn past 1 MiB).
-            zero = scalar0f if dtype == evoxc.float32 else scalar0i
-            buffer = evoxc.scatter(
-                evoxc.broadcast(zero, (pop_size * columns,)),
-                index_flat,
-                evoxc.reshape(values, (flat,)),
-                axis=0,
+        for values in (opcode, payload, evoxc.concatenate(sizes, axis=1)):
+            zero = (
+                zero_f if values.dtype == evoxc.float32 else zero_i
             )
+            flat_values = evoxc.reshape(values, (flat,))
+            if pad_len > 0:
+                flat_values = evoxc.concatenate(
+                    (flat_values, evoxc.broadcast(zero, (pad_len,))), axis=0
+                )
+            pulled = evoxc.reshape(
+                evoxc.gather(flat_values, inverse_flat, axis=0),
+                (pop_size, columns),
+            )
+            buffer = evoxc.select(keep, pulled, zero)
             outputs.append(
                 evoxc.slice(
-                    evoxc.reshape(buffer, (pop_size, columns)),
+                    buffer,
                     start=(0, 0),
                     lengths=(pop_size, max_nodes),
                 )
@@ -856,7 +899,10 @@ def init_population(
         raise ValueError(f"pop_size must be a positive integer, got {pop_size!r}")
 
     evoxc = _evoxc()
-    key_tensor = _resolve_key(evoxc, key)
+    # A function-level import: `_runtime` imports this module at module scope.
+    from . import _runtime
+
+    key_tensor = _runtime.to_device(_resolve_key(evoxc, key), device)
     executable = _build(tree_config, pop_size, backend, device, key_tensor)
     opcode, payload, size, next_key = evoxc.run(executable, key_tensor)
 
@@ -864,7 +910,7 @@ def init_population(
         opcode=opcode,
         payload=payload,
         size=size,
-        fitness=evoxc.full((pop_size,), float("-inf"), dtype=evoxc.float32),
+        fitness=_runtime.unevaluated(pop_size, device=device),
         key=next_key,
     )
     if validate:

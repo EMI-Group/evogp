@@ -125,9 +125,18 @@ def rank_probabilities(pop_size: int, selection_pressure: float) -> np.ndarray:
 # trace-time primitives
 # --------------------------------------------------------------------------- #
 def _sample_cdf(evoxc_module, key, probs, pop_size: int, n_samples: int):
-    """Inverse-CDF sampling of ``n_samples`` indices from ``probs`` (no searchsorted)."""
+    """Inverse-CDF sampling of ``n_samples`` indices from ``probs`` (no searchsorted).
+
+    The cdf is scanned with :func:`evogp.gp._runtime.cumsum_axis` rather than
+    ``evoxc.cumsum`` because the stablehlo emitter behind ``backend="iree"`` has
+    no ``cumsum``; the decomposition adds in the same order, so the sampled
+    indices are bit-identical to the numpy backend's.
+    """
     total = evoxc_module.sum(probs, axes=None)
-    cdf = evoxc_module.cumsum(evoxc_module.divide(probs, total), axis=0)
+    cdf = _runtime.cumsum_axis(
+        evoxc_module, evoxc_module.divide(probs, total), 0,
+        _runtime.f32(evoxc_module, 0.0),
+    )
     uniform = evoxc_module.random.uniform(
         key, (int(n_samples),), 0.0, 1.0
     )
