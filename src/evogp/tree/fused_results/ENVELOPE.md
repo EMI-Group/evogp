@@ -1,7 +1,8 @@
 # Fused (Triton) route — envelope / min-pop / geometry campaign record
 
 Records of ONE run of `src/evogp/tree/fused_envelope.py` (driver `--stage headline | envelope |
-minpop | sweep | degenerate`). The JSON evidence sits beside this file:
+minpop | sweep | degenerate`; `--stage records` is the read-only audit of these files). The JSON
+evidence sits beside this file:
 `main/headline_20261030T212347Z.json`, `envelope.json`, `minpop.json`, `sweep/sweep.json`,
 `degenerate.json`.
 
@@ -14,9 +15,12 @@ minpop | sweep | degenerate`). The JSON evidence sits beside this file:
   process.
 - Warm medians: 2 untimed warmups + 5 sync-bracketed reps (`common.time_call`); the cold first
   call is recorded separately (`first_call_ms`) and never enters the median.
-- Geometry: the shipped defaults — `EVOGP_FUSED_BLOCK_ROWS` 256, `EVOGP_FUSED_NUM_WARPS` 1,
-  `EVOGP_FUSED_MAX_SCRATCH_MB` 8192, `EVOGP_FUSED_MIN_POP` 64 — except in `sweep`, which sets
+- Geometry: the defaults of the run — `EVOGP_FUSED_BLOCK_ROWS` 256, `EVOGP_FUSED_NUM_WARPS` 1,
+  `EVOGP_FUSED_MAX_SCRATCH_MB` 8192 and `EVOGP_FUSED_MIN_POP` 64 — except in `sweep`, which sets
   them per config in the child environment. No default knob was changed by this campaign.
+  `EVOGP_FUSED_MIN_POP` has since moved to 16 (measured in `FUSED.md` §13), so under today's
+  default the `fused API` / `policy engine` columns of §3 would serve fused from pop 16 up; the
+  recorded column is what the gate did at the time and is not re-recorded.
 - Reproduce (repo root, one stage at a time):
 
 ```
@@ -70,15 +74,20 @@ ms, warm medians; `arm/fused` etc. are the reference's cost divided by fused's (
 wins). `dense_expected_decline` = `tree_len` above the base dense trace cap (64), where an
 explicit `dense` request falls back to `specialized` and timing it would report the fallback.
 
-- **Memory case** `p2048-L256-i32-N1024-d8`: scratch by the envelope formula 2 147 483 648 B
-  (2 GiB), `envelope_ok` True against `EVOGP_FUSED_MAX_SCRATCH_MB` 8192; the ACTUAL device peak
-  over the fused window was **2068.51 MiB allocated / 2096.0 MiB reserved** (delta 2064.13 /
-  2048.0), i.e. the full 2 GiB block is really allocated and the call does not OOM.
-- No cell declined and no cell OOMed. Peak allocated tracks `scratch_bytes` to within 3.5 %
-  (4.39 / 16.80 / 66.42 / 258.68 / 265.18 / 1060.22 / 1033.63 / 529.51 / 1058.76 / 2117.26 /
-  1042.51 / 2068.51 MiB against 4 / 16 / 64 / 250 / 256 / 1024 / 1000 / 512 / 1024 / 2048 /
-  1024 / 2048 MiB of scratch; the surplus is the `(pop, rows, 1)` value buffer), so the envelope
-  formula `pop * tree_len * rows * 4` is the memory story, not an estimate.
+- **Memory case** `p2048-L256-i32-N1024-d8`: 2 147 483 648 B (2 GiB) of scratch, and under today's
+  envelope (`fused_engine._check_envelope`: scratch with the row axis rounded up to the block + the
+  `(pop, rows, out_len)` value buffer + the loss chart) 2 056 MiB in total, `envelope_ok` True
+  against `EVOGP_FUSED_MAX_SCRATCH_MB` 8192; the ACTUAL device peak over the fused window was
+  **2068.51 MiB allocated / 2096.0 MiB reserved** (delta 2064.13 / 2048.0), i.e. the full 2 GiB
+  block is really allocated and the call does not OOM.
+- No cell declined and no cell OOMed. Peak allocated tracks the recorded `scratch bytes` column to
+  within 3.5 % (4.39 / 16.80 / 66.42 / 258.68 / 265.18 / 1060.22 / 1033.63 / 529.51 / 1058.76 /
+  2117.26 / 1042.51 / 2068.51 MiB against 4 / 16 / 64 / 250 / 256 / 1024 / 1000 / 512 / 1024 /
+  2048 / 1024 / 2048 MiB of scratch; the surplus is the `(pop, rows, 1)` value buffer), so the
+  scratch term is the memory story, not an estimate.
+- The `ok` column is the `envelope_ok` recorded at the time (the pre-§16.4 round rule); all 79
+  stored records still pass the engine's current three-term rule, which
+  `fused_envelope.py --stage records` re-checks read-only (it never rewrites them).
 - Value parity vs the arm is bitwise everywhere (`max_abs` 0, `max_rel` 0); loss parity is
   1.6e-07…4.1e-07 relative (in-graph reduction order).
 
@@ -100,7 +109,8 @@ explicit `dense` request falls back to `specialized` and timing it would report 
 median landed on the slow tail. Everything else in the column is 0.088–0.103 ms, i.e. the
 kernel is FLAT in `pop_size` at this shape — its cost is the row-block sweep, not the trees.
 `fused API` below the gate equals `specialized` by construction (the policy answers
-specialized), so `EVOGP_FUSED_MIN_POP` = 64 is the only reason pop 1…32 pay 5–58× more.
+specialized), so the gate value used for this run (`EVOGP_FUSED_MIN_POP` = 64, since moved to 16 —
+`FUSED.md` §13) is the only reason pop 1…32 pay 5–58× more here.
 
 ## 4. Geometry sweep (`EVOGP_FUSED_BLOCK_ROWS` × `EVOGP_FUSED_NUM_WARPS`)
 
