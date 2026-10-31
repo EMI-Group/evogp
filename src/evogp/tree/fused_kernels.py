@@ -194,6 +194,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import os
 import textwrap
 import threading
 from collections import OrderedDict
@@ -208,19 +209,33 @@ __all__ = [
     "DEFAULT_BLOCK_ROWS",
     "DEFAULT_NUM_WARPS",
     "DEFAULT_SCRATCH_BUDGET_MB",
+    "DISPATCH_BOUND",
+    "DISPATCH_ENV",
+    "DISPATCH_JIT",
     "FusedUnavailable",
     "clear_caches",
+    "dispatch_stats",
     "emitted_function_ids",
     "kernels",
     "launch_loss",
     "launch_value",
     "plan",
+    "resolve_dispatch",
     "scratch_stats",
     "triton_available",
 ]
 
 #: Cap of the row-block width, ``min(next_pow2(rows), cap)`` lanes per program.
 BLOCK_ROWS_ENV = "EVOGP_FUSED_BLOCK_ROWS"
+#: The LAUNCH PATH of a warm call (see :class:`_BoundLaunch`): ``bound`` (default)
+#: serves every call after the first one through the pre-bound
+#: ``triton.compiler.CompiledKernel``, skipping ``JITFunction.run``'s argument
+#: binding, specialization hashing, cache lookup and launch-metadata construction;
+#: ``jit`` keeps the historical ``kernel[grid](*args, **options)`` dispatch (one
+#: full ``JITFunction.run`` per call) and is the A/B arm and the escape hatch.
+DISPATCH_ENV = "EVOGP_FUSED_DISPATCH"
+DISPATCH_BOUND = "bound"
+DISPATCH_JIT = "jit"
 #: Lanes per program when the caller does not say otherwise.  Measured optimum:
 #: in the 64/128/256/512 x warps-1/2/4 sweep (six cells, one process per config,
 #: :mod:`evogp.tree.fused_check --stage tuning`) 256 is the only width that lands
@@ -1007,6 +1022,10 @@ _STATS: Dict[str, int] = {
     "scratch_allocs": 0,
     "scratch_reuses": 0,
     "scratch_evictions": 0,
+    #: launches served by the pre-bound dispatch (a subset of ``kernels``)
+    "bound": 0,
+    #: SHAPES whose pre-bound dispatch declined (per arming attempt, not per call)
+    "declines": 0,
 }
 
 
@@ -1071,6 +1090,30 @@ def plan(rows: int, *, per_row: bool, block_rows: int, num_warps: int) -> Dict[s
     return geometry
 
 
+def resolve_dispatch(value: Optional[str] = None) -> str:
+    """The launch path of a warm call (``EVOGP_FUSED_DISPATCH``, default ``bound``).
+
+    ``bound`` :class:`_BoundLaunch` serves every call after the first one through
+    the pre-bound ``CompiledKernel``; ``jit`` keeps the historical
+    ``kernel[grid](*args, **options)`` dispatch (a full ``JITFunction.run`` per
+    call).  Resolved at BIND time -- i.e. once per prepared call, on a
+    :data:`evogp.tree.fused_engine.PLAN_MEMO` miss -- so flipping the knob and
+    calling ``clear_fused_cache()`` re-binds and the A/B needs no new process.
+
+    Anything else is a caller error and raises, exactly like the other geometry
+    knobs (:func:`evogp.tree.fused_engine.resolve_block_rows`).
+    """
+    raw = os.environ.get(DISPATCH_ENV, DISPATCH_BOUND) if value is None else value
+    spelling = str(raw).strip().lower()
+    if spelling in ("", DISPATCH_BOUND):
+        return DISPATCH_BOUND
+    if spelling == DISPATCH_JIT:
+        return DISPATCH_JIT
+    raise ValueError(
+        f"{DISPATCH_ENV} must be {DISPATCH_BOUND!r} or {DISPATCH_JIT!r}, got {raw!r}"
+    )
+
+
 def _scratch_for(
     device_index: int,
     n_prog: int,
@@ -1133,6 +1176,24 @@ def scratch_stats() -> Dict[str, int]:
             "fused_scratch_evictions": _STATS["scratch_evictions"],
             "fused_scratch_entries": len(_SCRATCH),
             "fused_scratch_bytes": _SCRATCH_BYTES,
+            "fused_bound_launches": _STATS["bound"],
+            "fused_dispatch_declines": _STATS["declines"],
+        }
+
+
+def dispatch_stats() -> Dict[str, int]:
+    """The launch path's own counters: how many calls skipped ``JITFunction.run``.
+
+    ``bound_launches + jit_launches`` is ``fused_kernel_launches`` (every served
+    call, exactly one launch each); ``declines`` counts SHAPES that fell back to
+    the historical dispatch, i.e. it stays put however many calls they then serve.
+    """
+    with _LOCK:
+        bound = _STATS["bound"]
+        return {
+            "bound_launches": bound,
+            "jit_launches": _STATS["kernels"] - bound,
+            "declines": _STATS["declines"],
         }
 
 
@@ -1142,6 +1203,184 @@ def _device_index(device: Any) -> int:
     if index is None:
         return int(torch.cuda.current_device())
     return int(index)
+
+
+def _hook_active(hook: Any) -> bool:
+    """Whether a Triton launch hook would actually run (``None``/empty = no).
+
+    Triton 3.7 exposes ``knobs.runtime.launch_enter_hook`` / ``launch_exit_hook``
+    as :class:`triton.knobs.HookChain` objects even when EMPTY, and the C launcher
+    still calls into them (a C -> Python round trip per launch) unless they are
+    ``None``.  A plain callable we cannot introspect counts as active, which is the
+    conservative answer.
+    """
+    if hook is None:
+        return False
+    calls = getattr(hook, "calls", None)
+    if calls is None:
+        return True
+    return bool(calls)
+
+
+def _launcher_takes_launch_args(launcher: Any) -> bool:
+    """Whether ``launcher`` is Triton's ``(gridX, gridY, gridZ, stream, ...)`` callable.
+
+    The pre-bound path calls ``CompiledKernel.run`` exactly the way
+    ``JITFunction.run`` does -- nine positional launch operands followed by the
+    kernel's own argument list -- so a backend launcher with a different shape
+    must keep the historical dispatch instead.  Feature detection, not a version
+    check: an older/newer Triton whose launcher looks different degrades silently.
+    """
+    try:
+        parameters = list(inspect.signature(type(launcher).__call__).parameters.values())
+    except (TypeError, ValueError):  # a C callable we cannot introspect
+        return False
+    positional = [
+        parameter
+        for parameter in parameters[1:]  # drop ``self``
+        if parameter.kind
+        in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    varargs = any(
+        parameter.kind is parameter.VAR_POSITIONAL for parameter in parameters
+    )
+    return varargs and len(positional) == 9
+
+
+class _BoundLaunch:
+    """The launch of ONE bound shape: Triton's ``JITFunction.run`` once, then the kernel.
+
+    ``JITFunction.run`` is a Python dispatcher: it binds the arguments through a
+    generated binder, derives the specialization key, looks the specialization up
+    in the per-device kernel cache, re-checks the kernel's globals and builds the
+    launch metadata -- **~23 us of CPU** per launch on the reference box, i.e. more
+    than the kernel's own 15.5 us at ``p256`` (``FUSED.md`` §18).  All of it is a
+    pure function of the specialization this class is bound to, so it runs ONCE:
+    the first call goes through ``JITFunction.run`` (which returns the
+    ``CompiledKernel`` it compiled or served) and every later call invokes the
+    kernel's own launcher directly, with the grid, stream getter, function handle,
+    packed metadata and hooks resolved once.
+
+    Nothing is re-derived per call except the current stream (``torch`` may switch
+    it between calls, and a launch has to follow) and the current device index
+    (``torch.cuda.device`` is a ``cudaSetDevice`` round trip, so the wrapper is
+    entered only when the launch's device is not the current one).
+
+    BITWISE by construction: the compiled kernel, its specialization key and the
+    argument tuple are the ones ``JITFunction.run`` used, so the same device code
+    reads the same values -- ``--stage parity`` / ``--stage multi`` / the pytest net
+    pin it.  The captured specialization (dtypes and the pointer-alignment
+    assumption Triton encodes) belongs to the bound plan, exactly like the scratch
+    block and the geometry it is bound with: it is invalidated by
+    ``fused_engine.clear_fused_cache()`` / ``evoxc_engine.clear_cache()``, the same
+    point that drops the plan.
+
+    Degradation is silent and permanent per shape: an unusable ``CompiledKernel``
+    (no launcher, a backend launcher of another shape, ACTIVE launch hooks -- the
+    profiler's -- or an exotic Triton) leaves :attr:`_launcher` ``None`` and every
+    call keeps the historical ``JITFunction.run`` path, which is also what
+    ``EVOGP_FUSED_DISPATCH=jit`` selects outright.
+    """
+
+    __slots__ = (
+        "_jit",
+        "_grid",
+        "_options",
+        "_device_index",
+        "_launcher",
+        "_function",
+        "_metadata",
+        "_get_stream",
+        "_plain",
+    )
+
+    def __init__(
+        self,
+        jitfn: Any,
+        grid: Tuple[int, int],
+        options: Dict[str, Any],
+        device_index: int,
+        mode: str = DISPATCH_BOUND,
+    ) -> None:
+        self._jit = jitfn
+        self._grid = (int(grid[0]), int(grid[1]))
+        self._options = options
+        self._device_index = int(device_index)
+        self._launcher: Any = None
+        self._function: Any = None
+        self._metadata: Any = None
+        self._get_stream: Any = None
+        self._plain = mode != DISPATCH_BOUND
+
+    def __call__(self, args: Tuple[Any, ...]) -> None:
+        launcher = self._launcher
+        if launcher is not None:
+            self._serve(launcher, args)
+            return
+        kernel = self._jit.run(*args, grid=self._grid, warmup=False, **self._options)
+        if not self._plain:
+            # The FIRST call of this shape paid the dispatcher; keep the kernel it
+            # returned (``None`` when a jit_cache_hook short-circuited the compile,
+            # in which case the historical path stays in place for good).
+            self._arm(kernel)
+
+    def _serve(self, launcher: Any, args: Tuple[Any, ...]) -> None:
+        grid_x, grid_y = self._grid
+        get_stream = self._get_stream
+        if self._device_index == int(torch.cuda.current_device()):
+            launcher(
+                grid_x, grid_y, 1, get_stream(self._device_index),
+                self._function, self._metadata, None, None, None, *args,
+            )
+        else:
+            with torch.cuda.device(self._device_index):
+                launcher(
+                    grid_x, grid_y, 1, get_stream(self._device_index),
+                    self._function, self._metadata, None, None, None, *args,
+                )
+        with _LOCK:
+            _STATS["bound"] += 1
+
+    def _arm(self, kernel: Any) -> None:
+        """Capture ``kernel``'s low-level launch, or decline onto the plain path."""
+        self._plain = True
+        if kernel is None:
+            self._decline()
+            return
+        try:
+            launcher = kernel.run  # CompiledKernel.run -> the backend launcher
+            function = kernel.function
+            metadata = kernel.packed_metadata
+            from triton import knobs as triton_knobs
+            from triton.runtime import driver as triton_driver
+
+            hooks = (
+                getattr(triton_knobs.runtime, "launch_enter_hook", None),
+                getattr(triton_knobs.runtime, "launch_exit_hook", None),
+            )
+            get_stream = triton_driver.active.get_current_stream
+        except Exception:  # pragma: no cover - exotic Triton / half-built kernel
+            self._decline()
+            return
+        if (
+            launcher is None
+            or function is None
+            or metadata is None
+            or not callable(get_stream)
+            or any(_hook_active(hook) for hook in hooks)
+            or not _launcher_takes_launch_args(launcher)
+        ):
+            self._decline()
+            return
+        self._launcher = launcher
+        self._function = function
+        self._metadata = metadata
+        self._get_stream = get_stream
+        self._plain = False
+
+    def _decline(self) -> None:
+        with _LOCK:
+            _STATS["declines"] += 1
 
 
 def _bind_launch(
@@ -1171,9 +1410,12 @@ def _bind_launch(
     specialization, scratch block, option dict, the resolved ``int`` scalars), so
     the only per-CALL work left in ``run`` is the output allocation, the argument
     tuple and the dispatch -- no keyword marshalling, no geometry, no dict build.
-    The whole call is dispatched on the tensors'
-    device index (a Triton launch compiles/streams against the CURRENT device, so
-    the launch is wrapped in ``torch.cuda.device(...)``).
+    The dispatch itself is :class:`_BoundLaunch` (Triton's ``JITFunction.run`` on
+    the first call of the shape, the pre-bound ``CompiledKernel`` from then on, and
+    the historical path for good when that is unusable or
+    ``EVOGP_FUSED_DISPATCH=jit``), which also owns the device swap
+    (``torch.cuda.device(...)`` only when the launch does not target the current
+    device: a Triton launch compiles/streams against the current one).
 
     ``max_scratch_mb`` is the total-byte budget of the scratch TABLE for this call
     (the facade passes its resolved ``EVOGP_FUSED_MAX_SCRATCH_MB``; ``None`` uses
@@ -1226,7 +1468,6 @@ def _bind_launch(
             specializations.add(key)
             _STATS["specializations"] += 1
     extra = {"OUT_LEN": out_len} if multi else {}
-    launch = kernel[(pop, n_rb)]
     options = dict(
         BLOCK_R=int(geom["block_rows"]),
         PER_ROW=bool(per_row),
@@ -1237,6 +1478,9 @@ def _bind_launch(
         enable_fp_fusion=False,
         num_warps=int(geom["num_warps"]),
         **extra,
+    )
+    dispatch = _BoundLaunch(
+        kernel, (pop, n_rb), options, device_index, resolve_dispatch()
     )
     device = node_value.device
 
@@ -1296,15 +1540,12 @@ def _bind_launch(
             rows,
             stack_cap,
         )
-        # ``torch.cuda.device`` is a ``cudaSetDevice`` round trip: it is needed only
-        # when the population's device is NOT the current one (a Triton launch
-        # compiles/streams against the CURRENT device), and that test is 0.2 us
-        # against the context's 0.6 us.
-        if device_index == int(torch.cuda.current_device()):
-            launch(*args, **options)
-        else:
-            with torch.cuda.device(device_index):
-                launch(*args, **options)
+        # The launch is a :class:`_BoundLaunch`: the first call of this shape runs
+        # Triton's ``JITFunction.run`` (binding + specialization + launch), every
+        # call after it invokes the pre-bound compiled kernel directly -- the same
+        # device code with the same arguments, minus ~18 us of Python.  The device
+        # swap it handles internally is why nothing else here touches the context.
+        dispatch(args)
         with _LOCK:
             _STATS["kernels"] += 1
         return out
