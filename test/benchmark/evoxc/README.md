@@ -51,16 +51,22 @@ band_sweep.py   band-size / merge-composition sweep driver (one record per
                 (cell, config): warm medians, stage split, band report, oracle)
 band_measure.py its child half: the measurement loop and the record skeleton
 results/        the evidence: baseline/ (frozen earlier round), final/ (after/,
-                before/, decompose/, cold/, training/, validation.json, RENDERED.md)
-                and batch/ (the warm-r5/small-r5/flat-r5/flat1000-r5/flat1000-3w-r5
+                before/, decompose/, cold/, training/, validation.json, RENDERED.md),
+                batch/ (the warm-r5/small-r5/flat-r5/flat1000-r5/flat1000-3w-r5
                 rounds, <cell>/<route>.json, economics.json, validation-*.json,
                 RENDERED-*.md and the --reps 3 pilots), batch_opt_round1/,
                 batch_opt_round2/ and batch_opt_round3/ (the newest batch evidence,
-                rendered in "Round 3" below; each round has its own SUMMARY.md)
+                rendered in "Round 3" below; each round has its own SUMMARY.md),
+                t1a1_baseline/ (the pre-fused default plus the torch baselines,
+                BASELINE.md), t1a1_auto/ (the shipped default, RENDERED.md +
+                README.md) and t1a1_fused/ (the explicit fused route, README.md plus
+                one subdirectory per campaign)
 FINAL.md        report of record for the post-optimization dense/specialized campaign
 BATCH.md        report of record for the batch route round (§15 = round 3)
 SUMMARY.md      rendered report of the earlier baseline round
 VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreement
+results/t1a1_auto/README.md   report of record for the SHIPPED-DEFAULT campaign (auto -> fused)
+results/t1a1_fused/README.md  report of record for the EXPLICIT fused column
 ```
 
 ## Arms
@@ -69,8 +75,8 @@ VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreemen
 |---|---|
 | `torch-per-tree` | the classic pre-jit PyTorch route: for each tree, walk it in Python and apply torch ops to the `(N, input_len)` batch on the GPU under `torch.no_grad()`. The honest "old torch version". |
 | `torch-batched` | the best a pure-torch implementation can do: the whole population in one vectorized pass (per-position `(pop, N)` buffer, one masked `torch.where` per occurring `(kind, function)` case, per-row child gather). No Python loop over trees. |
-| `evoxc-auto` | the shipped default: both knobs unset, i.e. dense+iree at `pop >= 64` on a device box and specialized+numpy below that |
-| `evoxc-auto-iree` | `auto` with `EVOGP_EVOXC_BACKEND=iree`: the same dense+iree route from `pop >= 64`, specialized+iree below the threshold |
+| `evoxc-auto` | the shipped default: both knobs unset, i.e. the **fused (Triton)** route whenever triton is importable, a torch device is usable and `pop_size >= EVOGP_FUSED_MIN_POP` (16) — one kernel launch for the whole population, tree channels read directly, no evoxc graph — else dense+iree from `pop >= EVOGP_DENSE_AUTO_MIN_POP` (64) on a device box, else specialized+numpy |
+| `evoxc-auto-iree` | `auto` with `EVOGP_EVOXC_BACKEND=iree`: the same policy, but pinning the backend excludes the fused route (the fused half only engages with **no** explicit backend), so this arm times the dense+iree (pop ≥ 64) / specialized+iree (below) answers |
 | `evoxc-specialized-numpy` | `EVOGP_EVAL_MODE=specialized` + numpy |
 | `evoxc-specialized-iree` | `EVOGP_EVAL_MODE=specialized` + iree (one compiled graph per distinct tree structure) |
 | `evoxc-dense-iree` | `EVOGP_EVAL_MODE=dense` + iree (one all-ops graph per population shape) |
@@ -79,7 +85,12 @@ VALIDATION.md   oracle validation of the final sweep + cross-arm digest agreemen
 | `evoxc-batch-iree-aggressive` | the same route with `EVOGP_BATCH_DISPATCH_FORMATION=aggressive`: the merged compile's evoxc dispatch-formation option pinned instead of derived, so `auto`'s own choice can be compared against it (and the spelling can be priced where `auto` does *not* take it) |
 | `evoxc-batch-iree-artifact` | the same route on the **persistent on-disk executable tier** (`EVOGP_EVOXC_ARTIFACT_DIR`, pointing at `campaign.py --artifact-dir` / `$EVOGP_BENCH_ARTIFACT_DIR`, default `<out>/artifacts`): a disk hit skips `lower`/`compile`/`load`, so this is the only arm whose *cold* column can change without the route changing |
 | `evoxc-batch-iree-default` | the same route with `EVOGP_BATCH_DISPATCH_FORMATION=default`: the **pre-change control** of the merged compile — no `--iree-dispatch-creation-enable-aggressive-fusion`, i.e. the spelling the route derived before the knob grew its `auto` default. `evoxc-batch-iree` (no value → `auto` → `aggressive` on a rocm/cuda target) stays the shipped default; this arm is what its records are read against |
+| `evoxc-batch-iree-artifact-p1` | the artifact arm with `EVOGP_BATCH_COMPILE_WORKERS=1` — the single-body control of the merged compile (the shipped pool is 4). The pool width is part of the plan's shape (`chunk_count`) and of the disk tier's artifact keys, and `apply_arm_env` clears every route knob before an arm's own spec, so these three pins are the only way a campaign reaches it |
+| `evoxc-batch-iree-artifact-p2` | the artifact arm with `EVOGP_BATCH_COMPILE_WORKERS=2` |
+| `evoxc-batch-iree-artifact-p8` | the artifact arm with `EVOGP_BATCH_COMPILE_WORKERS=8` |
 | `evoxc-dense-iree-raised` | `EVOGP_EVAL_MODE=dense` + iree with the trace cap pinned to the **cell's** tree length (`EVOGP_DENSE_MAX_TREE_LEN={tree_len}`): identical to `evoxc-dense-iree` on a main-grid cell (L ≤ 64) and the same route with the cap raised on a long-tree cell, so dense actually serves that population instead of declining to `specialized` |
+| `evoxc-fused-iree` | `EVOGP_EVAL_MODE=fused` + iree: ONE Triton kernel launch for the whole population, tree channels read directly — no evoxc graph, no compile, no per-node dispatch, no readback. The explicit request is unconditional (it does not consult the population floor) and a shape it cannot serve falls back to specialized+**iree**, because the backend is pinned |
+| `evoxc-fused` | `EVOGP_EVAL_MODE=fused` with no backend pinned: the same kernel, and a decline falls back to specialized+numpy |
 
 Both torch arms are *implemented in this harness* (`arms_torch.py`), with op semantics
 copied from the oracle (`DIV` → NaN on a zero divisor, `loose_div`/`loose_inv` clamping
@@ -91,9 +102,9 @@ The two `evoxc-batch-*` arms are the harness's handle on the engine's **third
 evaluation route** (`EVOGP_EVAL_MODE=batch`, `src/evogp/tree/batch_engine.py` through
 `evoxc.batch_functions`): instead of one graph per population *shape* (`dense`) or per
 tree *structure* (`specialized`), it compiles **one merged graph per population**,
-keyed on the multiset of tree structures. `auto` resolves to `dense` or `specialized`
-only, so all batch arms pin the mode; none is a default-route claim, and the measured
-verdict is in [`BATCH.md`](BATCH.md) and
+keyed on the multiset of tree structures. `auto` never resolves to `batch` (it reaches
+`fused`, `dense` or `specialized`), so all batch arms pin the mode; none is a
+default-route claim, and the measured verdict is in [`BATCH.md`](BATCH.md) and
 [Batch route: compile economics](#batch-route-compile-economics-batch_economicspy).
 
 **The improved batch route** is those same two arms plus the three below it, and they
@@ -171,9 +182,10 @@ and the placeholder) -- plus `{artifact_dir}`, which is the harness's own hook
 (`$EVOGP_BENCH_ARTIFACT_DIR`, else `<out>/artifacts`, resolved by
 `common.artifact_dir`) and therefore needs no cell -- and `env.applied_knobs` carries the
 **resolved** values; an
-unregistered arm name raises `KeyError`. `--arms all` covers all thirteen arms and `--arms
-batch` exactly the five batch arms, in registry order (registered last, so no existing
-order or render changes). `campaign.py --dry-run` prints each arm's resolved knob spec
+unregistered arm name raises `KeyError`. `--arms all` covers all eighteen arms (the two
+torch baselines plus sixteen evoxc routes) and `--arms batch` exactly the eight batch
+arms, in registry order (registered last, so no existing order or render changes).
+`campaign.py --dry-run` prints each arm's resolved knob spec
 once (`arm knobs <arm> ...`), which is how an operator checks the env without a device.
 
 The dense route's trace cap is `EVOGP_DENSE_MAX_TREE_LEN` (`dense_engine`,
@@ -269,12 +281,18 @@ The cap-5 cells are the stock generation with only the row stride made long, and
   (`campaign.py` reports the verdict in every log line and keeps the whole guard block
   in its driver record — a contaminated config is reported, never silently averaged
   in).
-* **`auto` is timed as the policy resolves it**, never as a forced mode: on this
-  device box that is dense+iree from `pop >= 64` and specialized+numpy below the
-  threshold (`EVOGP_DENSE_AUTO_MIN_POP`), so the `evoxc-auto` arm measures the dense
-  path at pop ≥ 64 and the specialized path at pop 16 (`evoxc-auto-iree` differs only
-  there). Each record keeps the decision under `routes.<workload>` (`would_use_dense`
-  plus the pop/rows halves).
+* **`auto` is timed as the policy resolves it**, never as a forced mode, and it resolves
+  **fused first**: the fused (Triton) route whenever triton is importable, a torch device
+  is usable and `pop_size >= EVOGP_FUSED_MIN_POP` (16); else dense+iree from
+  `pop >= EVOGP_DENSE_AUTO_MIN_POP` (64) on a device box; else specialized+numpy (below
+  that pop, on a CPU box or on any fallback). So an `evoxc-auto` median can be fused,
+  dense-at-a-raised-cap or specialized and the record has to say which: each record keeps
+  the resolved decision under `routes.<workload>` — `eval_mode`, `backend` and, for
+  `fused`/`auto`, `engine`, `would_use_fused`, `fused_fallback_backend` and
+  `fused_reason` — next to the pop/rows envelope reading (`would_use_dense`). A record
+  whose resolved `engine` is `fused` also carries the launch proof (`fused_cache`, plus a
+  per-workload `cache.fused*` window), because the fused route compiles no evoxc graph and
+  `cache.compile_misses_first_call` is 0 by construction there.
 * `specialized`-iree compiles one graph per *distinct* tree structure at ~272-284 ms
   per structure on this box, so a fresh 256- or 1000-tree population costs minutes of
   compile and a GP step re-pays it every generation: that route is timed on
@@ -308,6 +326,38 @@ The cap-5 cells are the stock generation with only the row stride made long, and
   recorded as `status: "timeout"` with its worker log as evidence, never retried
   away as a defect.
 
+## Shipped-default campaign (auto -> fused)
+
+The shipped default is the fused route now, and this harness re-measured it: the report
+of record is [`results/t1a1_auto/README.md`](results/t1a1_auto/README.md) (its
+`RENDERED.md` is the machine rendering of the same records), read against
+[`results/t1a1_fused/README.md`](results/t1a1_fused/README.md) as the explicit
+`EVOGP_EVAL_MODE=fused` column and `results/t1a1_baseline/` as the pre-fused default.
+
+* **What was measured**: six cells × `evoxc-auto` / `torch-batched` / `torch-per-tree` /
+  `evoxc-dense-iree` over `sr_fitness` + `batch_forward` + `forward` + `gp_step`
+  (`p256-L32-i8-N1024`, `p256-L64-i32-N1024`, `p256-L64-i32-N4096`,
+  `p1000-L64-i32-N1024`, `p4096-L64-i32-N1024`, `p2048-L128-i32-N1024-d7`), with
+  `--warmup 2 --reps 5 --gp-warmup 1 --gp-reps 3 --seed 0` — 23 records, gated at
+  **23 records / 640 checks / 0 failures**.
+* **Route proof**: every `evoxc-auto` record resolves `eval_mode auto` / `engine fused` /
+  `backend iree` with `served_every_workload true`, 24 `fused_kernel_launches` and 0
+  declines, so the column is the kernel rather than a silent fallback.
+* **Headline**: **38.4×–141.7× faster than `torch-batched` per `batch_forward` call**
+  (29.2×–123.7× on `sr_fitness`) and **7.6×–108.1× per whole GP generation**.
+* **Where a generation's cost sits**: evaluation is **8.8–10.0 %** of the step
+  (0.24–0.27 ms of 2.58–2.84 ms), so the operator layer is the loop's bottleneck now.
+* **One excluded control**: `campaign.CELL_EXCLUSIONS` drops `evoxc-dense-iree` on
+  `p2048-L128-i32-N1024-d7` — explicit dense past `EVOGP_DENSE_MAX_TREE_LEN` declines into
+  per-structure specialized+iree with unbounded artifact growth and OOM-kills the job
+  unit — and `evoxc-dense-iree-raised` measures dense on that cell instead (the reason is
+  recorded in `campaign.json`'s `protocol.scope_dropped`).
+
+```bash
+$PY campaign.py --out results/t1a1_auto --cells <the six ids above> --arms evoxc-auto,torch-batched,torch-per-tree,evoxc-dense-iree
+python3 test/benchmark/evoxc/check.py --results test/benchmark/evoxc/results/t1a1_auto --allow-snapshot --allow-missing --allow-digest-mismatch
+```
+
 ## Final campaign: what was measured
 
 The report of record is [`FINAL.md`](FINAL.md) — headline and before/after tables,
@@ -320,7 +370,9 @@ training runs, the noise audit and the caveats. This section is the short versio
 * **Arms**: `torch-per-tree`, `torch-batched`, `evoxc-auto`, `evoxc-auto-iree`,
   `evoxc-dense-iree`, `evoxc-specialized-numpy`, `evoxc-specialized-iree`
   (the last on the `pop ∈ {16, 64}` cells only) — 130 records at HEAD in
-  `results/final/after/`.
+  `results/final/after/`. The same harness's shipped-default column is now the fused
+  route, measured in `results/t1a1_auto/`
+  ([Shipped-default campaign](#shipped-default-campaign-auto---fused)).
 * **`before`**: the same harness in the same window against the pre-optimization
   snapshot `/tmp/evogp_preopt` (commit `530518e`) through `--tree-root` — 90 records
   in `results/final/before/`, evoxc arms only, because the torch baselines are
