@@ -3,10 +3,11 @@
 This directory is normally not collected by pytest, but the project gate runs
 ``pytest test src/evogp/tests -q``, which walks into it -- so this module is the ONE
 automated check that the harness can NAME what the engine grew, and it stays
-import-light: ``common`` / ``arms`` / ``campaign`` / ``band_report`` / ``artifact``
-only.  The last group (``test_dry_run_*``) runs ``campaign.main --dry-run``, which
-resolves the batch policy from the tree on ``PYTHONPATH``; that is the harness's own
-dry run, i.e. what a later agent inspects before paying a compile.
+import-light: ``common`` / ``arms`` / ``campaign`` / ``check`` / ``band_report`` /
+``artifact`` / ``worker`` only (every one of them torch-free at import).  The last group
+(``test_dry_run_*``) runs ``campaign.main --dry-run``, which resolves the batch policy
+from the tree on ``PYTHONPATH``; that is the harness's own dry run, i.e. what a later
+agent inspects before paying a compile.
 
 What is pinned here:
 
@@ -33,8 +34,19 @@ What is pinned here:
   construction), read null-never-zero out of ``fused_window_block``;
 * ``common.route_decision`` passes the population SHAPE (``pop_size`` / ``rows`` /
   ``tree_len``) into the policy, so a record states the memory-envelope decision and
-  not a shape-blind one -- and for a ``fused`` request it asks the ONE resolver
-  (``resolve_route``), so a served call renders as fused instead of as its fallback;
+  not a shape-blind one -- and it asks the ONE resolver (``resolve_route``) wherever the
+  POLICY owns the engine, so a served ``fused`` call and a shipped-default (``auto``) call
+  both render as the engine that served them instead of as a fallback;
+* ``worker.may_use_fused`` is the harness's "may reach the fused route" predicate (an
+  explicit ``fused`` arm OR ``auto``, either spelling), so the launch proof is opened for
+  the shipped default too and a silent ``specialized`` fall-back cannot hide in it;
+* ``check.is_fused_record`` gates a record by the engine its routes RESOLVED, so an
+  ``evoxc-auto`` record that resolved fused is checked like a fused arm (and one that did
+  not resolve there is not);
+* ``campaign.CELL_EXCLUSIONS`` is a stated, unconditional drop -- ``evoxc-dense-iree`` on
+  the ``d7`` cell, whose explicit dense mode OOM-kills the job unit -- recorded in
+  ``campaign.json``'s ``scope_dropped[*].reason`` / ``cell_exclusions`` and printed by
+  ``--dry-run``;
 * ``band_report`` surfaces the merged compile's ``dispatch_formation`` next to the
   request, and reads ``None`` (never a fabricated ``"default"``) when a description
   predates the knob;
@@ -58,6 +70,7 @@ import artifact  # noqa: E402  (sibling harness modules, all torch-free at impor
 import arms  # noqa: E402
 import band_report  # noqa: E402
 import campaign  # noqa: E402
+import check  # noqa: E402  (the gate's predicates; stdlib-only, reads the same registry)
 import common  # noqa: E402
 import worker  # noqa: E402  (its fused block + launch proof; torch-free at import)
 
@@ -87,6 +100,10 @@ MANAGED_VARS = tuple(common.ROUTE_ENV_VARS) + (
     "EVOGP_EVOXC_BACKEND",
     common.ARTIFACT_DIR_ENV,
 )
+
+#: The fake policy's fused crossover (the real one is ``EVOGP_FUSED_MIN_POP``, 16):
+#: ``auto`` resolves to the fused route from this population up and to specialized below it.
+FUSED_MIN_POP = 16
 
 
 @pytest.fixture(autouse=True)
@@ -390,11 +407,24 @@ class _FakeDenseEngine(types.ModuleType):
 
     def resolve_route(self, pop_size, *, rows=None, backend=None, eval_mode=None,
                       tree_len=None, **_kwargs):
-        """The ONE route resolver: a fused request for a device box, served."""
+        """The ONE route resolver: a fused request, and the shipped ``auto`` policy.
+
+        The fused stub is unconditional (an explicit ``EVOGP_EVAL_MODE=fused`` request); the
+        ``auto`` case models the real policy's crossover -- fused on this fake device box from
+        :data:`FUSED_MIN_POP` up, specialized+numpy below it -- because an ``evoxc-auto``
+        record has to be able to state BOTH answers.
+        """
         self.calls["resolve_route"] = {
             "pop_size": pop_size, "rows": rows, "backend": backend,
             "eval_mode": eval_mode, "tree_len": tree_len,
         }
+        if eval_mode != "fused" and (backend is not None or pop_size < FUSED_MIN_POP):
+            return types.SimpleNamespace(
+                use_dense=False, use_fused=False, backend="numpy",
+                fallback_backend="numpy",
+                reason="stub: below the fused crossover -> specialized on numpy",
+                engine="specialized",
+            )
         return types.SimpleNamespace(
             use_dense=False, use_fused=True, backend="iree", fallback_backend="numpy",
             reason="stub: fused served", engine="fused",
@@ -477,6 +507,116 @@ def test_route_decision_fused_asks_the_one_resolver(fake_dense_engine):
     assert "engine" not in auto and "would_use_fused" not in auto
 
 
+def test_route_decision_auto_asks_the_one_resolver(fake_dense_engine):
+    """The shipped default (no mode, no backend) must say WHICH engine served the cell.
+
+    ``evoxc-auto`` sets neither variable, so the policy -- not a request -- owns the engine;
+    without this branch a silent fall-back into ``specialized`` would hide inside the record.
+    """
+    decision = common.route_decision(256, 1024, None, None, tree_len=32)
+    assert fake_dense_engine.calls["resolve_route"] == {
+        "pop_size": 256, "rows": 1024, "backend": None, "eval_mode": None, "tree_len": 32,
+    }
+    assert decision["eval_mode"] == "auto"
+    assert decision["engine"] == "fused"
+    assert decision["backend"] == "iree"
+    assert decision["would_use_fused"] is True
+    assert decision["fused_fallback_backend"] == "numpy"
+    assert decision["fused_reason"]
+    # additive: the five pre-existing keys keep their meaning, the four resolver keys join them
+    assert decision["would_use_dense"] is True
+    assert set(decision) - {
+        "eval_mode", "backend", "should_use_dense_pop_only",
+        "should_use_dense_with_rows", "would_use_dense",
+    } == {"engine", "would_use_fused", "fused_fallback_backend", "fused_reason"}
+    # below the fused crossover the same call answers the specialized engine, so a record can
+    # state a DECLINE as well as a served call
+    small = common.route_decision(4, 64, None, None, tree_len=64)
+    assert small["eval_mode"] == "auto"
+    assert small["engine"] == "specialized"
+    assert small["backend"] == "numpy"
+    assert small["would_use_fused"] is False
+
+
+def test_route_decision_reports_no_engine_for_a_route_it_does_not_run(fake_dense_engine):
+    """A torch arm reports the policy but measures no engine: it must claim none.
+
+    ``resolve_engine=False`` is that caller's switch -- an ``engine`` on a torch record would
+    make ``check.is_fused_record`` gate it as a fused measurement it never made.
+    """
+    decision = common.route_decision(256, 4096, None, None, tree_len=64, resolve_engine=False)
+    assert "engine" not in decision and "would_use_fused" not in decision
+    assert "resolve_route" not in fake_dense_engine.calls
+    # an explicit backend never reaches the fused route under auto, so the resolver is not
+    # asked either (that arm keeps exactly its pre-existing five keys)
+    explicit = common.route_decision(256, 4096, None, "numpy", tree_len=64)
+    assert "engine" not in explicit
+
+
+# ---------------------------------------------------------------------------
+# which engine served the record: the gate's fused-record predicate
+# ---------------------------------------------------------------------------
+def test_fused_record_is_decided_by_the_resolved_engine():
+    """An explicit fused arm OR a route that resolved fused -- the second half is the new one.
+
+    ``evoxc-auto`` must not be able to hide a silent ``specialized`` fall-back behind its
+    timings: a record whose ``routes[*].engine`` says fused is gated exactly like a fused arm.
+    """
+    # an explicit fused arm whose own routes do not carry an engine (a frozen record)
+    assert check.is_fused_record(
+        "evoxc-fused-iree", {"routes": {"sr_fitness": {"eval_mode": "fused"}}}
+    ) is True
+    # the shipped default that resolved fused
+    auto_fused = {"routes": {"sr_fitness": {"eval_mode": "auto", "engine": "fused"}}}
+    assert check.resolved_engine(auto_fused) == "fused"
+    assert check.is_fused_record("evoxc-auto", auto_fused) is True
+    # the shipped default that resolved anywhere else is NOT a fused record ...
+    auto_specialized = {"routes": {"sr_fitness": {"eval_mode": "auto", "engine": "specialized"}}}
+    assert check.resolved_engine(auto_specialized) == "specialized"
+    assert check.is_fused_record("evoxc-auto", auto_specialized) is False
+    # ... a record that predates the engine keys answers None (not recorded, not declined),
+    # which is what keeps a frozen directory gating at exactly the checks it did before,
+    frozen = {"routes": {"sr_fitness": {"eval_mode": "auto", "backend": "numpy"}}}
+    assert check.resolved_engine(frozen) is None
+    assert check.is_fused_record("evoxc-auto", frozen) is False
+    # and an arm that never runs the policy can never be one
+    assert check.resolved_engine({}) is None
+    assert check.is_fused_record("torch-batched", {"routes": {}}) is False
+
+
+def test_check_fused_accepts_an_auto_record_only_when_it_resolved_fused():
+    """The routing FAIL widened to the auto shape; everything else is still a FAIL/WARN."""
+    def record(eval_mode, engine):
+        return {
+            "routes": {"sr_fitness": {"eval_mode": eval_mode, "engine": engine}},
+            "fused_cache": {"available": True, "served_every_workload": True},
+            "workloads": {"sr_fitness": {"median_ms": 0.1, "cache": {"fused_served": True}}},
+        }
+
+    for eval_mode, engine in (("fused", "fused"), ("auto", "fused")):
+        checker = check.Checker()
+        check.check_fused(checker, "cell/arm", record(eval_mode, engine))
+        assert checker.failures == [], (eval_mode, engine)
+        assert checker.warnings == [], (eval_mode, engine)
+    # an auto record that resolved a fall-back cannot pass as a fused measurement
+    checker = check.Checker()
+    check.check_fused(checker, "cell/arm", record("auto", "specialized"))
+    assert checker.failures, "an auto record whose engine is specialized must FAIL"
+    assert any("specialized" in message for message in checker.warnings)
+    # ... and neither can a route with no engine at all
+    checker = check.Checker()
+    check.check_fused(checker, "cell/arm", record("auto", None))
+    assert checker.failures
+    # the launch proof stays a WARN, never a FAIL: the frozen campaign must keep gating
+    checker = check.Checker()
+    check.check_fused(checker, "cell/arm", {
+        "routes": {"sr_fitness": {"eval_mode": "fused"}},
+        "workloads": {"sr_fitness": {"median_ms": 0.1, "cache": {}}},
+    })
+    assert checker.failures == []
+    assert checker.warnings
+
+
 # ---------------------------------------------------------------------------
 # the band / merge report: the compile-option seam
 # ---------------------------------------------------------------------------
@@ -551,6 +691,74 @@ def test_artifact_block_is_null_never_zero():
     assert disabled[artifact.HITS_KEY] == 0
     assert disabled["note"] == artifact.DISABLED_NOTE
     assert artifact.stats_fn(types.ModuleType("m")) is None
+
+
+# ---------------------------------------------------------------------------
+# the schedule's cell exclusions: dropped WITH a reason, never silently
+# ---------------------------------------------------------------------------
+def test_cell_exclusion_keeps_the_d7_dense_arm_out_of_the_schedule():
+    """``evoxc-dense-iree`` on the d7 cell is a stated exclusion, not a coverage rule."""
+    d7 = common.parse_cell("p2048-L128-i32-N1024-d7")
+    other = common.parse_cell("p256-L32-i8-N1024")
+    reason = campaign.CELL_EXCLUSIONS[(d7["id"], "evoxc-dense-iree")]
+    assert isinstance(reason, str) and "OOM" in reason
+    assert campaign.exclusion_reason("evoxc-dense-iree", d7) == reason
+    assert campaign.in_scope("evoxc-dense-iree", d7) is False
+    # --full-specialized-iree widens the POPULATION scope, never this table
+    assert campaign.in_scope("evoxc-dense-iree", d7, True) is False
+    # the same arm stays in scope on every other cell, its raised-cap sibling included
+    assert campaign.exclusion_reason("evoxc-dense-iree", other) is None
+    assert campaign.in_scope("evoxc-dense-iree", other) is True
+    assert campaign.in_scope("evoxc-dense-iree-raised", d7) is True
+    # the registry itself is untouched: the arm exists, in its original position
+    assert "evoxc-dense-iree" in common.EVOXC_ARMS
+    assert common.ALL_ARMS.index("evoxc-dense-iree") < common.ALL_ARMS.index("evoxc-dense-iree-raised")
+    # a drop states WHY, and the population-scope rule states its own reason
+    assert campaign.drop_reason("evoxc-dense-iree", d7) == reason
+    assert "coverage rule" in campaign.drop_reason("evoxc-specialized-iree", other)
+    # the marked cell is the one the campaign would otherwise schedule
+    scheduled = campaign.schedule([d7], ["evoxc-dense-iree"])
+    assert scheduled == [{"cell": d7, "arm": "evoxc-dense-iree"}]
+
+
+def test_scope_protocol_records_every_drop_with_its_reason():
+    """``campaign.json``'s scope evidence: the drop, its reason, and the exclusion rule."""
+    d7 = common.parse_cell("p2048-L128-i32-N1024-d7")
+    small = common.parse_cell("p256-L32-i8-N1024")
+    dropped = [
+        {"cell": d7, "arm": "evoxc-dense-iree"},
+        {"cell": small, "arm": "evoxc-specialized-iree"},
+    ]
+    block = campaign.scope_protocol(dropped, full=True)
+    reasons = {(entry["cell"], entry["arm"]): entry["reason"]
+               for entry in block["scope_dropped"]}
+    assert reasons[("p2048-L128-i32-N1024-d7", "evoxc-dense-iree")] == \
+        campaign.CELL_EXCLUSIONS[("p2048-L128-i32-N1024-d7", "evoxc-dense-iree")]
+    # the population rule states its own reason, and `full=True` does not change the text
+    assert "coverage rule" in reasons[("p256-L32-i8-N1024", "evoxc-specialized-iree")]
+    assert all(isinstance(entry["reason"], str) and entry["reason"]
+               for entry in block["scope_dropped"])
+    assert block["scope_rule"] == {
+        arm: list(rule["pops"]) for arm, rule in campaign.SCOPE.items()
+    }
+    entries = {entry["cell"]: entry for entry in block["cell_exclusions"]["entries"]}
+    assert entries["p2048-L128-i32-N1024-d7"]["arm"] == "evoxc-dense-iree"
+    assert "full-specialized-iree" in block["cell_exclusions"]["rule"]
+
+
+def test_dry_run_states_a_cell_exclusion_and_its_reason(tmp_path, capsys):
+    """The dry run names the dropped config plus the reason before anything is compiled."""
+    code = campaign.main([
+        "--out", str(tmp_path / "dry"),
+        "--cells", "p256-L32-i8-N1024,p2048-L128-i32-N1024-d7",
+        "--arms", "evoxc-dense-iree", "--dry-run",
+    ])
+    assert code == 0
+    printed = capsys.readouterr().out
+    assert "would run p256-L32-i8-N1024 evoxc-dense-iree" in printed
+    reason = campaign.CELL_EXCLUSIONS[("p2048-L128-i32-N1024-d7", "evoxc-dense-iree")]
+    assert ("would drop p2048-L128-i32-N1024-d7 evoxc-dense-iree: " + reason) in printed
+    assert "would run p2048-L128-i32-N1024-d7 evoxc-dense-iree" not in printed
 
 
 # ---------------------------------------------------------------------------

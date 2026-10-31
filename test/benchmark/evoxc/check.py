@@ -37,9 +37,11 @@ protocol cannot slip into a table.  It verifies:
   ``available: false`` block whose counters carry numbers, is a ``WARN``.  Also an
   optional surface (null, never zero), so it too stays silent for a record with no
   content keys and never fails a gate;
-* for the fused (Triton) arms (``common.EVOXC_ARMS[arm]["eval_mode"] == "fused"``):
-  ``routes["sr_fitness"].eval_mode == "fused"`` is a ``FAIL`` (a fused arm must have
-  resolved to the fused route) and the route's own launch proof is a ``WARN`` -- a
+* for the fused (Triton) route (``is_fused_record``: ``common.EVOXC_ARMS[arm]["eval_mode"]
+  == "fused"``, or an ``auto`` record whose routes RESOLVED ``engine == "fused"``):
+  a route that did not resolve there is a ``FAIL`` (an explicit fused arm must have
+  ``eval_mode == "fused"``, the shipped default must have ``eval_mode == "auto"`` with
+  ``engine == "fused"``) and the route's own launch proof is a ``WARN`` -- a
   ``fused_cache`` block present with a boolean ``available``, ``served_every_workload``
   true, and no workload whose ``cache.fused_served`` is false (that median is the
   specialized+numpy fallback).  The route compiles no evoxc graph, so its
@@ -164,6 +166,31 @@ def is_evoxc_arm(arm: str) -> bool:
 def is_fused_arm(arm: str) -> bool:
     """Is this arm the fused (Triton) route?  Read off the registry, never a name match."""
     return (common.EVOXC_ARMS.get(arm) or {}).get("eval_mode") == "fused"
+
+
+def resolved_engine(record: Dict[str, Any]) -> Optional[str]:
+    """The engine this record's routes resolved to: the first non-null ``engine``, else ``None``.
+
+    ``common.route_decision`` records it for a ``fused`` request and for ``auto`` with no
+    explicit backend, so an ``evoxc-auto`` record (the shipped default) states WHICH engine
+    served its medians.  Keys are walked in sorted order, so a record whose workloads
+    disagree still answers the same engine twice in a row; a record that predates the
+    resolved-engine keys answers ``None`` -- "not recorded", never "not fused".
+    """
+    for _name, route in sorted((record.get("routes") or {}).items()):
+        if isinstance(route, dict) and route.get("engine") is not None:
+            return route["engine"]
+    return None
+
+
+def is_fused_record(arm: str, record: Dict[str, Any]) -> bool:
+    """Is this record a FUSED measurement?  An explicit fused arm, or a route that resolved fused.
+
+    The second half is what keeps a silent fall-back from hiding: an ``evoxc-auto`` record
+    whose policy resolved the fused engine must be gated like a ``fused`` arm (launch proof,
+    not ``compile_misses_first_call``, which is 0 by construction on that route).
+    """
+    return is_fused_arm(arm) or resolved_engine(record) == "fused"
 
 
 def median(samples: List[float]) -> Optional[float]:
@@ -444,21 +471,28 @@ def check_fused(checker: Checker, card: str, record: Dict[str, Any]) -> None:
     ``fused_kernel_launches``, read out of the route's own counter block
     (``record["fused_cache"]``, per workload ``workloads[*].cache.fused``/``fused_served``).
 
-    Routing is a ``FAIL`` -- a fused arm must have resolved to the fused route -- and
-    everything about the proof is a ``WARN``: a record that predates the fused counter
-    block (the whole committed ``t1a1_fused`` campaign) is still a valid timing record, it
-    merely cannot say WHICH engine served its median.  A ``served_every_workload`` that is
-    not ``True`` is the one thing a reader must not miss: that median is the route's
-    specialized+numpy FALLBACK, never a fused measurement.  Called exclusively for
-    ``is_fused_arm`` records, so it is a no-op for every other arm.
+    Routing is a ``FAIL`` -- a fused arm must have resolved to the fused route, and an
+    ``auto`` record must have RESOLVED there (``eval_mode: "auto"`` with
+    ``engine: "fused"``), which is what keeps a silent fall-back into ``specialized`` from
+    passing as a fused measurement -- and everything about the proof is a ``WARN``: a
+    record that predates the fused counter block (the whole committed ``t1a1_fused``
+    campaign) is still a valid timing record, it merely cannot say WHICH engine served its
+    median.  A ``served_every_workload`` that is not ``True`` is the one thing a reader
+    must not miss: that median is the route's specialized+numpy FALLBACK, never a fused
+    measurement.  Called for ``is_fused_record`` records only (the explicit fused arms plus
+    every record whose resolved engine is ``fused``), so it is a no-op for every other arm.
     """
     route = (record.get("routes") or {}).get("sr_fitness")
     route = route if isinstance(route, dict) else {}
+    eval_mode = route.get("eval_mode")
+    # an explicit fused arm, or the shipped default (``auto``) whose policy resolved there
+    fused_resolved = eval_mode == "auto" and route.get("engine") == "fused"
     checker.check(
-        route.get("eval_mode") == "fused",
-        f"{card}: fused arm but routes.sr_fitness.eval_mode={route.get('eval_mode')!r} "
-        "!= 'fused' — this record cannot be a fused-route measurement (the arm needs "
-        "EVOGP_EVAL_MODE=fused and a tree whose EVAL_MODES declares 'fused')",
+        eval_mode == "fused" or fused_resolved,
+        f"{card}: fused record but routes.sr_fitness.eval_mode={eval_mode!r} did not "
+        "resolve to the fused route — this record cannot be a fused-route measurement (an "
+        "explicit arm needs EVOGP_EVAL_MODE=fused and a tree whose EVAL_MODES declares "
+        "'fused'; the shipped default needs the policy to resolve engine='fused')",
     )
     engine = route.get("engine")
     if engine is None:
@@ -469,6 +503,18 @@ def check_fused(checker: Checker, card: str, record: Dict[str, Any]) -> None:
         checker.warn(f"{card}: routes.sr_fitness.engine={engine!r} != 'fused' — the route "
                      f"DECLINED ({route.get('fused_reason')!r}), so the medians are the "
                      f"{route.get('fused_fallback_backend')!r} fallback, not the fused kernel")
+    if eval_mode != "fused":
+        # an ``auto`` record: every workload that states an engine must have resolved fused,
+        # otherwise that workload's median is not a fused measurement (the FAIL above only
+        # covers ``sr_fitness``, so a mixed record -- fused for the loss, a fallback for the
+        # per-row ``forward`` -- says so here instead of passing on its loss path alone)
+        for name, entry in sorted((record.get("routes") or {}).items()):
+            if not isinstance(entry, dict) or entry.get("eval_mode") != "auto":
+                continue
+            if entry.get("engine") is not None and entry["engine"] != "fused":
+                checker.warn(f"{card}/{name}: an auto record resolved "
+                             f"engine={entry['engine']!r}, not 'fused' — that workload's "
+                             "median is not a fused measurement")
 
     cache = record.get("fused_cache")
     if cache is None:
@@ -777,7 +823,7 @@ def gate_dir(results_dir: str, args) -> Tuple[Checker, Dict[str, Any]]:
                 checker.check(False, f"{card}/{name}: workload block is not an object")
         if is_evoxc_arm(arm):
             check_cache(checker, card, record)
-        if is_fused_arm(arm):
+        if is_fused_record(arm, record):
             check_fused(checker, card, record)
         if common.is_batch_arm(arm):
             check_batch(checker, card, record)

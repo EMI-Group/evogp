@@ -48,7 +48,7 @@ import shlex
 import subprocess
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
@@ -203,12 +203,101 @@ def guard(wait_s: float, poll_s: float = 5.0) -> Dict[str, Any]:
 #: ``batch_compile_misses_first_call`` it records; until then every cell is timed.
 SCOPE = {"evoxc-specialized-iree": {"pops": (16, 64)}}
 
+#: Cell-level exclusions: ``(cell id, arm) -> the reason``.  A route that is affordable in
+#: general can still be UNRUNNABLE on one cell, and an unfounded exclusion silently hides a
+#: measurement -- so every entry states why, it holds even under
+#: ``--full-specialized-iree`` (that flag widens the POPULATION scope, never this table),
+#: and the driver records it as a drop with its reason instead of dropping it quietly.
+#:
+#: ``evoxc-dense-iree`` on ``p2048-L128-i32-N1024-d7``: an explicit ``EVOGP_EVAL_MODE=dense``
+#: never gets ``auto``'s trace-cap raise or memory envelope, so on a population whose trees
+#: are longer than ``EVOGP_DENSE_MAX_TREE_LEN`` it declines into ``specialized``+iree -- one
+#: compile per distinct tree structure, unbounded artifact growth at pop 2 048 -- and the
+#: job unit is OOM-killed (measured; see this node's CONTEXT.md and ``LARGE_SCALE.md``).
+#: The arm stays in scope on every other cell, ``evoxc-dense-iree-raised`` (the cap pinned to
+#: the cell's ``tree_len``) is the arm that measures dense on that cell, and the registry
+#: itself is untouched (arm ids and order are render order, pinned by
+#: ``test_arm_registry.py``).
+CELL_EXCLUSIONS: Dict[Tuple[str, str], str] = {
+    ("p2048-L128-i32-N1024-d7", "evoxc-dense-iree"): (
+        "explicit EVOGP_EVAL_MODE=dense on a population past EVOGP_DENSE_MAX_TREE_LEN "
+        "declines into per-structure specialized+iree with unbounded artifact growth and "
+        "OOM-kills the job unit (pop 2048 x 123-node trees); time "
+        "evoxc-dense-iree-raised (the cap pinned to the cell's tree_len) instead"
+    ),
+}
+
+
+def exclusion_reason(arm: str, cell: Dict[str, Any]) -> Optional[str]:
+    """Why this ``(cell, arm)`` config is excluded outright, or ``None`` (the cell is fine)."""
+    return CELL_EXCLUSIONS.get((cell["id"], arm))
+
 
 def in_scope(arm: str, cell: Dict[str, Any], full: bool = False) -> bool:
+    """Is this ``(cell, arm)`` config timed?  ``full`` widens the POPULATION scope only.
+
+    A :data:`CELL_EXCLUSIONS` entry is checked FIRST and unconditionally, so the flag that
+    lifts the per-population coverage rule can never schedule a config the engine cannot
+    survive.
+    """
+    if exclusion_reason(arm, cell) is not None:
+        return False
     rule = SCOPE.get(arm)
     if rule is None or full:
         return True
     return cell["pop"] in rule["pops"]
+
+
+def drop_reason(arm: str, cell: Dict[str, Any], full: bool = False) -> str:
+    """WHY this ``(cell, arm)`` config is not timed -- every drop records its reason.
+
+    A dropped config is evidence too: without the reason, "not scheduled" reads as an
+    oversight instead of a decision, and a reader cannot tell a coverage trade-off from a
+    config that kills the job unit.
+    """
+    excluded = exclusion_reason(arm, cell)
+    if excluded is not None:
+        return excluded
+    pops = list((SCOPE.get(arm) or {}).get("pops") or ())
+    return (
+        f"coverage rule: {arm} is timed on pop {pops} only (a per-tree specialized compile is "
+        "~272-284 ms per distinct tree structure, so a larger population cannot amortize it); "
+        "--full-specialized-iree schedules it anyway"
+    )
+
+
+def scope_protocol(dropped: List[Dict[str, Any]], full: bool = False) -> Dict[str, Any]:
+    """The driver record's scope evidence: every drop WITH its reason, plus the exclusion rule.
+
+    Stated once so ``campaign.json`` and a replayed schedule cannot disagree: a dropped
+    config is evidence too, and "not scheduled" must read as a decision instead of an
+    oversight (``scope_dropped[*].reason``), while the cell exclusions are stated as a rule
+    plus their entries because they hold even under ``--full-specialized-iree``.
+    """
+    return {
+        "scope_rule": {arm: list(rule["pops"]) for arm, rule in SCOPE.items()},
+        "scope_dropped": [
+            {
+                "cell": cfg["cell"]["id"],
+                "arm": cfg["arm"],
+                "reason": drop_reason(cfg["arm"], cfg["cell"], full),
+            }
+            for cfg in dropped
+        ],
+        "cell_exclusions": {
+            "rule": (
+                "a (cell id, arm) entry in campaign.CELL_EXCLUSIONS is never scheduled, "
+                "--full-specialized-iree included: it names a config the route cannot "
+                "survive (an OOM kill / unbounded compile), not a coverage trade-off"
+            ),
+            "entries": [
+                {"cell": cell_id, "arm": arm, "reason": reason}
+                for (cell_id, arm), reason in sorted(CELL_EXCLUSIONS.items())
+            ],
+        },
+    }
+
+
 def schedule(cells: List[Dict[str, Any]], arms: List[str]) -> List[Dict[str, Any]]:
     """Cells outer, arms inner: the cheap torch arms precede the compile-heavy ones."""
     order = [arm for arm in arms if arm in common.TORCH_ARMS] + [
@@ -366,6 +455,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.dry_run:
         for cfg in configs:
             print("would run", cfg["cell"]["id"], cfg["arm"])
+        # ... and every config the schedule dropped, WITH its reason: a drop is a decision
+        # (a population-scope rule, or a cell exclusion the engine would not survive), and
+        # the dry run is where an operator sees it before the campaign pays anything.
+        for cfg in dropped:
+            print("would drop", cfg["cell"]["id"], cfg["arm"] + ":",
+                  drop_reason(cfg["arm"], cfg["cell"], args.full_specialized_iree))
         # ... and for the batch arms, WHERE the route resolves on the tree being
         # measured -- the point of the dry run is to see that before a multi-minute
         # merged-graph compile is paid.  The arm's own knob spec is applied around the
@@ -453,8 +548,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             "gp_reps": args.gp_reps,
             "seed": args.seed,
             "guard_wait": args.guard_wait,
-            "scope_rule": {arm: list(rule["pops"]) for arm, rule in SCOPE.items()},
-            "scope_dropped": [{"cell": cfg["cell"]["id"], "arm": cfg["arm"]} for cfg in dropped],
+            # the schedule's scope evidence: every dropped config WITH its reason, and the
+            # cell-level exclusions stated as a rule plus their entries (they hold even under
+            # --full-specialized-iree, because the config they name kills the job unit rather
+            # than costing compile time)
+            **scope_protocol(dropped, args.full_specialized_iree),
             "specialized_iree_compile_ms_per_structure": {"measured_range": [271.6, 283.9],
                                                           "source": "probe p16/p64, this box"},
             "batch_arms": {

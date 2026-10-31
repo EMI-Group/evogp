@@ -269,6 +269,37 @@ FUSED_ABSENT_NOTE = (
     "null (NOT zero): this record cannot say whether a Triton launch served the call"
 )
 
+#: The registry ``eval_mode`` spellings whose calls MAY reach the fused (Triton) route: the
+#: explicit request, ``auto``, and the registry's ``None`` -- which leaves ``EVOGP_EVAL_MODE``
+#: unset, i.e. the shipped default, and therefore resolves to ``auto``.
+FUSED_CAPABLE_MODES: Tuple[Optional[str], ...] = ("fused", "auto", None)
+
+
+def may_use_fused(arm: str) -> bool:
+    """May this arm's calls reach the fused (Triton) route?  "May", never "is fused".
+
+    Two arms can: an explicit ``fused`` arm, and an ``auto`` arm -- the shipped default
+    included -- whose policy resolves to fused on a device box from ``EVOGP_FUSED_MIN_POP``
+    up.  The counter window is opened for both, because a fall-back into ``specialized`` is
+    silent: only ``fused_kernel_launches`` can tell a served call from a declined one.  A
+    torch arm and an explicitly ``dense``/``specialized``/``batch`` arm answer False, so
+    their records keep recording no fused_* key at all.
+    """
+    spec = common.EVOXC_ARMS.get(arm)
+    return spec is not None and spec.get("eval_mode") in FUSED_CAPABLE_MODES
+
+
+def fused_note_label(arm: str) -> str:
+    """How a fused note names its arm: the explicit request, or ``auto`` that may reach it.
+
+    A record's notes must not claim more than the arm asked for: an ``auto`` record says
+    the policy *may* have resolved fused (the record's own ``routes[*].engine`` says
+    whether it did), while a ``fused`` arm states the route it requested.
+    """
+    if (common.EVOXC_ARMS.get(arm) or {}).get("eval_mode") == "fused":
+        return "fused arm"
+    return "auto arm (the policy may resolve to the fused route)"
+
 
 def fused_window_block(before: Any, after: Any) -> Dict[str, Any]:
     """The fused route's before -> after counter window (``FUSED_STATS_KEYS``).
@@ -642,16 +673,20 @@ def main() -> int:
         # lower/compile/load, so it is the one counter that can move a cold column
         artifact_stats = artifact.stats_fn(_batch_engine_probe)
 
-    # -- the fused (Triton) route's own cache counters (optional, fused arms only) ----
+    # -- the fused (Triton) route's own cache counters (optional, arms that MAY use it) ----
     # The facade is silent on a decline and never compiles, so
     # ``cache.compile_misses_first_call`` is 0 by construction and proves NOTHING here:
     # ``fused_kernel_launches`` is the existence proof, and it lives on the route's own
-    # 15-counter surface.  Resolved only for a fused arm (getattr-probed, ``None`` when
-    # absent), so importing that module can never break a torch / evoxc / batch arm and a
-    # tree without the route records nulls plus a note instead of a fabricated 0.
-    is_fused = (common.EVOXC_ARMS.get(args.arm) or {}).get("eval_mode") == "fused"
+    # 15-counter surface.  Resolved for every arm whose calls MAY reach the fused route --
+    # the explicit ``fused`` arms AND ``auto``, whose policy resolves to fused on a device
+    # box -- because a silent fall-back into ``specialized`` would otherwise hide inside an
+    # ``evoxc-auto`` record (the shipped default).  getattr-probed and ``None`` when absent,
+    # so importing that module can never break a torch / dense / specialized / batch arm and
+    # a tree without the route records nulls plus a note instead of a fabricated 0.
+    fused_possible = may_use_fused(args.arm)
+    fused_label = fused_note_label(args.arm) if fused_possible else None
     fused_stats = None
-    if is_fused:
+    if fused_possible:
         try:
             from evogp.tree import fused_engine as _fused_engine_probe
         except ImportError:  # noqa: F401 - the route is optional on older trees
@@ -785,27 +820,34 @@ def main() -> int:
             )
 
     # -- fused route provenance / kernel-launch counters ----------------------
-    # Same rule as the batch block above: these keys exist ONLY for fused arms, so "not the
-    # fused route" stays distinguishable from "fused route whose proof was not recorded".
+    # Same rule as the batch block above: these keys exist ONLY for arms that MAY reach the
+    # fused route (``may_use_fused``), so "not the fused route" stays distinguishable from
+    # "fused route whose proof was not recorded".
     served_flags: List[Optional[bool]] = []
     fused_before_workloads: Optional[Dict[str, Any]] = None
     fused_after_workloads: Optional[Dict[str, Any]] = None
-    if is_fused:
+    if fused_possible:
         # the window opens where the first workload's own window opens, so the totals below
         # are this config's workload span and never a cumulative-from-import reading
         fused_before_workloads = fused_stats() if fused_stats is not None else None
         record["notes"].append(
-            "fused arm: the route compiles no evoxc graph, so "
+            f"{fused_label}: the route compiles no evoxc graph, so "
             "cache.compile_misses_first_call is 0 by construction -- the existence proof is "
-            "cache.fused_served / fused_cache.served_every_workload (fused_kernel_launches)"
+            "cache.fused_served / fused_cache.served_every_workload (fused_kernel_launches), "
+            "and routes[*].engine says whether the policy even resolved there"
         )
         if fused_stats is None:
-            record["notes"].append("fused arm: " + FUSED_ABSENT_NOTE)
+            record["notes"].append(f"{fused_label}: " + FUSED_ABSENT_NOTE)
 
     # -- what the policy resolves for this cell (per workload row count) -----
     # ``tree_len`` is the population's row stride (the cell's), i.e. the shape term of
     # ``auto``'s memory envelope: passing it makes the reported rows half the one the
-    # engine really applies instead of a pin-only reading.
+    # engine really applies instead of a pin-only reading.  The resolved ``engine`` is asked
+    # for every arm that goes through that policy -- ``auto`` included, so an ``evoxc-auto``
+    # record states whether the fused route served it -- and never for a torch arm, which
+    # runs no evoxc policy at all (a claimed engine would make ``check.is_fused_record``
+    # gate it as a fused measurement it never made).
+    resolve_engine = args.arm not in common.TORCH_ARMS
     for name, rows in (
         ("sr_fitness", cell["rows"]),
         ("batch_forward", cell["rows"]),
@@ -813,7 +855,7 @@ def main() -> int:
     ):
         record["routes"][name] = common.route_decision(
             cell["pop"], rows, knobs["eval_mode"], knobs["backend"],
-            tree_len=cell["tree_len"],
+            tree_len=cell["tree_len"], resolve_engine=resolve_engine,
         )
 
     # -- what ``auto``'s trace-cap raise resolves for this cell --------------
@@ -893,7 +935,7 @@ def main() -> int:
         probe = None
         if is_batch and batch_stats is not None:
             probe = BatchStatsProbe(fn, batch_stats)
-        elif is_fused and fused_stats is not None:
+        elif fused_possible and fused_stats is not None:
             probe = BatchStatsProbe(fn, fused_stats)
         timing = common.time_call(
             probe if probe is not None else fn,
@@ -940,7 +982,7 @@ def main() -> int:
                 batch_first_call_misses = entry["cache"]["batch_compile_misses_first_call"]
             if batch_first_call_plan_misses is None:
                 batch_first_call_plan_misses = entry["cache"]["batch_plan_misses_first_call"]
-        if is_fused:
+        if fused_possible:
             # the route compiles nothing, so the PROOF is that this workload's calls all
             # reached a Triton launch: attempts - declines must equal the calls ``time_call``
             # made (one cold + warmup + reps), and the launches must cover them
@@ -961,7 +1003,7 @@ def main() -> int:
         record["workloads"][name] = entry
         del result
 
-    if is_fused:
+    if fused_possible:
         # close the fused counter window over exactly the workload span: the GP loop below
         # makes calls of its own, which the whole-config totals must never claim
         fused_after_workloads = fused_stats() if fused_stats is not None else None
@@ -1132,7 +1174,7 @@ def main() -> int:
             )
 
     record["engine_cache_final"] = evoxc_engine.cache_stats()
-    if is_fused:
+    if fused_possible:
         # the route's own counter surface, beside the evoxc engine's (never folded into it):
         # ``available: false`` with null counters means this tree has no fused counters, which
         # is NOT the same as a route that never launched a kernel
@@ -1151,15 +1193,18 @@ def main() -> int:
         }
         if served_every is False:
             record["notes"].append(
-                "fused arm: NOT every workload reached a Triton launch "
+                f"{fused_label}: NOT every workload reached a Triton launch "
                 f"(cache.fused_served per workload: {served_flags}), so the median of a "
                 "declined workload is the route's specialized+numpy FALLBACK, not a fused "
-                "measurement -- read that workload's cache.fused.fused_declines"
+                "measurement -- read that workload's cache.fused.fused_declines and "
+                "routes[*].engine (an 'auto' record whose engine is not 'fused' never "
+                "reached the kernel)"
             )
         elif served_every is None:
             record["notes"].append(
-                "fused arm: the kernel-launch proof is unavailable (null counters), so this "
-                "record says the fused route was ASKED for, never that it served a call"
+                f"{fused_label}: the kernel-launch proof is unavailable (null counters), so "
+                "this record says the fused route was POSSIBLE for this arm, never that it "
+                "served a call"
             )
     record["dense_policy"] = {
         "auto_min_pop": dense_engine.resolve_auto_min_pop(),

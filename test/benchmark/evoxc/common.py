@@ -882,6 +882,20 @@ def _requested_eval_mode(eval_mode: Optional[str]) -> Optional[str]:
     return text or None
 
 
+def _explicit_backend(backend: Optional[str]) -> Optional[str]:
+    """The backend the caller actually pinned, env fallback included (``None`` = unpinned).
+
+    Stated once so ``route_decision`` can tell the two ``auto`` shapes apart: an explicit
+    backend keeps the historical dense/specialized rule and NEVER reaches the fused route,
+    while the unpinned one lets the policy own the engine, backend included.
+    """
+    raw = backend if backend is not None else os.environ.get("EVOGP_EVOXC_BACKEND")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
+
+
 def _source_root_candidate() -> Optional[str]:
     """The ``src`` directory to inspect, resolved WITHOUT importing ``evogp``.
 
@@ -1123,6 +1137,7 @@ def route_decision(
     backend: Optional[str],
     *,
     tree_len: Optional[int] = None,
+    resolve_engine: bool = True,
 ) -> Dict[str, Any]:
     """What ``Forest.forward``/``SR_fitness`` would do for this cell, per the policy.
 
@@ -1136,6 +1151,19 @@ def route_decision(
     tightened by an optional ``EVOGP_DENSE_AUTO_MAX_ROWS`` pin), so without the
     shape the report could only apply the pin and would under-state a decline --
     exactly the shape-blind reading the engine itself has where the shape is known.
+
+    ``engine`` / ``would_use_fused`` / ``fused_fallback_backend`` / ``fused_reason``
+    are reported whenever the POLICY owns the engine -- an explicit ``fused`` request
+    and ``auto`` with no explicit backend, which resolves to the fused (Triton) route
+    on a device box from ``EVOGP_FUSED_MIN_POP`` up.  Without the ``auto`` half a
+    shipped-default record (the ``evoxc-auto`` arm sets neither variable) could not
+    say whether a Triton launch or a silent fall-back to ``specialized`` produced its
+    median.  An explicit backend NEVER reaches the fused route under ``auto``
+    (``dense_engine.resolve_route``'s own rule), so that case keeps the five keys.
+    ``resolve_engine=False`` is for the caller that reports the policy on behalf of a
+    route it does not run (the plain-torch baselines): such a record must not CLAIM a
+    resolved engine, because it used none -- and ``check.is_fused_record`` gates every
+    record claiming ``engine="fused"`` as a fused measurement.
     """
     # The batch route is intercepted BEFORE the dense policy is imported: on the
     # current tree dense_engine.EVAL_MODES == ("dense", "specialized", "auto"), so
@@ -1167,9 +1195,18 @@ def route_decision(
             rows, eval_mode=decision["eval_mode"], **shape
         )
     )
-    if decision["eval_mode"] == "fused":
-        # ask the ONE resolver: without this a SERVED call renders as ``fused/numpy ->
-        # fused`` (``resolve_backend_name(None, None)`` answers ``numpy``)
+    # Ask the ONE resolver whenever the POLICY owns the engine: an explicit ``fused``
+    # request, and ``auto`` with no explicit backend (the ``evoxc-auto`` arm), whose policy
+    # resolves to fused on a device box from ``EVOGP_FUSED_MIN_POP`` up.  Without the auto
+    # half a served call renders as ``auto/numpy -> ?`` and a decline into ``specialized``
+    # would hide inside a record that cannot say which engine produced its median.  An
+    # explicit backend never reaches fused under auto (``resolve_route``'s own rule), and
+    # without this call ``resolve_backend_name(None, None)`` answers ``numpy`` for a call
+    # the fused route served from the torch device.
+    if resolve_engine and (
+        decision["eval_mode"] == "fused"
+        or (decision["eval_mode"] == "auto" and not _explicit_backend(backend))
+    ):
         route = dense_engine.resolve_route(
             pop, rows=rows, backend=backend, eval_mode=eval_mode, tree_len=tree_len,
         )
