@@ -369,6 +369,9 @@ LARGE_POPS = (2048, 4096, 8192)
 #: the large column's data-row scale: the rows axis has never been measured above
 #: ``MAIN_ROWS`` = 1024, and it is the axis a per-dispatch overhead amortizes on.
 LARGE_ROWS = (4096, 16384)
+#: The population-scaling column's pops (``--cells popscale``): one doubling series
+#: 64 -> 8192 at ONE fixed shape, so every ratio along it is the population axis alone.
+POPSCALE_POPS = (64, 128, 256, 512, 1024, 2048, 4096, 8192)
 #: The memory rule of ONE cell: the dense route materializes ``pop * tree_len * rows``
 #: float32 values in its largest intermediate (``pop * tree_len * rows * 4`` bytes, see
 #: :func:`cell_tensor_bytes`) and the torch arms hold several such tensors at once, so a
@@ -517,6 +520,40 @@ def large_cells() -> List[Dict[str, Any]]:
     ]
     cells += [cell(4096, 64, 64, MAIN_ROWS)]
     return cells
+
+
+def popscale_cells() -> List[Dict[str, Any]]:
+    """The POPULATION-SCALING column (``--cells popscale``): eight cells, one doubling series.
+
+    Every other column moves more than one axis at a time (``main_cells`` crosses
+    population x tree length x input length, ``large_cells`` mixes the population, row,
+    node-count and input-width axes), so a ratio between two of their cells is never
+    the population axis alone.  Here the shape is FIXED -- ``tree_len`` 32,
+    ``input_len`` 8, ``rows`` 1024, depth cap 4 -- and only ``pop`` doubles,
+    64 -> 128 -> 256 -> 512 -> 1024 -> 2048 -> 4096 -> 8192, which makes every ratio
+    between two cells of the column a per-population scaling law.
+
+    The fixed shape is the ``evogp.gp`` acceptance config (``max_nodes`` 32,
+    ``input_len`` 8, the ``+ - * /`` set, layer cap 4, ``N`` = 1024), so the column
+    also prices the shape the torch-free functional stack is validated on.
+
+    Depth cap 4 keeps the generated trees well inside the 32-slot row stride
+    (``2 ** 4 - 1 = 15`` nodes) and inside dense's default trace cap of 64, so
+    ``evoxc-dense-iree`` serves every cell instead of declining into the per-tree
+    ``specialized`` fallback -- the column prices the compiled route, not its fallback.
+
+    **Memory rule.**  The dense route's largest intermediate is one
+    ``pop * tree_len * rows * 4`` byte tensor (:func:`cell_tensor_bytes`), so the
+    column's worst cell is ``p8192-L32-i8-N1024-d4`` at 1.00 GiB -- the whole column
+    sits 8x inside ``CELL_TENSOR_CEILING_BYTES`` (8 GiB), which is why the top pop is
+    schedulable at all.
+
+    The ids keep the historical spelling: the ``-d<k>`` suffix appears because the
+    depth cap is 4, not 5 (``p64-L32-i8-N1024-d4`` ... ``p8192-L32-i8-N1024-d4``), and
+    ``parse_cell`` round-trips each of them.  Populations come from the same
+    :func:`build_workload` recipe as every other column.
+    """
+    return [cell(pop, 32, 8, MAIN_ROWS, 4) for pop in POPSCALE_POPS]
 
 
 def cell_tensor_bytes(cell_dict: Dict[str, Any]) -> int:

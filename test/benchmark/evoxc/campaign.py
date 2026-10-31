@@ -27,7 +27,8 @@ Usage (from the repository root, project venv)::
     python3 test/benchmark/evoxc/campaign.py --out "$TMPDIR/dry" \\
         --cells main --arms batch --dry-run
 
-``--cells`` takes the named columns ``main`` / ``n64`` / ``long`` / ``large`` (the
+``--cells`` takes the named columns ``main`` / ``n64`` / ``long`` / ``large`` /
+``popscale`` (the
 token -> cell-list mapping is ``CELL_COLUMNS`` behind ``select_cells``) or a
 comma-separated list of single cell ids such as ``p256-L64-i32-N1024-d7``.
 
@@ -315,6 +316,7 @@ CELL_COLUMNS: Dict[str, Any] = {
     "n64": common.n64_cells,
     "long": common.long_tree_cells,
     "large": common.large_cells,
+    "popscale": common.popscale_cells,
 }
 
 
