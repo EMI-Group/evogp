@@ -60,10 +60,22 @@ Run the grid (this is the report-of-record command)::
             --cells 64,256,1000,4096,256x4096 \
             --json src/evogp/gp/evidence/device_loop.json
 
-``--cells`` is a comma list of ``POP`` (rows default 1024) or ``POPxROWS``;
+``--cells`` is a comma list of ``POP`` (rows default 1024) or ``POPxROWS``, plus
+the token ``popscale`` for the POPULATION-SCALE column of the current round --
+the eight populations 64 / 128 / 256 / 512 / 1024 / 2048 / 4096 / 8192 at the
+cell's row count (:data:`POPSCALE_CELLS`), so ``--cells popscale`` is that whole
+column and ``--cells popscale,256x4096`` mixes it with explicit cells
+(:func:`resolve_cells`);
 ``--sides`` picks the sides of the grid; one side of one cell runs in THIS
 process with ``--side``/``--pop``/``--rows`` (what the parent spawns, and what
-every committed number was produced by).  The honest headline of a side is its
+every committed number was produced by).
+
+The numpy side is SCOPED by population (:data:`SIDE_MAX_POP`): it is skipped
+above pop 1024, because the host evaluator already costs 27-459 ms per generation
+at pop 64-4096 and every further population only buys wall time on a
+single-worker card.  A scoped-out pair is printed and RECORDED (``scoped_out`` in
+the merged JSON) instead of being silently dropped; the population-scale column's
+numbers are reported in ``POPSCALE.md``.  The honest headline of a side is its
 ``total``: one whole generation (evaluation + select/cross/mutate) with the
 device synced.  The ``evaluation``/``variation`` columns decompose it and sum to
 ``total`` within a few percent on the device-resident sides (``gp``,
@@ -98,8 +110,11 @@ __all__ = [
     "WORKLOAD",
     "GP_KNOBS",
     "CELLS",
+    "POPSCALE_CELLS",
+    "SIDE_MAX_POP",
     "SIDES",
     "parse_cell",
+    "resolve_cells",
     "make_configs",
     "measure_gp",
     "measure_torch",
@@ -132,8 +147,20 @@ GP_KNOBS: Dict[str, Any] = {
 
 #: The grid: ``POP`` or ``POPxROWS`` (rows default :data:`ROWS`).
 CELLS: Tuple[str, ...] = ("64", "256", "1000", "4096", "256x4096")
+#: The current round's POPULATION-SCALE column: eight populations, one fixed
+#: shape -- ``--cells popscale`` expands to exactly these cells.
+POPSCALE_CELLS: Tuple[str, ...] = (
+    "64", "128", "256", "512", "1024", "2048", "4096", "8192"
+)
 ROWS = 1024
 SEED = 0
+
+#: Per-side population ceiling of this round: a ``(side, pop)`` above its entry is
+#: skipped and recorded as ``scoped_out`` (the parent never spawns its child).
+#: Only the numpy lane is scoped: it is already 27-459 ms per generation at pop
+#: 64-4096, so pop >= 2048 on the host evaluator would only add wall time on a
+#: single-worker card.  Every unlisted side runs at every population.
+SIDE_MAX_POP: Dict[str, int] = {"numpy": 1024}
 
 #: Sides of the grid (``fused`` is the head-to-head, not a driver side).
 SIDES: Tuple[str, ...] = ("gp", "gp-fused", "numpy", "torch", "torch-fused", "fused")
@@ -198,6 +225,38 @@ def parse_cell(text: str, rows: int = ROWS) -> Tuple[int, int]:
         pop_text, rows_text = body.split("x", 1)
         return int(pop_text), int(rows_text)
     return int(body), int(rows)
+
+
+def resolve_cells(text: str, rows: int = ROWS) -> List[Tuple[int, int]]:
+    """Expand a ``--cells`` string into ``(pop, rows)`` pairs.
+
+    The token ``popscale`` stands for the round's population-scale column
+    (:data:`POPSCALE_CELLS`, every entry at ``rows``) and may be mixed with
+    explicit cells, so ``"popscale"`` yields the eight pairs of the column and
+    ``"popscale,256x4096"`` adds the explicit cell behind them.  Every other
+    token is one cell, parsed by :func:`parse_cell`.
+    """
+    cells: List[Tuple[int, int]] = []
+    for token in str(text).split(","):
+        body = token.strip()
+        if not body:
+            continue
+        if body.lower() == "popscale":
+            cells.extend(parse_cell(entry, rows) for entry in POPSCALE_CELLS)
+        else:
+            cells.append(parse_cell(body, rows))
+    return cells
+
+
+def scoped_out_reason(side: str, pop: int) -> Optional[str]:
+    """Why ``(side, pop)`` is out of this round's scope, or ``None`` if it is in it."""
+    ceiling = SIDE_MAX_POP.get(side)
+    if ceiling is None or int(pop) <= int(ceiling):
+        return None
+    return (
+        f"{side} is limited to pop <= {ceiling} this round "
+        f"(the lane's per-generation cost at pop {int(pop)} is out of scope)"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -948,13 +1007,25 @@ def _ms(block: Optional[Dict[str, Any]]) -> str:
 
 def _timed(records: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(
-        (record for record in records if record["side"] != "fused"),
+        (
+            record
+            for record in records
+            if record.get("side") != "fused" and record.get("timing")
+        ),
         key=lambda record: (record["rows"], record["pop"], record["side"]),
     )
 
 
-def report(records: Sequence[Dict[str, Any]]) -> str:
-    """Every timed cell and the fused verdict, as Markdown (trajectories stay in the JSON)."""
+def report(
+    records: Sequence[Dict[str, Any]],
+    scoped_out: Optional[Sequence[Dict[str, Any]]] = None,
+) -> str:
+    """Every timed cell and the fused verdict, as Markdown (trajectories stay in the JSON).
+
+    A side may legitimately contribute NO record (scoped out, or a partial grid),
+    so the report is built from whatever is there and never indexes a record that
+    does not describe a timed cell; the scoped-out pairs get their own section.
+    """
     lines = [
         "## per-cell timing (ms per generation, warm medians)",
         "",
@@ -962,7 +1033,7 @@ def report(records: Sequence[Dict[str, Any]]) -> str:
         "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for record in _timed(records):
-        timing = record["timing"]
+        timing = record.get("timing") or {}
         total = timing.get("total") or {}
         lines.append(
             "| {side} | {pop} | {rows} | {ev} | {op} | {total} | {spread} | {cold} |".format(
@@ -982,10 +1053,14 @@ def report(records: Sequence[Dict[str, Any]]) -> str:
     lines.append("## fused vs in-graph (the open question)")
     lines.append("")
     for record in sorted(
-        (item for item in records if item["side"] == "fused"),
+        (
+            item
+            for item in records
+            if item.get("side") == "fused" and item.get("timing")
+        ),
         key=lambda item: (item["rows"], item["pop"]),
     ):
-        timing, verdict = record["timing"], record["verdict"]
+        timing, verdict = record["timing"], record.get("verdict") or {}
         lines.append(
             "- pop {pop} rows {rows}: in-graph {graph} | transfer {transfer} "
             "(queued {queued}) | fused from host {host} | fused from device "
@@ -1001,12 +1076,25 @@ def report(records: Sequence[Dict[str, Any]]) -> str:
                 faster=(
                     f"{verdict['faster_route']} "
                     f"{max(verdict['device_channels_queued_speedup'], 1.0):.2f}x"
-                    if verdict["faster_route"] == "fused"
+                    if verdict.get("faster_route") == "fused"
                     else f"in-graph "
                     f"{1 / verdict['device_channels_queued_speedup']:.2f}x"
                 ),
             )
         )
+    if scoped_out:
+        lines.append("")
+        lines.append("## scoped out")
+        lines.append("")
+        for entry in scoped_out:
+            lines.append(
+                "- {side} pop {pop} rows {rows}: {reason}".format(
+                    side=entry.get("side"),
+                    pop=entry.get("pop"),
+                    rows=entry.get("rows"),
+                    reason=entry.get("reason", "out of this round's scope"),
+                )
+            )
     return "\n".join(lines)
 
 
@@ -1072,7 +1160,7 @@ def _child(args) -> int:
 
 def _parent(args) -> int:
     """Parent mode: spawn one process per (side, cell), print and merge."""
-    cells = [parse_cell(text, args.rows) for text in str(args.cells).split(",") if text]
+    cells = resolve_cells(args.cells, args.rows)
     sides = [text.strip() for text in str(args.sides).split(",") if text.strip()]
     unknown = [side for side in sides if side not in SIDES]
     if unknown:
@@ -1084,8 +1172,16 @@ def _parent(args) -> int:
     records: List[Dict[str, Any]] = []
     guards: List[Dict[str, Any]] = []
     children: List[Dict[str, Any]] = []
+    scoped_out: List[Dict[str, Any]] = []
     for pop, rows in cells:
         for side in sides:
+            reason = scoped_out_reason(side, pop)
+            if reason is not None:
+                print(f"# skipping {_crid(side, pop, rows)} (scoped out: {reason})",
+                      flush=True)
+                scoped_out.append({"side": side, "pop": int(pop), "rows": int(rows),
+                                   "scoped_out": True, "reason": reason})
+                continue
             label = _crid(side, pop, rows)
             fragment = os.path.join(fragment_dir, f"{side}-{pop}x{rows}.json")
             command = _child_command(side, pop, rows, args, fragment)
@@ -1106,7 +1202,7 @@ def _parent(args) -> int:
             print(f"#   done in {elapsed:.1f} s (guard ok={state.get('ok')})",
                   flush=True)
     print()
-    print(report(records))
+    print(report(records, scoped_out))
     if args.json:
         _write(
             args.json,
@@ -1117,15 +1213,19 @@ def _parent(args) -> int:
                     "cells": cells, "sides": sides,
                     "warmup": int(args.warmup), "reps": int(args.reps),
                     "generations": int(args.generations), "seed": int(args.seed),
+                    "cells_text": str(args.cells),
+                    "side_max_pop": dict(SIDE_MAX_POP),
                     "protocol": (
                         "one process per (side, cell); warm medians of --reps timed "
                         "repetitions with torch.cuda.synchronize() around each; "
-                        "idle-device guard per child"
+                        "idle-device guard per child; a (side, pop) above "
+                        "side_max_pop is skipped and recorded under scoped_out"
                     ),
                 },
                 "versions": versions(),
                 "children": children,
                 "guards": guards,
+                "scoped_out": scoped_out,
                 "records": records,
             },
         )
@@ -1145,9 +1245,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     for flag, options in (
         ("--cells", {"default": ",".join(CELLS),
-                     "help": f"comma list of POP or POPxROWS ({','.join(CELLS)})"}),
+                     "help": ("comma list of POP or POPxROWS, or the token popscale "
+                              "for the round's eight-population column "
+                              f"({','.join(CELLS)}; popscale = "
+                              f"{','.join(POPSCALE_CELLS)})")}),
         ("--sides", {"default": ",".join(SIDES),
-                     "help": f"comma list of sides ({','.join(SIDES)})"}),
+                     "help": (f"comma list of sides ({','.join(SIDES)}); a side "
+                              f"above its population ceiling in SIDE_MAX_POP "
+                              f"(numpy: {SIDE_MAX_POP.get('numpy')}) is skipped "
+                              "and recorded as scoped_out")}),
         ("--side", {"default": None, "help": "measure only this side (child mode)"}),
         ("--pop", {"type": int, "default": None, "help": "population (child mode)"}),
         ("--rows", {"type": int, "default": ROWS, "help": f"data rows ({ROWS})"}),
