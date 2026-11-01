@@ -5,6 +5,7 @@
 > The in-library battery `fused_check.py` became `python -m evogp.fused.check` (`fused/check.py` plus the `cases` / `contract` / `timing` libraries), and the independent oracle `reference_eval.py` moved to the dev-only `test/oracle/reference_eval.py`.
 > The `fused_envelope.py` harness (§11–§15) was deleted rather than ported, so its commands no longer exist; its stored records stay under `test/benchmark/evoxc/results/t1a1_fused/` and were re-checked against today's rule at the sizes quoted below.
 > The numbers below are unchanged and are no longer reproducible from this tree (the comparison harness is in `test/benchmark/evoxc/results/t1a1_auto_r3/`).
+> Path and name translation for the rest of the document: every `test/benchmark/...` path it quotes now lives under `test/archive/benchmark/...`, the torch-stack module names it quotes (`fused_engine.py`, `forest.py`, `tree.py`, `dense_engine.resolve_route`, `EVOGP_EVAL_MODE`) no longer exist, and the `src/evogp/tests/` fixtures it cites (including `src/evogp/tests/goldens/`) are now `test/oracle/reference_eval.py` plus `test/oracle/goldens/`.
 
 # `EVOGP_EVAL_MODE=fused` — independent verification campaign (Triton whole-population route)
 

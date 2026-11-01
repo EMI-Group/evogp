@@ -38,10 +38,11 @@ WHAT IT CHECKS
    run against the oracle; the value path must stay BITWISE.
 3. **Goldens** (``--stage goldens``).  The frozen ``.npz`` fixtures of
    ``<repo>/test/oracle/goldens`` (the oracle's own schema) at the documented ``1e-4``
-   rtol/atol, plus ``<repo>/test/goldens`` (the legacy CUDA-era captures) and
-   ``$EVOGP_GOLDEN_DIR`` when they exist.  Multi-output fixtures are SKIPPED here --
-   this is the single-output golden gate -- so the multi-output protocol is verified
-   by ``--stage multi`` against the oracle instead.
+   rtol/atol, plus ``$EVOGP_GOLDEN_DIR`` when it is set.  Multi-output fixtures are
+   SKIPPED here -- this is the single-output golden gate -- so the multi-output
+   protocol is verified by ``--stage multi`` against the oracle instead.  The
+   measured reading is ``6/6``: the oracle's seven fixtures, with
+   ``06_multi_output.npz`` skipped for being multi-output.
 4. **Declines and the knob/stat contracts** (``--stage declines``).  The route's whole
    safety story is "decline, never a wrong number": every decline reason is exercised
    here, together with the POSITIVE controls (a legal call served at ``pop == 1``,
@@ -60,10 +61,11 @@ WHAT IT CHECKS
    per-tree value path, the cold first call (Triton import + JIT) and a stage split
    (kernel vs host glue vs the cold transpose).  One process per cell, because a warm
    median is only comparable if every process sees one shape class.  The stage
-   reports **ABSOLUTE milliseconds**: the ``torch-batched`` reference arm lived in the
-   benchmark harness (``test/benchmark/evoxc``), which this package deliberately does
-   not reach into, so there is no ratio column -- compare against a number you
-   measured yourself, on the same box, in the same session.
+   reports **ABSOLUTE milliseconds**: the ``torch-batched`` reference arm lives in the
+   ARCHIVED benchmark harness (``test/archive/benchmark/evoxc``), which this package
+   deliberately does not reach into and which is not runnable from here, so there is
+   no ratio column -- compare against a number you measured yourself, on the same
+   box, in the same session.
 6. **Tuning** (``--stage tuning``).  ``EVOGP_FUSED_BLOCK_ROWS`` in {64,128,256,512}
    x ``EVOGP_FUSED_NUM_WARPS`` in {1,2,4} on the same six cells, one process per
    (config, cell), also in absolute milliseconds.  The configs are ranked by their
@@ -608,21 +610,15 @@ def stage_multi(args: argparse.Namespace) -> int:
 # stage 2: goldens
 # --------------------------------------------------------------------------- #
 _ENGINE_KEYS = ("node_value", "node_type", "subtree_size")
-_LEGACY_TREE = ("forest__node_value", "forest__node_type", "forest__subtree_size")
 
 
 def _golden_dirs() -> List[str]:
-    """The fixture directories this package still reads.
+    """The fixture directories this package reads.
 
     ``<repo>/test/oracle/goldens`` ALWAYS (the oracle's own frozen cases, the current
-    schema), ``<repo>/test/goldens`` when it exists (the legacy CUDA-era captures)
-    and ``$EVOGP_GOLDEN_DIR`` for a fixture set kept elsewhere.  The deleted
-    ``src/evogp/tests/goldens`` path is deliberately not a candidate.
+    schema) and ``$EVOGP_GOLDEN_DIR`` for a fixture set kept elsewhere.
     """
     directories = [os.path.join(_ORACLE_DIR, "goldens")]
-    legacy = os.path.join(_REPO_ROOT, "test", "goldens")
-    if os.path.isdir(legacy):
-        directories.append(legacy)
     extra = os.environ.get("EVOGP_GOLDEN_DIR")
     if extra:
         directories.append(extra)
@@ -655,10 +651,6 @@ def stage_goldens(args: argparse.Namespace) -> int:
                 keys = set(data.files)
                 if set(_ENGINE_KEYS) <= keys:
                     passed, total = _golden_engine(
-                        path, data, compare, fused_engine, torch, passed, total
-                    )
-                elif set(_LEGACY_TREE) <= keys:
-                    passed, total = _golden_legacy(
                         path, data, compare, fused_engine, torch, passed, total
                     )
                 else:
@@ -722,58 +714,8 @@ def _golden_engine(path, data, compare, fused_engine, torch, passed, total):
     return passed, total
 
 
-def _golden_legacy(path, data, compare, fused_engine, torch, passed, total):
-    """``test/goldens/*.npz``: the frozen outputs of the deleted CUDA kernels."""
-    name = os.path.basename(path)
-    node_value = _as_cuda(data["forest__node_value"], torch.float32)
-    node_type = _as_cuda(data["forest__node_type"], torch.int16)
-    subtree_size = _as_cuda(data["forest__subtree_size"], torch.int16)
-    x = _as_cuda(data["x"], torch.float32)
-    input_len = int(x.shape[1])
-    labels = _as_cuda(data["labels"], torch.float32) if "labels" in data else None
-    checks = []
-    if "forest_batch_forward" in data and "x_small" in data:
-        checks.append(
-            (
-                f"{name}/forest_batch_forward",
-                _as_cuda(data["forest_batch_forward"], torch.float32),
-                _as_cuda(data["x_small"], torch.float32),
-                False,
-            )
-        )
-    if "forest_forward" in data:
-        checks.append(
-            (f"{name}/forest_forward", _as_cuda(data["forest_forward"], torch.float32), x, True)
-        )
-    for tag, want, xa, per_row in checks:
-        try:
-            got = fused_engine.evaluate_fused(
-                node_value, node_type, subtree_size, input_len, 1, xa, per_row=per_row
-            )
-        except fused_engine.FusedUnsupported as exc:
-            print(f"  [FAIL] {tag}: declined ({exc})")
-            total += 1
-            continue
-        total += 1
-        passed += _golden_report(tag, compare(want, got), name)
-    if labels is not None and "forest_sr_fitness__auto__mse" in data:
-        for key, use_mse in (
-            ("forest_sr_fitness__auto__mse", True),
-            ("forest_sr_fitness__auto__nonmse", False),
-        ):
-            if key not in data:
-                continue
-            want = _as_cuda(data[key], torch.float32)
-            got = fused_engine.sr_fitness_fused(
-                node_value, node_type, subtree_size, input_len, 1, x, labels, use_MSE=use_mse
-            )
-            total += 1
-            passed += _golden_report(f"{name}/{key}", compare(want, got), name)
-    return passed, total
-
-
 def _golden_report(tag: str, stats: Dict[str, Any], fixture: str) -> int:
-    """1e-4 rtol/atol — the legacy capture used fast-math, so no bitwise claim."""
+    """``GOLDEN_RTOL``/``GOLDEN_ATOL`` -- the frozen fixtures carry no bitwise claim."""
     ok = (
         (stats.get("nan_mismatch", 1) == 0)
         and (stats.get("inf_mismatch", 1) == 0)
