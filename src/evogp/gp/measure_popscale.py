@@ -2,10 +2,16 @@
 
 This is COMMITTED EVIDENCE, not a test and not a library entry point: nothing runs
 at import time, everything lives inside :func:`main` or the function a lane
-dispatch calls.  The torch/triton/``evogp.tree`` boundary is resolved through
-:func:`importlib.import_module` inside the functions (the boundary
-:mod:`evogp.gp.fused_eval` uses), because the sibling purity test forbids the
-literal statement in this subtree.
+dispatch calls.  The torch and triton boundary is resolved at CALL time (through
+:func:`importlib.import_module`, the idiom :mod:`evogp.gp.fused_eval` uses and the
+sibling purity test requires), so importing this module pulls neither.
+
+The lanes are the torch-free ``evogp.gp`` routes (numpy host, in-graph ``iree``,
+the Triton kernel) plus the two self-contained plain-torch baselines of
+:mod:`evogp.gp._torch_baseline`, which are built from the population's legacy
+triple alone.  The torch-native stack's own lanes (``evogp.tree``'s ``Forest``
+under the shipped default and under a forced ``EVOGP_EVAL_MODE=fused``) were
+removed with that stack in 2.0.0a2; recover them at commit 6720723.
 
 Where :mod:`evogp.gp.measure_generation` measures a whole GENERATION (evaluation
 + select/crossover/mutate), this harness measures the PRIMARY metric of the
@@ -37,30 +43,24 @@ The lanes
                    record carries ``route_counts`` / ``last_route`` /
                    ``interop_available()`` so it PROVES the device route served
                    the calls instead of falling back to the host hand-off.
-``torch-batched``  the plain-torch WHOLE-POPULATION evaluator (one vectorized
-                   pass over the population, no python loop over trees), copied
-                   from the benchmark campaign's ``BatchedEvaluator`` idiom.
-``torch-per-tree`` the plain-torch per-tree python walk (``Tree.forward`` per
-                   tree, stacked); scoped to pop <= :data:`SIDE_MAX_POP`.
-``forest-auto``    the torch stack's own ``Forest.batch_forward`` and
-                   ``Forest.SR_fitness`` under the SHIPPED DEFAULT route
-                   (``EVOGP_EVAL_MODE`` unset, so ``auto`` -> fused here); the
-                   route the resolver actually picked is recorded.
-``forest-fused``   the same two surfaces with ``EVOGP_EVAL_MODE=fused`` forced:
-                   the CONTROL, measured in its OWN child process (the route is
-                   memoized on first use, so the variable has to be set before
-                   ``evogp.tree`` is imported) and only at the widest population.
+``torch-batched``  the plain-torch WHOLE-POPULATION evaluator
+                   (:class:`evogp.gp._torch_baseline.TorchBatchedEvaluator`: one
+                   vectorized pass over the population, no python loop over
+                   trees), built from the population's legacy triple.
+``torch-per-tree`` the plain-torch per-tree python walk
+                   (:func:`evogp.gp._torch_baseline.per_tree_forward`); scoped to
+                   pop <= :data:`SIDE_MAX_POP`.
 ================== ==========================================================
 
 Two parity groups, never mixed
 ------------------------------
-A maximized FITNESS (``evaluate``, ``SR_fitness`` negated) is never compared
-against a raw VALUE (``batch_forward``, ``predict``):
+A maximized FITNESS (``evaluate``) is never compared against a raw VALUE
+(``batch_forward``, ``predict``):
 
-* **fitness parity** -- ``gp``, ``gp-fused``, ``forest-auto``/``forest-fused``
-  ``sr_fitness`` against the ``numpy`` lane's ``evaluate``;
-* **value parity** -- ``torch-batched``, ``torch-per-tree`` and ``forest-auto`` /
-  ``forest-fused`` ``batch_forward`` against the ``numpy`` lane's ``predict``.
+* **fitness parity** -- ``gp``, ``gp-fused`` against the ``numpy`` lane's
+  ``evaluate``;
+* **value parity** -- ``torch-batched`` and ``torch-per-tree`` ``forward``
+  against the ``numpy`` lane's ``predict``.
 
 Both are reported by :func:`evogp.gp.measure_generation._parity` (``max_rel``,
 ``max_rel_scaled``, ``finiteness_mismatch``), over the whole population (the value
@@ -98,7 +98,6 @@ to every lane above, ``--rows``/``--reps``/``--warmup``/``--seed`` to
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import os
 import subprocess
@@ -108,7 +107,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from . import encoding, problem
+from . import _torch_baseline as torch_baseline, encoding, problem
 from .encoding import init_population
 from .graph_eval import GraphEvaluator, readback_fitness
 from .measure_generation import (
@@ -144,15 +143,13 @@ __all__ = [
 #: The populations of the campaign: the round's column, at one fixed shape.
 POPS: Tuple[int, ...] = tuple(int(entry) for entry in POPSCALE_CELLS)
 
-#: The lanes, in report order (``forest-fused`` is the separate-process control).
+#: The lanes, in report order.
 LANES: Tuple[str, ...] = (
     "numpy",
     "gp",
     "gp-fused",
     "torch-batched",
     "torch-per-tree",
-    "forest-auto",
-    "forest-fused",
 )
 
 #: Per-lane population ceiling of this round; a lane above it is ``scoped_out``.
@@ -162,7 +159,8 @@ SIDE_MAX_POP: Dict[str, int] = {"torch-per-tree": 1024}
 
 #: The surfaces of each lane and which quantity each one returns: ``fitness`` is
 #: MAXIMIZED (losses negated) and ``value`` is a raw prediction.  ``negate`` marks
-#: a surface that returns the POSITIVE loss the caller negates (``SR_fitness``).
+#: a surface that returns the POSITIVE loss the caller negates (a lane that
+#: exposes one would set it; no surviving lane does).
 LANE_SURFACES: Dict[str, Tuple[Dict[str, Any], ...]] = {
     "numpy": (
         {"surface": "evaluate", "kind": "fitness"},
@@ -172,14 +170,6 @@ LANE_SURFACES: Dict[str, Tuple[Dict[str, Any], ...]] = {
     "gp-fused": ({"surface": "evaluate", "kind": "fitness"},),
     "torch-batched": ({"surface": "batch_forward", "kind": "value"},),
     "torch-per-tree": ({"surface": "forward", "kind": "value"},),
-    "forest-auto": (
-        {"surface": "batch_forward", "kind": "value"},
-        {"surface": "sr_fitness", "kind": "fitness", "negate": True},
-    ),
-    "forest-fused": (
-        {"surface": "batch_forward", "kind": "value"},
-        {"surface": "sr_fitness", "kind": "fitness", "negate": True},
-    ),
 }
 
 #: The speedup baselines of the report: ``(label, lane, surface)``.
@@ -187,26 +177,14 @@ BASELINES: Tuple[Tuple[str, str, str], ...] = (
     ("numpy", "numpy", "evaluate"),
     ("torch-batched", "torch-batched", "batch_forward"),
     ("torch-per-tree", "torch-per-tree", "forward"),
-    ("forest bf", "forest-auto", "batch_forward"),
-    ("forest SR", "forest-auto", "sr_fitness"),
 )
 
 
 # --------------------------------------------------------------------------- #
 # lazy imports (the ONE torch/evoxc boundary, resolved at CALL time)
 # --------------------------------------------------------------------------- #
-def _tree_module():
-    """The torch stack's top-level module, imported on first use.
-
-    Importing it is what fixes the evaluation ROUTE for the rest of the process
-    (``dense_engine.resolve_route`` memoizes), which is why the ``forest-fused``
-    control has to run in its own child process with the variable already set.
-    """
-    return importlib.import_module("evogp.tree")
-
-
 def _cuda() -> str:
-    """The torch device string the torch stack hard-codes."""
+    """The torch device string the torch baselines run on."""
     return "cuda"
 
 
@@ -229,9 +207,9 @@ class _Population:
 
     Built on the numpy backend so all lanes can be fed from the SAME rows: the
     ``GPState`` (the numpy lane and its ``predict`` oracle), the legacy triple
-    (:func:`evogp.gp.encoding.to_legacy_triple` -> the torch ``Forest`` and the
-    plain-torch evaluators) and, through :meth:`upload`, the device channels the
-    two ``evogp.gp`` device lanes read.
+    (:func:`evogp.gp.encoding.to_legacy_triple`, what the plain-torch baselines of
+    :mod:`evogp.gp._torch_baseline` are built from) and, through :meth:`upload`,
+    the device channels the two ``evogp.gp`` device lanes read.
     """
 
     def __init__(self, pop: int, rows: int = ROWS, seed: int = SEED) -> None:
@@ -289,273 +267,6 @@ class _Population:
             dtype=torch.float32,
         )
         return x, labels
-
-    def forest(self, torch):
-        """The torch stack's ``Forest`` over this population's legacy triple."""
-        tree = _tree_module()
-        values, node_type, subtree_size = self.legacy
-        device = _cuda()
-        return tree.Forest(
-            self.input_len,
-            1,
-            torch.as_tensor(np.ascontiguousarray(values), device=device,
-                            dtype=torch.float32),
-            torch.as_tensor(np.ascontiguousarray(node_type), device=device,
-                            dtype=torch.int16),
-            torch.as_tensor(np.ascontiguousarray(subtree_size), device=device,
-                            dtype=torch.int16),
-        )
-
-
-# --------------------------------------------------------------------------- #
-# the plain-torch lanes (the benchmark campaign's two baseline idioms)
-# --------------------------------------------------------------------------- #
-def _safe_int(value: float) -> int:
-    return 0 if not np.isfinite(value) else int(np.trunc(float(value)))
-
-
-def _kind_from_type(node_type: int) -> int:
-    """The engine's if/else chain: 0 VAR, 1 CONST, 2 UFUNC, 3 BFUNC, else ternary."""
-    if node_type in (0, 1, 2, 3):
-        return int(node_type)
-    return 4
-
-
-def _arity_of(function_id: int) -> int:
-    if function_id == 0:  # IF
-        return 3
-    if function_id <= 12:  # LT .. GE
-        return 2
-    return 1
-
-
-#: Arity of a node KIND (``VAR``/``CONST`` 0, ``UFUNC`` 1, ``BFUNC`` 2, ternary 3).
-_KIND_ARITY = {2: 1, 3: 2, 4: 3}
-
-#: ``LOOSE_LOG(0)`` returns -MAX_VAL and ``LOOSE_DIV``/``LOOSE_INV`` clamp to DELTA.
-_MAX_VAL = 1e9
-_DELTA = 1e-9
-
-
-def _kind_arity(kind: int) -> int:
-    return _KIND_ARITY.get(int(kind), 0)
-
-
-def _torch_ops(torch) -> Tuple[Dict[int, Any], Dict[int, Any], Dict[int, Any]]:
-    """``(unary, binary, compare)`` op tables of the plain-torch baseline (by id)."""
-    t = torch
-    unary = {14: t.sin, 15: t.cos, 16: t.tan, 17: t.sinh, 18: t.cosh, 19: t.tanh,
-             20: t.log, 22: t.exp, 25: t.neg, 26: t.abs, 27: t.sqrt}
-    binary = {1: t.add, 2: t.sub, 3: t.mul, 6: t.pow}
-    compare = {10: t.lt, 11: t.gt, 12: t.le, 13: t.ge}
-    return unary, binary, compare
-
-
-class _WholePopulationEvaluator:
-    """The plain-torch batched baseline: the whole population in ONE pass.
-
-    Copied idiom (not imported) from the benchmark campaign's ``BatchedEvaluator``,
-    which is the best a pure-torch implementation does: every node position of the
-    prefix-encoded forest becomes a ``(pop, rows)`` value in a position-indexed
-    buffer, children are fetched per row by index (no python loop over trees), and
-    the node kind / function id is resolved with per-``(kind, function)`` masks.
-    Only the candidates that occur at a position are computed, so a call costs
-    ``max_tree_len`` positions x (few ops) whatever the population.
-
-    Semantics are the ones the engine documents (``../tree/ENGINE_SPEC.md``):
-    ``DIV`` masks a zero divisor with NaN, ``MAX``/``MIN`` compare-select,
-    comparisons yield +-1, ``IF`` selects on ``cond > 0``; the single-output
-    forests of this campaign never reach the ternary path in practice but it is
-    implemented, so a tree that does is measured, not mis-measured.
-
-    The torch module is passed in (never imported at this module's scope) and the
-    whole per-position plan is built in ``__init__``, i.e. setup is never timed.
-    """
-
-    def __init__(self, torch, forest) -> None:
-        self._t = torch
-        self.device = torch.device(_cuda())
-        values, types, sizes = _host_rows(forest)
-        self.pop_size, self.max_tree_len = values.shape
-        self.output_len = int(forest.output_len)
-        self.input_len = int(forest.input_len)
-        if self.output_len != 1:
-            raise NotImplementedError("the plain-torch lanes cover single-output forests")
-        self._constants: Dict[float, Any] = {}
-        self._nan = self._scalar(float("nan"))
-        self._unary_ops, self._binary_ops, self._compare_ops = _torch_ops(torch)
-
-        pop, length = self.pop_size, self.max_tree_len
-        self.kind = np.vectorize(_kind_from_type, otypes=[np.int32])(types)
-        self.active = np.arange(length)[None, :] < sizes[:, 0][:, None]
-        sizes_p = np.concatenate([sizes, np.zeros((pop, 1), dtype=np.int64)], axis=1)
-        rows = np.arange(pop)
-        self.child1 = np.minimum(np.arange(1, length + 1), length)
-        self.child2: List[Any] = []
-        self.child3: List[Any] = []
-        for index in range(length):
-            first = int(self.child1[index])
-            first_size = sizes_p[:, first] if first < length else np.zeros(pop, np.int64)
-            second = np.minimum(first + first_size, length)
-            second_size = sizes_p[rows, np.minimum(second, length)]
-            third = np.minimum(second + second_size, length)
-            self.child2.append(self._index(second))
-            self.child3.append(self._index(third))
-        self.plan: List[Dict[str, Any]] = []
-        for index in range(length):
-            kinds = self.kind[:, index]
-            live = self.active[:, index]
-            step: Dict[str, Any] = {"index": index, "cases": []}
-            if np.any(live & (kinds == 0)):
-                step["var_mask"] = self._mask(live & (kinds == 0))
-                step["var_index"] = self._t.as_tensor(
-                    np.array([_safe_int(value) for value in values[:, index]]),
-                    device=self.device,
-                ).clamp_(0, self.input_len - 1)
-            if np.any(live & (kinds == 1)):
-                step["const_mask"] = self._mask(live & (kinds == 1))
-                step["const_value"] = self._t.as_tensor(
-                    np.asarray(values[:, index], dtype=np.float32), device=self.device
-                ).view(pop, 1)
-            for kind in (2, 3, 4):
-                base = live & (kinds == kind)
-                if not np.any(base):
-                    continue
-                ids = np.array([_safe_int(value) for value in values[:, index]])
-                for fid in sorted({int(value) for value in ids[base]}):
-                    valid = base & (ids == fid) & (_arity_of(fid) == _kind_arity(kind))
-                    if not np.any(valid):
-                        continue
-                    step["cases"].append({"kind": kind, "fid": fid,
-                                          "mask": self._mask(valid)})
-            self.plan.append(step)
-
-    # -- setup helpers -------------------------------------------------------
-    def _scalar(self, value: float):
-        return self._t.tensor(float(value), dtype=self._t.float32, device=self.device)
-
-    def _mask(self, boolean):
-        return self._t.as_tensor(boolean, device=self.device).view(self.pop_size, 1)
-
-    def _index(self, values):
-        array = np.asarray(values, dtype=np.int64)
-        if int(array.min()) == int(array.max()):
-            return int(array[0])
-        return self._t.as_tensor(array, device=self.device, dtype=self._t.int64)
-
-    def _constant(self, value: float):
-        key = float(value)
-        tensor = self._constants.get(key)
-        if tensor is None:
-            tensor = self._constants[key] = self._scalar(key)
-        return tensor
-
-    def _child(self, buffer, index, rows):
-        if isinstance(index, int):
-            return buffer[:, index]
-        return buffer[rows, index]
-
-    # -- the ops (float32, plain torch) --------------------------------------
-    def _unary(self, fid: int, a):
-        t = self._t
-        if fid == 21:  # LOOSE_LOG: log|a| with -MAX_VAL at zero
-            return t.where(a == 0.0, self._scalar(-_MAX_VAL), t.log(t.abs(a)))
-        if fid == 23:  # INV masks a zero input with NaN
-            return t.where(a == 0.0, self._nan, t.reciprocal(a))
-        if fid == 24:  # LOOSE_INV clamps |a| to DELTA (copysign)
-            clamped = t.where(t.abs(a) <= _DELTA, t.copysign(self._scalar(_DELTA), a), a)
-            return t.reciprocal(clamped)
-        if fid == 28:  # LOOSE_SQRT takes |a| when a <= 0
-            return t.sqrt(t.where(a <= 0.0, t.abs(a), a))
-        operator = self._unary_ops.get(int(fid))
-        return operator(a) if operator is not None else t.zeros_like(a)
-
-    def _binary(self, fid: int, a, b):
-        t = self._t
-        if fid == 4:  # DIV masks a zero divisor with NaN
-            return t.where(b == 0.0, self._nan, a / b)
-        if fid == 5:  # LOOSE_DIV clamps |b| to DELTA (copysign)
-            clamped = t.where(t.abs(b) <= _DELTA, t.copysign(self._scalar(_DELTA), b), b)
-            return a / clamped
-        if fid == 7:  # LOOSE_POW of (0, 0) is 0 and the base is |a|
-            return t.where((a == 0.0) & (b == 0.0), self._scalar(0.0), t.pow(t.abs(a), b))
-        if fid == 8:  # MAX selects (NaN goes right, like the engine)
-            return t.where(a >= b, a, b)
-        if fid == 9:  # MIN selects
-            return t.where(a <= b, a, b)
-        compare = self._compare_ops.get(int(fid))
-        if compare is not None:  # LT/GT/LE/GE return +-1, never a boolean
-            return t.where(compare(a, b), self._scalar(1.0), self._scalar(-1.0))
-        operator = self._binary_ops.get(int(fid))
-        return operator(a, b) if operator is not None else t.zeros_like(a)
-
-    # -- the one pass --------------------------------------------------------
-    def _evaluate(self, get_var: Callable[[int], Any], n: int):
-        pop, length = self.pop_size, self.max_tree_len
-        rows = self._t.arange(pop, device=self.device)
-        buffer = self._t.zeros(
-            (pop, length + 1, n), dtype=self._t.float32, device=self.device
-        )
-        for step in reversed(self.plan):
-            index = step["index"]
-            value = self._t.zeros((pop, n), dtype=self._t.float32, device=self.device)
-            if "const_mask" in step:
-                value = self._t.where(step["const_mask"], step["const_value"], value)
-            if "var_mask" in step:
-                value = self._t.where(step["var_mask"], get_var(index), value)
-            first = int(self.child1[index])
-            for case in step["cases"]:
-                kind, fid = case["kind"], case["fid"]
-                if kind == 2:
-                    candidate = self._unary(fid, buffer[:, first])
-                elif kind == 3:
-                    candidate = self._binary(
-                        fid, buffer[:, first],
-                        self._child(buffer, self.child2[index], rows),
-                    )
-                else:
-                    candidate = self._t.where(
-                        buffer[:, first] > 0.0,
-                        self._child(buffer, self.child2[index], rows),
-                        self._child(buffer, self.child3[index], rows),
-                    )
-                value = self._t.where(case["mask"], candidate, value)
-            buffer[:, index] = value
-        return buffer[:, 0]
-
-    def batch_forward(self, x):
-        """``(rows, input_len)`` -> ``(pop, rows)`` (single-output forests)."""
-
-        def get_var(index: int):
-            return self._t.index_select(x, 1, self.plan[index]["var_index"]).transpose(0, 1)
-
-        with self._t.no_grad():
-            return self._evaluate(get_var, int(x.shape[0]))
-
-
-def _host_rows(forest) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """``(value float32, type int32, size int32)`` of a ``Forest``, on the host."""
-    torch = _torch()
-    values = forest.batch_node_value.detach().to("cpu", torch.float32).numpy()
-    types = forest.batch_node_type.detach().to("cpu", torch.int16).numpy().astype(np.int32)
-    sizes = forest.batch_subtree_size.detach().to("cpu", torch.int16).numpy().astype(np.int32)
-    return (
-        np.ascontiguousarray(values),
-        np.ascontiguousarray(types),
-        np.ascontiguousarray(sizes),
-    )
-
-
-def _per_tree_forward(forest, x):
-    """The plain-torch per-tree walk: one ``Tree.forward`` per tree, stacked.
-
-    ``forest[i]`` is a ``Tree`` whose own evaluation is the engine's population-of-
-    one path -- the honest "evaluate each tree with torch" route, one cluster of
-    ops per node per tree.
-    """
-    rows = int(x.shape[0])
-    values = [forest[index].forward(x).reshape(rows) for index in range(forest.pop_size)]
-    return _torch().stack(values, dim=0)
 
 
 # --------------------------------------------------------------------------- #
@@ -667,9 +378,10 @@ def _lane_gp_fused(population: _Population, *, kind: str, warmup: int, reps: int
 def _lane_torch_batched(population: _Population, *, warmup: int, reps: int):
     """The plain-torch whole-population pass (the batched baseline)."""
     torch = _torch()
-    forest = population.forest(torch)
     x, _labels = population.torch_dataset(torch)
-    evaluator = _WholePopulationEvaluator(torch, forest)
+    evaluator = torch_baseline.TorchBatchedEvaluator(
+        torch, population.legacy, population.input_len
+    )
     cold, _ = _median(lambda: evaluator.batch_forward(x), 1, 0, _sync)
     timing, predictions = _median(lambda: evaluator.batch_forward(x), reps, warmup, _sync)
     values = {"batch_forward": predictions.detach().to("cpu", torch.float32).numpy()
@@ -685,6 +397,7 @@ def _lane_torch_batched(population: _Population, *, warmup: int, reps: int):
             "facts": {
                 "kind": "value",
                 "route": "plain torch, one vectorized pass, no evoxc",
+                "population": "built from the legacy triple (no torch-stack container)",
                 "setup": "the per-position plan is built in the constructor (never timed)",
             },
         },
@@ -693,14 +406,16 @@ def _lane_torch_batched(population: _Population, *, warmup: int, reps: int):
 
 
 def _lane_torch_per_tree(population: _Population, *, warmup: int, reps: int):
-    """The plain-torch per-tree walk (one ``Tree.forward`` per tree, stacked)."""
+    """The plain-torch per-tree walk (one recursive evaluation per tree, stacked)."""
     torch = _torch()
-    forest = population.forest(torch)
     x, _labels = population.torch_dataset(torch)
-    cold, _ = _median(lambda: _per_tree_forward(forest, x), 1, 0, _sync)
-    timing, predictions = _median(
-        lambda: _per_tree_forward(forest, x), reps, warmup, _sync
-    )
+    legacy, width = population.legacy, population.input_len
+
+    def forward():
+        return torch_baseline.per_tree_forward(torch, legacy, x, input_len=width)
+
+    cold, _ = _median(forward, 1, 0, _sync)
+    timing, predictions = _median(forward, reps, warmup, _sync)
     values = {"forward": predictions.detach().to("cpu", torch.float32).numpy()}
     return (
         {
@@ -708,73 +423,9 @@ def _lane_torch_per_tree(population: _Population, *, warmup: int, reps: int):
             "surfaces": {"forward": _surface_record(_surfaces("torch-per-tree")[0], cold, timing)},
             "facts": {
                 "kind": "value",
-                "route": "plain torch, python loop over trees, Tree.forward each",
+                "route": "plain torch, python loop over trees, one recursive walk each",
+                "population": "built from the legacy triple (no torch-stack container)",
                 "scope": SIDE_MAX_POP["torch-per-tree"],
-            },
-        },
-        values,
-    )
-
-
-def _lane_forest(population: _Population, *, lane: str, warmup: int, reps: int):
-    """The torch stack's own ``Forest`` under the shipped default or forced fused route.
-
-    ``EVOGP_EVAL_MODE`` is set (or dropped) BEFORE the torch stack is imported:
-    ``dense_engine.resolve_route`` memoizes its decision, so flipping the variable
-    later has no effect and the ``forest-fused`` control therefore runs in its own
-    child process.
-    """
-    from . import fused_eval  # noqa: PLC0415 - local: the triton cache directory
-
-    eval_mode = "fused" if lane == "forest-fused" else "auto"
-    if eval_mode == "auto":
-        os.environ.pop("EVOGP_EVAL_MODE", None)
-    else:
-        os.environ["EVOGP_EVAL_MODE"] = eval_mode
-    if eval_mode != "auto":
-        fused_eval.ensure_triton_cache_dir()
-
-    torch = _torch()
-    forest = population.forest(torch)
-    x, labels = population.torch_dataset(torch)
-    route = importlib.import_module("evogp.tree.dense_engine").resolve_route(
-        forest.pop_size
-    )
-    specs = {spec["surface"]: spec for spec in _surfaces(lane)}
-    values: Dict[str, np.ndarray] = {}
-    surfaces: Dict[str, Dict[str, Any]] = {}
-
-    cold, _ = _median(lambda: forest.batch_forward(x), 1, 0, _sync)
-    timing, predictions = _median(lambda: forest.batch_forward(x), reps, warmup, _sync)
-    surfaces["batch_forward"] = _surface_record(specs["batch_forward"], cold, timing)
-    values["batch_forward"] = (
-        predictions.detach().to("cpu", torch.float32).numpy()
-        .reshape(population.pop, -1)
-    )
-
-    cold, _ = _median(lambda: forest.SR_fitness(x, labels), 1, 0, _sync)
-    timing, loss = _median(lambda: forest.SR_fitness(x, labels), reps, warmup, _sync)
-    surfaces["sr_fitness"] = _surface_record(specs["sr_fitness"], cold, timing)
-    # the RAW surface output: ``SR_fitness`` returns the POSITIVE loss, and the
-    # ``negate`` flag of the surface spec is what turns it into the fitness the
-    # pipeline consumes -- one place applies the sign, so the parity step and the
-    # record can never disagree about it
-    values["sr_fitness"] = np.array(
-        loss.detach().to("cpu", torch.float32).numpy(), dtype=np.float32, copy=True
-    ).reshape(population.pop)
-    return (
-        {
-            "lane": lane,
-            "surfaces": surfaces,
-            "facts": {
-                "eval_mode": eval_mode,
-                "route": route.engine,
-                "backend": route.backend,
-                "fallback_backend": route.fallback_backend,
-                "note": (
-                    "route is what dense_engine.resolve_route answered in this "
-                    "process; 'fused' means the shipped default served the call"
-                ),
             },
         },
         values,
@@ -806,19 +457,13 @@ def measure_pop(
     """Measure every requested lane at ONE population size, in this process.
 
     One :class:`_Population` feeds every lane, so all of them evaluate the same
-    trees.  ``forest-fused`` is the one lane that cannot share a process with
-    another (it forces ``EVOGP_EVAL_MODE=fused`` before the torch stack is
-    imported), so it is refused here when mixed and scheduled as its own child.
+    trees; no lane needs a process of its own any more (the torch-native lanes
+    that did were removed with their stack in 2.0.0a2).
     """
     lanes = list(lanes)
     unknown = [lane for lane in lanes if lane not in LANES]
     if unknown:
         raise ValueError(f"unknown lanes {unknown}; known: {', '.join(LANES)}")
-    if "forest-fused" in lanes and len(lanes) > 1:
-        raise ValueError(
-            "forest-fused forces EVOGP_EVAL_MODE=fused before evogp.tree is "
-            "imported, so it must be measured alone in its own process"
-        )
     kind = kind or _device_kind()
     population = _Population(int(pop), int(rows), int(seed))
     if any(lane in ("gp", "gp-fused") for lane in lanes):
@@ -845,16 +490,11 @@ def measure_pop(
                            "scoped_out": True, "reason": reason})
             continue
         print(f"# {lane} pop={population.pop} rows={population.rows}", flush=True)
-        if lane in ("forest-auto", "forest-fused"):
-            record, values = _lane_forest(
-                population, lane=lane, warmup=int(warmup), reps=int(reps)
-            )
-        else:
-            runner = _LANE_RUNNERS[lane]
-            kwargs: Dict[str, Any] = {"warmup": int(warmup), "reps": int(reps)}
-            if lane in ("gp", "gp-fused"):
-                kwargs["kind"] = kind
-            record, values = runner(population, **kwargs)
+        runner = _LANE_RUNNERS[lane]
+        kwargs: Dict[str, Any] = {"warmup": int(warmup), "reps": int(reps)}
+        if lane in ("gp", "gp-fused"):
+            kwargs["kind"] = kind
+        record, values = runner(population, **kwargs)
         records.append(record)
         for spec in _surfaces(lane):
             name = spec["surface"]
@@ -1029,10 +669,6 @@ def _child(args) -> int:
     ]
     if args.lane:
         lanes = [args.lane]
-    elif len(lanes) > 1 and "forest-fused" in lanes:
-        # the control is scheduled as its OWN child (it forces the route before
-        # the torch stack is imported), so it never shares this process
-        lanes = [lane for lane in lanes if lane != "forest-fused"]
     state = None if args.no_guard else guard(args.guard_wait)
     payload = measure_pop(
         int(args.pop), int(args.rows), lanes=lanes, warmup=int(args.warmup),
@@ -1068,7 +704,6 @@ def _parent(args) -> int:
     unknown = [lane for lane in lanes if lane not in LANES]
     if unknown:
         raise SystemExit(f"unknown --lanes entries {unknown}; known: {', '.join(LANES)}")
-    control_pop = int(args.fused_control_pop) if args.fused_control_pop else max(pops)
     fragment_dir = os.path.join(
         os.environ.get("TMPDIR", "/tmp"), f"evogp-measure-popscale-{os.getpid()}"
     )
@@ -1076,21 +711,7 @@ def _parent(args) -> int:
     payloads: List[Dict[str, Any]] = []
     guards: List[Dict[str, Any]] = []
     children: List[Dict[str, Any]] = []
-    schedule = [
-        (pop, [lane for lane in lanes if lane != "forest-fused"])
-        for pop in pops
-    ]
-    if "forest-fused" in lanes:
-        if args.skip_fused_control:
-            print("# fused control skipped (--skip-fused-control)", flush=True)
-        elif control_pop not in pops:
-            print(
-                f"# fused control not scheduled (--fused-control-pop {control_pop} "
-                f"is not in --pops)",
-                flush=True,
-            )
-        else:
-            schedule.append((control_pop, ["forest-fused"]))
+    schedule = [(pop, lanes) for pop in pops]
     for pop, lane_list in schedule:
         label = f"pop={pop} rows={args.rows} lanes={','.join(lane_list)}"
         if not lane_list:
@@ -1136,8 +757,10 @@ def _parent(args) -> int:
                     "pops": pops, "lanes": lanes, "rows": int(args.rows),
                     "warmup": int(args.warmup), "reps": int(args.reps),
                     "seed": int(args.seed),
-                    "fused_control_pop": control_pop,
-                    "skip_fused_control": bool(args.skip_fused_control),
+                    # fields the removed torch-stack control lane populated: kept
+                    # as null so the record's field set is unchanged
+                    "fused_control_pop": None,
+                    "skip_fused_control": None,
                     "side_max_pop": dict(SIDE_MAX_POP),
                     "lane_surfaces": {lane: list(LANE_SURFACES[lane]) for lane in LANES},
                     "protocol": (
@@ -1145,9 +768,7 @@ def _parent(args) -> int:
                         "feeds every lane; cold = the first call (1 sample), warm = "
                         "the median of --reps timed calls after --warmup discarded "
                         "ones, torch.cuda.synchronize() around every timed "
-                        "repetition; idle-device guard per child; forest-fused runs "
-                        "in its own child with EVOGP_EVAL_MODE=fused set before "
-                        "evogp.tree is imported"
+                        "repetition; idle-device guard per child"
                     ),
                 },
                 "versions": versions(),
@@ -1177,8 +798,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         prog="python -m evogp.gp.measure_popscale",
         description=(
             "Per-call evaluation of ONE shared gp population across the "
-            "population scale: the device-resident evogp.gp routes, the numpy "
-            "reference, the plain-torch baselines and the torch stack."
+            "population scale: the numpy reference, the device-resident evogp.gp "
+            "routes (in-graph iree and the Triton kernel) and the plain-torch "
+            "baselines."
         ),
     )
     for flag, options in (
@@ -1188,17 +810,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         ("--lanes", {"default": ",".join(LANES),
                      "help": f"comma list of lanes ({','.join(LANES)})"}),
         ("--lane", {"default": None,
-                    "help": "measure only this lane (child mode; used for the control)"}),
+                    "help": "measure only this lane (child mode)"}),
         ("--rows", {"type": int, "default": ROWS, "help": f"data rows ({ROWS})"}),
         ("--reps", {"type": int, "default": REPS, "help": "timed repetitions"}),
         ("--warmup", {"type": int, "default": WARMUP,
                       "help": "discarded calls before the timed block"}),
         ("--seed", {"type": int, "default": SEED, "help": "RNG seed"}),
-        ("--fused-control-pop", {"type": int, "default": None,
-                                 "help": "population of the forest-fused control "
-                                         "(default: the largest --pops entry)"}),
-        ("--skip-fused-control", {"action": "store_true",
-                                  "help": "do not schedule the forest-fused control"}),
         ("--no-guard", {"action": "store_true", "help": "skip the idle-device guard"}),
         ("--guard-wait", {"type": float, "default": 60.0,
                           "help": "seconds to wait for an idle card"}),

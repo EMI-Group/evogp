@@ -16,18 +16,20 @@ Two objects:
     (``roulette_funcs``), the depth -> leaf-probability schedule
     (``depth2leaf_probs``), the per-id arity (``func_arity``) and node type
     (``func_type``), the resolved constant samples and the padded-layout shape
-    (``max_arity``, ``levels``).  The rules are ``GenerateDescriptor``'s
-    (``../tree/descriptor.py``) -- same ids, same cdf construction, same
-    complete-tree feasibility check, same depth schedule -- but expressed
-    without torch and raising ``ValueError`` instead of an ``assert``.
+    (``max_arity``, ``levels``).  The rules are the deleted
+    ``GenerateDescriptor``'s (``descriptor.py``) -- same ids, same cdf
+    construction, same complete-tree feasibility check, same depth schedule --
+    but expressed without torch and raising ``ValueError`` instead of an
+    ``assert``.
 
 ``GPConfig``
     Population size and operator rates.  Deliberately minimal: only the fields
     the operator layer (``operators.py``, to come) will consume.
 
 The ids (``MAX_STACK``/``MAX_FULL_DEPTH``/``NType``/``Func``/``FUNCS_NAMES``)
-come from :mod:`evogp.gp._constants`, which reads them out of the tree layer's
-own source file -- this module never duplicates them and never imports torch.
+come from :mod:`evogp._tables`, the torch-free single source of truth, through
+their re-export in :mod:`evogp.gp._constants` -- this module never duplicates
+them and never imports torch.
 """
 
 from __future__ import annotations
@@ -63,10 +65,11 @@ MUTATION_KINDS = ("point", "subtree", "hoist")
 def _normalize_funcs(using_funcs) -> Tuple[Tuple[str, float], ...]:
     """``(name, weight)`` pairs, validated and order-preserving.
 
-    Accepts the two spellings ``GenerateDescriptor`` accepts: a sequence of
-    names (all weight 1.0) or a mapping / sequence of ``(name, weight)``
-    pairs.  Duplicates are rejected instead of silently merged, because the
-    weight of a duplicated name would otherwise depend on dict ordering.
+    Accepts the two spellings the deleted ``GenerateDescriptor`` accepted: a
+    sequence of names (all weight 1.0) or a mapping / sequence of
+    ``(name, weight)`` pairs.  Duplicates are rejected instead of silently
+    merged, because the weight of a duplicated name would otherwise depend on
+    dict ordering.
     """
     if isinstance(using_funcs, dict):
         pairs = list(using_funcs.items())
@@ -125,7 +128,8 @@ def _normalize_funcs(using_funcs) -> Tuple[Tuple[str, float], ...]:
 
 
 def _roulette(pairs: Tuple[Tuple[str, float], ...]) -> Tuple[float, ...]:
-    """The function cdf of ``GenerateDescriptor``: ``cumsum`` of the weights.
+    """The function cdf of the deleted ``GenerateDescriptor``: ``cumsum`` of
+    the weights.
 
     Identical construction (``dict2prob`` + ``torch.cumsum``): weights are
     normalized over the *whole* function set (a slot that is not used keeps
@@ -142,7 +146,8 @@ def _roulette(pairs: Tuple[Tuple[str, float], ...]) -> Tuple[float, ...]:
 
 
 def _depth_schedule(max_layer_cnt: int, layer_leaf_prob: float) -> Tuple[float, ...]:
-    """``GenerateDescriptor.check_tree_length``'s depth -> leaf-probability schedule."""
+    """The deleted ``GenerateDescriptor.check_tree_length``'s depth ->
+    leaf-probability schedule."""
     non_leaf_layer_cnt = max_layer_cnt - 1
     return tuple(
         [float(layer_leaf_prob)] * non_leaf_layer_cnt
@@ -158,9 +163,9 @@ def _max_arity(pairs: Tuple[Tuple[str, float], ...]) -> int:
 def _levels(depth2leaf_probs: Tuple[float, ...]) -> int:
     """Number of depth levels a generated tree can reach.
 
-    Mirrors ``../tree/generation.py::_descriptor_plan``: the first depth whose
-    leaf probability is ``1.0`` ends the schedule (every node there is a leaf),
-    so that depth is the last populated level.
+    Mirrors the deleted ``generation.py::_descriptor_plan``: the first depth
+    whose leaf probability is ``1.0`` ends the schedule (every node there is a
+    leaf), so that depth is the last populated level.
     """
     for depth, prob in enumerate(depth2leaf_probs):
         if prob >= 1.0:
@@ -278,9 +283,9 @@ class GPTreeConfig:
         max_arity = _max_arity(pairs)
         set_(self, "max_arity", max_arity)
 
-        # GenerateDescriptor.check_tree_length: a complete tree of the deepest
-        # level schedule must fit the row width, otherwise generation can
-        # legitimately overflow max_nodes.
+        # The deleted GenerateDescriptor.check_tree_length: a complete tree of
+        # the deepest level schedule must fit the row width, otherwise
+        # generation can legitimately overflow max_nodes.
         needed = _complete_tree_size(max_arity, self.max_layer_cnt)
         if self.max_nodes < needed:
             raise ValueError(

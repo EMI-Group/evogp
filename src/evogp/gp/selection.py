@@ -3,8 +3,8 @@
 Selection consumes a **fitness vector** -- an input tensor that comes straight
 from the host readback of an evaluation -- and returns the row indices of the
 selected individuals.  It needs no engine knowledge and no tree structure, which
-is what keeps it independent of evaluation: the tree layer's
-``../algorithm/selection/`` family (``TournamentSelection``, ``RankSelection``,
+is what keeps it independent of evaluation: the deleted torch stack's
+``selection/`` family (``TournamentSelection``, ``RankSelection``,
 ``RouletteSelection``) is mirrored here as three modes of one stateless graph.
 
 Three modes (``SELECTION_MODES``):

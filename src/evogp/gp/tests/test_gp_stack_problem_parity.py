@@ -1,8 +1,11 @@
 """Parity of ``evogp.gp.evaluator.predict`` against the plain-torch oracle.
 
-The oracle is ``evogp.tests.reference_eval`` -- the independent, slow,
-obviously-correct evaluator the torch stack's own equivalence suite uses
-(``src/evogp/tests/test_equivalence.py``).  Torch appears here ONLY as that
+The oracle is ``test/oracle/reference_eval.py`` -- the independent, slow,
+obviously-correct evaluator written against the semantics of record (the deleted
+CUDA kernels).  It used to be shipped as ``evogp.tests.reference_eval``; this
+release deletes the torch stack (and with it ``src/evogp/tests/``), so the oracle
+now lives in the repository's dev-only ``test/oracle/`` directory -- NOT on
+``PYTHONPATH``, never imported by ``src/evogp/``.  Torch appears here ONLY as that
 oracle: the subtree itself stays torch-free (``test_gp_stack_purity.py``).
 
 Each case draws a real population with ``init_population`` (so the encoding,
@@ -20,6 +23,9 @@ so the numbers can be reported without re-running the comparison by hand:
 ``pytest src/evogp/gp/tests/test_gp_stack_problem_parity.py -q -s`` prints it.
 """
 
+import pathlib
+import sys
+
 import numpy as np
 import pytest
 
@@ -27,9 +33,16 @@ from evogp.gp import GPTreeConfig, init_population, to_legacy_triple
 from evogp.gp.evaluator import predict
 from evogp.gp.problem import SymbolicRegression
 
-from evogp.tests import reference_eval
+pytest.importorskip("torch", reason="the reference evaluator is written in plain torch")
 
-pytest.importorskip("torch")
+#: ``<repo>/test/oracle``: dev-only tooling, absent from a plain checkout.
+ORACLE_DIR = pathlib.Path(__file__).resolve().parents[4] / "test" / "oracle"
+if ORACLE_DIR.is_dir() and str(ORACLE_DIR) not in sys.path:
+    sys.path.insert(0, str(ORACLE_DIR))
+reference_eval = pytest.importorskip(
+    "reference_eval",
+    reason=f"the dev-only oracle is not present at {ORACLE_DIR}",
+)
 
 
 #: ``name, funcs, max_layer_cnt, layer_leaf_prob, const_prob, input_len, pop,

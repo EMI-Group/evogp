@@ -596,7 +596,7 @@ def test_the_fitness_buffer_follows_the_population_size(tree_config, device, fus
 # --------------------------------------------------------------------------- #
 def _engine():
     """The sibling facade, resolved lazily (never imported at module scope)."""
-    return importlib.import_module("evogp.tree.fused_engine")
+    return importlib.import_module("evogp.fused.engine")
 
 
 def _torch_triple(torch_module, channels):

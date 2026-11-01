@@ -1,12 +1,13 @@
 """CPU smoke run of the evoxc GP stack: ``python -m evogp.gp.smoke``.
 
-A real, converging end-to-end run of the driver on a CPU-only box -- the
-counterpart of ``../../evogp/sr_test.py`` for the torch-free stack, and
-deliberately its opposite in one respect: this module does **nothing** at import
-time.  The reference workload is the same synthetic 2-input target
+A real, converging end-to-end run of the driver on a CPU-only box -- formerly
+the counterpart of the torch stack's ``evogp/sr_test.py`` (deleted with that
+stack in 2.0.0a2), and deliberately its opposite in one respect: this module
+does **nothing** at import time.  The reference workload is the same synthetic
+2-input target
 ``x0**4 / (x0**4 + 1) + x1**4 / (x1**4 + 1)`` on 1 000 points drawn uniformly
-from ``[-5, 5]`` (the target ``sr_test.py`` fits), so the two fitness numbers are
-comparable.
+from ``[-5, 5]`` (the target the deleted ``sr_test.py`` fitted), so the two
+fitness numbers are comparable.
 
 Everything is small on purpose: the numpy evoxc backend compiles in
 milliseconds and the numpy tree evaluator walks 200 trees over 1 000 rows per
@@ -14,7 +15,7 @@ generation, so the shipped defaults (200 trees, 100 generations, 64-slot trees)
 run in a few seconds and the fitness improves all the way through.  Use the
 flags (or :func:`run_smoke`) to scale it.
 
-Wiring, for the record -- the torch reference (``sr_test.py``) uses
+Wiring, for the record -- the deleted torch reference (``sr_test.py``) used
 ``DefaultCrossover`` + ``DefaultMutation(mutation_rate=0.2)`` +
 ``DefaultSelection(survival_rate=0.3, elite_rate=0.01)``.  This stack has no
 truncation selector, so the closest pressure analogue is a
@@ -61,7 +62,8 @@ DEFAULT_TOURNAMENT_SIZE = 4
 #: Per-individual crossover / mutation rates (the torch stack's defaults).
 DEFAULT_CROSSOVER_PROB = 0.9
 DEFAULT_MUTATION_PROB = 0.2
-#: Number of elites carried into every generation (1 % of 200, as in ``sr_test``).
+#: Number of elites carried into every generation (1 % of 200, as in the
+#: deleted ``sr_test``).
 DEFAULT_ELITE_COUNT = 2
 #: The function set and constant table of the reference descriptor.
 USING_FUNCS = ("+", "-", "*", "/")

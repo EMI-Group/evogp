@@ -1,5 +1,6 @@
 # Population scaling 64 → 8192: the evoxc-based functional stack against the torch stack
 
+> Measured on the pre-2.0.0a2 tree, where `evogp.tree` still existed: the torch comparison code (`Forest`-based lanes, `evogp.algorithm`/`evogp.problem`/`evogp.pipeline` sides) was removed in 2.0.0a2 — recover it at commit 6720723. The numbers below are unchanged and are not reproducible from this tree.
 Report of record for the POPULATION axis of `evogp.gp` — 128× the population at one fixed workload.
 Raw numbers: `evidence/popscale_eval.json` (per call, one shared population), `evidence/popscale_cold/*.json` (the same sweep, one lane per child, for the honest cold column) and `evidence/popscale.json` (the generation loop).
 
@@ -358,7 +359,7 @@ EVOXC_DISABLE_LOCATIONS=1 PYTHONPATH=src:/root/evoxc /tmp/rocvenv/bin/python \
   -m evogp.gp.measure_generation --side gp-fused --pop 256 --rows 1024 --warmup 5 --reps 15
 ```
 
-`--lanes` also accepts `torch-batched`, `torch-per-tree` and `forest-fused` (the last one must be scheduled alone, because the evaluation route is memoized on first use and `EVOGP_EVAL_MODE=fused` has to be set before `evogp.tree` is imported — which is exactly what `--lane forest-fused` does); `--fused-control-pop` moves the control's population and `--skip-fused-control` drops it.
+`--lanes` also accepts `torch-batched`, `torch-per-tree` and `forest-fused` (the last one must be scheduled alone, because the evaluation route is memoized on first use and `EVOGP_EVAL_MODE=fused` has to be set before `evogp.tree` is imported — which is exactly what `--lane forest-fused` does); `--fused-control-pop` moves the control's population and `--skip-fused-control` drops it (the `forest-fused` lane and both flags were removed in 2.0.0a2 with the torch stack; recover them at commit 6720723).
 Nothing is written unless `--json` is passed, and every harness is `main()`-guarded.
 
 The suite gate of this round (`src/evogp/gp/tests`, the whole subtree):
