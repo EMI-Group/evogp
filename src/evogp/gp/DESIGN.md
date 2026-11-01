@@ -15,7 +15,7 @@ Four parallel `[pop_size, max_nodes]` evoxc tensors, replacing `../tree/`'s `(va
 - Live mask is **derived, never stored**: `arange(max_nodes)[None, :] < size[:, 0:1]` (one comparison, no channel, no host sync).
 
 Child addressing stays the repo-wide invariant: `c1 = i + 1`, `c2 = c1 + size[c1]`, `c3 = c2 + size[c2]`.
-`MAX_STACK` / `MAX_FULL_DEPTH` / `NType` / `Func` are imported from `../tree/utils.py` (single source; that module is torch-free).
+`MAX_STACK` / `MAX_FULL_DEPTH` / `NType` / `Func` are imported from `../_tables.py` (single source; that module is torch-free).
 
 ## Generation (`init_population`) — level-wise sampling, then one argsort to pre-order
 The decision structure of `../tree/generation.py` is reproduced exactly, because it is what defines the distribution:
@@ -69,7 +69,7 @@ Device path: `step` reads nothing back — the fitness tensor goes straight into
 
 ## Torch bridge placement
 No module of this subtree contains a literal `import torch` / `from torch` / `import evox` statement — that is a pinned invariant, and it holds for the two places that need torch at all:
-- the fused backend `fused_eval.py`, which resolves torch, triton and `evogp.tree.fused_engine` through `importlib.import_module` INSIDE its functions and returns numpy, so it is an opt-in `evaluate=` callable and never a driver path;
+- the fused backend `fused_eval.py`, which resolves torch, triton and `evogp.fused.engine` through `importlib.import_module` INSIDE its functions and returns numpy, so it is an opt-in `evaluate=` callable and never a driver path;
 - the measurement harness `measure_generation.py`, which does the same to build the torch-stack sides it compares against.
 The adapter that turns channels into a `../tree/Forest` for any other purpose stays on the caller side, outside this subtree; the tests own that glue.
 The subtree itself ships the numpy evaluator (the CPU-box path and the parity oracle), the device-resident in-graph evaluator, and the duck-typed callable protocol.

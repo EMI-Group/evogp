@@ -1,5 +1,6 @@
 # Population scaling 64 → 8192: the evoxc-based functional stack against the torch stack
 
+> Measured on the pre-2.0.0a2 tree, where `evogp.tree` still existed: the torch comparison code (`Forest`-based lanes, `evogp.algorithm`/`evogp.problem`/`evogp.pipeline` sides) was removed in 2.0.0a2 — recover it at commit 6720723. The numbers below are unchanged and are not reproducible from this tree.
 Report of record for the POPULATION axis of `evogp.gp` — 128× the population at one fixed workload.
 Raw numbers: `evidence/popscale_eval.json` (per call, one shared population), `evidence/popscale_cold/*.json` (the same sweep, one lane per child, for the honest cold column) and `evidence/popscale.json` (the generation loop).
 

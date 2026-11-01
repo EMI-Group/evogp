@@ -1,4 +1,5 @@
 # The device-resident `evogp.gp` generation loop — measurement report
+> Measured on the pre-2.0.0a2 tree, where `evogp.tree` still existed: the torch comparison code (`Forest`-based lanes, `evogp.algorithm`/`evogp.problem`/`evogp.pipeline` sides) was removed in 2.0.0a2 — recover it at commit 6720723. The numbers below are unchanged and are not reproducible from this tree.
 
 Report of record for `python -m evogp.gp.measure_generation` (harness `measure_generation.py`, raw numbers in `evidence/device_loop.json`).
 See also `POPSCALE.md` — the population-scaling report of record for the SAME driver: eight populations 64 → 8 192 at one fixed shape, the shared-population per-call column (`measure_popscale.py`) and the generation column (`measure_generation.py --cells popscale`).
