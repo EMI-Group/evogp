@@ -26,8 +26,9 @@ Two objects:
     the operator layer (``operators.py``, to come) will consume.
 
 The ids (``MAX_STACK``/``MAX_FULL_DEPTH``/``NType``/``Func``/``FUNCS_NAMES``)
-come from :mod:`evogp.gp._constants`, which reads them out of the tree layer's
-own source file -- this module never duplicates them and never imports torch.
+come from :mod:`evogp._tables`, the torch-free single source of truth, through
+their re-export in :mod:`evogp.gp._constants` -- this module never duplicates
+them and never imports torch.
 """
 
 from __future__ import annotations
