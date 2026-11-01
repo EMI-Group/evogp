@@ -31,7 +31,7 @@ EvoGP is a **tree-based genetic programming** (TGP) framework for symbolic regre
 [EvoX](https://github.com/EMI-Group/evox) family and the subject of the paper at
 <https://arxiv.org/abs/2501.17168>; EvoX 2.0 ships no tree / GP / symbolic-regression component of its own.
 
-`2.0.0a2` is a **single-stack release**: everything the package ships is `evogp.gp`, a torch-free functional GP
+`2.0.0a2` is a **single-stack release**: the engine the package ships is `evogp.gp`, a torch-free functional GP
 engine built on **EvoX Compiler** ([`evoxc`](https://pypi.org/project/evoxc/)) graphs plus numpy host glue, written
 in the EvoX 2.0 idiom — frozen config dataclasses holding static leaves only, state as constant-shape tensors
 (`GPState(opcode, payload, size, fitness, key)`), plain module-level functions (`init_gp`, `step`, `run`) and
@@ -41,7 +41,9 @@ reproduces a run from one integer — no global seed, no `torch.manual_seed`, no
 Generation, the operator layer (selection, crossover, mutation and the elite splice in ONE traced graph per
 generation) and evaluation are JIT-compiled through `evoxc`, and the **objective is the only plug-in point**: any
 callable `channels -> (pop_size,) float32` that is MAXIMIZED, with every non-finite entry mapped to `-inf`. Two
-optional satellites sit beside the engine — `evogp.fused`, the device-native **Triton** evaluator, and
+optional satellites sit beside the engine, and neither is imported by `evogp.gp` — `evogp.fused`, the device-native
+**Triton** evaluator (the `fused` extra; it is the one subtree of the package that imports `torch` at module scope,
+so `import evogp.fused` needs that extra, while `triton` stays lazy inside `fused/kernels.py`), and
 `evogp.evox_ext`, which presents the stack as an `evox.core.StdWorkflow` algorithm + problem pair. The only JIT
 outside `evoxc` is Triton's, paid once at the fused route's first call; there is no build step.
 
@@ -53,7 +55,7 @@ pip install --pre "evogp==2.0.0a2"
 
 The `--pre` flag matters: the whole 2.0 line is a pre-release, and a plain `pip install evogp` still resolves the
 1.x series. `evoxc` (EvoX Compiler) is the one hard runtime dependency, with numpy for the host glue — nothing else
-is imported by the shipped library, and a checkout needs no build step (`PYTHONPATH=src` is enough, with `evoxc`
+is imported by `evogp.gp`, and a checkout needs no build step (`PYTHONPATH=src` is enough, with `evoxc`
 importable at call time).
 
 | extra | installs | needed for |

@@ -1,2 +1,27 @@
+# The sdist is the source tarball: the packaging metadata, the in-package
+# Markdown the module docstrings and the reports point at by path, and the
+# functional stack's raw measurement evidence.  The WHEEL's copy of the
+# Markdown is declared in `setup.py` (`package_data`), not here.
 include README.md
 include CHANGELOG.md
+include LICENSE
+include requirements.txt
+include pyproject.toml
+include setup.py
+include MANIFEST.in
+
+# The in-package docs: the top package's root plus the three nested packages
+# (one flat `include` per level, so `*/tests/CONTEXT.md` is never matched).
+include src/evogp/CONTEXT.md
+include src/evogp/gp/*.md
+include src/evogp/fused/*.md
+include src/evogp/evox_ext/CONTEXT.md
+
+# The measurement evidence `evogp/gp/POPSCALE.md` and `DEVICE_LOOP.md` cite.
+# sdist only: `setup.py`'s `exclude_package_data` keeps it out of the wheel.
+recursive-include src/evogp/gp/evidence *.json
+
+# The pytest suites stay in the repository, not in the sdist: they need the
+# dev-only `test/oracle/` tooling that lives outside the tarball, so a
+# half-working test tarball would be worse than none.  The flat `include` rules
+# above never match a `tests/` directory (a `*` does not cross a `/`).

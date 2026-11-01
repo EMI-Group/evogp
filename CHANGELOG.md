@@ -5,7 +5,7 @@ The `2.0` line is a pre-release series aligned with `evox` 2.0.0a1; entries here
 
 ## 2.0.0a2 — pre-release: the single-stack release
 
-`evogp.gp` is now the whole library.
+`evogp.gp` is now the whole engine.
 The torch-native stack is deleted, the GP engine is torch-free (`evoxc` graphs + numpy host glue), and it is
 presented as `evogp.gp` (the engine), `evogp.fused` (the optional device-native Triton evaluator) and
 `evogp.evox_ext` (the EvoX 2.0 `StdWorkflow` adapter).
@@ -32,7 +32,9 @@ presented as `evogp.gp` (the engine), `evogp.fused` (the optional device-native 
   (tree, row block), batch/multi-output value paths and both SR loss paths, a memory envelope, a prepared-call memo,
   the geometry knobs (`EVOGP_FUSED_BLOCK_ROWS`, `EVOGP_FUSED_NUM_WARPS`, `EVOGP_FUSED_MAX_SCRATCH_MB`,
   `EVOGP_FUSED_DISPATCH`, `EVOGP_FUSED_HOST_MEMO`), a 45-case pytest net and the `python -m evogp.fused.check`
-  battery (`parity` / `multi` / `goldens` / `declines` / `timing` / `tuning`).
+  battery (`parity` / `multi` / `goldens` / `declines` / `timing` / `tuning`). It is the one subtree of the package
+  that imports `torch` at module scope, so `import evogp.fused` needs the `fused` extra (`torch` + `triton`);
+  `triton` itself stays lazy, inside `fused/kernels.py`, and `evogp.gp` stays torch-free.
 - `evogp.gp.fused_eval.FusedDeviceEvaluator`: the fused kernel as an `evaluate=` plug-in — the population's device
   channels cross to torch as zero-copy DLPack views, the kernel writes the `(pop_size,)` fitness buffer through
   `out=`, and one fence orders it, so a generation is one variation-graph run with no readback. Declines cleanly
@@ -56,7 +58,9 @@ presented as `evogp.gp` (the engine), `evogp.fused` (the optional device-native 
   `example/evox_workflow.py`; `tutorial/gp_intro.ipynb`; the dev-only numeric oracle at `test/oracle/`.
 - Extras `fused` (torch + triton), `iree` (iree-base-compiler / iree-base-runtime), `evox` (`evox>=2.0.0a1`),
   `dev` (pytest) and `examples` (scikit-learn, for `example/gp_uci_sr.py` only); `MANIFEST.in` now ships
-  `CHANGELOG.md` as well as `README.md`.
+  `CHANGELOG.md` as well as `README.md`, plus `LICENSE`, `requirements.txt`, the in-package Markdown and
+  `src/evogp/gp/evidence/*.json` in the sdist — while the wheel carries the in-package Markdown through
+  `setup.py`'s `package_data` and ships neither `tests/` nor `evidence/`.
 
 ### Changed
 
