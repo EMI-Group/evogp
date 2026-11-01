@@ -14,16 +14,16 @@ Why a boundary at all
 numpy + ``evoxc`` and ``tests/test_gp_stack_purity.py`` plus a clean-subprocess
 test pin that (no torch / evox / evoxc at module import, host glue is numpy).
 The fused route, however, IS a torch artefact -- the sibling
-:mod:`evogp.tree.fused_engine` launches Triton kernels on torch device tensors,
-so the compiled library it wraps can only be driven by torch tensors.  This
-module is therefore the single place where the stack is allowed to touch torch,
-and it confines that contact to *call* time:
+:mod:`evogp.fused.engine` launches Triton kernels on torch device tensors, so
+the compiled library it wraps can only be driven by torch tensors.  This module
+is therefore the single place where the stack is allowed to touch torch, and it
+confines that contact to *call* time:
 
 * nothing is imported at module import time -- torch, triton and the sibling
-  engine are resolved through :func:`importlib.import_module` *inside* the
-  functions, so ``import evogp.gp.fused_eval`` succeeds on a box with neither
-  torch, triton, evoxc nor a GPU, and never pulls any of them into
-  ``sys.modules``;
+  ``evogp.fused`` engine are resolved through :func:`importlib.import_module`
+  *inside* the functions, so ``import evogp.gp.fused_eval`` succeeds on a box
+  with neither torch, triton, ``evogp.fused`` nor a GPU, and never pulls any of
+  them into ``sys.modules``;
 * the literal import statements the purity grep looks for are deliberately
   absent, which is exactly why the lazy loader exists (do not "tidy" it back
   into an import statement -- the grep and the subprocess test would fail);
@@ -44,8 +44,8 @@ host decode   ``encoding.to_legacy_triple`` -> ``(batch_node_value float32,
               ``Forest`` layout the engine expects (function nodes carry the
               ``FUNC_TYPE`` marker, leaves their ``opcode``, padding 0)
 upload        the three tables + ``x``/``y`` to a torch CUDA/HIP device
-kernel        ``fused_engine.sr_fitness_fused`` -- the SR loss is reduced
-              in-kernel, so the only device output is ``(pop_size,)``
+kernel        ``evogp.fused.engine.sr_fitness_fused`` -- the SR loss is
+              reduced in-kernel, so the only device output is ``(pop_size,)``
 readback      ``(pop_size,)`` positive loss -> negate -> non-finite -> ``-inf``
 ============= ===========================================================
 
@@ -170,8 +170,8 @@ def _module(name: str) -> Any:
 
 
 def _fused_engine() -> Any:
-    """The sibling Triton facade (:mod:`evogp.tree.fused_engine`)."""
-    return _module("evogp.tree.fused_engine")
+    """The sibling Triton facade (:mod:`evogp.fused.engine`)."""
+    return _module("evogp.fused.engine")
 
 
 def _torch() -> Any:
@@ -208,7 +208,7 @@ def fused_available() -> bool:
     """Whether this box can run the fused route; never raises.
 
     True only when all three hold: the sibling engine imports (which drags torch
-    and the tree layer), the engine's own probe passes (``triton`` importable and
+    and triton in), the engine's own probe passes (``triton`` importable and
     a torch CUDA/HIP device visible -- it answers from
     ``importlib.util.find_spec`` and does not compile anything), and a writable
     Triton cache directory can be established.  A per-call refusal (a population
@@ -228,11 +228,11 @@ def _require_engine() -> Any:
     """The sibling engine, or :class:`FusedUnavailable` naming the missing half."""
     try:
         engine = _fused_engine()
-    except ImportError as exc:  # torch / the tree layer missing
+    except ImportError as exc:  # the optional ``fused`` extra (torch + triton) missing
         raise FusedUnavailable(
-            "the fused route needs evogp.tree.fused_engine, which could not be "
-            f"imported ({exc}); the evogp.tree package needs torch, triton and "
-            "evoxc on this interpreter"
+            "the fused route needs evogp.fused.engine, which could not be "
+            f"imported ({exc}); the optional evogp.fused package (the `fused` "
+            "extra) needs torch and triton on this interpreter"
         ) from exc
     if not engine.fused_available():
         torch = _torch()
@@ -1002,10 +1002,10 @@ class FusedDeviceEvaluator:
                  (:func:`export_to_torch`, i.e. ``torch.from_dlpack``)
     conversion   the ``Forest`` legacy triple, computed in torch on the device
                  (``_legacy_triple_device``)
-    kernel       ``fused_engine.sr_fitness_fused`` -- the loss is reduced
-                 in-kernel and written into this evaluator's ``evoxc`` device
-                 fitness buffer through its ``out=`` parameter (the buffer is
-                 exported to torch ONCE, so the kernel's destination IS the
+    kernel       ``evogp.fused.engine.sr_fitness_fused`` -- the loss is
+                 reduced in-kernel and written into this evaluator's ``evoxc``
+                 device fitness buffer through its ``out=`` parameter (the buffer
+                 is exported to torch ONCE, so the kernel's destination IS the
                  buffer the variation graph reads)
     fitness      ``-loss`` and non-finite -> ``-inf``, applied IN PLACE on that
                  same ``(pop_size,)`` buffer -- no allocation, no copy, no
