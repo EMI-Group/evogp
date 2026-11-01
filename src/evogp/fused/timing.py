@@ -21,12 +21,12 @@ WHAT IT MEASURES
 
 ABSOLUTE MILLISECONDS ONLY
 --------------------------
-The ``torch-batched`` reference arm lived in the benchmark harness
-(``test/benchmark/evoxc``), which this package deliberately does not import, so
-neither stage prints a speedup column: compare against a number you measured
-yourself, on the same box, in the same session.  The tuning ranking normalises each
-cell by the shipped default from the SAME sweep, which is an in-process comparison
-and stays valid.
+The ``torch-batched`` reference arm lives in the ARCHIVED benchmark harness
+(``test/archive/benchmark/evoxc``), which this package deliberately does not import
+and which is not runnable from here, so neither stage prints a speedup column:
+compare against a number you measured yourself, on the same box, in the same
+session.  The tuning ranking normalises each cell by the shipped default from the
+SAME sweep, which is an in-process comparison and stays valid.
 
 The child legs print one ``RESULT {...json...}`` line each; that is the whole
 driver/child protocol.
@@ -270,9 +270,9 @@ def stage_timing(args: argparse.Namespace) -> int:
     print("=" * 100)
     print("TIMING: the fused route in ABSOLUTE milliseconds (warm medians, 2 warmup +")
     print("        10 sync-bracketed reps; one process per cell)")
-    print("  NO RATIO COLUMN: the torch-batched reference arm lived in the benchmark")
-    print("  harness (test/benchmark/evoxc), which this package does not import.  Compare")
-    print("  against a number you measured yourself on this box, in this session.")
+    print("  NO RATIO COLUMN: the torch-batched reference arm lives in the archived")
+    print("  harness (test/archive/benchmark/evoxc), which this package does not import.")
+    print("  Compare against a number you measured yourself on this box, this session.")
     print("=" * 100)
     records = []
     for cell in _cells():
