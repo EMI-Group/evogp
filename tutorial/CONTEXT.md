@@ -4,7 +4,7 @@
 One hands-on Jupyter notebook that teaches the shipped `evogp.gp` stack: the torch-free functional genetic-programming layer built on `evoxc` graphs plus numpy host data.
 `gp_intro.ipynb` walks the public API end to end on a synthetic symbolic-regression task -- configs, the driver, the one-line fitness contract, key-based determinism, the winning tree as infix, and the optional device path.
 It teaches the current release only; the torch stack (`evogp.tree` / `algorithm` / `problem` / `pipeline`) is gone, so nothing here imports it.
-This is a leaf directory: one notebook, no subdirectories, no build step, no `__init__.py`.
+This is a leaf directory: one notebook plus the one re-executor script `run_notebook.py`, no subdirectories, no build step, no `__init__.py`.
 The notebook ships its real stored outputs (produced on the reference box, see Execution below), so a reader without a device or without a warm cache can still follow every result.
 
 ## `gp_intro.ipynb`
@@ -36,14 +36,18 @@ The notebook ships its real stored outputs (produced on the reference box, see E
 14. markdown -- where to go next: `example/gp_sr.py`, `python -m evogp.gp.smoke`, `example/gp_custom_loss.py`, `example/gp_device.py`, `example/evox_workflow.py`, plus the two gaps (no exporter, single-output only).
 
 ## Execution
-The notebook is executed with the stdlib-json runner recipe -- the project venv has no jupyter/nbconvert and no pip, so `nbconvert --execute` is not available.
-The recipe: load the notebook JSON with `json`, `exec` its code cells in order in one shared `__name__ == "__main__"` namespace, capture stdout/stderr into `stream` outputs (merging adjacent same-name streams, as IPython does), emit every top-level expression whose value is not `None` as an `execute_result`, stop at the first exception recording an `error` output, and dump the JSON back with `indent=1, ensure_ascii=False` and a trailing newline (`nbformat` 4.2).
+`run_notebook.py` is the committed notebook re-executor and the whole toolchain: standard library only, so it needs no jupyter, nbconvert or nbformat (the reference venv has none of them).
 Run it from the repository root, so the notebook's relative assumptions and the `src/` layout both hold:
 ```
 PYTHONPATH=src:/root/evoxc:/root/evox/src EVOXC_DISABLE_LOCATIONS=1 \
-  TRITON_CACHE_DIR=/tmp/triton_cache_tutorial \
-  /tmp/rocvenv/bin/python <runner>.py tutorial/gp_intro.ipynb --write
+  TRITON_CACHE_DIR=/tmp/triton_cache_nb \
+  /tmp/rocvenv/bin/python tutorial/run_notebook.py
 ```
+It loads the notebook JSON with `json`, execs the `code` cells in order in one shared `__main__` namespace, captures stdout per cell, and checks the result against the notebook's STORED outputs (`stream` text plus the `text/plain` of `execute_result`/`display_data`), printing one `MATCH`/`DIFF` line per code cell (with the differing lines) and then the summary line.
+Measured on the reference ROCm box with a warm Triton cache: `7/7 code cells MATCH, 0 lines differing` in ~15 s, exit code 0; any diff or any exception in a cell exits non-zero.
+A trailing expression is evaluated and displayed the way Jupyter does (`execute_result` of its `repr`), though `gp_intro.ipynb` prints explicitly and relies on none.
+Wall-clock fragments are normalized before the diff (`--ignore-regex`, default `\bin [0-9.]+ ?s\b|[0-9.]+ ?ms/generation` -> `<time>`), so a run's timing jitter is not a diff; `--ignore-regex ''` compares verbatim and `--notebook PATH` retargets the check.
+`--write` re-stores the fresh outputs instead (same JSON: `nbformat`/`nbformat_minor` and every markdown cell untouched, `execution_count` set, byte-stable when re-serialized) -- use it after a library change, never to paper over a real difference.
 `/tmp/rocvenv/bin/python` is the reference venv (`python`/`python3` on `PATH` have neither torch nor iree); `/root/evox/src` is not needed by this notebook but matches the repo-wide command; `EVOXC_DISABLE_LOCATIONS=1` is evoxc's tracing-speed knob (~4x faster traces, not part of any cache key) and `TRITON_CACHE_DIR` only matters for the device cell's fused route.
 Harmless noise: iree's `nanobind: leaked ...` block on stderr at interpreter shutdown, and evoxc's `RuntimeWarning: divide by zero` / `invalid value` from the numpy divide kernel on a population that contains `/0` trees.
 A CPU-only box needs no Triton compilation: the device cell prints `no device (needs the iree packages and a rocm/cuda device)`, falls back to the numpy host loop and the notebook still ends green in ~4 s.
@@ -54,7 +58,7 @@ A CPU-only box needs no Triton compilation: the device cell prints `no device (n
 - The device cell must stay a probe with a graceful fallback: a box without `iree` or without a rocm/cuda device must not crash the notebook, and a declined device route must print its reason.
 - No new dependency: numpy and the already-declared `evogp`/`evoxc` are the whole list.
 - Keep the training settings small (pop 256 x 30 generations, device pop 128 x 5) so the full notebook stays in the tens of seconds; paper-scale runs live in `../example/`.
-- Stored outputs are part of the deliverable: re-execute after editing a cell instead of hand-editing outputs (the runner above writes them).
+- Stored outputs are part of the deliverable: re-execute after editing a cell instead of hand-editing outputs (`tutorial/run_notebook.py --write`).
 - Notebook JSON stays `nbformat` 4.2 with `indent=1`, `ensure_ascii=False` and a trailing newline.
 - No seeds global to the process: the run's reproducibility is the driver's `key`, and the data draw uses its own `np.random.default_rng(seed)`.
 - `max_nodes=32` in the device cell is deliberate: `max_nodes=64` is still declined by the iree lowering of the 64-wide channel graph (`iree-compile` fails on its `stablehlo.reduce`) while 32 compiles; do not "fix" that by raising it.
@@ -64,9 +68,10 @@ A CPU-only box needs no Triton compilation: the device cell prints `no device (n
 2. The stack is single-output only: `output_len > 1` raises until `MIGRATION.md` step 8 lands, so the tutorial teaches the SR surface and points at `CustomLoss` for everything else.
 3. The in-graph iree evaluator declines `max_nodes=64` (channel-graph lowering), so the device section runs a separate `max_nodes=32` population rather than reusing the tutorial's own config -- the fused route does not have that limit.
 4. The device and host paths agree on the winning tree only to float32 rounding (stored run: `7.63e-06` absolute on a fitness of `-78.7`, ~1e-7 relative); the notebook prints the difference instead of claiming bitwise parity.
-5. Nothing asserts the stored outputs; correctness is the manual re-execution above plus the library's own gates.
+5. Stored outputs are checked but not benchmarked: `run_notebook.py` pins their content (7/7 cells, timing lines normalized), yet nothing asserts how long the notebook takes, so the ~15 s figure is a measured record rather than a guard.
 
 ## See Also
+- `run_notebook.py` -- the re-executor that checks the stored outputs (or refreshes them with `--write`); standard library only, command in Execution above.
 - `../example/gp_sr.py` -- the same walkthrough as a script (module constants, `main()`, report callback, the same renderer); the notebook's cells 0-11 mirror it.
 - `../src/evogp/gp/smoke.py` -- the library's own converging CPU smoke (`python -m evogp.gp.smoke`, 200 trees x 100 generations on the harder `x0**4/(x0**4+1) + x1**4/(x1**4+1)` target).
 - `../example/gp_device.py` -- the device cell as a script, with the timing block the notebook leaves out; `../example/gp_custom_loss.py` for `CustomLoss`; `../example/evox_workflow.py` for the `evox` 2.0 `StdWorkflow` adapter.
