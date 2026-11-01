@@ -1,4 +1,4 @@
-"""The ONE multi-output / ``OUT_NODE`` contract rule shared by the engines.
+"""The ONE multi-output / ``OUT_NODE`` contract rule shared by the GP stacks.
 
 A node type carries the tag ``NType.OUT_NODE`` (bit 7) when the node writes its
 own value into an output slot of a MULTI-OUTPUT tree, and the packed node value
@@ -6,37 +6,30 @@ then holds ``(out_index << 16) | function_id`` instead of a plain function id.
 The protocol is only defined for ``output_len >= 2``: under ``output_len == 1``
 the same bit is not a tag at all, and the legacy kernels did not mask it -- a
 tagged type fell through their ``else`` branch and was evaluated as a TERNARY
-``if`` node with its value reinterpreted as a variable index (see
-``tests/reference_eval.py`` and ``ENGINE_SPEC.md`` §2.2/§4.4).  A population
+``if`` node with its value reinterpreted as a variable index (see the
+``ENGINE_SPEC`` appendices and the oracle under ``test/oracle/``).  A population
 built for ``output_len = 2`` and evaluated with ``output_len = 1`` therefore
 produced a *plausible wrong number* rather than an error, which is the one
 failure mode no caller can debug.
 
-So every engine refuses it, on the host, BEFORE any decode/compile/launch, and
-refuses it through this module -- one rule, one message, no per-engine copy:
+So every evaluator refuses it, on the host, BEFORE any launch or graph build,
+and refuses it through this module -- one rule, one message, no per-engine copy.
+The two sites are :func:`evogp.fused.engine._refuse_out_node` (the device
+population's two type tables, memoized on their identity) and
+:func:`evogp.gp.graph_eval`'s mirror of this rule (:mod:`evogp.gp` stays
+torch-free, and this module is numpy-only, so it may import it).
 
-=========================== ================================================== =========================
-site                        granularity                                        error
-=========================== ================================================== =========================
-``evoxc_engine._decode_row`` one row (``types[:size_subtree[0]]``)             :class:`MultiOutputError`
-``dense_engine.prepare_dense`` the population table + ``subtree_size[:, 0]``    ``DenseUnsupported``
-``fused_engine._prepare``   the population tensors (device, memoized)          :class:`MultiOutputError`
-=========================== ================================================== =========================
-
-:class:`MultiOutputError` derives from BOTH ``ValueError`` (the tree engines'
+:class:`MultiOutputError` derives from BOTH ``ValueError`` (the engines'
 contract: an undecodable population is a ``ValueError`` naming the row and the
 node, like every other malformed-tree error) and ``NotImplementedError`` (the
 functional stack ``evogp.gp`` does not implement the multi-output protocol at
 all, and its sibling guards -- ``gp.encoding``, ``gp.evaluator``,
 ``gp.fused_eval`` -- raise ``NotImplementedError``), so a caller catching
-either spelling keeps working.  ``evogp.gp`` mirrors this rule in
-``gp/graph_eval.py`` instead of importing it: importing anything below
-``evogp.tree`` executes that package's ``__init__``, which imports torch, and
-the gp stack is torch-free by contract (``gp/tests/test_gp_stack_purity.py``).
+either spelling keeps working.
 
 Nothing here changes a numeric path: a population that passes this rule is
-evaluated exactly as before, and the rule raises only for input that no engine
-could interpret.
+evaluated exactly as before, and the rule raises only for input no engine could
+interpret.
 """
 
 from __future__ import annotations
@@ -45,7 +38,7 @@ from typing import Any, Optional, Tuple
 
 import numpy as np
 
-from .utils import NType
+from ._tables import MAX_OUT_LEN, NType, OUT_NODE
 
 __all__ = [
     "MAX_OUT_LEN",
@@ -54,16 +47,6 @@ __all__ = [
     "find_tagged_node",
     "out_node_message",
 ]
-
-#: The widest multi-output tree the FUSED route serves.  The multi-output Triton
-#: kernel accumulates into a ``(pop, rows, out_len)`` prediction buffer, so the
-#: width is a tile/register budget rather than a protocol limit; a wider call
-#: declines naming this value.  Re-exported as ``fused_engine.MAX_OUT_LEN`` (the
-#: specialized and dense routes have no such ceiling).
-MAX_OUT_LEN = 8
-
-#: ``NType.OUT_NODE`` as a plain int (one spelling for every engine).
-OUT_NODE = int(NType.OUT_NODE)
 
 
 class MultiOutputError(ValueError, NotImplementedError):
@@ -176,13 +159,12 @@ def check_multi_output(
         node_type: see :func:`find_tagged_node` -- the population table (2-D) or
             one row's live types (1-D).
         output_len: the output width the CALLER asked for, from the descriptor /
-            ``Forest.output_len``.
+            the population's ``output_len``.
         row_lengths: per-row live node counts, for the population form.
         row: the row index the 1-D form reports (defaults to ``0``).
         error: the exception class (or ``message -> Exception`` callable) the
-            caller's contract raises -- ``DenseUnsupported`` for the dense route,
-            which must DECLINE into the fallback chain rather than raise.  ``None``
-            raises :class:`MultiOutputError`.
+            caller's contract raises, for a route that must DECLINE into its own
+            fallback rather than raise.  ``None`` raises :class:`MultiOutputError`.
 
     Raises:
         MultiOutputError: (or ``error(...)``) naming the row, the node and the raw

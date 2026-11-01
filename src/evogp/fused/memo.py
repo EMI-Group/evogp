@@ -1,21 +1,20 @@
-"""In-process front tables for the DENSE evaluator's host-side work.
+"""In-process front tables for the FUSED evaluator's host-side work.
 
-:mod:`evogp.tree.dense_engine` spends most of a warm call OUTSIDE the compiled
-graph: it re-derives the ``build_cached`` key, re-decodes the population
-host-side, re-converts ``x``/``labels`` and re-uploads every graph input, on
-every single call -- even when the caller evaluates the very same ``Forest``
-against the very same dataset (which is what a training loop and every
-benchmark do thousands of times).  This module holds the three front tables
-that remove that work, mirroring the specialized route's
-``evoxc_engine._EXECUTABLE_MEMO``:
+:mod:`evogp.fused.engine` keeps the expensive parts of a call OUT of the launch
+and behind three identity-keyed tables -- the transposed data operand, the
+``OUT_NODE`` verdict and the whole prepared call -- so a warm call (the same
+population against the same dataset again, which is what a training loop, an
+elite re-evaluation and every benchmark loop do thousands of times) is one
+launch and nothing else:
 
-========================== ============================================= ==========
-table                      keyed on                                      owner
-========================== ============================================= ==========
-``EXECUTABLES``            everything ``evoxc.build_cached`` keys on     :func:`evogp.tree.dense_engine.build_dense`
-``PLANS``                  the population tensors + the plan parameters  :func:`evogp.tree.dense_engine._plan_entry`
-``INPUTS``                 the ``x`` / ``labels`` tensors                :func:`evogp.tree.dense_engine._resident_input`
-========================== ============================================= ==========
+``XT_MEMO``
+    the ``x`` / ``inputs`` tensor, keyed on its identity (:func:`evogp.fused.engine._transposed`);
+``TAG_MEMO``
+    the population's ``node_type`` + ``subtree_size``, holding the ``OUT_NODE`` verdict
+    (:func:`evogp.fused.engine._refuse_out_node`);
+``PLAN_MEMO``
+    every operand identity plus the call's scalars and resolved geometry, holding the whole
+    prepared call (:func:`evogp.fused.engine._value_call` / ``_loss_call``).
 
 The population/input keys are **identity keys** (:func:`token`): the tensor's
 ``data_ptr``, shape, dtype, device and ``_version``.  ``_version`` is bumped by
@@ -29,14 +28,14 @@ reference per tensor instead of a full copy.
 
 Not detected by design: a write that bypasses torch's version counter (e.g.
 through a ``numpy`` view of the same memory, ``t.numpy()[...] = ...``).  Use
-torch ops (or :func:`evogp.tree.evoxc_engine.clear_cache`) after such a write.
+torch ops (or :func:`evogp.fused.engine.clear_fused_cache`) after such a write.
 
 Every table is bounded (LRU) and every table is dropped by
-:func:`evogp.tree.evoxc_engine.clear_cache` -- the single invalidation point of
-the engine -- through :func:`clear`, which is registered there at import time.
-The plan/input tables are deliberately SMALL (they hold decoded numpy blocks and
-device payloads, not just keys): a training loop sees a new population every
-generation, so a large table would only pin memory.
+:func:`evogp.fused.engine.clear_fused_cache`, which is this route's ONE
+invalidation entry and resets its own tables explicitly.  The plan/input tables
+are deliberately SMALL (they hold decoded device payloads, not just keys): a
+training loop sees a new population every generation, so a large table would
+only pin memory.
 """
 
 from __future__ import annotations
@@ -48,11 +47,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import torch
 
 __all__ = [
-    "DenseMemo",
-    "clear",
+    "Memo",
     "pin",
-    "register",
-    "stats",
     "token",
 ]
 
@@ -98,14 +94,14 @@ def pin(tensors: Sequence[Any]) -> Tuple[Any, ...]:
     return tuple(pins)
 
 
-class DenseMemo(OrderedDict):
+class Memo(OrderedDict):
     """Bounded LRU ``key -> value`` table with hit/miss counters.
 
-    Deliberately the same shape as ``evoxc_engine._ExecutableMemo`` (an
-    ``OrderedDict`` under one ``RLock``, ``maxsize`` enforced by
-    :meth:`popitem`), because the dense route's front tables exist for the same
-    reason and are invalidated by the same :func:`evogp.tree.evoxc_engine.clear_cache`.
-    ``None`` is never stored: it is the "not memoized" answer of :meth:`lookup`.
+    An ``OrderedDict`` under one ``RLock`` with ``maxsize`` enforced by
+    :meth:`popitem`; the fused route keeps three of them (:data:`XT_MEMO`,
+    :data:`TAG_MEMO`, :data:`PLAN_MEMO` in :mod:`evogp.fused.engine`) and resets
+    them all from ``clear_fused_cache()``.  ``None`` is never stored: it is the
+    "not memoized" answer of :meth:`lookup`.
     """
 
     def __init__(self, name: str, maxsize: int) -> None:
@@ -144,7 +140,7 @@ class DenseMemo(OrderedDict):
         """Count a hit on an entry this table holds, served WITHOUT a lookup.
 
         The fused route keeps the entry it served last in a single-slot fast path
-        in front of its :data:`PLAN_MEMO` (``fused_engine._LAST``) and reports that
+        in front of its :data:`PLAN_MEMO` (``engine._LAST``) and reports that
         hit here, so ``*_hits`` keeps meaning "a warm call that did no host work"
         instead of splitting into two counters.  Nothing is read or moved: the
         entry is already the most recently used one.
@@ -167,27 +163,3 @@ class DenseMemo(OrderedDict):
                 f"{self.name}_entries": len(self),
                 f"{self.name}_maxsize": self.maxsize,
             }
-
-
-#: every live table, in registration order (see :func:`register`)
-_TABLES: List[DenseMemo] = []
-
-
-def register(table: DenseMemo) -> DenseMemo:
-    """Add ``table`` to the set :func:`clear` / :func:`stats` cover; returns it."""
-    _TABLES.append(table)
-    return table
-
-
-def clear() -> None:
-    """Reset every registered table (called by ``evoxc_engine.clear_cache``)."""
-    for table in _TABLES:
-        table.reset()
-
-
-def stats() -> Dict[str, int]:
-    """Merged counters of every registered table (``dense_cache_stats``)."""
-    merged: Dict[str, int] = {}
-    for table in _TABLES:
-        merged.update(table.stats())
-    return merged

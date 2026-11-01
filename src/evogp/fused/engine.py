@@ -1,27 +1,31 @@
 """FUSED whole-population evaluation route: one Triton pass, no host crossings.
 
-This module is the public facade of the ``fused`` route -- the fourth evaluation
-engine beside ``specialized`` (:mod:`evogp.tree.evoxc_engine`), ``dense``
-(:mod:`evogp.tree.dense_engine`) and the opt-in merged graph
-(:mod:`evogp.tree.batch_engine`).  Like ``dense_engine`` it evaluates a WHOLE
-population in one launch; unlike every existing route it needs no evoxc graph, no
-host decode, no host-side assembly and no readback on the value path.
+This package is the device-native evaluation route: it evaluates a WHOLE
+population with ONE JIT-compiled Triton kernel launch, off the legacy population
+tensors themselves -- no compiled graph, no host decode, no host-side assembly
+and no readback on the value path.  This module is its host-side facade (the
+kernels are :mod:`evogp.fused.kernels`, the front tables :mod:`evogp.fused.memo`).
 
-The route is WIRED: :func:`evogp.tree.dense_engine.resolve_route` owns the policy
-branch (``EVOGP_EVAL_MODE=fused`` -> ``Route(engine="fused", ...)``, and ``auto``
-on a device box, both reported by ``Route.use_fused``) and all five call sites
-dispatch on it -- ``Forest.forward``
-(``per_row=True``), ``Forest.batch_forward`` (``per_row=False``),
-``Forest.SR_fitness`` (the loss path) and ``Tree.forward`` / ``Tree.SR_fitness``
-(``pop_size == 1``) -- each continuing on the route's fallback after a
-:class:`FusedUnsupported`.  ``EVOGP_FUSED_MIN_POP`` (default 16,
-:func:`resolve_min_pop`) gates the NO-EXPLICIT-BACKEND case only: an explicitly
-named backend always attempts the route, while the default policy needs a device
-usable from torch and ``pop_size >= EVOGP_FUSED_MIN_POP`` and otherwise resolves
-to specialized+``numpy``.  ``auto`` selects this engine by default on such a box
-(the same two gates plus the memory envelope, through
-``dense_engine.auto_fused_decline``), so the fused route is the default device
-path and an explicit ``EVOGP_EVAL_MODE=fused`` only forces it elsewhere.
+Who calls it
+------------
+DIRECTLY, on the legacy triple -- ``batch_node_value`` float32, ``batch_node_type``
+int16 and ``batch_subtree_size`` int16, each ``(pop_size, max_tree_len)`` in prefix
+(pre-order) encoding, on a torch device:
+
+* :class:`evogp.gp.fused_eval.FusedDeviceEvaluator` -- the torch-free functional
+  stack's device-resident objective (it hands the kernel its own device buffer
+  through ``out=``);
+* ``evogp.fused.check`` -- the in-library battery (parity, declines, timing).
+
+There is no route policy and no dispatch layer here: a caller that reaches this
+module has ALREADY decided to evaluate on the device, so nothing below consults
+an evaluation-mode environment variable or a population threshold.  A call the
+route cannot serve raises :class:`FusedUnsupported` -- never a wrong number,
+never a crash -- and the CALLER decides what to do with it (the gp stack falls
+back to its own in-graph / host evaluator).  The ids the kernels need
+(``DELTA``, ``FUNCS``, ``Func``, ``MAX_OUT_LEN``, ``OUT_NODE``) come from the
+torch-free :mod:`evogp._tables`, and the ``OUT_NODE`` rule itself is
+:mod:`evogp._multi_output`.
 
 Module scope (deliberate, do not split)
 ---------------------------------------
@@ -30,28 +34,31 @@ repository's ~1000-line baseline on purpose.  The facade's pieces constrain each
 other: the pre-flight (``_require_available`` / ``_decline_if_numpy`` /
 ``_population_shape`` / ``_as_device_tensor``), the three-term envelope
 (``_check_envelope`` + ``_ENVELOPE_MEMO``), the ``XT_MEMO`` transpose preparation,
-the byte-bounded scratch table and the counters are all checked TOGETHER by
-``fused_check.py`` against the kernel geometry that ``fused_kernels.plan``
-returns, and the compile-time constants (``MAX_OUT_LEN``, the
-``stack_cap = tree_len`` scratch geometry, the ``BLOCK_R``/warp resolution) are
-read at the same place the kernel call is made.
+the byte-bounded scratch table and the counters are all checked TOGETHER against
+the kernel geometry that :func:`evogp.fused.kernels.plan` returns, and the
+compile-time constants (``MAX_OUT_LEN``, the ``stack_cap = tree_len`` scratch
+geometry, the ``BLOCK_R``/warp resolution) are read at the same place the kernel
+call is made.
 A split would move those constants away from the call that constrains them.
 Split it only with failing-test evidence.
 
 Public surface
 --------------
-============================== ==================================================
-:class:`FusedUnsupported`      per-call decline (route cannot take this call)
-:func:`fused_available`        ``triton`` importable AND a torch CUDA/HIP device
-:func:`envelope_decline`       the memory envelope's verdict for a shape (no raise)
-:func:`evaluate_fused`         value path, ``(pop, output_len)`` / ``(pop, N, output_len)``
-:func:`sr_fitness_fused`       SR loss path, ``(pop,)`` positive loss
-:func:`fused_cache_stats`      this route's own counters (all prefixed ``fused_``)
-:func:`clear_fused_cache`      reset them (also registered in ``clear_cache``)
-============================== ==================================================
+================================== ==================================================
+:class:`FusedUnsupported`          per-call decline (the route cannot serve this call)
+:func:`fused_available`            ``triton`` importable AND a torch CUDA/HIP device
+:func:`envelope_decline`           the memory envelope's verdict for a shape (no raise)
+:func:`evaluate_fused`             value path, ``(pop, output_len)`` / ``(pop, N, output_len)``
+:func:`sr_fitness_fused`           SR loss path, ``(pop,)`` positive loss
+:func:`fused_cache_stats`          this route's own counters (all prefixed ``fused_``)
+:func:`clear_fused_cache`          reset them (this route's ONE reset entry)
+:func:`resolve_block_rows`         ``EVOGP_FUSED_BLOCK_ROWS`` (the row-block cap)
+:func:`resolve_num_warps`          ``EVOGP_FUSED_NUM_WARPS``
+:func:`resolve_max_scratch_mb`     ``EVOGP_FUSED_MAX_SCRATCH_MB`` (the envelope)
+:func:`resolve_dispatch`           ``EVOGP_FUSED_DISPATCH`` (``bound`` / ``jit``)
+================================== ==================================================
 
-Contracts (they mirror :func:`evogp.tree.dense_engine.evaluate_dense` /
-``sr_fitness_dense`` one for one, so the wiring round is a dispatch change only):
+Contracts:
 
 * ``per_row=True``: ``x`` is ``(pop_size, input_len)`` and tree ``i`` sees row
   ``i``; the result is ``(pop_size, output_len)``.
@@ -75,15 +82,14 @@ Contracts (they mirror :func:`evogp.tree.dense_engine.evaluate_dense` /
   human-readable ``reason`` -- never a wrong number and never a crash.  The
   reasons are: triton not importable; no CUDA/HIP device; the population or
   ``x`` not on a device tensor; an explicit ``backend="numpy"`` (a Triton kernel
-  cannot run on the evoxc reference interpreter); ``output_len > MAX_OUT_LEN``
+  cannot run on the numpy reference interpreter); ``output_len > MAX_OUT_LEN``
   (8 -- the multi-output kernel accumulates in the ``(pop, rows, out_len)``
   prediction buffer, so ``out_len`` costs one extra read-modify-write per tagged
   node, and 8 bounds that traffic); ``pop_size < 1``; ``rows < 1``; or the memory
   envelope (:func:`_check_envelope` -- the bytes one launch really allocates vs
   ``EVOGP_FUSED_MAX_SCRATCH_MB``) being exceeded.
-  ``FusedUnsupported.device_fallback`` exists for symmetry with
-  ``DenseUnsupported`` but the fused route never sets it: it has no numpy twin,
-  so the fallback is always the specialized engine.
+  ``FusedUnsupported.device_fallback`` is kept as an attribute so a caller can
+  treat every decline uniformly; this route never sets it (it has no numpy twin).
 
 The one prep step
 -----------------
@@ -91,21 +97,22 @@ The one prep step
 transposed copy ``xt = x.t().contiguous()`` of shape ``(input_len, rows)``, so a
 VAR node is one coalesced vector load ``xt[vi * rows + r]``.  That copy is a
 device kernel, and a training loop re-evaluates the same dataset thousands of
-times, so it is memoized by IDENTITY (:data:`XT_MEMO`, the ``dense_memo`` token
-``(data_ptr, shape, dtype, device, _version)``, an in-place write is a miss, the
-entry pins the caller's storage so the address cannot be recycled).  Hits and
-misses are :func:`fused_cache_stats`'s ``fused_xt_hits`` / ``fused_xt_misses``;
-``EVOGP_FUSED_HOST_MEMO`` (default 16 entries, import time) bounds the table and
-``0`` disables it.  ``per_row=True`` needs no transpose: each tree reads its own
-scalar row element ``x[t * input_len + vi]``.
+times, so it is memoized by IDENTITY (:data:`XT_MEMO`, the
+:func:`evogp.fused.memo.token` ``(data_ptr, shape, dtype, device, _version)``, an
+in-place write is a miss, the entry pins the caller's storage so the address
+cannot be recycled).  Hits and misses are :func:`fused_cache_stats`'s
+``fused_xt_hits`` / ``fused_xt_misses``; ``EVOGP_FUSED_HOST_MEMO`` (default 16
+entries, import time) bounds the table and ``0`` disables it.  ``per_row=True``
+needs no transpose: each tree reads its own scalar row element
+``x[t * input_len + vi]``.
 
 Measured economics -- the campaign of record (``FUSED.md`` §0/§2: six benchmark
 cells, warm medians of 2 warmup + 10 sync-bracketed reps, one process per cell,
 MI300X, the shipped ``BLOCK_R`` 256 / 1 warp; reproduce with ``python -m
-evogp.tree.fused_check --stage timing``)
+evogp.fused.check --stage timing``)
 ------------------------------------------------------------------------------------------------------
-Against the ``torch-batched`` pure-torch arm
-(``test/benchmark/evoxc/arms_torch.py:BatchedEvaluator``) that campaign reads
+Against the ``torch-batched`` pure-torch arm (the benchmark harness's batched
+evaluator) that campaign reads
 **41x-157x on the value (``batch_forward``) surface**, **32x-131x on the loss
 (``SR_fitness``) surface** and **42x-127x on the per-tree (``per_row=True``)
 surface**, i.e. **32x-157x across the three surfaces**.  Its ``batch_forward``
@@ -145,9 +152,7 @@ these populations (``FUSED.md`` §6), the value paths are **bit-identical** to
 both the arm and the oracle on every finite point (the only differing bits are
 NaN payloads / signed zeros, ``max_abs = 0.0``) and the loss agrees to
 ``<= 3.8e-07`` relative -- the numbers above are not fast wrong answers, they are
-the same numbers.  An ``arith``-set ``sr_fitness`` digest therefore differs from
-the other routes (float32 block-reduction order), so a harness gate over a fused
-column needs ``--allow-digest-mismatch``.
+the same numbers.
 Cold (first call of a fresh process, ``FUSED.md`` §5): **1.64-1.67 s** for the
 value kernel from an EMPTY ``TRITON_CACHE_DIR``, plus 0.94-0.99 s for the loss
 surface and 0.32 s for the per-row one (~2.9 s of one-time JIT for all three),
@@ -157,23 +162,18 @@ or ~1.7 ms (per-row).  That is ~1.6e4x the warm value call, so this route needs 
 loop that evaluates many generations per process (a GP run does, and the compile
 is paid once per ``(PER_ROW, REDUCE, USE_MSE, block, warps)`` combination, not
 per generation) and is a bad fit for a one-shot script.
-The earlier six-cell sweep that preceded this campaign (kept for the record in
-``FUSED.md``'s closing section, superseded by the numbers above) read
-**48.6x-167.6x** on the value path, 43.4x-156.4x on the loss path and 56x-150x
-per-tree, with the kernel 72-82 % of a warm call and a 375-378 ms (warm disk
-cache) / 1.36-1.38 s (cold cache) first call.
-Parity (``python -m evogp.tree.fused_check --stage parity``): 56/56 comparisons
-against ``src/evogp/tests/reference_eval.py`` over five op sets (arithmetic,
-ternary, loose, rich and ``compare_unary`` -- the set that draws ``>`` / ``<=`` /
-``neg`` / ``abs`` / ``sinh`` / ``cosh``) -- **bitwise** on the arithmetic and
-``compare_unary`` value paths and on every handmade adversarial row that has no
-NaN/zero-sign case, ``<= 1.8e-07`` relative on the loose/rich transcendental
-sets' value paths and ``<= 1e-07`` on the loss paths (float32 reduction order),
-plus 10/10 golden fixtures inside 1e-4 (measured ``<= 1.9e-06``), 57/57
-decline/contract checks and 32/32 wiring checks.  The ``OUT_NODE`` multi-output
-protocol has its own stage
-(``--stage multi``: 13 case x ``out_len`` populations, 4 surfaces, 65/65
-comparisons, value path BITWISE, loss ``<= 1.2e-07`` relative).
+Parity (``python -m evogp.fused.check --stage parity``): 56/56 comparisons
+against the independent oracle (``test/oracle/reference_eval.py``) over five op
+sets (arithmetic, ternary, loose, rich and ``compare_unary`` -- the set that draws
+``>`` / ``<=`` / ``neg`` / ``abs`` / ``sinh`` / ``cosh``) -- **bitwise** on the
+arithmetic and ``compare_unary`` value paths and on every handmade adversarial row
+that has no NaN/zero-sign case, ``<= 1.8e-07`` relative on the loose/rich
+transcendental sets' value paths and ``<= 1e-07`` on the loss paths (float32
+reduction order), plus 10/10 golden fixtures inside 1e-4 (measured
+``<= 1.9e-06``), 57/57 decline/contract checks and 32/32 wiring checks.  The
+``OUT_NODE`` multi-output protocol has its own stage (``--stage multi``: 13
+case x ``out_len`` populations, 4 surfaces, 65/65 comparisons, value path
+BITWISE, loss ``<= 1.2e-07`` relative).
 The only rows that are not bitwise are those whose result is a NaN payload or a
 signed zero, where the numeric value is identical (``max_abs = 0.0``).
 Tuning (``--stage tuning``: 12 configs x 6 cells, one process per config, value
@@ -202,6 +202,10 @@ lanes on the small-row cells.  The warps axis is the interesting one: 4 -> 1 buy
 nothing on the small cells, because the walk is a scalar loop-carried dependency
 chain -- every lane executes the same instruction sequence, so extra warps have
 nothing to overlap and only add scheduling.
+The kernel is also FLAT in ``pop_size`` (0.088-0.103 ms from pop 1 to pop 128 at
+``L=64`` / ``input_len`` 32 / ``N`` 1024, warm medians, MI300X): the walk repeats
+per (tree, row block), and a few hundred of those programs already fill the
+device, which is why a caller never has to batch calls itself.
 Environment knobs (read per call unless noted; an unusable value raises
 ``ValueError`` naming the variable)
 -------------------------------------------------------------------
@@ -217,32 +221,17 @@ Environment knobs (read per call unless noted; an unusable value raises
   an allocation its own table refuses.  The verdict is memoized on its own eight
   resolved inputs (:data:`_ENVELOPE_MEMO`), so being exact costs **0.5 us** of host
   glue per call instead of the 2.0 us the byte arithmetic and
-  :func:`fused_kernels.plan` cost UNMEMOIZED (+2 % warm at
+  :func:`evogp.fused.kernels.plan` cost UNMEMOIZED (+2 % warm at
   ``p256-L64-i32-N1024``, host-only medians) -- and the ~1.5 us of ambient knob
   reads beside it are the same three ``os.environ`` reads the route always paid.
 * ``EVOGP_FUSED_HOST_MEMO`` (16, IMPORT TIME) -- entries of the transpose table.
-* ``EVOGP_FUSED_MIN_POP`` (16) -- the pop-size threshold the POLICY consumes
-  through :func:`resolve_min_pop`: with ``EVOGP_EVAL_MODE=fused`` and no explicit
-  backend, the route needs a device plus ``pop_size >= EVOGP_FUSED_MIN_POP`` and
-  resolves to specialized+``numpy`` otherwise (an explicitly named backend always
-  attempts the route).  Nothing in this module branches on it.
+* ``EVOGP_FUSED_DISPATCH`` (``bound``) -- the launch path of a warm call
+  (:func:`evogp.fused.kernels.resolve_dispatch`); ``jit`` restores Triton's
+  ``JITFunction.run`` and is the A/B arm.
 
 A knob reader gates a CALL, so an unusable value raises ``ValueError`` naming the
 variable; a RECORDING must never raise, so ``fused_cache_stats()`` reports ``-1``
 for an unusable ``EVOGP_FUSED_BLOCK_ROWS`` / ``EVOGP_FUSED_NUM_WARPS``.
-
-The threshold is a measured crossover, not a safety floor: the kernel is FLAT in
-``pop_size`` (0.088-0.103 ms from pop 1 to pop 128 at ``L=64`` / ``input_len`` 32
-/ ``N`` 1024, warm medians, MI300X) while the specialized fallback scales linearly
-with the tree count -- fused / specialized / ``torch-batched`` in ms: pop 4
-0.092 / 0.925 / 1.951, pop 16 0.103 / 2.725 / 3.367, pop 64 0.097 / 12.154 /
-4.233, pop 128 0.092 / 22.536 / 4.110 -- so the old gate of 64 threw away 26.5x at
-pop 16 and 10.1x at pop 4.  16 rather than 1-8 because every measurement is at
-``N`` 1024 only and a 1-8-tree population on a tiny row plane is the one class
-where a single per-tree numpy run could undercut the kernel's ~0.09 ms launch
-floor (unmeasured), and because it keeps a single ``Tree.forward`` on the
-specialized route instead of paying a ~1.4 s cold JIT for a one-shot call
-(records ``fused_results/minpop.json``, table ``fused_results/ENVELOPE.md`` §3).
 """
 
 from __future__ import annotations
@@ -253,29 +242,28 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import torch
 
-from . import evoxc_engine
-from . import fused_kernels
-from .dense_memo import DenseMemo, pin, token
-from .multi_output import MAX_OUT_LEN as _MAX_OUT_LEN
-from .multi_output import MultiOutputError, out_node_message
-from .multi_output import OUT_NODE as _OUT_NODE_BIT
+from . import kernels as fused_kernels
+from .memo import Memo, pin, token
+from .._multi_output import MAX_OUT_LEN as _MAX_OUT_LEN
+from .._multi_output import MultiOutputError, out_node_message
+from .._multi_output import OUT_NODE as _OUT_NODE_BIT
 
 __all__ = [
     "BLOCK_ROWS_ENV",
     "DEFAULT_BLOCK_ROWS",
     "DEFAULT_HOST_MEMO",
     "DEFAULT_MAX_SCRATCH_MB",
-    "DEFAULT_MIN_POP",
     "DEFAULT_NUM_WARPS",
     "FusedUnsupported",
     "MAX_OUT_LEN",
     "clear_fused_cache",
+    "envelope_decline",
     "evaluate_fused",
     "fused_available",
     "fused_cache_stats",
     "resolve_block_rows",
+    "resolve_dispatch",
     "resolve_max_scratch_mb",
-    "resolve_min_pop",
     "resolve_num_warps",
     "sr_fitness_fused",
 ]
@@ -294,39 +282,35 @@ DEFAULT_MAX_SCRATCH_MB = 8192
 #: Entries of the transposed-input table (import time; 0 disables it).
 HOST_MEMO_ENV = "EVOGP_FUSED_HOST_MEMO"
 DEFAULT_HOST_MEMO = 16
-#: Pop-size threshold the ROUTE POLICY consumes through ``resolve_min_pop``
-#: (consulted by ``dense_engine.resolve_fused_min_pop``; not used here).
-MIN_POP_ENV = "EVOGP_FUSED_MIN_POP"
-DEFAULT_MIN_POP = 16
 #: Outputs the multi-output kernel serves.  It accumulates into the
 #: ``(pop, rows, out_len)`` prediction buffer (a ``[output_len, BLOCK_R]`` register
 #: tile would make triton unify two layouts across the loop phis and the LLVM
 #: translation fails), so ``out_len`` costs one read-modify-write per tagged node
 #: and bounds the extra traffic; the library's multi-output trees use 2-3
 #: (``Classification`` at ``output_len`` classes, multi-task policies) and a call
-#: above this declines into the specialized fallback with a reason naming the
-#: constant.  Single-sourced in :mod:`evogp.tree.multi_output` (the module that
-#: owns the ``OUT_NODE`` rule) and re-exported here for its own importers.
+#: above this declines (:class:`FusedUnsupported`) with a reason naming the
+#: constant, and the caller picks the fallback it wants.  Single-sourced in :mod:`evogp._tables` (the torch-free table
+#: module) and re-exported here for this package's importers.
 MAX_OUT_LEN = _MAX_OUT_LEN
 
 #: Bytes per MiB (the envelope's unit).
 _MIB = 2**20
 
+#: The launch-path resolver (``EVOGP_FUSED_DISPATCH``).  Owned by
+#: :mod:`evogp.fused.kernels` beside the launch it selects and re-exported here, so
+#: this facade is the ONE import surface of the route.
+resolve_dispatch = fused_kernels.resolve_dispatch
+
 
 class FusedUnsupported(RuntimeError):
     """The fused (Triton) route cannot evaluate this call.
 
-    Callers must fall back to the specialized engine
-    (:func:`evoxc_engine.decode_population` + :func:`evoxc_engine.evaluate`),
-    which owns the error contract for malformed trees.  ``reason`` carries the
-    human-readable cause.  ``device_fallback`` mirrors
-    :class:`evogp.tree.dense_engine.DenseUnsupported` so the wiring round can
-    treat the two declines uniformly -- the fused route never sets it (it has no
-    numpy twin, so its fallback is always the specialized engine).
-
-    The fallback's BACKEND is therefore always ``"numpy"``:
-    ``dense_engine.resolve_route`` pins it on every arm (the explicit spelling
-    drives ``backend`` only), because a per-tree iree compile cannot amortize.
+    ``reason`` carries the human-readable cause.  The CALLER decides what the
+    decline means: :class:`evogp.gp.fused_eval.FusedDeviceEvaluator` falls back
+    to its own in-graph / host route, and the check battery records the reason.
+    ``device_fallback`` is kept as an attribute so a caller can treat every
+    decline uniformly; this route never sets it -- it evaluates on the device and
+    has no host twin of its own.
     """
 
     def __init__(self, reason: str, *, device_fallback: bool = False):
@@ -353,7 +337,7 @@ def resolve_block_rows(value: Optional[int] = None) -> int:
     """Row-block CAP in lanes (``EVOGP_FUSED_BLOCK_ROWS``, default 256).
 
     A CAP, not a width: the launch uses the largest power of two ``<= min(rows, cap)``
-    lanes (:func:`evogp.tree.fused_kernels.plan`).  An off-power-of-two value is
+    lanes (:func:`evogp.fused.kernels.plan`).  An off-power-of-two value is
     rounded DOWN here (``100`` -> ``64``) with ``fused_kernels._pow2_floor`` -- the
     SAME rule ``plan`` applies, so the two cannot disagree -- because
     ``tl.arange(0, BLOCK_R)`` accepts nothing else.  A value below 1 is refused.
@@ -447,27 +431,6 @@ def _geometry(
     return resolved
 
 
-def resolve_min_pop(value: Optional[int] = None) -> int:
-    """The route's pop-size threshold (``EVOGP_FUSED_MIN_POP``, default 16).
-
-    Documented here so the wiring round has a single reader, exactly like
-    ``dense_engine.resolve_auto_min_pop``.  Nothing in this module consults it: a
-    direct :func:`evaluate_fused` call is served at any ``pop >= 1``.  The default is
-    the MEASURED crossover, not a safety floor, and the column (plus why it is 16
-    rather than 1-8) is in the module docstring and ``fused_results/ENVELOPE.md`` §3:
-    the kernel is flat in ``pop_size`` while the specialized fallback is linear in
-    the tree count, so 16 is where the route is 26.5x ahead (0.103 vs 2.725 ms) and
-    pop 4 is 10.1x (0.092 vs 0.925).  A value below 1 is refused: this is a
-    ``pop_size`` threshold.
-    """
-    minimum = _env_int(MIN_POP_ENV, DEFAULT_MIN_POP) if value is None else int(value)
-    if minimum < 1:
-        raise ValueError(
-            f"{MIN_POP_ENV}={minimum} must be >= 1 (it is a pop_size threshold)"
-        )
-    return minimum
-
-
 def _default_host_memo() -> int:
     """``EVOGP_FUSED_HOST_MEMO`` read ONCE at import time (0 disables the tables)."""
     entries = _env_int(HOST_MEMO_ENV, DEFAULT_HOST_MEMO)
@@ -480,16 +443,16 @@ def _default_host_memo() -> int:
 _HOST_MEMO_ENTRIES = _default_host_memo()
 
 #: Transposed-input front table: identity key -> ``(xt, pins)``.
-XT_MEMO = DenseMemo("fused_xt", _HOST_MEMO_ENTRIES)
+XT_MEMO = Memo("fused_xt", _HOST_MEMO_ENTRIES)
 
 #: The ``OUT_NODE`` VERDICT table: the identity tokens of the population's two
 #: table tensors -> the first tagged live node (or :data:`_SERVED`, "clean").
 #: The verdict costs one device reduction plus its sync, so it is memoized on
-#: ``(data_ptr, shape, dtype, device, _version)`` of both tables -- the dense front
-#: tables' ABA-guarded identity key, which an in-place write invalidates -- and a
+#: ``(data_ptr, shape, dtype, device, _version)`` of both tables -- the ABA-guarded
+#: front-table identity key, which an in-place write invalidates -- and a
 #: warm loop over one population pays it ONCE instead of per call.  Bounded like
 #: the input table (``EVOGP_FUSED_HOST_MEMO``).
-TAG_MEMO = DenseMemo("fused_tag", _HOST_MEMO_ENTRIES)
+TAG_MEMO = Memo("fused_tag", _HOST_MEMO_ENTRIES)
 
 #: The PREPARED-CALL table: the identity of every operand a call reads (the three
 #: population tables and the data operand) plus the call's resolved geometry ->
@@ -498,12 +461,12 @@ TAG_MEMO = DenseMemo("fused_tag", _HOST_MEMO_ENTRIES)
 #: envelope verdict, the resolved budget, the transposed data block and the loss
 #: path's label view are all computed ONCE per (population, data, geometry) and
 #: handed back on every later call.  A training loop re-evaluates one population
-#: many times (elites, a fitness archive, ``Forest.batch_forward`` twice in a
-#: generation) and every benchmark loop does exactly that; a FRESH population is
+#: many times (elites, a fitness archive, two value calls in one generation) and
+#: every benchmark loop does exactly that; a FRESH population is
 #: one miss, which is the way the prepare is paid anyway.  Each entry holds strong
 #: references to the tensors it keyed on (:func:`_identity`), so an entry can never
 #: outlive the identity it recorded.  Bounded like the other tables.
-PLAN_MEMO = DenseMemo("fused_plan", _HOST_MEMO_ENTRIES)
+PLAN_MEMO = Memo("fused_plan", _HOST_MEMO_ENTRIES)
 
 #: This route's own counters (never folded into ``cache_stats()``).
 _STATS: Dict[str, int] = {"fused_calls": 0, "fused_declines": 0}
@@ -554,8 +517,9 @@ def fused_cache_stats() -> Dict[str, int]:
     (INFORMATIONAL: ``-1`` when the ambient knob is unusable, because a stats call
     never raises -- :func:`_reported_knob`; the readers do).
 
-    Deliberately separate from ``evoxc_engine.cache_stats()`` (pinned at exactly
-    8 keys) and from ``dense_cache_stats()`` / ``batch_cache_stats()``.
+    ``fused_calls`` / ``fused_declines`` are this facade's own attempt counters:
+    nothing from another route reports into this dict and nothing here reports
+    anywhere else.
     """
     with _STATS_LOCK:
         merged: Dict[str, int] = dict(_STATS)
@@ -571,15 +535,15 @@ def fused_cache_stats() -> Dict[str, int]:
 def clear_fused_cache() -> None:
     """Reset every counter and drop the transpose/verdict/plan/stack tables (memory only).
 
-    Registered with :func:`evoxc_engine._register_cache_reset` at import time, so
-    ``evoxc_engine.clear_cache()`` -- the single in-memory invalidation point of
-    the engine -- flushes this route too.  Nothing here touches the disk.  Dropping
-    :data:`_ENVELOPE_MEMO` / :data:`_GEOMETRY_MEMO` is hygiene, not correctness: their
-    keys carry every input of the answer, so no entry can go stale.  Dropping
-    :data:`PLAN_MEMO` -- and with it the single-slot fast path (:data:`_LAST`) -- is
-    the route out of the one case its identity key does not see: a write into a
-    population or data tensor that bypasses torch's version counter (a numpy view of
-    the same memory, a foreign kernel), which no torch-level identity can detect.
+    This is the route's ONE reset entry: nothing else registers a reset hook for
+    it, so a caller that wants a cold fused route calls exactly this.  Nothing here
+    touches the disk.  Dropping :data:`_ENVELOPE_MEMO` / :data:`_GEOMETRY_MEMO` is
+    hygiene, not correctness: their keys carry every input of the answer, so no
+    entry can go stale.  Dropping :data:`PLAN_MEMO` -- and with it the single-slot
+    fast path (:data:`_LAST`) -- is the route out of the one case its identity key
+    does not see: a write into a population or data tensor that bypasses torch's
+    version counter (a numpy view of the same memory, a foreign kernel), which no
+    torch-level identity can detect.
     """
     with _STATS_LOCK:
         for name in list(_STATS):
@@ -591,18 +555,6 @@ def clear_fused_cache() -> None:
     TAG_MEMO.reset()
     PLAN_MEMO.reset()
     fused_kernels.clear_caches()
-    # The route decision this route was prepared under goes with the plan: a caller
-    # reaching for a cold fused route (the documented answer to a write torch's
-    # version counter cannot see) must not keep a memoized route either.  Hygiene
-    # only -- no route entry can go stale -- and imported lazily because
-    # ``dense_engine`` owns the policy (and imports this module inside its own
-    # functions), so a module-level import would close a cycle.
-    from . import dense_engine
-
-    dense_engine.clear_route_memo()
-
-
-evoxc_engine._register_cache_reset(clear_fused_cache)
 
 
 # --------------------------------------------------------------------------- #
@@ -620,24 +572,40 @@ def fused_available() -> bool:
     return fused_kernels.triton_available()
 
 
-def _backend_name(backend: Optional[str]) -> Optional[str]:
-    """The evoxc backend name a call would run on, or ``None`` when unspecified.
+#: The backend spellings a Triton kernel can run on.  The route builds no graph,
+#: so a backend here is only a declaration that the caller is on a device.
+DEVICE_BACKENDS: Tuple[str, ...] = ("iree", "cuda", "rocm", "gpu", "torch")
+#: The spellings that name a HOST reference interpreter instead.
+REFERENCE_BACKENDS: Tuple[str, ...] = ("numpy",)
 
-    ``None`` means "the caller did not pick an evoxc backend": the fused route
-    needs no evoxc graph, so it does not consult ``EVOGP_EVOXC_BACKEND`` (whose
-    default is ``numpy``) -- it runs on the device tensor's own device.  An
-    explicit name is validated by the engine's own resolver (so an unknown
-    spelling raises ``ValueError`` exactly like every other route).
+
+def _backend_name(backend: Optional[str]) -> Optional[str]:
+    """The backend a call would run on, or ``None`` when the caller did not say.
+
+    ``None`` means "no backend named": the fused route builds no graph, so it
+    simply runs on the population tensors' own device.  A device spelling
+    (:data:`DEVICE_BACKENDS`: ``iree`` / ``cuda`` / ``rocm`` / ``gpu`` / ``torch``,
+    case- and whitespace-insensitive) is accepted and returned normalised; the
+    reference interpreter (:data:`REFERENCE_BACKENDS`: ``numpy``) is returned too,
+    so :func:`_decline_if_numpy` can decline it with its usual message.  Anything
+    else is a caller error and raises ``ValueError`` naming the accepted ones.
     """
     if backend is None:
         return None
-    return evoxc_engine._resolve_backend(backend, None)[0]
+    name = str(backend).strip().lower()
+    if name in DEVICE_BACKENDS or name in REFERENCE_BACKENDS:
+        return name
+    raise ValueError(
+        f"unknown backend {backend!r}: the fused route accepts the device "
+        f"spellings {list(DEVICE_BACKENDS)} and the reference interpreter "
+        f"{list(REFERENCE_BACKENDS)} (or no backend at all)"
+    )
 
 
 def _decline_if_numpy(backend: Optional[str]) -> None:
-    """``backend="numpy"`` is a decline: Triton has no numpy twin."""
+    """A host backend is a decline: Triton has no numpy twin."""
     name = _backend_name(backend)
-    if name is not None and name != "iree":
+    if name is not None and name not in DEVICE_BACKENDS:
         raise FusedUnsupported(
             f"backend {name!r} cannot run a Triton kernel (only a device backend "
             "can; pass backend='iree' or leave backend unset)"
@@ -681,7 +649,7 @@ def _first_tagged_node(node_type: torch.Tensor, subtree_size: torch.Tensor) -> A
     Triton kernel maps any type other than 0/1/2/3 onto its TERNARY branch (the
     oracle's fall-through), so a population built for ``output_len >= 2`` and
     launched as single-output would produce a plausible wrong number.  The rule
-    itself (:func:`evogp.tree.multi_output.check_multi_output`) is applied
+    itself (:func:`evogp._multi_output.check_multi_output`) is applied
     host-side from this answer, before any launch.
 
     Only the cells inside each row's own tree (``subtree_size[:, 0]``) are read:
@@ -932,8 +900,8 @@ def _envelope_verdict(key: Tuple[int, int, int, int, bool, int, int, int]) -> Op
         f"buffer {values / _MIB:.1f} MiB + loss chart {partials / _MIB:.3f} MiB "
         f"= {total / _MIB:.1f} MiB > {MAX_SCRATCH_MB_ENV} {budget} MiB for "
         f"pop_size {pop} * max_tree_len {tree_len} * rows {rows} * out_len "
-        f"{out_len} at {n_rb} row blocks of {block} lanes (raise it, or use the "
-        "dense/batch route for this shape)"
+        f"{out_len} at {n_rb} row blocks of {block} lanes (raise it, or evaluate "
+        "a smaller shape)"
     )
 
 
@@ -953,10 +921,10 @@ def envelope_decline(
     The NON-RAISING twin of :func:`_check_envelope` -- the same three-term byte
     rule through the same pure :func:`_envelope_verdict`, without the raise, the
     memo write or the resolved budget -- for callers that must DECIDE instead of
-    call.  ``dense_engine.auto_fused_decline`` is that caller: the route policy
-    asks it before picking this engine, so ``auto`` never routes a population to a
-    launch that could not hold it.  Omitted knobs go through the same resolvers as
-    a real call, so the verdict matches what :func:`evaluate_fused` would do,
+    call.  The gp stack and the check battery are those callers: they ask it
+    before handing a shape to a launch that could not hold it.  Omitted knobs go
+    through the same resolvers as a real call, so the verdict matches what
+    :func:`evaluate_fused` would do,
     ``holds_values`` included (the single-output loss path allocates no value
     buffer and no chart).
     """
@@ -1030,7 +998,7 @@ def _prepare(
             f"output_len={int(output_len)} > {MAX_OUT_LEN}: the multi-output kernel "
             f"accumulates in the (pop, rows, out_len) prediction buffer, so this "
             f"route serves up to {MAX_OUT_LEN} outputs (raise "
-            "fused_engine.MAX_OUT_LEN if a model really needs more)"
+            "evogp.fused.engine.MAX_OUT_LEN if a model really needs more)"
         )
     if tree_len < 1:
         raise ValueError(f"max_tree_len must be >= 1, got {tree_len}")
@@ -1062,8 +1030,8 @@ def _prepare(
     # the kernel cannot say so: its type dispatch folds every type that is not
     # 0/1/2/3 into the TERNARY branch, so a population built for ``output_len >= 2``
     # would be evaluated as if each tagged node were an ``if`` -- a plausible wrong
-    # number, no exception.  The shared rule (``multi_output.check_multi_output``,
-    # the one the dense and specialized decoders apply) therefore runs HERE, on the
+    # number, no exception.  The shared rule (``evogp._multi_output.check_multi_output``,
+    # the one every evaluator of this library applies) therefore runs HERE, on the
     # host, before any launch.
     _refuse_out_node(node_type, subtree_size, output_len)
     return _Prepared(
@@ -1198,8 +1166,7 @@ class _Call:
 #: the entry is a plain :data:`PLAN_MEMO` value, the comparison proves exactly what
 #: the key proves (same tensor OBJECTS -- kept alive by the entry's ``pins``, same
 #: ``_version`` vector, same resolved scalars and geometry), a hit is counted as a
-#: plan hit, and ``clear_fused_cache()`` / ``evoxc_engine.clear_cache()`` drop it
-#: with the table.
+#: plan hit, and ``clear_fused_cache()`` drops it with the table.
 _LAST: Optional[_Call] = None
 
 
@@ -1270,13 +1237,13 @@ def _identity(tensor: Any) -> Optional[Tuple[int, int]]:
     OBJECT, not its ``data_ptr``: every entry keeps a strong reference to the
     tensors it keyed on (:attr:`_Call.pins`), so the object (and therefore its
     storage and its ``id``) cannot be recycled by a different tensor while the
-    entry lives -- the ABA argument ``dense_memo.pin`` makes for ``data_ptr``, one
-    step stronger, and 0.15 us instead of the 1.1 us the full
+    entry lives -- the ABA argument :func:`evogp.fused.memo.pin` makes for
+    ``data_ptr``, one step stronger, and 0.15 us instead of the 1.1 us the full
     ``(data_ptr, shape, dtype, device, _version)`` token costs (this key is built
     on every warm call).  ``_version`` is bumped by every in-place torch write, so
     a mutated population or dataset can never be served from a stale entry.
 
-    Not detected by design (exactly like the dense front tables): a write that
+    Not detected by design (exactly like the front tables): a write that
     bypasses torch's version counter, e.g. through a ``numpy`` view of the same
     memory or a foreign kernel.  Call :func:`clear_fused_cache` (or use torch ops)
     after such a write.  ``None`` for anything that is not a ``torch.Tensor``, so
@@ -1318,7 +1285,7 @@ def _value_key(
     read, resolved (never a raw ambient string), so an entry cannot go stale:
 
     * ``input_len`` / ``output_len`` / ``per_row`` -- the shape contract;
-    * the evoxc ``backend`` SPELLING as passed (an explicit ``numpy`` declines, so
+    * the ``backend`` SPELLING as passed (an explicit ``numpy`` declines, so
       it must be part of the key rather than re-checked per call; the raw spelling
       is enough -- two spellings of one backend get two entries, which is harmless
       -- and resolving the name costs 3.4 us, more than the entry saves);
@@ -1798,7 +1765,7 @@ def sr_fitness_fused(
     float32 POSITIVE loss ``sum_N sum_out err / N`` (MSE or MAE) on the
     computation device unless ``out_device``; NaN/inf propagate unsanitized --
     same formula, same float32 placement and the same ``label - prediction``
-    order as :func:`evoxc_engine.sr_fitness`.
+    order as the oracle's ``sr_fitness_from_rows`` (``test/oracle/reference_eval.py``).
 
     The kernel reduces each (tree, row-block) to ONE partial, so the only device
     output of the pass is the ``(pop, n_rb)`` chart: summing it and dividing by

@@ -3,9 +3,10 @@
 This module is the device half of the fused evaluation route: it turns the
 population's already-resident prefix-order tensors into ONE pass of Triton
 programs with no host readback, no host decode and no per-node Python work.
-The policy layer (declines, knobs, counters, the transposed-input memo) lives in
-:mod:`evogp.tree.fused_engine`; the dev battery lives in
-:mod:`evogp.tree.fused_check`.
+The host-side policy layer (declines, knobs, counters, the prepared-call table
+and the transposed-input memo) lives in :mod:`evogp.fused.engine`; the ids the
+op table below is declared against come from the torch-free
+:mod:`evogp._tables`.
 
 Module scope (deliberate, do not split)
 ---------------------------------------
@@ -21,14 +22,13 @@ with failing-test evidence, and keep the op table single-sourced while doing so.
 
 Why a fused kernel at all
 -------------------------
-The dense route (``dense_engine.py``) evaluates a population with ONE evoxc graph
-whose per-position op chain is unrolled over the *whole trace*: every node
-position writes a ``(P, N)`` candidate buffer and every later node re-reads the
-operands from that buffer, so the graph moves ``O(L^2)`` populated tensor
-elements for a tree of ``L`` positions (and it is dispatch-bound at ~310 chained
-device ops for the whole population -- see ``DENSE_EVAL.md`` §5).  A plain-torch
-whole-population implementation (the ``torch-batched`` benchmark arm) has the
-same shape of traffic: a ``(pop, L+1, N)`` buffer, one pass per position.
+An all-ops compiled graph evaluates a population by unrolling its per-position
+op chain over the *whole trace*: every node position writes a ``(P, N)``
+candidate buffer and every later node re-reads the operands from that buffer, so
+the graph moves ``O(L^2)`` populated tensor elements for a tree of ``L``
+positions.  A plain-torch whole-population implementation (the ``torch-batched``
+benchmark arm) has the same shape of traffic: a ``(pop, L+1, N)`` buffer, one
+pass per position.
 
 The prefix encoding gives a much better algorithm.  In pre-order the FIRST child
 of node ``j`` is ALWAYS node ``j+1``, so walking the tree in REVERSE prefix order
@@ -58,7 +58,7 @@ launch, so only its total is quotable -- 0.0449-0.1152 ms ``batch_forward`` on t
 shipped default (``FUSED.md`` §18; the six-cell sweep that preceded the campaign read
 48.6x-167.6x on the value path and is kept for the record there).  The
 ``BLOCK_R``/warp sweep and the per-cell table are the module
-docstring of :mod:`evogp.tree.fused_engine`, reproduced by ``fused_check.py``.
+docstring of :mod:`evogp.fused.engine`, reproduced by ``evogp.fused.check``.
 
 Geometry
 --------
@@ -71,7 +71,7 @@ each, i.e. thousands of independent dependency chains to hide the per-node
 scalar-load latency behind.  ``BLOCK_R`` is ``min(next_pow2(rows), cap)`` with
 ``cap = EVOGP_FUSED_BLOCK_ROWS`` (default 256, rounded DOWN to a power of two --
 ``tl.arange`` needs one) and the launch is ``num_warps = EVOGP_FUSED_NUM_WARPS``
-(default 1); the measured sweep is in ``fused_engine``'s docstring.
+(default 1); the measured sweep is in :mod:`evogp.fused.engine`'s docstring.
 
 The kernel body
 ---------------
@@ -94,14 +94,13 @@ Every iteration computes ONE node value for the whole row block::
 
 The lookahead load is the same load the next iteration needs, so the walk costs
 ONE ``node_type`` load and at most one ``node_value`` load per node.  The type
-mapping mirrors ``reference_eval._kind_from_type`` exactly: anything that is not
+mapping mirrors the oracle's ``_kind_from_type`` exactly: anything that is not
 0/1/2/3 is a ternary ``if`` node, and a ternary node ignores its function id.
 That includes a type carrying the multi-output ``OUT_NODE`` bit -- so a
 SINGLE-OUTPUT launch must never see one, and it never does: the facade refuses a
 tagged population host-side before any launch
-(``fused_engine._prepare`` -> ``multi_output.check_multi_output``, the same rule
-the dense and specialized decoders apply), which makes this kernel's
-fall-through UNREACHABLE for a validated call.  The kernel body keeps the
+(:func:`evogp.fused.engine._prepare` -> :func:`evogp._multi_output.check_multi_output`),
+which makes this kernel's fall-through UNREACHABLE for a validated call.  The kernel body keeps the
 oracle's mapping verbatim on purpose: it is a device-side max, and a masked lane
 must still produce a defined number rather than a trap.
 
@@ -118,11 +117,11 @@ deterministic ``0.0`` rather than whatever the shared scratch block held from an
 earlier call.  ``stack_cap == tree_len`` so the deepest legal tree (a
 right-leaning chain) still fits.  A malformed tree therefore produces a
 defined-but-arbitrary number, which is why the route DECLINES nothing on
-structure: the specialized engine (``evoxc_engine.decode_population``) owns the
-malformed-tree ``ValueError`` contract, and the wiring round falls back to it
-before this kernel is reached.
+structure: structural validation belongs to the CALLER (``evogp.gp`` decodes and
+validates a population before it ever reaches a device tensor, and owns the
+malformed-tree error contract), never to the kernel.
 
-Numeric contract (bit-for-bit with ``src/evogp/tests/reference_eval.py``)
+Numeric contract (bit-for-bit with the oracle, ``test/oracle/reference_eval.py``)
 -----------------------------------------------------------------------
 Every node value is the correctly rounded float32 result of the op on float32
 operands.  Two rules make that true on the device:
@@ -136,13 +135,13 @@ operands.  Two rules make that true on the device:
    already correctly rounded and the double rounding through float64 is
    innocuous at 53 >= 2p+2 bits.
 2. **The transcendentals are computed in float64 and rounded back**
-   (``round32(f64op(f64(a)))``), exactly like ``reference_eval._apply`` and the
-   evoxc emitters: ``sin cos tan sinh cosh tanh log exp pow sqrt``.  ``sqrt``
+   (``round32(f64op(f64(a)))``), exactly like the oracle's ``_apply``:
+   ``sin cos tan sinh cosh tanh log exp pow sqrt``.  ``sqrt``
    needs this too -- the hardware float32 ``sqrt`` is correctly rounded but
    torch's float32 ``sqrt`` is NOT (it disagrees on 16% of inputs, measured), so
    the oracle's ``round32(sqrt(f64(a)))`` is the reference.  ``sinh``/``cosh``
-   use the composed ``(exp(x) -+ exp(-x)) * 0.5`` form (evoxc has no
-   ``sinh``/``cosh``, and the composed form is the emitters' semantics of
+   use the composed ``(exp(x) -+ exp(-x)) * 0.5`` form (there is no native
+   ``sinh``/``cosh`` here, and the composed form is the oracle's semantics of
    record), with ``|a| < 1e-4`` returned as ``a`` so the sign of zero survives
    (``loose_inv(-0.0) = -1e9``).  -- measured on 65 536 random inputs: all
    twelve float64 specializations agree with numpy's float64 result bit-for-bit
@@ -178,15 +177,15 @@ still divides by ``rows`` only.
 
 Laziness
 --------
-``import evogp.tree`` must keep working on a box with no triton and no GPU, and
-triton's import is heavy, so **nothing here imports triton at module import
-time**.  The kernel bodies below are ordinary module-level functions (so
+``import evogp.gp`` must keep working on a box with no triton and no GPU (it
+never imports this package), and triton's import is heavy, so **nothing here
+imports triton at module import time**.  The kernel bodies below are ordinary module-level functions (so
 ``inspect.getsource`` sees them and their ``__globals__`` is this module's
 dict); :func:`kernels` imports triton on first use, publishes ``tl`` /
 ``libdevice`` / ``triton`` into the module globals and REPLACES the names of the
 helper bodies with their ``triton.jit`` wrapped versions, which is what the
 compiled kernel resolves its callees through.  Call :func:`kernels` (or anything
-in :mod:`evogp.tree.fused_engine`) before touching the functions below.
+in :mod:`evogp.fused.engine`) before touching the functions below.
 
 Triton writes its on-disk cache under ``~/.triton`` by default; on a box whose
 home is read-only set ``TRITON_CACHE_DIR`` to a writable path (this box needs
@@ -205,7 +204,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import torch
 
-from .utils import DELTA, FUNCS, Func
+from .._tables import DELTA, FUNCS, Func
 
 __all__ = [
     "BLOCK_ROWS_ENV",
@@ -241,7 +240,7 @@ DISPATCH_BOUND = "bound"
 DISPATCH_JIT = "jit"
 #: Lanes per program when the caller does not say otherwise.  Measured optimum:
 #: in the 64/128/256/512 x warps-1/2/4 sweep (six cells, one process per config,
-#: :mod:`evogp.tree.fused_check --stage tuning`) 256 is the only width that lands
+#: ``python -m evogp.fused.check --stage tuning``) 256 is the only width that lands
 #: within 4.3 % of the per-cell best on EVERY cell, and it is the per-cell best on
 #: the two heaviest ones.
 DEFAULT_BLOCK_ROWS = 256
@@ -261,7 +260,7 @@ DEFAULT_NUM_WARPS = 1
 class FusedUnavailable(RuntimeError):
     """Triton (or a usable device) is not available at all.
 
-    Distinct from :class:`evogp.tree.fused_engine.FusedUnsupported`, which is
+    Distinct from :class:`evogp.fused.engine.FusedUnsupported`, which is
     the per-call "this population cannot use the fused route" decline: this one
     is an environment fact and is raised only by :func:`kernels`.
     """
@@ -270,8 +269,9 @@ class FusedUnavailable(RuntimeError):
 # --------------------------------------------------------------------------- #
 # the operator table: data here, ``if/elif`` chains in the kernels, one check
 # --------------------------------------------------------------------------- #
-# ``utils.FUNCS`` is the single source of truth for the function-id vocabulary, so
-# the id sets the kernels emit are declared here against ``utils.Func`` and
+# ``evogp._tables.FUNCS`` is the single source of truth for the function-id
+# vocabulary, so the id sets the kernels emit are declared here against
+# ``evogp._tables.Func`` and
 # cross-checked at import (see :func:`_verify_operator_table`).  A kernel body can
 # only read ``tl.constexpr`` globals, so the branches themselves spell the ids out
 # as literals -- which is exactly why the literals need a guard.
@@ -307,7 +307,7 @@ _EMITTED_UNARY_IDS: Tuple[int, ...] = (
     Func.SQRT,
     Func.LOOSE_SQRT,
 )
-#: ``utils.DELTA`` -- single-sourced, but installed as a ``tl.constexpr`` (see
+#: ``evogp._tables.DELTA`` -- single-sourced, but installed as a ``tl.constexpr`` (see
 #: :func:`_install_globals`) because the kernel bodies may only read constexpr
 #: globals.  Before the first :func:`kernels` call this is the plain float.
 _DELTA = float(DELTA)
@@ -386,19 +386,19 @@ def _comparison_ids(body) -> Tuple[int, ...]:
 
 
 def _expected_ids() -> Dict[str, Tuple[int, ...]]:
-    """``utils.FUNCS`` split by the arity ranges of ``utils.Func``."""
+    """``evogp._tables.FUNCS`` split by the arity ranges of ``Func``."""
     binary = tuple(f for f in FUNCS if Func.BF_START <= f < Func.UF_START)
     unary = tuple(f for f in FUNCS if Func.UF_START <= f < Func.END)
     return {"binary": binary, "unary": unary}
 
 
 def _verify_operator_table() -> None:
-    """Fail the IMPORT if the kernels' operator table is not exactly ``utils.FUNCS``.
+    """Fail the IMPORT if the operator table is not exactly ``evogp._tables.FUNCS``.
 
     An uncovered function id silently evaluates to ``0.0`` in both kernels, so a new
     operator must never be able to slip in unreported.  Two independent comparisons:
 
-    1. the declared id sets vs ``utils.FUNCS`` (no source needed), which catches an
+    1. the declared id sets vs ``FUNCS`` (no source needed), which catches an
        operator ADDED to or REMOVED from the vocabulary;
     2. the declared id sets vs the literals the ``if/elif`` chains actually compare
        (needs the source file, i.e. a checkout), which catches a branch edited
@@ -412,7 +412,7 @@ def _verify_operator_table() -> None:
             extra = sorted(set(declared[arity]) - set(expected[arity]))
             raise RuntimeError(
                 f"fused_kernels: the {arity} operator table is out of step with "
-                f"utils.FUNCS (missing ids {missing}, unknown ids {extra}); a "
+                f"evogp._tables.FUNCS (missing ids {missing}, unknown ids {extra}); a "
                 "function id with no branch evaluates to 0.0 in both kernels"
             )
     try:
@@ -460,7 +460,7 @@ def _copysign_delta(y):
     The sign comes from the SIGN BIT (``y`` bitcast to int32), not from ``y >= 0``:
     ``-0.0`` is a "negative" clamp (``loose_inv(-0.0) = -1e9`` is pinned by
     ``ENGINE_SPEC.md`` §3 and by the ``03_edge_nan`` golden), and every
-    arithmetic sign test answers "+" for it.  ``_DELTA`` is ``utils.DELTA``, installed
+    arithmetic sign test answers "+" for it.  ``_DELTA`` is ``evogp._tables.DELTA``, installed
     as a ``tl.constexpr`` by :func:`kernels` (a kernel may only read constexpr globals).
     """
     return tl.where(y.to(tl.int32, bitcast=True) < 0, -_DELTA, _DELTA)
@@ -469,7 +469,7 @@ def _copysign_delta(y):
 def _unary(func_id, a):
     """One unary node (ids 14..28); any other id yields ``0.0``.
 
-    Mirrors ``reference_eval._apply``'s UFUNC branch one-to-one, including the
+    Mirrors the oracle's ``_apply`` UFUNC branch one-to-one, including the
     ``round32`` of every transcendental and the two NaN/``-1e9`` placements.
     """
     out = tl.zeros_like(a)
@@ -513,7 +513,7 @@ def _unary(func_id, a):
 def _binary(func_id, a, b):
     """One binary node (ids 1..13); any other id yields ``0.0``.
 
-    Mirrors ``reference_eval._apply``'s BFUNC branch one-to-one: the ``DIV``
+    Mirrors the oracle's ``_apply`` BFUNC branch one-to-one: the ``DIV``
     zero test answers NaN (``+0.0`` and ``-0.0`` alike), the loose ops clamp
     ``|b| <= 1e-9`` through :func:`_copysign_delta`, ``POW`` goes through float64
     (``pow(0,0)=1``, ``pow(-2,3)=-8``, ``pow(-2,0.5)=NaN``) and
@@ -732,9 +732,9 @@ def _fused_kernel(
 # literals in their bodies: a Triton kernel may only read ``tl.constexpr`` module
 # globals, and ``tl`` does not exist at this module's import time, so the two
 # values cannot be name-bound here.  The host-side copies that used to live at
-# this spot read nothing; :mod:`evogp.tree.multi_output` is the one host source of
+# this spot read nothing; :mod:`evogp._multi_output` is the one host source of
 # truth for the tag (``OUT_NODE`` / ``MAX_OUT_LEN``) and
-# ``fused_engine._refuse_out_node`` is what enforces it for a single-output call.
+# ``evogp.fused.engine._refuse_out_node`` is what enforces it for a single-output call.
 
 
 def _fused_multi_kernel(
@@ -760,7 +760,7 @@ def _fused_multi_kernel(
 
     Same reverse-prefix walk as :func:`_fused_kernel`, plus the two rules the
     multi-output protocol adds (the legacy ``treeGPEvalKernel<true>``, mirrored by
-    ``reference_eval.forward_tree(multi_output=True)``):
+    ``forward_tree(multi_output=True)`` of the oracle):
 
     * the base kind is ``node_type & 0x7F`` and ``node_type & 0x80`` is the
       ``OUT_NODE`` tag; a TAGGED FUNCTION NODE resolves its operator from the packed
@@ -923,7 +923,7 @@ def _install_globals(triton_module: Any, language: Any, libd: Any) -> None:
     Separate from :func:`kernels` on purpose: the names must not become locals of
     the builder, or the kernel bodies would reference them as closure cells while
     triton's code generator resolves free names through ``fn.__globals__``.
-    ``_DELTA`` is ``utils.DELTA`` and ``STACK_WINDOW`` is the register-window depth,
+    ``_DELTA`` is ``evogp._tables.DELTA`` and ``STACK_WINDOW`` is the register-window depth,
     both as ``tl.constexpr`` -- the only form a kernel body may read a global in.
     """
     g = globals()
@@ -1100,11 +1100,11 @@ def resolve_dispatch(value: Optional[str] = None) -> str:
     the pre-bound ``CompiledKernel``; ``jit`` keeps the historical
     ``kernel[grid](*args, **options)`` dispatch (a full ``JITFunction.run`` per
     call).  Resolved at BIND time -- i.e. once per prepared call, on a
-    :data:`evogp.tree.fused_engine.PLAN_MEMO` miss -- so flipping the knob and
+    :data:`evogp.fused.engine.PLAN_MEMO` miss -- so flipping the knob and
     calling ``clear_fused_cache()`` re-binds and the A/B needs no new process.
 
     Anything else is a caller error and raises, exactly like the other geometry
-    knobs (:func:`evogp.tree.fused_engine.resolve_block_rows`).
+    knobs (:func:`evogp.fused.engine.resolve_block_rows`).
     """
     raw = os.environ.get(DISPATCH_ENV, DISPATCH_BOUND) if value is None else value
     spelling = str(raw).strip().lower()
@@ -1275,7 +1275,7 @@ class _BoundLaunch:
     pin it.  The captured specialization (dtypes and the pointer-alignment
     assumption Triton encodes) belongs to the bound plan, exactly like the scratch
     block and the geometry it is bound with: it is invalidated by
-    ``fused_engine.clear_fused_cache()`` / ``evoxc_engine.clear_cache()``, the same
+    ``evogp.fused.engine.clear_fused_cache()``, the same
     point that drops the plan.
 
     Degradation is silent and permanent per shape: an unusable ``CompiledKernel``
