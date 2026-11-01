@@ -1,4 +1,4 @@
-"""Measurement harness: one GENERATION of ``evogp.gp`` vs the torch stack.
+"""Measurement harness: one GENERATION of ``evogp.gp`` vs its alternatives.
 
 This is COMMITTED EVIDENCE, not a test and not a library entry point: nothing
 runs at import time, everything lives inside :func:`main` or the function the
@@ -6,7 +6,7 @@ side dispatch calls.  Torch is resolved through :func:`importlib.import_module`
 inside the functions (the boundary :mod:`evogp.gp.fused_eval` uses), because the
 sibling purity test forbids the literal import statement in this subtree.
 
-One cell is a ``(pop_size, rows)`` pair.  Six sides answer "what does ONE GP
+One cell is a ``(pop_size, rows)`` pair.  Four sides answer "what does ONE GP
 generation cost?" on the same data, and the last one settles the fused-vs-in-
 graph question of :mod:`evogp.gp.fused_eval`:
 
@@ -25,17 +25,17 @@ graph question of :mod:`evogp.gp.fused_eval`:
 ``numpy``       the same driver on numpy with the host
                 :class:`evogp.gp.problem.SymbolicRegression` evaluator (the CPU
                 reference of this stack).
-``torch``       the TORCH STACK's ``StandardPipeline.step`` -- ``Forest`` /
-                ``GeneticProgramming`` / ``SymbolicRegression`` built exactly the
-                way ``test/benchmark/evoxc/arms.py`` builds them (same
-                descriptor, same operators), on its default route (``auto`` ->
-                dense+iree).
-``torch-fused`` the same torch stack with ``EVOGP_EVAL_MODE=fused`` (its Triton
-                evaluation route).
 ``fused``       the head-to-head of :mod:`evogp.gp.fused_eval`: one in-graph
                 ``evoxc`` evaluation against the fused kernel fed from DEVICE
                 channels (host round trip included) and from host channels.
 =============== ===============================================================
+
+The torch-native stack's own generation sides (``evogp.algorithm`` /
+``evogp.pipeline`` / ``evogp.problem`` over a ``Forest``) were removed with that
+stack in 2.0.0a2; recover them at commit 6720723.  A plain-torch generation is
+not reconstructible from this subtree's code (the operators and the pipeline
+lived in the deleted stack), so no torch column survives here -- the per-CALL
+torch baselines live in :mod:`evogp.gp.measure_popscale` instead.
 
 Protocol (every number in ``DEVICE_LOOP.md`` depends on it):
 
@@ -81,11 +81,7 @@ device synced.  The ``evaluation``/``variation`` columns decompose it and sum to
 ``total`` within a few percent on the device-resident sides (``gp``,
 ``gp-fused``): each segment carries its own sync bracket, so the two sum and the
 one-bracket ``total`` can disagree by a few percent and ``total`` is the number
-to quote; the torch side takes its split inside the step through a timed problem
-wrapper, so ``operator = total - evaluation``.  The torch stack selects by
-truncation (``survival_rate=0.3``, ``elite_rate=0.01``, the benchmark campaign's
-wiring) while ``evogp.gp`` uses a tournament of 4, so the two sides are
-deliberately *not* the same operator mix.
+to quote.
 """
 from __future__ import annotations
 
@@ -117,7 +113,6 @@ __all__ = [
     "resolve_cells",
     "make_configs",
     "measure_gp",
-    "measure_torch",
     "measure_fused_head_to_head",
     "measure_side",
     "versions",
@@ -163,15 +158,13 @@ SEED = 0
 SIDE_MAX_POP: Dict[str, int] = {"numpy": 1024}
 
 #: Sides of the grid (``fused`` is the head-to-head, not a driver side).
-SIDES: Tuple[str, ...] = ("gp", "gp-fused", "numpy", "torch", "torch-fused", "fused")
+SIDES: Tuple[str, ...] = ("gp", "gp-fused", "numpy", "fused")
 
 #: Timed repetitions / discarded warm-up generations / trajectory length.
 REPS = 15
 WARMUP = 5
 GENERATIONS = 20
 
-#: The torch stack's evaluation route per side (``auto`` = the shipped default).
-TORCH_EVAL_MODES = {"torch": "auto", "torch-fused": "fused"}
 
 #: ``GPU use`` percentage above which the card counts as busy (contamination).
 BUSY_PCT = 25.0
@@ -581,141 +574,6 @@ def measure_gp(
 
 
 # --------------------------------------------------------------------------- #
-# the torch stack (``StandardPipeline.step``)
-# --------------------------------------------------------------------------- #
-class _TimedProblem:
-    """``BaseProblem`` wrapper that records the wall time of its own ``evaluate``."""
-
-    def __init__(self, problem) -> None:
-        self.problem = problem
-        self.last_ms = 0.0
-
-    def evaluate(self, forest):
-        start = time.perf_counter()
-        fitness = self.problem.evaluate(forest)
-        self.last_ms = (time.perf_counter() - start) * 1e3
-        return fitness
-
-    @property
-    def problem_dim(self):
-        return self.problem.problem_dim
-
-    @property
-    def solution_dim(self):
-        return self.problem.solution_dim
-
-
-def _torch_pipeline(tree: GPTreeConfig, x, y, pop: int, *, seed: int):
-    """``GeneticProgramming`` + ``StandardPipeline`` over the cell's workload.
-
-    Mirrors ``test/benchmark/evoxc/arms.py::make_pipeline`` (the same descriptor,
-    the same three default operators, the campaign's truncation selection) with
-    the real ``evogp.problem.SymbolicRegression`` rather than the harness's
-    fitness shim, so the evaluation is the one a user gets.
-    """
-    torch = _torch()
-    from evogp.algorithm import (  # noqa: PLC0415 - call-time import on purpose
-        DefaultCrossover,
-        DefaultMutation,
-        DefaultSelection,
-        GeneticProgramming,
-    )
-    from evogp.pipeline import StandardPipeline  # noqa: PLC0415
-    from evogp.problem import (  # noqa: PLC0415
-        SymbolicRegression as TorchSymbolicRegression,
-    )
-    from evogp.tree import Forest, GenerateDescriptor  # noqa: PLC0415
-
-    torch.manual_seed(seed)
-    descriptor = GenerateDescriptor(
-        max_tree_len=int(WORKLOAD["max_nodes"]),
-        input_len=int(WORKLOAD["input_len"]),
-        output_len=1,
-        using_funcs=list(WORKLOAD["using_funcs"]),
-        max_layer_cnt=int(WORKLOAD["max_layer_cnt"]),
-        const_prob=float(WORKLOAD["const_prob"]),
-        layer_leaf_prob=float(WORKLOAD["layer_leaf_prob"]),
-        const_samples=[float(value) for value in tree.const_samples],
-    )
-    forest = Forest.random_generate(pop_size=int(pop), descriptor=descriptor)
-    algorithm = GeneticProgramming(
-        initial_forest=forest,
-        crossover=DefaultCrossover(),
-        mutation=DefaultMutation(
-            mutation_rate=0.2, descriptor=descriptor.update(max_layer_cnt=3)
-        ),
-        selection=DefaultSelection(survival_rate=0.3, elite_rate=0.01),
-    )
-    problem = TorchSymbolicRegression(
-        datapoints=torch.as_tensor(x, device="cuda"),
-        labels=torch.as_tensor(
-            np.asarray(y, dtype=np.float32).reshape(-1, 1), device="cuda"
-        ),
-    )
-    timed = _TimedProblem(problem)
-    pipeline = StandardPipeline(algorithm, timed, is_show_details=False)
-    return pipeline, timed
-
-
-def measure_torch(
-    pop: int,
-    rows: int = ROWS,
-    *,
-    eval_mode: str = "auto",
-    warmup: int = WARMUP,
-    reps: int = REPS,
-    generations: int = GENERATIONS,
-    seed: int = SEED,
-) -> Dict[str, Any]:
-    """One cell of the TORCH stack's ``StandardPipeline.step``."""
-    if eval_mode and eval_mode != "auto":
-        os.environ["EVOGP_EVAL_MODE"] = eval_mode
-    else:
-        os.environ.pop("EVOGP_EVAL_MODE", None)
-    tree, _gp_config, x, y = make_configs(pop, rows, seed)
-    pipeline, timed = _torch_pipeline(tree, x, y, pop, seed=seed)
-    cold, _ = _median(pipeline.step, iters=1, warmup=0, sync=_sync)
-    for _ in range(max(0, warmup)):
-        pipeline.step()
-    _sync()
-    total_samples: List[float] = []
-    eval_samples: List[float] = []
-    for _ in range(max(1, reps)):
-        _sync()
-        start = time.perf_counter()
-        pipeline.step()
-        _sync()
-        total_samples.append((time.perf_counter() - start) * 1e3)
-        eval_samples.append(timed.last_ms)
-    total = _block(total_samples)
-    evaluation = _block(eval_samples)
-    operators = dict(total)
-    operators["median_ms"] = round(total["median_ms"] - evaluation["median_ms"], 4)
-    operators.pop("samples_ms")
-    record: Dict[str, Any] = {
-        "side": "torch" if eval_mode == "auto" else "torch-fused",
-        "pop": int(pop),
-        "rows": int(rows),
-        "eval_mode": eval_mode,
-        "timing": {"evaluation": evaluation, "variation": operators, "total": total},
-        "cold_ms": cold["median_ms"],
-    }
-    # trajectory: a fresh, identically seeded pipeline, one step per generation
-    pipeline, _timed = _torch_pipeline(tree, x, y, pop, seed=seed)
-    best: List[float] = []
-    median: List[float] = []
-    for _ in range(max(1, generations)):
-        top, middle = _scores(pipeline.step().numpy())
-        best.append(top)
-        median.append(middle)
-    record["trajectory"] = {
-        "best": [round(value, 6) for value in best],
-        "median": [round(value, 6) for value in median],
-    }
-    return record
-
-
-# --------------------------------------------------------------------------- #
 # the open question: fused (Triton) vs the in-graph evoxc route
 # --------------------------------------------------------------------------- #
 def _parity(reference: np.ndarray, candidate: np.ndarray) -> Dict[str, float]:
@@ -963,7 +821,7 @@ def measure_side(
 ) -> Dict[str, Any]:
     """Dispatch one side of one cell."""
     triton_dir = None
-    if side in ("torch-fused", "gp-fused", "fused"):
+    if side in ("gp-fused", "fused"):
         # BEFORE any fused work: this box's $HOME is read-only, so triton's
         # default cache path dies with OSError [Errno 30] on the first launch.
         from . import fused_eval  # noqa: PLC0415
@@ -979,11 +837,6 @@ def measure_side(
             generations=generations,
             seed=seed,
             fused=side == "gp-fused",
-        )
-    elif side in TORCH_EVAL_MODES:
-        record = measure_torch(
-            pop, rows, eval_mode=TORCH_EVAL_MODES[side], warmup=warmup, reps=reps,
-            generations=generations, seed=seed,
         )
     elif side == "fused":
         record = measure_fused_head_to_head(
@@ -1050,16 +903,18 @@ def report(
             )
         )
     lines.append("")
-    lines.append("## fused vs in-graph (the open question)")
-    lines.append("")
-    for record in sorted(
+    fused_records = sorted(
         (
             item
             for item in records
             if item.get("side") == "fused" and item.get("timing")
         ),
         key=lambda item: (item["rows"], item["pop"]),
-    ):
+    )
+    if fused_records:
+        lines.append("## fused vs in-graph (the open question)")
+        lines.append("")
+    for record in fused_records:
         timing, verdict = record["timing"], record.get("verdict") or {}
         lines.append(
             "- pop {pop} rows {rows}: in-graph {graph} | transfer {transfer} "
@@ -1240,7 +1095,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         prog="python -m evogp.gp.measure_generation",
         description=(
             "One GP generation: the device-resident evogp.gp loop vs the numpy "
-            "path vs the torch stack, plus the fused-vs-in-graph head-to-head."
+            "path, plus the fused-vs-in-graph head-to-head."
         ),
     )
     for flag, options in (

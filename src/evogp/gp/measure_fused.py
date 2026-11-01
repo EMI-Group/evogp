@@ -259,7 +259,7 @@ def measure_pop(
 ) -> Dict[str, Any]:
     """Every timed column of one population size."""
     torch = importlib.import_module("torch")
-    engine = importlib.import_module("evogp.tree.fused_engine")
+    engine = importlib.import_module("evogp.fused.engine")
     config = make_config(**({} if max_nodes is None else {"max_nodes": max_nodes}))
     state = init_population(config, SEED, pop_size=pop_size, backend="numpy")
     reference = SymbolicRegression(x, y)
