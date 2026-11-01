@@ -15,8 +15,9 @@ population's own numpy rows, so the baselines survive the removal of the
 torch-native stack in 2.0.0a2.  The torch comparison code that was built on that
 stack was removed in 2.0.0a2; recover it at commit 6720723.
 
-Semantics are the ones the engine documents (``../tree/ENGINE_SPEC.md``, which
-stays as the historical record): ``DIV`` masks a zero divisor with NaN,
+Semantics are the ones the deleted engine documented (its ``ENGINE_SPEC.md``,
+kept in git history; recover it at commit 6720723): ``DIV`` masks a zero
+divisor with NaN,
 ``MAX``/``MIN`` compare-select, comparisons yield +-1, ``IF`` selects on
 ``cond > 0``, the ``LOOSE_*`` family clamps as the spec says.  A single-output
 population is what the harnesses generate, so an ``output_len != 1`` triple is

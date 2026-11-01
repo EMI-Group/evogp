@@ -41,7 +41,7 @@ returns, but computed by the sibling Triton kernel:
 ============= ===========================================================
 host decode   ``encoding.to_legacy_triple`` -> ``(batch_node_value float32,
               batch_node_type int16, batch_subtree_size int16)``, the exact
-              ``Forest`` layout the engine expects (function nodes carry the
+              legacy triple layout the engine expects (function nodes carry the
               ``FUNC_TYPE`` marker, leaves their ``opcode``, padding 0)
 upload        the three tables + ``x``/``y`` to a torch CUDA/HIP device
 kernel        ``evogp.fused.engine.sr_fitness_fused`` -- the SR loss is
@@ -391,7 +391,7 @@ def sr_fitness_fused_channels(
         x: ``(N, input_len)`` float32 inputs (a 1-D array is one column).
         y: ``(N,)`` float32 targets.
         use_mse: squared error (default) or absolute error -- the ``use_MSE``
-            flag of ``Forest.SR_fitness``.
+            flag of the deleted ``Forest.SR_fitness``.
         input_len: optional cross-check against ``x``'s column count.
         device: torch device for the launch; ``None`` (default) is the box's GPU.
         validate: run :func:`evogp.gp.encoding.validate_channels` on the host
@@ -414,7 +414,7 @@ def sr_fitness_fused_channels(
         from .encoding import validate_channels
 
         validate_channels((opcode, payload, size), input_len=data.shape[1])
-    # The host decode the kernel needs: the ``Forest`` triple, whose padding is
+    # The host decode the kernel needs: the legacy triple, whose padding is
     # zeroed (so a stale cell past a row's live length cannot be read).
     value, node_type, subtree_size = to_legacy_triple((opcode, payload, size))
     engine = _require_engine()
@@ -1000,7 +1000,7 @@ class FusedDeviceEvaluator:
     ============ =============================================================
     channels     ``evoxc`` device tensors -> zero-copy torch views
                  (:func:`export_to_torch`, i.e. ``torch.from_dlpack``)
-    conversion   the ``Forest`` legacy triple, computed in torch on the device
+    conversion   the legacy triple, computed in torch on the device
                  (``_legacy_triple_device``)
     kernel       ``evogp.fused.engine.sr_fitness_fused`` -- the loss is
                  reduced in-kernel and written into this evaluator's ``evoxc``

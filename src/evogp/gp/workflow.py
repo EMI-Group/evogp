@@ -17,14 +17,15 @@ driver")::
 object is itself callable (``__call__`` is ``evaluate``) and it exposes
 ``.evaluate`` (the numpy host evaluator) plus ``.evaluate_graph`` (the same
 fitness from one traced ``evoxc`` graph) -- and the torch engine satisfies it
-through the caller-side adapter (``to_legacy_triple`` -> ``../tree/Forest`` ->
-``Forest.SR_fitness``), which lives outside this subtree because it needs torch.
+through the caller-side adapter :mod:`evogp.gp.fused_eval` (``to_legacy_triple``
+-> the legacy triple -> ``evogp.fused.engine.sr_fitness_fused``), which resolves
+torch lazily so this subtree itself stays torch-free.
 
 Elitism is the driver's job
 ---------------------------
 :func:`evogp.gp.variation.variation` returns **offspring only** -- it selects
-parents, crosses and mutates.  Exactly like
-``../algorithm/genetic_programming.py::GeneticProgramming.step``, the best
+parents, crosses and mutates.  Exactly like the deleted
+``genetic_programming.py::GeneticProgramming.step``, the best
 ``GPConfig.elite_count`` individuals of the evaluated generation are copied into
 the next generation *unchanged* (bit-identical rows, read straight out of the
 parent state), and the offspring fill the remaining rows.  Elitism is what makes
@@ -277,9 +278,9 @@ def _fitness(state: GPState, evaluate: Callable, read_back: bool = True):
             return None, raw
         # The ONE readback of a generation. `readback_fitness` owns the D2H move
         # and the repo-wide non-finite -> -inf rule (NaN, +inf and -inf alike:
-        # `StandardPipeline.step` demotes every non-finite value, and the driver
-        # does the same so an unevaluable -- or an exploded -- tree can never win
-        # a tournament).
+        # the deleted `StandardPipeline.step` demoted every non-finite value,
+        # and the driver does the same so an unevaluable -- or an exploded --
+        # tree can never win a tournament).
         return graph_eval.readback_fitness(raw, expected), raw
     values = np.array(
         encoding._as_numpy(raw, "fitness"), dtype=np.float32, copy=True

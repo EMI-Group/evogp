@@ -1,7 +1,7 @@
 """Subtree crossover of the evoxc GP stack: the splice, by index arithmetic.
 
-The semantics are the tree layer's ``../tree/splicing.py::_splice`` /
-``ENGINE_SPEC.md`` §7, reproduced verbatim (both parents are *reference*
+The semantics are the deleted tree layer's ``splicing.py::_splice`` /
+``ENGINE_SPEC.md`` §7, reproduced verbatim (both are *reference*
 implementations, not something to re-invent):
 
 Replacing the subtree rooted at ``pos`` of a target row (real length
@@ -331,7 +331,7 @@ def crossover(
 
     Per row: a donor row and both splice positions are drawn in-graph
     (``donor`` uniformly over the population, positions uniformly over the live
-    nodes of the target and of the donor -- ``../tree/splicing.py``'s
+    nodes of the target and of the donor -- the deleted ``splicing.py``'s
     semantics), then the donor's subtree replaces the target's subtree at
     ``pos``.  Rows that would exceed ``max_nodes``, and rows filtered out by
     ``prob``, are verbatim copies of their parent.

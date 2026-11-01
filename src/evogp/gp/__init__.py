@@ -2,9 +2,9 @@
 
 The new Evox-2.0-style EvoGP: a functional genetic-programming stack built only
 on ``evoxc`` (EvoX Compiler) tensors and numpy host glue.  It replaces the
-torch stack in ``../tree/``, ``../algorithm/``, ``../problem/`` and
-``../pipeline/`` once parity is established; the torch stack stays in place,
-unchanged, as the reference implementation and the migration source.
+torch-native stack (``evogp.tree``, ``evogp.algorithm``, ``evogp.problem`` and
+``evogp.pipeline``), which was deleted in 2.0.0a2: this subtree is the shipped
+GP layer now, and the deleted stack is gone rather than kept beside it.
 
 The idiom is Evox 2.0's (``/root/evox/src/evox/DESIGN.md``): frozen config
 dataclasses holding static leaves only (:mod:`evogp.gp.config`), state as a
@@ -18,7 +18,8 @@ The stack, bottom up:
     the tree encoding: a ``[pop_size, max_nodes]`` prefix-order channel triple
     (``opcode`` / ``payload`` / ``size``), one traced generation graph per
     static configuration (:func:`init_population`), host-side validation and
-    the bridge to ``../tree``'s legacy triple (:func:`to_legacy_triple`).
+    the bridge to the legacy ``(value, type, size)`` triple
+    (:func:`to_legacy_triple`).
 ``selection`` / ``crossover`` / ``mutation`` / ``variation``
     the operator layer: fitness-vector selection, splice crossover, the point /
     subtree / hoist mutation operators, and :func:`apply_variation` -- one whole

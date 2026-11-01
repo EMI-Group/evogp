@@ -3,7 +3,7 @@
 The config is the contract between the untraced world and the traced graphs: it
 must hold static leaves only, derive every table a graph needs, and reject a
 descriptor the generator could not honour (the same rules
-``../tree/descriptor.py`` enforces).
+the deleted ``descriptor.py`` enforced).
 """
 
 import dataclasses
@@ -47,7 +47,7 @@ def test_defaults_and_derived_tables():
     assert weights[Func.ADD] == pytest.approx(1 / 5)
     assert weights[Func.COS] == 0.0
 
-    # the depth schedule is GenerateDescriptor's
+    # the depth schedule is the deleted GenerateDescriptor's
     assert config.depth2leaf_probs == (0.2, 0.2, 0.2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
     assert len(config.depth2leaf_probs) == MAX_FULL_DEPTH
     assert config.levels == 4

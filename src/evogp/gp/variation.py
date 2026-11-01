@@ -1,7 +1,7 @@
 """One GP generation of the evoxc GP stack: select, cross, mutate (and elites).
 
 ``variation(config, state, fitness, key)`` is the operator-layer counterpart of
-``../algorithm/genetic_programming.py::GeneticProgramming.step``: it selects the
+the deleted ``genetic_programming.py::GeneticProgramming.step``: it selects the
 parents, applies crossover with ``crossover_prob``, applies mutation with
 ``mutation_prob`` and -- when ``elite_count`` is given -- keeps that many parent
 rows in front of the offspring.  With the default ``elite_count=0`` it returns

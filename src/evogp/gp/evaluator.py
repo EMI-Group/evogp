@@ -19,9 +19,9 @@ individuals and none over data points -- only over columns (``max_nodes``, the
 same bound as the tree layer's row width) and over the distinct function ids
 present in a column.
 
-Semantics are the tree layer's semantics of record
-(``../tree/ENGINE_SPEC.md`` section 3 / section 4.1, mirrored by the op emitters
-of ``../tree/evoxc_engine.py``):
+Semantics are the deleted tree layer's semantics of record
+(its ``ENGINE_SPEC.md`` section 3 / section 4.1, mirrored by the op emitters
+of its ``evoxc_engine.py``):
 
 * the FIRST (leftmost) child is operand 1, so ``-`` is ``first - second``,
   ``/`` is ``first / second`` and ``if`` tests the first child;
@@ -43,11 +43,11 @@ of ``../tree/evoxc_engine.py``):
   software transcendentals (``sin``/``cos``/``tan``/``tanh``/``log``/``exp``/
   ``pow`` and the composed ``sinh``/``cosh``) are evaluated in float64 and
   rounded back to float32, i.e. **correctly rounded** in float32; numpy's own
-  float32 kernels are not (``../tree/evoxc_engine.py`` measures ``exp`` one ulp
-  low on ~39% of inputs, ``tanh`` ~33%), and a one-ulp node value is amplified by
-  the next node's derivative.  ``+ - * /``, ``sqrt``, ``1/x``, ``abs``, ``neg``
-  and every comparison/select stay float32 -- IEEE 754 makes them correctly
-  rounded (or exact) there already.
+  float32 kernels are not (the deleted ``evoxc_engine.py`` measured ``exp`` one
+  ulp low on ~39% of inputs, ``tanh`` ~33%), and a one-ulp node value is
+  amplified by the next node's derivative.  ``+ - * /``, ``sqrt``, ``1/x``,
+  ``abs``, ``neg`` and every comparison/select stay float32 -- IEEE 754 makes
+  them correctly rounded (or exact) there already.
 
 Constants, arithmetic and variables come from the three channels: a leaf with
 ``size == 1`` and ``opcode == NType.CONST`` is the ``payload`` value, a leaf with
@@ -131,9 +131,9 @@ def _u_tan(a):
 
 
 def _u_sinh(a):
-    # Composed exactly like ../tree/evoxc_engine.py::_emit_unary: evoxc has no
-    # sinh, and the composition cannot keep the sign of zero nor the accuracy of
-    # tiny |x|, so the linear branch is selected back in.
+    # Composed exactly like the deleted evoxc_engine.py::_emit_unary: evoxc has
+    # no sinh, and the composition cannot keep the sign of zero nor the accuracy
+    # of tiny |x|, so the linear branch is selected back in.
     w = _f64(a)
     composed = _round32((np.exp(w) - np.exp(-w)) * _HALF)
     return np.where(np.abs(a) < _SINH_LINEAR_BELOW, a, composed)
