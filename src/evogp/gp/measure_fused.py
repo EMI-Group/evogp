@@ -28,8 +28,12 @@ It reports, for the workload the fused route is interesting at (``max_nodes=32``
 and then the two verdicts that matter: the HOST-CHANNELS case (the population
 tables are already in host memory, so the fused route only pays the upload) and
 the DEVICE-CHANNELS case (the tables live on an evoxc device -- the only shape a
-device-resident loop would have, and the one that has to pay a host round trip
-because ``evoxc`` cannot export a device buffer to torch).
+device-resident loop would have.  It is measured here the hard way, through a
+host round trip, which is what the shipped ``FusedDeviceEvaluator`` no longer
+pays: it hands the kernel its ``evoxc`` buffers over that engine's native DLPack
+export (``Tensor.__dlpack__`` -> ``torch.from_dlpack``, the fitness buffer
+written through ``out=``, one ``torch.cuda.synchronize()``), and it takes this
+host hand-off only on an ``evoxc`` without the export).
 
 Why the in-graph side is driven through ``problem``'s internals: the public
 :func:`evogp.gp.problem.sr_fitness_graph` stages its graph inputs from host numpy

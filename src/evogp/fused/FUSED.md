@@ -327,14 +327,15 @@ trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
 ## 7. Honest residual gaps (with numbers)
 
 1. **The suite is green** (the two stale assertions the campaign opened with have since been fixed, in
-   `tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` and in `tests/test_fused_route.py`).
+   `tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` and in `fused/tests/test_fused_engine.py`).
    `pytest src/evogp/tests -q` → **1 308 passed, 7 skipped, 0 failed in ~121 s** on the device reference box (53 of
-   them in `test_fused_route.py`, which compiles and launches the real kernel).
-   `CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= python -c "import evogp.tree"` works with
-   `torch.cuda.is_available() == False`, `fused_available() == False` and
-   `resolve_route(256, eval_mode="fused").engine == "specialized"` — the route degrades to the policy's CPU answer
-   and the import needs no GPU.
-2. **The pytest net is `tests/test_fused_route.py`** (53 cases: value/loss parity against `reference_eval` on the
+   them in `fused/tests/test_fused_engine.py`, which compiles and launches the real kernel).
+   `CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= python -c "import evogp.fused"` works with
+   `torch.cuda.is_available() == False` and `fused_available() == False` — the import needs no GPU, because
+   `import evogp.fused` imports torch at module scope while `import triton` happens only inside `kernels.kernels()`
+   (and there is no policy left to degrade: `resolve_route` went with the deleted torch stack, so a declined call
+   raises `FusedUnsupported` for the caller to handle).
+2. **The pytest net is `fused/tests/test_fused_engine.py`** (53 cases: value/loss parity against `reference_eval` on the
    three function sets, single-node and constant populations, a deep chain, protected div and NaN/Inf placement,
    multi-output value + loss, the route policy above and below `EVOGP_FUSED_MIN_POP`, `fused_kernel_launches` as the
    served-call proof, the decline matrix including `output_len > MAX_OUT_LEN`, non-contiguous inputs and the
@@ -442,22 +443,20 @@ $PY test/benchmark/evoxc/validate.py \
 # 5. index (one campaign.json entry per cell × arm × workload) + the markdown summary
 $PY test/benchmark/evoxc/results/t1a1_fused/campaign_index.py
 
-# 6. the route's second campaign: multi-output parity, the envelope, the min-pop column,
-#    the geometry sweep and the public-API headline (one process per config; each stage
-#    writes its own JSON record, `--json PATH` overrides the file)
-$PY -m evogp.tree.fused_check --stage multi      # the OUT_NODE protocol vs the oracle
-$PY -m evogp.tree.fused_check --stage declines   # the decline/contract matrix
-$PY -m evogp.tree.fused_check --stage wired      # the public-API wiring gate
-for s in headline envelope minpop sweep degenerate; do
-  $PY -m evogp.tree.fused_envelope --stage $s
-done
-$PY -m evogp.tree.fused_envelope --stage records    # read-only: stored envelope_ok vs today's rule
+# 6. the route's second campaign, as far as the library battery still carries it: the
+#    OUT_NODE protocol and the decline matrix (one process per config; each stage writes
+#    its own JSON record, `--json PATH` overrides the file)
+$PY -m evogp.fused.check --stage multi      # the OUT_NODE protocol vs the oracle
+$PY -m evogp.fused.check --stage declines   # the decline/contract matrix
+#    (The `fused_envelope.py` harness behind §12–§15 — `--stage headline|envelope|minpop|
+#    sweep|degenerate` and the read-only `records` audit — was deleted with the pre-2.0.0a2
+#    tree and NOT ported; its own records stay beside this document.)
 
 # 7. end-to-end and the hermetic suite (run the suite AFTER all timing — parts of it touch the GPU)
 EVOGP_EVAL_MODE=fused EVOGP_EVOXC_BACKEND=iree $PY -m evogp.sr_test     # best fitness -0.2259 in ~10.4 s
 $PY -m evogp.sr_test                                                    # default auto: -0.2259 in ~16.1 s
 PYTHONPATH=src:/root/evoxc $PY -m pytest src/evogp/tests -q             # 1 308 passed / 7 skipped / 0 failed
-CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= PYTHONPATH=src:/root/evoxc $PY -c "import evogp.tree"
+CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= PYTHONPATH=src:/root/evoxc $PY -c "import evogp.fused"
 ```
 
 `.log` worker files are not committed; only the JSON records, the probes and this report are.
@@ -866,7 +865,7 @@ was arm-order drift, which is why §15's protocol keeps the order alternation.
 - `EVOGP_FUSED_BLOCK_ROWS` values between two powers of two silently become the lower one (reported in the
   stats, not refused).
 - `MAX_OUT_LEN` is 8: a wider multi-output population declines by name.
-- A single-output request over an `OUT_NODE`-tagged population is REFUSED host-side in `fused_engine._prepare` (`evogp.tree.multi_output.check_multi_output`, a `ValueError` naming row and node) before any launch — the kernel's type mapping is unchanged and its "any other type is a ternary `if`" fall-through is now UNREACHABLE for validated input, so a mis-wired `output_len` cannot produce a plausible wrong number on this route (the tag is not a decline: `fused_declines` / `fused_kernel_launches` stay flat, pinned by `tests/test_fused_route.py` and `fused_check --stage declines`).
+- A single-output request over an `OUT_NODE`-tagged population is REFUSED host-side in `fused_engine._prepare` (`evogp.tree.multi_output.check_multi_output`, a `ValueError` naming row and node) before any launch — the kernel's type mapping is unchanged and its "any other type is a ternary `if`" fall-through is now UNREACHABLE for validated input, so a mis-wired `output_len` cannot produce a plausible wrong number on this route (the tag is not a decline: `fused_declines` / `fused_kernel_launches` stay flat, pinned by `fused/tests/test_fused_engine.py` and `fused_check --stage declines`).
 - The records under `test/benchmark/evoxc/results/t1a1_fused/` predate §16.4, so their `geometry.scratch_bytes` is the older round figure and
   their geometric keys carry no value-buffer/chart terms. Their `envelope_ok` is unaffected: all 79 stored records
   still pass today's rule, which `fused_envelope.py --stage records` re-checks read-only (it never rewrites them).
@@ -1051,7 +1050,7 @@ Its backend SPELLING is `iree` and its fallback is ALWAYS specialized+`numpy`, o
 `Route.__post_init__` refuses `use_dense=True` with `engine="fused"`; `should_use_dense` is `False` for it; `resolve_fused_min_pop` is the single parser of `EVOGP_FUSED_MIN_POP` and delegates to `fused_engine.resolve_min_pop` through a LOCAL import so the module DAG stays one-way.
 All five call sites carry the fused attempt between the dense one and the specialized tail, catching exactly `fused_engine.FusedUnsupported` and continuing on `route.fallback_backend`.
 There is NO per-stage timer surface on this route (the split must be reconstructed by timing `_prepare` / `_transposed` / `fused_kernels.launch_value` / `launch_loss` separately, which is what `fused_check._stage_split` does), and there is no readback stage at all.
-`import triton` happens only inside `fused_kernels.kernels()`, so `import evogp.tree` stays GPU/triton-free; `TRITON_CACHE_DIR` must be writable or the first launch dies with `OSError: [Errno 30] Read-only file system: '/root/.triton'` — on this box `$HOME` is read-only, so every fused run needs `TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache`.
+`import evogp.fused` imports torch at module scope, and `import triton` happens only inside `kernels.kernels()`, so the package stays GPU/triton-free (a triton-less box gets `FusedUnsupported` / `FusedUnavailable` from `kernels()`, never an ImportError); `TRITON_CACHE_DIR` must be writable or the first launch dies with `OSError: [Errno 30] Read-only file system: '/root/.triton'` — on this box `$HOME` is read-only, so every fused run needs `TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache`.
 `fused_check.py` is ~3.1k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is one self-contained dev battery (parity sets, the golden cross-check, the decline matrix, the wiring gate, the six-cell timing and the geometry sweep share one workload builder and one comparison helper), so do not split it into modules.
 
 ---

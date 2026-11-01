@@ -180,7 +180,7 @@ How a call goes (`fused_eval.FusedDeviceEvaluator`):
 | export | `torch.from_dlpack(evoxc_tensor)` after checking `__dlpack_device__()` against the tensor's own device — a SHARING view, no bytes move (proven by mutating the torch view and seeing it through the `evoxc` tensor) |
 | conversion | `_legacy_triple_device`: `to_legacy_triple`'s `where` chain rewritten in torch on the device (function node ⇒ function id + `FUNC_TYPE` marker, leaf ⇒ payload + opcode, padding ⇒ zeros), bitwise-equal to the host bridge |
 | buffer | the evaluator's persistent `evoxc` fitness tensor (`evoxc.zeros((pop,), float32).to(device)`, exported once per `(pop, device)`), whose torch view is passed as `out=` |
-| kernel | `evogp.tree.fused_engine.sr_fitness_fused(..., out=view)` on the legacy triple: the SR loss is reduced in-kernel and the `(pop_size,)` result is SUMMED AND DIVIDED straight into that exported buffer (`torch.sum(partials, dim=1, out=...)`, then `div_(rows)`), so the kernel's own `(pop, n_rb)` chart is the only temporary |
+| kernel | `evogp.fused.engine.sr_fitness_fused(..., out=view)` on the legacy triple: the SR loss is reduced in-kernel and the `(pop_size,)` result is SUMMED AND DIVIDED straight into that exported buffer (`torch.sum(partials, dim=1, out=...)`, then `div_(rows)`), so the kernel's own `(pop, n_rb)` chart is the only temporary |
 | post | negate + non-finite → `-inf` IN PLACE on the same view (the fitness contract), plus ONE `torch.cuda.synchronize()` |
 | consume | `workflow.step` hands that same `evoxc` tensor straight to the variation graph — no copy, no readback, no import step, so the generation stays ONE graph run |
 

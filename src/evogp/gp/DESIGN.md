@@ -70,6 +70,6 @@ Device path: `step` reads nothing back — the fitness tensor goes straight into
 ## Torch bridge placement
 No module of this subtree contains a literal `import torch` / `from torch` / `import evox` statement — that is a pinned invariant, and it holds for the two places that need torch at all:
 - the fused backend `fused_eval.py`, which resolves torch, triton and `evogp.fused.engine` through `importlib.import_module` INSIDE its functions and returns numpy, so it is an opt-in `evaluate=` callable and never a driver path;
-- the measurement harness `measure_generation.py`, which does the same to build the torch-stack sides it compares against.
-The adapter that turns channels into a `../tree/Forest` for any other purpose stays on the caller side, outside this subtree; the tests own that glue.
+- the measurement harnesses, which resolve torch the same way: `measure_popscale.py` builds its plain-torch columns (`torch-batched`, `torch-per-tree`) from the population's legacy triple through `gp/_torch_baseline.py`, and `measure_generation.py` drives the device sides through `fused_eval` — neither holds a literal import, and neither needs a `Forest` or `evogp.tree` (both went with the torch-native stack in 2.0.0a2).
+There is no adapter from channels to a `../tree/Forest` anywhere, because that stack is gone; the tests own whatever glue a case needs.
 The subtree itself ships the numpy evaluator (the CPU-box path and the parity oracle), the device-resident in-graph evaluator, and the duck-typed callable protocol.
