@@ -53,5 +53,22 @@ setup(
         "examples": ["scikit-learn"],
     },
     include_package_data=True,
+    # The wheel ships the package `.py` modules PLUS the in-package Markdown the
+    # module docstrings and the reports point at by path: `evogp/CONTEXT.md` at
+    # the top package's root, `evogp/gp/DESIGN.md` one level down and the same
+    # in the other two nested packages.  Declared here rather than through
+    # MANIFEST.in so the wheel never depends on the sdist rules.  The patterns
+    # are flat (`*` never crosses a `/`), so `evogp/*/tests/CONTEXT.md` stays
+    # out -- `tests/` is not a package and its CONTEXT.md is dev material --
+    # and `evogp/gp/evidence/*.json` is sdist-only (`exclude_package_data`).
+    package_data={
+        "evogp": ["*.md", "*/*.md"],
+        "evogp.gp": ["*.md"],
+        "evogp.fused": ["*.md"],
+        "evogp.evox_ext": ["*.md"],
+    },
+    exclude_package_data={
+        "evogp.gp": ["evidence/*", "evidence/*/*"],
+    },
     python_requires=">=3.11",
 )
