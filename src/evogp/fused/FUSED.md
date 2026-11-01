@@ -177,7 +177,7 @@ A host-glue round cut the per-call prep out of the warm path (see §7): the whol
 population tables, the transposed data operand, the envelope verdict, the geometry and the **bound launch** — is
 memoized in `fused_engine.PLAN_MEMO` on `(id, _version)` of the operand tensors plus the resolved knobs, so a warm
 call is one key build, one dict lookup and `call.run(destination)`.  Same-session A/B on the six harness cells
-(`fused_check --stage timing --wired`): **0.108/0.108/0.122/0.117/0.154/0.181 → 0.076/0.075/0.089/0.082/0.124/0.149 ms**
+(`python -m evogp.fused.check --stage timing`, the `--wired` leg is gone): **0.108/0.108/0.122/0.117/0.154/0.181 → 0.076/0.075/0.089/0.082/0.124/0.149 ms**
 (−17.7 % to −30.6 %; −19.5 % on `p4096`, whose call is 54 % kernel).  Host-only (fake-kernel) per call:
 `batch_forward` 19.5 → 14.3 µs, `SR_fitness` 37.6 → 30.0 µs.  The kernel is now the larger half again and the
 host glue is **≈12 %** of a warm `batch_forward` at ``p256`` (14 µs of 76 µs) — a much healthier ratio than the dense route
@@ -278,7 +278,8 @@ End-to-end sanity check (the documented install-validation run, `python -m evogp
 ## 6. Numeric parity on the timed populations
 
 Probe records compare the fused result against (i) the harness's `torch-batched` arm on the *same* workload tensors
-(full population) and (ii) `src/evogp/tests/reference_eval.py` (the plain-torch oracle) on the first 32 trees.
+(full population) and (ii) `test/oracle/reference_eval.py` (the plain-torch oracle, DEV tooling only — the library no
+longer ships a copy under `src/evogp/tests/`) on the first 32 trees.
 `max_rel = max |cand − ref| / max(|ref|, 1)` over finite pairs. `nan/inf mismatch` counts placement disagreements.
 
 | cell | surface | vs `torch-batched` max_abs / max_rel | nan/inf mismatch | vs oracle max_abs / max_rel |
@@ -328,8 +329,9 @@ trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
 
 ## 7. Honest residual gaps (with numbers)
 
-1. **The suite is green** (the two stale assertions the campaign opened with have since been fixed, in
-   `tests/test_dense_policy.py::test_eval_mode_tables_stay_canonical` and in `fused/tests/test_fused_engine.py`).
+1. **The suite is green** (the stale assertions the campaign opened with have since been fixed; the surviving pin is
+   `fused/tests/test_fused_engine.py`, the `tests/test_dense_policy.py` module having been deleted with the
+   torch-native stack).
    `pytest src/evogp/tests -q` → **1 308 passed, 7 skipped, 0 failed in ~121 s** on the device reference box (53 of
    them in `fused/tests/test_fused_engine.py`, which compiles and launches the real kernel).
    `CUDA_VISIBLE_DEVICES= HIP_VISIBLE_DEVICES= python -c "import evogp.fused"` works with
@@ -381,7 +383,7 @@ trees; `test/benchmark/evoxc/results/t1a1_fused/validation-fused.json`):
    quoting the noise, so kernel work is gated on the torch-profiler device durations and the per-call table is a
    cross-check only.
 11. **Route mechanics that are not gaps but bound what can be measured**: prep is device-side only (no host work to
-    attribute), there is NO per-stage timer surface (the split is reconstructed by `fused_check._stage_split`), the
+    attribute), there is NO per-stage timer surface (the split is reconstructed by `evogp.fused.timing._stage_split`), the
     value path has no zero-copy device export (a `(pop, rows, 1)` tensor stays allocated, 1 MB – 8 GB, and is never
     read back), `--stage goldens` still skips `src/evogp/tests/goldens/06_multi_output.npz` (§11 is its coverage),
     and every number above was taken under the 12 GB sandbox `MemoryMax`, which is why the envelope's 2 GiB cell is
@@ -501,7 +503,7 @@ This document stays in the library as the route's design/report; §10 lists the 
 
 `EVOGP_EVAL_MODE=fused` serves every `output_len` from 1 up to `fused_engine.MAX_OUT_LEN` (8).
 `out_len == 1` runs `_fused_kernel` (whose six headline cells of §2 keep their numbers), and `out_len >= 2`
-runs `_fused_multi_kernel` in `fused_kernels.py` — the same reverse-prefix walk plus the multi-output rules of the
+runs `_fused_multi_kernel` in `fused/kernels.py` — the same reverse-prefix walk plus the multi-output rules of the
 legacy `treeGPEvalKernel<true>`:
 
 - the base kind is `node_type & 0x7F` and `node_type & 0x80` is the `OUT_NODE` tag;
@@ -666,7 +668,7 @@ The table below is the earlier window's 12-config × 4-cell sweep (`test/benchma
 | B1024-W2 | 0.096 | 0.157 | 0.114 | 0.165 | 1.19 |
 | B1024-W4 | 0.081 | 0.140 | 0.108 | 0.164 | 1.07 |
 
-The verdict is `fused_check --stage tuning` (12 configs × 6 cells through the public API, one process per config+cell, `worst value ratio` = the config's worst cell's fused/torch-batched ratio): across the two measured windows the minimax alternates between the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` (0.009) and `B512-W2` (0.009), so the shipped default is inside **1.00–1.05×** of the best cell (worst value ratio 0.009–0.010 on `p256-L64-i32-N4096`, worst loss 0.011; every other configuration sits at 0.010–0.037, with `B128-W1` 0.010 and `B512-W1` / `B512-W4` 0.010–0.011 inside the same noise band).
+The verdict is `python -m evogp.fused.check --stage tuning` (12 configs × 6 cells through the public API, one process per config+cell, `worst value ratio` = the config's worst cell's fused/torch-batched ratio): across the two measured windows the minimax alternates between the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` (0.009) and `B512-W2` (0.009), so the shipped default is inside **1.00–1.05×** of the best cell (worst value ratio 0.009–0.010 on `p256-L64-i32-N4096`, worst loss 0.011; every other configuration sits at 0.010–0.037, with `B128-W1` 0.010 and `B512-W1` / `B512-W4` 0.010–0.011 inside the same noise band).
 The latest re-run of the stage reads minimax `B512-W2` at 0.009 against the shipped `256/1` at 0.010, i.e. 1.05× — grid noise on a flat surface, not a policy change, exactly as the previous window's opposite reading (`256/1` on top at 1.00×) was.
 Neither sweep moves the default: both tuning windows sit on the same flat top, and in the earlier table the lower-minimax `B1024-W4` (1.07) wins solely on `p256-L64-i32-N1024`, whose own within-record spread (52 %) exceeds the 18 % gap.
 The clearly-bad region is narrow blocks with many warps (128 lanes × 4 warps: 1.67–3.04×), consistent with the walk being a scalar loop-carried dependency chain.
@@ -812,7 +814,7 @@ Exact bytes one launch allocates, and what the pre-fix formula compared (value p
   resolver still raises `ValueError`.
 - **S9:** `num_warps` default 4 → 1 in the geometry note; `_prepare`'s documented order is the code's order
   (cheap shape probes → `_decline_if_numpy` → `_require_available`); `fused_available()` is now the real gate
-  inside `_require_available`; dead `import math` / `_TRITON_IMPORT_ERROR` removed; `fused_check.py --warps`
+  inside `_require_available`; dead `import math` / `_TRITON_IMPORT_ERROR` removed; `python -m evogp.fused.check --warps`
   defaults to `fused_kernels.DEFAULT_NUM_WARPS` and its `sys.path` mutation moved from import time into `main()`.
 - **S6 (the gate):** every parity set now carries a MEASURED tolerance instead of one global `VALUE_RTOL`, and
   the four sets became five (the new `compare_unary` covers `GT` / `LE` / `NEG` / `ABS` / `SINH` / `COSH`, the
@@ -867,19 +869,24 @@ was arm-order drift, which is why §15's protocol keeps the order alternation.
 - `EVOGP_FUSED_BLOCK_ROWS` values between two powers of two silently become the lower one (reported in the
   stats, not refused).
 - `MAX_OUT_LEN` is 8: a wider multi-output population declines by name.
-- A single-output request over an `OUT_NODE`-tagged population is REFUSED host-side in `fused_engine._prepare` (`evogp.tree.multi_output.check_multi_output`, a `ValueError` naming row and node) before any launch — the kernel's type mapping is unchanged and its "any other type is a ternary `if`" fall-through is now UNREACHABLE for validated input, so a mis-wired `output_len` cannot produce a plausible wrong number on this route (the tag is not a decline: `fused_declines` / `fused_kernel_launches` stay flat, pinned by `fused/tests/test_fused_engine.py` and `fused_check --stage declines`).
+- A single-output request over an `OUT_NODE`-tagged population is REFUSED host-side in `fused.engine._prepare` (`evogp._multi_output.check_multi_output`, a `ValueError` naming row and node) before any launch — the kernel's type mapping is unchanged and its "any other type is a ternary `if`" fall-through is now UNREACHABLE for validated input, so a mis-wired `output_len` cannot produce a plausible wrong number on this route (the tag is not a decline: `fused_declines` / `fused_kernel_launches` stay flat, pinned by `fused/tests/test_fused_engine.py` and `python -m evogp.fused.check --stage declines`).
 - The records under `test/benchmark/evoxc/results/t1a1_fused/` predate §16.4, so their `geometry.scratch_bytes` is the older round figure and
   their geometric keys carry no value-buffer/chart terms. Their `envelope_ok` is unaffected: all 79 stored records
-  still pass today's rule, which `fused_envelope.py --stage records` re-checks read-only (it never rewrites them).
-- Module sizes are deliberate single units: `fused_engine.py` ~1.1 k lines and `fused_kernels.py` ~1.2 k lines
-  (a compilation unit each, like `evoxc_engine.py`, and each says so at the top of the file); `fused_check.py`
-  3 151 lines (one self-contained battery).
+  still pass today's rule, which `fused_envelope.py --stage records` used to re-check read-only (it never rewrote
+  them; that harness was deleted rather than ported in 2.0.0a2, so the records themselves stay as committed evidence
+  in `test/benchmark/evoxc/results/t1a1_fused/`).
+- Module sizes are deliberate single units: `fused/engine.py` is 1 906 lines and `fused/kernels.py` 1 719 lines
+  (a compilation unit each, and each says so at the top of the file); the battery is now split into
+  `fused/check.py` (894 lines, the CLI and stage runners), `fused/cases.py` (891, the parity / multi / goldens /
+  declines case library), `fused/contract.py` (926, the decline matrix and hardened contracts) and
+  `fused/timing.py` (513, the six-cell timing and the geometry/tuning grids), which share one workload builder
+  and one comparison helper (`cases.workload` / `cases.compare`).
 
 ---
 
 ## 17. The kernel-performance round — the register-window stack
 The host-glue round (§3) left the route with a warm call that is 22–63 % DEVICE time (§3, profiler column), so this
-round attacked the kernel body in `tree/fused_kernels.py` and nothing else. Its verdict: one candidate cleared the
+round attacked the kernel body in `fused/kernels.py` (then `tree/fused_kernels.py`) and nothing else. Its verdict: one candidate cleared the
 ±3 % noise bar and ships (a three-slot register window over the walk's memory stack, gated to wide blocks);
 everything else was measured and reverted. **The shipped per-call metric cannot resolve kernel work below
 5–7 %** — see "the metric" below — so every number here is a torch-profiler device duration on 40 launches per
@@ -963,7 +970,7 @@ Only `p4096` reads in the expected direction at this resolution; everything else
 `per_row` column is expected to be EXACTLY zero and is not, which is the floor's own proof).
 
 ### 17.6 Gates after the change
-`fused_check --stage all` → **PARITY 56/56** comparisons inside tolerance (value `max_abs = 0.0` on all three
+`python -m evogp.fused.check --stage all` → **PARITY 56/56** comparisons inside tolerance (value `max_abs = 0.0` on all three
 function sets, loss `max_rel` ≤ 3.8e-07), **MULTI 65/65**, **GOLDENS 10/10** inside 1e-4, **DECLINES 57/57**,
 **WIRED 32/32**, **TIMING** worst-cell 102.59× `value` / 90.99× `loss` against `torch-batched`, **TUNING** minimax
 alternates between the shipped `EVOGP_FUSED_BLOCK_ROWS=256` / `EVOGP_FUSED_NUM_WARPS=1` and `B512-W2` (0.009 each) across the two measured windows, with the shipped default at 0.010 on `p256-L64-i32-N4096`, i.e. 1.00–1.05× (default kept).
@@ -1006,8 +1013,8 @@ stated above; where they overlap, the campaign's own tables win):
 - `EVOGP_FUSED_HOST_MEMO` has NO per-call reader: `_default_host_memo` reads it once at import to size `XT_MEMO`
   (`fused_engine._default_host_memo`, called once when `XT_MEMO` is built), so a change needs a fresh process.
 - There is NO per-stage timer surface on this route (unlike `batch_stages.py`): the split must be reconstructed by
-  timing `_prepare` / `_transposed` / `fused_kernels.launch_value` / `launch_loss` separately, which is what
-  `fused_check._stage_split` does for the value/loss kernel-vs-host columns; the route has no host readback, so a
+  timing `_prepare` / `_transposed` / `fused.kernels.launch_value` / `launch_loss` separately, which is what
+  `evogp.fused.timing._stage_split` does for the value/loss kernel-vs-host columns; the route has no host readback, so a
   "readback" stage does not exist.
 - An explicit `EVOGP_EVOXC_BACKEND` changes only the SERVED path, never the fallback: `iree` keeps
   `backend='iree'` with `fallback_backend='numpy'` (`Route(False, 'iree', 'numpy', engine='fused')`, so a decline
@@ -1021,11 +1028,11 @@ stated above; where they overlap, the campaign's own tables win):
   `output_len = 0` and `tree_len < 1` are shape-contract `ValueError`s, not declines.
 - Prep is device-side only: `per_row=False` transposes `x` once into the identity-memoized `XT_MEMO` (a
   `DenseMemo`), `per_row=True` needs nothing.
-- `fused_check.py` is ~3.1k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is
-  one self-contained dev battery (parity sets, the golden cross-check, the decline matrix, the wiring gate, the
-  six-cell timing and the geometry sweep share one workload builder and one comparison helper), so do not split it
-  into modules.
-- `--stage wired` is the wiring gate: it drives the three `Forest` call sites with `EVOGP_EVAL_MODE=fused` set
+- The battery is `python -m evogp.fused.check`, split across `fused/check.py` (the CLI and stage runners),
+  `fused/cases.py` (the parity / multi / goldens / declines case library), `fused/contract.py` and
+  `fused/timing.py` (the six-cell timing and the geometry/tuning grids), which share one workload builder and one
+  comparison helper (`cases.workload` / `cases.compare`) — do not duplicate either of them.
+- (Pre-2.0.0a2 stage, no longer present: `--stage wired` checked the `Forest` call sites and `resolve_route` in-process, and both were deleted with the torch-native stack.) `--stage wired` is the wiring gate: it drives the three `Forest` call sites with `EVOGP_EVAL_MODE=fused` set
   in-process and asserts they equal the `specialized` reference (value bitwise or ≤1e-6 relative, loss ≤1e-5), that
   the facade SERVED each call (its counters move), that `resolve_route` names fused on `iree` with a `numpy`
   fallback while `pop_size == 1` / a population below `EVOGP_FUSED_MIN_POP` / a box with no device stay
@@ -1051,9 +1058,9 @@ Route wiring: `EVOGP_EVAL_MODE=fused` is named by `EVAL_MODES` and `ENGINES`, `R
 Its backend SPELLING is `iree` and its fallback is ALWAYS specialized+`numpy`, on every arm: an explicit `EVOGP_EVOXC_BACKEND=iree` builds `Route(False, 'iree', 'numpy', engine='fused')`, so a decline lands on specialized+`numpy`, never on a per-tree iree compile, while `EVOGP_EVOXC_BACKEND=numpy` still reports `engine='fused'` and declines on every call — the engine name is never a served-call proof.
 `Route.__post_init__` refuses `use_dense=True` with `engine="fused"`; `should_use_dense` is `False` for it; `resolve_fused_min_pop` is the single parser of `EVOGP_FUSED_MIN_POP` and delegates to `fused_engine.resolve_min_pop` through a LOCAL import so the module DAG stays one-way.
 All five call sites carry the fused attempt between the dense one and the specialized tail, catching exactly `fused_engine.FusedUnsupported` and continuing on `route.fallback_backend`.
-There is NO per-stage timer surface on this route (the split must be reconstructed by timing `_prepare` / `_transposed` / `fused_kernels.launch_value` / `launch_loss` separately, which is what `fused_check._stage_split` does), and there is no readback stage at all.
+There is NO per-stage timer surface on this route (the split must be reconstructed by timing `_prepare` / `_transposed` / `fused.kernels.launch_value` / `launch_loss` separately, which is what `evogp.fused.timing._stage_split` does), and there is no readback stage at all.
 `import evogp.fused` imports torch at module scope, and `import triton` happens only inside `kernels.kernels()`, so the package stays GPU/triton-free (a triton-less box gets `FusedUnsupported` / `FusedUnavailable` from `kernels()`, never an ImportError); `TRITON_CACHE_DIR` must be writable or the first launch dies with `OSError: [Errno 30] Read-only file system: '/root/.triton'` — on this box `$HOME` is read-only, so every fused run needs `TRITON_CACHE_DIR=$TMPDIR/triton-fused-cache`.
-`fused_check.py` is ~3.1k lines on purpose: like `dense_adversarial_check.py` and `device_resident_check.py` it is one self-contained dev battery (parity sets, the golden cross-check, the decline matrix, the wiring gate, the six-cell timing and the geometry sweep share one workload builder and one comparison helper), so do not split it into modules.
+The battery is `python -m evogp.fused.check`, split across `fused/check.py` (the CLI and stage runners), `fused/cases.py` (the parity / multi / goldens / declines case library), `fused/contract.py` and `fused/timing.py` (the six-cell timing and the geometry/tuning grids), which share one workload builder and one comparison helper (`cases.workload` / `cases.compare`) — do not duplicate either of them.
 
 ---
 ## 18. The launch path — a pre-bound `CompiledKernel` dispatch (§17.7's remaining item)
