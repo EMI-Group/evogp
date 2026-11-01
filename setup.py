@@ -5,12 +5,12 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 setup(
     name="evogp",
-    version="2.0.0a1",
+    version="2.0.0a2",
     author="Zhihong Wu, Lishuang Wang, Kebin Sun",
     author_email="zhihong2718@gmail.com",
     description=(
-        "Tree-based genetic programming on EvoX Compiler (evoxc) — the EvoGP "
-        "release line aligned with EvoX 2.0.0a1, pure Python, no build step."
+        "Tree-based genetic programming on EvoX Compiler (evoxc) — the torch-free "
+        "functional evogp.gp stack, pure Python, no build step."
     ),
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -26,34 +26,31 @@ setup(
     ],
     packages=find_packages(where="src"),
     package_dir={"": "src"},
-    # The runtime core: `evoxc` (EvoX Compiler) is the evaluation engine every
-    # route runs on, and `evox` 2.0.0a1 is the functional framework this release
-    # line aligns with.  Neither is imported by `evogp.tree` at module scope, so
-    # the pure-Python / no-build-step property is unaffected.
-    # `torch` is deliberately optional (`evogp[torch]`): the tensor-native stack
-    # in `evogp.tree`/`algorithm`/`problem`/`pipeline` needs it, while the
-    # functional stack in `evogp.gp` runs on `evoxc` + numpy alone.
+    # The runtime core, and nothing else: `evoxc` (EvoX Compiler) is the
+    # evaluation engine every route runs on and `numpy` is the host glue the
+    # shipped stack is written in.  No module of `evogp.gp` imports anything
+    # heavier, and `import evogp.gp` needs neither torch nor a device.
     install_requires=[
         "evoxc>=0.1.0",
-        "evox>=2.0.0a1",
         "numpy",
-        "scikit_learn",
-        "networkx",
-        "sympy",
     ],
     extras_require={
-        # The tensor-native GP stack and its benchmark/test oracles.
-        "torch": ["torch"],
-        # The fused Triton evaluation route (`EVOGP_EVAL_MODE=fused`): a Triton
-        # JIT plus a CUDA-visible device (AMD GPUs under ROCm included).
+        # `evogp.fused`, the device-native Triton evaluation route: torch at
+        # module scope, triton lazily at the first launch.  Needs a CUDA/HIP
+        # device and a writable TRITON_CACHE_DIR.
         "fused": ["torch", "triton"],
-        "visualize": ["pygraphviz"],
-        "brax": ["jax", "brax"],
+        # The `iree` backend of the in-graph route (`evogp.gp.GraphEvaluator`).
         "iree": [
             "iree-base-compiler>=3.11.0,<3.12",
             "iree-base-runtime>=3.11.0,<3.12",
         ],
+        # `evogp.evox_ext`, the EvoX 2.0 `StdWorkflow` adapter — the only
+        # subtree that imports `evox`.
+        "evox": ["evox>=2.0.0a1"],
         "dev": ["pytest"],
+        # `example/gp_uci_sr.py` symbolic-regresses scikit-learn's bundled
+        # `load_diabetes` table; the library itself does not import it.
+        "examples": ["scikit-learn"],
     },
     include_package_data=True,
     python_requires=">=3.11",
