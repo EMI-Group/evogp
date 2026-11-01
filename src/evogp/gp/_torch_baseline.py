@@ -172,7 +172,6 @@ class TorchBatchedEvaluator:
             raise NotImplementedError("the plain-torch baselines cover single-output populations")
         self._ops = _Ops(torch, self.device)
         self._nan = self._ops._nan
-        self._scalar = self._ops._scalar
 
         pop, length = self.pop_size, self.max_tree_len
         self.kind = np.vectorize(_kind_from_type, otypes=[np.int32])(types)
