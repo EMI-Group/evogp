@@ -7,6 +7,10 @@ population (``predictions`` is ``[pop_size, n_rows]`` -- every tree's every row,
 not one tree's) and negates its per-individual return, so ``evaluate`` hands
 back a MAXIMIZED ``[pop_size]`` float32 array.
 
+The callable returns a POSITIVE loss -- the quantity MINIMIZED -- which here is
+the misclassification rate ``1 - accuracy``; negating it is ``CustomLoss``'s job,
+so the fitness column is ``accuracy - 1`` and adding ``1.0`` reads an accuracy.
+
 The task is a classification-style table on ``[-1, 1]^2``: label ``1.0`` where
 ``x0^2 > x1^2`` (the sign XOR of the square's two diagonals), scored as the
 accuracy of a single-output tree thresholded at ``0`` -- an objective no
@@ -16,10 +20,13 @@ Run from the repository root, on the numpy host backend (no torch, no device)::
 
     PYTHONPATH=src:/root/evoxc python example/gp_custom_loss.py
 
-Expected: ~1 s (pop 200, 40 generations, 512 rows), the fitness contract, the
-per-generation best and median accuracy, and the winner's accuracy recomputed on
-the host -- matching ``result.best_fitness`` with a delta of 0.0.  The run is
-key-based deterministic, so a second run prints identical numbers (timings aside).
+Expected: ~1 s (pop 200, 40 generations, 512 rows), the fitness contract
+(``fitness == -loss`` everywhere), the per-generation best and median accuracy,
+and the winner's accuracy recomputed on the host -- best accuracy 1.0000, i.e.
+``result.best_fitness`` ~0.0 (the raw ``accuracy - 1`` value) with a delta of
+0.0.  The run is key-based deterministic, so a second run prints identical
+numbers (timings aside).  The winner is reported as its channel rows --
+``evogp.gp`` has no expression exporter yet (MIGRATION step 9).
 """
 
 from __future__ import annotations
@@ -57,26 +64,27 @@ def make_data(rows: int = NUM_ROWS, seed: int = SEED) -> Tuple[np.ndarray, np.nd
     return x, np.where(x[:, 0] ** 2 > x[:, 1] ** 2, 1.0, 0.0).astype(np.float32)
 
 
-def accuracy_loss(predictions: np.ndarray, targets: np.ndarray) -> np.ndarray:
-    """Per-individual loss ``-accuracy``, so the negated fitness IS the accuracy.
+def misclassification_rate(predictions: np.ndarray,
+                           targets: np.ndarray) -> np.ndarray:
+    """The POSITIVE loss to MINIMIZE: the error rate ``1 - accuracy``.
 
     ``CustomLoss`` calls this ONCE per generation with ``predictions`` of shape
     ``[pop_size, n_rows]`` -- ``pop_size * n_rows`` values at once -- and
     ``targets`` of shape ``[n_rows]``, and it must return ``pop_size`` entries
-    (here ``[pop_size]``).  The problem negates them, so this returns the
-    quantity to MINIMIZE: ``-accuracy`` for a fitness equal to the accuracy, or
-    the positive rate ``1 - accuracy`` (:func:`misclassification_rate`) for a
-    fitness of ``accuracy - 1``; the two rank the population identically.  A NaN
-    prediction compares ``False`` and counts as a miss, so a broken tree scores 0
-    instead of poisoning the rest.
+    (here a flat ``[pop_size]``).  A tree's prediction is the class ``1`` above
+    ``THRESHOLD``; a NaN prediction compares ``False`` and counts as a miss, so
+    a broken tree scores a loss of 1 instead of poisoning the rest.
+
+    Returned positive, as ``CustomLoss`` documents ("negate nothing here"), so
+    the fitness it hands back is ``accuracy - 1``.  Returning the negated score
+    ``-accuracy`` instead would put the accuracy itself in the fitness column
+    and rank the population identically -- the same optimum, shifted by the
+    constant 1 -- which is why either spelling is legitimate but only this one
+    matches the documented contract.
     """
-    correct = (predictions > THRESHOLD) == (targets > 0.5)[None, :]
-    return (-np.mean(correct, axis=1)).astype(np.float32)
-
-
-def misclassification_rate(predictions: np.ndarray, targets: np.ndarray) -> np.ndarray:
-    """The same score as a strictly positive loss: ``1 - accuracy``."""
-    return (1.0 + accuracy_loss(predictions, targets)).astype(np.float32)
+    return np.mean(
+        (predictions > THRESHOLD) != (targets > 0.5)[None, :], axis=1
+    ).astype(np.float32)
 
 
 def make_configs() -> Tuple[GPTreeConfig, GPConfig]:
@@ -115,18 +123,17 @@ def report_contract(
     print("CustomLoss.evaluate(initial_state) -- the fitness contract:")
     print(f"  type {type(fitness).__name__}, shape {fitness.shape}, "
           f"dtype {fitness.dtype}")
-    print(f"  MAXIMIZED fitness (= accuracy)     {head(fitness)} ...")
-    print(f"  what the callable returned (loss)  {head(loss)} ...")
+    print(f"  MAXIMIZED fitness (= accuracy - 1)  {head(fitness)} ...")
+    print(f"  the positive loss the callable returned  {head(loss)} ...")
     print(f"  fitness == -loss everywhere: {np.array_equal(fitness, -loss)}; "
           f"range [{fitness.min():.4f}, {fitness.max():.4f}]")
     print(f"  ONE call saw {fitness.shape[0]} x {x.shape[0]} = "
           f"{fitness.shape[0] * x.shape[0]} prediction values")
-    positive = CustomLoss(x, misclassification_rate, problem.targets)
-    print(f"  a POSITIVE loss (1 - accuracy) there: "
-          f"{head(positive.loss(initial))} ... -> fitness "
-          f"{head(positive.evaluate(initial))} ...")
-    print("  (same ranking: its fitness is ours minus 1.0, the constant that "
-          "1 - accuracy adds)\n")
+    print(f"  fitness = accuracy - 1: best_fitness + 1 is the accuracy, i.e. "
+          f"{fitness.max() + 1.0:.4f} here")
+    print("  (a callable returning the negated score would put the accuracy "
+          "in the fitness column and rank the population identically -- which "
+          "is why CustomLoss says \"negate nothing here\")\n")
     return fitness
 
 
@@ -134,15 +141,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     """Run the evolution and print the contract, the history and the winner."""
     del argv  # no flags: the knobs are the module constants above
     x, y = make_data()
-    problem = CustomLoss(x, accuracy_loss, y)
+    problem = CustomLoss(x, misclassification_rate, y)
     config = make_configs()
     initial_fitness = report_contract(problem, config, x)
     started = time.time()
 
     def report(generation: int, _state, fitness: np.ndarray) -> None:
+        # The +1.0 undoes the constant offset of the `1 - accuracy` loss: the
+        # fitness is `accuracy - 1`, so both columns below are accuracies.
         finite = fitness[np.isfinite(fitness)]
-        median = float(np.median(finite)) if finite.size else float("-inf")
-        print(f"generation {generation:3d}  best accuracy {np.max(fitness):.4f}  "
+        best = float(np.max(fitness)) + 1.0
+        median = (float(np.median(finite)) + 1.0) if finite.size else float("-inf")
+        print(f"generation {generation:3d}  best accuracy {best:.4f}  "
               f"median {median:.4f}  {time.time() - started:5.1f}s", flush=True)
 
     result = run(config, problem.evaluate, generations=GENERATIONS, key=SEED,
@@ -150,7 +160,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     wall, history = time.time() - started, result.best_fitness_history
     print(f"\n{GENERATIONS} generations in {wall:.2f}s "
           f"({1000.0 * wall / GENERATIONS:.1f} ms/generation)")
-    print(f"result.best_fitness      {result.best_fitness:.5f}  (= best accuracy)")
+    print(f"result.best_fitness      {result.best_fitness:.5f}  "
+          f"(the raw maximized value, accuracy - 1)")
+    print(f"result.best_fitness + 1.0 {result.best_fitness + 1.0:.5f}  "
+          f"(= best accuracy)")
     print(f"result.best_generation   {result.best_generation}")
     print(f"best_fitness_history     [0] {history[0]:.5f} -> [-1] {history[-1]:.5f}")
     print(f"generation-0 cross-check history[0] == max(initial fitness): "
@@ -167,8 +180,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # rows above stand in for a sympy/infix rendering.
     print(f"host accuracy (pred > 0) {accuracy:.5f}  "
           f"({wrong}/{y.shape[0]} misclassified)")
-    delta = abs(accuracy - result.best_fitness)
-    print(f"|host accuracy - best_fitness| = {delta:.2e}")
+    delta = abs(accuracy - (result.best_fitness + 1.0))
+    print(f"|host accuracy - (best_fitness + 1)| = {delta:.2e}")
     return 0 if delta <= 1e-6 else 1
 
 
