@@ -20,7 +20,7 @@ Nothing outside this subtree depends on it, and its only library dependency is `
   `cache_dir` is forwarded as `StdWorkflow(cache_dir=cache_dir)` when the installed `evox` declares that keyword, and `accepts_cache_dir(workflow_cls)` is the `inspect.signature` probe that decides it.
   An `evox` without the keyword drops a requested `cache_dir` with a `RuntimeWarning` instead of raising, so the adapter runs on both releases.
   Readbacks for a run: `generation_fitness(state)` (the `[pop_size]` MAXIMIZED vector the last step wrote, host numpy), `best_so_far(state)`, `best_row(state)`, `host_channels(state)` (the three channels as host numpy arrays, device-safe).
-- `demo_stdworkflow.py` — the runnable demonstration (`if __name__ == "__main__"`, unlike every torch-stack entry point): builds the workflow, runs N generations of `x0**2 + x1**2` symbolic regression, prints the best-so-far trajectory and the timing.
+- `demo_stdworkflow.py` — the runnable demonstration (`if __name__ == "__main__"`): builds the workflow, runs N generations of `x0**2 + x1**2` symbolic regression, prints the best-so-far trajectory and the timing.
   `--cache-dir <dir>` opts into the step-artifact cache (`--backend iree --device rocm:0` for a device run), so a second run of the same cell reloads the compiled step graph instead of paying its compile inside `init()`.
   Its evolution wiring is imported from `evogp.gp.smoke.make_configs` (the reference configuration of the driver this replaces), so the two runs are comparable and nothing is duplicated.
 - `__init__.py` re-exports the whole public surface; `CONTEXT.md` is this file; `tests/` is the contract suite.
@@ -46,10 +46,10 @@ Nothing outside this subtree depends on it, and its only library dependency is `
 - Never edit `src/evogp/gp/**` from here: that stack is a separate node's file scope; a missing accessor is worked around inside this subtree (see the private traced-builder note above).
 
 ## Measured economics (validation box, MI300X, `EVOXC_DISABLE_LOCATIONS=1`)
-- Demo defaults (pop 100, `max_nodes` 32, 256 data rows, numpy backend, CPU): graph build in `init()` ≈ 0.7 s, then **≈33 ms/generation** warm (32.6–33.3 ms over runs); the best fitness goes `-252.85` (generation 0) → `-56.72` (generation 24).
-- The same cell on the device (`--backend iree --device rocm:0`, pop 64): **1.08 ms/generation** warm against 30.8 ms on numpy (≈28×), with ≈5.3 s of IREE compile inside `init()`.
-  The trajectory is numerically identical to the numpy run (same seeds; `-252.845` → `-120.839` either way, agreeing to float reduction order), i.e. the two backends agree on this route.
-- Against `evogp.gp`'s own routes at that cell: the host numpy evaluator (`SymbolicRegression.evaluate`) is **14.8 ms/generation** and the in-graph `GraphEvaluator` (two graph runs per generation) is **61.8 ms/generation**, so a workflow generation is ≈2.1× cheaper than the two-run device route but ≈2.2× dearer than the host path.
+- Demo defaults (pop 100, `max_nodes` 32, 256 data rows, numpy backend, CPU, 25 generations): graph build in `init()` ≈ 0.7 s (0.67 s measured here), then **≈32 ms/generation** warm (31.6 ms here, 31.6–33.3 ms over runs); the best fitness goes `-252.845` (generation 0) → `-56.72` (generation 24).
+- The same shape on the device (`--backend iree --device rocm:0`, pop 64): **1.05 ms/generation** warm against 27.7 ms on numpy (≈26×), with 5.42 s of IREE compile inside `init()`.
+  The trajectory is numerically identical to the numpy run (same seeds; `-252.84531` → `-57.72668` on the device against `-252.84534` → `-57.72668` on numpy, i.e. agreeing to float reduction order), so the two backends agree on this route.
+- Against `evogp.gp`'s own routes at the CPU demo cell (pop 100): the host numpy evaluator (`SymbolicRegression.evaluate`) is **14.8 ms/generation** and the in-graph `GraphEvaluator` (two graph runs per generation) is **61.8 ms/generation**, so a workflow generation is ≈2.1× cheaper than the two-run in-graph route but ≈2.2× dearer than the host path.
   The gap grows with the data axis (`N=1000`, pop 200, `max_nodes=64`: host 25.8 ms, workflow 415.4 ms, `GraphEvaluator` 903.6 ms), because the in-graph body materializes `[pop_size, n_rows]` intermediates per tree column while the host evaluator reduces the whole population in one vectorized numpy pass.
   This is the in-graph route's cost, not a workflow overhead: the workflow removes one graph run and every host round trip a generation.
 
