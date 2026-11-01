@@ -74,11 +74,12 @@ node as an ordinary one -- a plausible wrong fitness with no error.  Every
 sibling already refuses it (``encoding.to_legacy_triple`` /
 ``from_legacy_triple``, ``evaluator._prepare_channels``,
 ``FusedDeviceEvaluator``), and :func:`_refuse_out_node` makes these two entry
-points refuse it too, before the graph is built or run.  The rule itself lives
-in :mod:`evogp.tree.multi_output` (the tree engines' single source of truth);
-this module MIRRORS it instead of importing it, because importing anything below
-``evogp.tree`` executes that package's ``__init__``, which imports torch, and
-this subtree is torch-free by contract (``tests/test_gp_stack_purity.py``).  The
+points refuse it too, before the graph is built or run.  The rule -- and its one
+exception class, :class:`MultiOutputError` -- is shared with the fused route
+through :mod:`evogp._multi_output` (numpy + stdlib only, so importing it costs
+this torch-free subtree nothing and ``tests/test_gp_stack_purity.py`` stays
+green); what stays local is the message wording, which names
+``evogp.gp.graph_eval`` so a caller can see which route refused.  The
 check needs the opcode channel on the HOST: for a device payload the tag is only
 visible after a readback, which this route never pays (see above), so a
 device-resident call relies on the constructors -- ``init_population`` raises for
@@ -96,6 +97,7 @@ from . import _runtime
 from ._constants import FUNC_IDS, FUNC_TYPE, Func, NType
 from .config import GPTreeConfig
 from .problem import _graph_sr_fitness
+from .._multi_output import MultiOutputError
 
 __all__ = [
     "ALL_FUNC_IDS",
@@ -116,17 +118,6 @@ ALL_FUNC_IDS: Tuple[int, ...] = tuple(range(Func.END))
 #: ``(width, pop_size, n_rows, input_len, used_ids, use_mse, sanitize,
 #: backend, device)`` -> ``(graph_fn, executable)``.
 _DEVICE_MEMO: dict = {}
-
-
-class MultiOutputError(ValueError, NotImplementedError):
-    """A single-output evaluation met a multi-output (``OUT_NODE``-tagged) opcode.
-
-    Derives from ``ValueError`` (the tree engines' contract for an undecodable
-    population: ``tree/multi_output.MultiOutputError`` has the same bases) and from
-    ``NotImplementedError`` (what this stack's other guards -- ``encoding``,
-    ``evaluator``, ``fused_eval`` -- raise for the protocol they do not
-    implement), so a caller catching either spelling keeps working.
-    """
 
 
 def _host_opcode(opcode) -> Optional[np.ndarray]:
@@ -150,10 +141,12 @@ def _host_opcode(opcode) -> Optional[np.ndarray]:
 def _refuse_out_node(opcode) -> None:
     """Refuse a multi-output (``OUT_NODE``-tagged) population on this single-output path.
 
-    The gp mirror of ``tree.multi_output.check_multi_output`` (see the module
-    docstring for why it is a mirror): the same predicate, the same wording, and
+    The gp form of the shared rule (``evogp._multi_output.check_multi_output``,
+    which the fused route raises from): the same predicate over the type-bearing
+    channel and the same :class:`~evogp._multi_output.MultiOutputError` class, and
     the same "name the row and the node" contract, applied to the opcode channel
-    before the graph is built.
+    before the graph is built.  Only the message wording is local -- it names
+    ``evogp.gp.graph_eval``, so a caller can see which route refused.
 
     Args:
         opcode: the population's ``[pop_size, max_nodes]`` int opcode channel (or a

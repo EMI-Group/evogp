@@ -341,13 +341,14 @@ class CustomLoss(BaseProblem):
 # The value buffer is grown column by column (``node = L-1`` down to ``0``) as a
 # ``[rows, pop_size, n_rows]`` tensor.  Only the second (and, for a ternary
 # function set, the third) child needs a gather -- ONE flat ``gather`` each, the
-# construction of ``../tree/dense_engine.py::_read_buffer``, the in-repo
-# reference for this idiom: pre-order makes a node's first child the next
+# construction of :func:`_read_buffer` below (the idiom the pre-2.0 dense engine
+# established): pre-order makes a node's first child the next
 # column, so ``v1`` is the previous column's value tensor itself and costs no
 # read at all.
 #
 # Numerics: every emitter below is the op-for-op counterpart of the numpy
-# emitter in :mod:`evogp.gp.evaluator` (and of ``../tree/evoxc_engine.py``), so
+# emitter in :mod:`evogp.gp.evaluator` (and of the tree stack's
+# ``evoxc_engine``, deleted in this release), so
 # the graph and the host evaluator agree to the last bit on the numpy backend --
 # pinned by ``tests/test_gp_stack_problem_graph.py``.  ``sinh``/``cosh`` are
 # composed from ``exp`` exactly as the tree layer does.
@@ -640,8 +641,8 @@ def _read_buffer(flat, base, index: int, pop: int, n_rows: int, row_offsets):
     ``flat`` is the ``rows * pop * n_rows`` flattening of the value buffer (row 0
     = the newest column), ``base`` the :func:`_child_bases` grid of one child
     channel and ``row_offsets`` the :func:`_row_offsets` grid.  ONE flat
-    ``gather`` per child, exactly as ``../tree/dense_engine.py::_read_buffer``
-    does it.
+    ``gather`` per child, exactly as the pre-2.0 dense engine's ``_read_buffer``
+    did it.
 
     The index is flattened to ``(pn,)`` and the block reshaped back on purpose:
     IREE lowers a 1-D index measurably faster than the equivalent ``(pop,
