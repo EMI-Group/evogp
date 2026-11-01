@@ -38,7 +38,8 @@ The independent numerics oracle those bodies compare against stays in `test/orac
 | `evoxc/results/t1a1_fused/README.md` | the explicit `EVOGP_EVAL_MODE=fused` column (41×–157× `torch-batched`), with `ENVELOPE.md` and `campaign.md` beside it |
 | `evoxc/results/t1a1_baseline/BASELINE.md` | the pre-fused default, the reference the three above are read against |
 | `evoxc/results/minpop_r3/SUMMARY.md` | the `EVOGP_FUSED_MIN_POP` column re-taken: the kernel wins warm at pop 1, so the floor of 16 is a cold-start guard |
-| `evoxc/results/batch_opt_round{1,2,3}/SUMMARY.md` | the three `batch`-route optimization rounds (chunked compile, plan key, band policy; the refreshed cold/warm/loop columns) |
+| `evoxc/results/batch_opt_round2/{warm,auto,composition}/SUMMARY.md` | round 2, one summary per work item: the warm band-size sweep, `EVOGP_BATCH_BANDS=auto`, and the banded+chunked composition |
+| `evoxc/results/batch_opt_round1/SUMMARY.md`, `evoxc/results/batch_opt_round3/SUMMARY.md` | the first and third `batch`-route optimization rounds (chunked compile, plan key; the refreshed cold/warm/loop columns and the band policy) |
 | `r2/README.md`, `r2/RUNLOG.md`, `r2/round3/`, `r4/SUMMARY.md`, `r5/RCA.md`, `r6/SUMMARY.md` | rounds R2–R6: the legacy-engine comparison, the pure-forward round, the ≈9.5× gap root-cause analysis, and the Triton prototype that the shipped `fused` route superseded |
 | `legacy/`, `new/`, `xval/`, `fixtures/` | the two harness sides of round 1 together with their cross-validation notes and records |
 
@@ -47,6 +48,7 @@ The independent numerics oracle those bodies compare against stays in `test/orac
 - `**/*.json` — the raw timing records (`campaign.json`, one record per cell × arm × workload with medians, samples, cold calls, digests and the resolved route), the round summaries and the gates' outputs. These are the primary evidence; the markdown renders them.
 - `**/*.log`, `**/*.txt`, `**/*.csv`, `**/*.dot`, `**/*.npy`, `**/*.gz`, `**/*.cmd` — the runs' console logs, the profiler summaries, the compile-side dispatch graphs and the reduction traces those reports cite, plus the verbatim `.cmd` invocation records of the round-4 smoke cells.
 - `**/*.npz` — the four round-4 eval-output captures under `r4/results/after/ab/{fallback,frozen}_save/` (a few kilobytes each), kept as that round's parity record.
+- `**/.gitignore` — load-bearing, not decoration: the round directories re-include `!results/**/*.log` against the repository root's `*.log` rule, so removing them would make the archived logs un-addable on a checkout.
 
 ## What was deliberately not carried over
-Deleted with the code that used them, all still in git history: the harness's `*.py` (71 files, ~39 k lines, recoverable at `6720723`), its `*.sh` drivers, the legacy `setup_legacy.sh` build script, the 6 IREE CUDA-module `.ptx` dumps under `r5/results/q2_gpu/dumps/*/executables/` (compiler output, summarized by the sibling `dumps/*.json` + `dispatch_graph.dot` and by `r5/RCA.md` §5.1), and the R2 cross-side fixture `fixtures/forest200_tree64_random.npz` (an input of the deleted `bench_gp.py`; its sanity record `fixtures/sanity_eval.json` stays).
+Deleted with the code that used them, all still in git history: the harness's `*.py` (67 files, ~36.6 k lines under the old `test/benchmark/`, recoverable at `6720723`), its `*.sh` drivers, the legacy `setup_legacy.sh` build script, the 6 IREE CUDA-module `.ptx` dumps under `r5/results/q2_gpu/dumps/*/executables/` (compiler output, summarized by the sibling `dumps/*.json` + `dispatch_graph.dot` and by `r5/RCA.md` §5.1), and the R2 cross-side fixture `fixtures/forest200_tree64_random.npz` (an input of the deleted `bench_gp.py`; its sanity record `fixtures/sanity_eval.json` stays).

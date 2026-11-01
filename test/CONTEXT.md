@@ -1,14 +1,14 @@
 # `test/` — dev tooling (a numeric oracle + one evoxc probe) and the archived records of the pre-2.0.0a2 stack
 ## Intent
 This directory holds the two things that deliberately are **not** part of the `evogp` package: the independent numerics oracle the fused route is checked against (`./oracle/`), and the frozen performance evidence of the deleted torch stack (`./archive/`), plus one surviving probe (`./evoxc_jit_probe.py`, evoxc-only economics).
-It is dev tooling, **not** a pytest suite: nothing here is imported by `evogp`, by `example/` or by `tutorial/`, and `pytest test` collects nothing (the harness's two torch-free test modules were deleted with the harness).
-Only `./oracle/` runs today as live tooling, and it runs as a *consumer* of the library's own gates — `src/evogp/fused/tests/` and `python -m evogp.fused.check`.
+It is dev tooling, **not** a pytest suite: no shipped runtime module imports it — only the dev gates do, by appending `test/oracle` to `sys.path` (`src/evogp/fused/check.py`, `src/evogp/fused/tests/conftest.py`) — and `pytest test` collects nothing (the harness's two torch-free test modules were deleted with the harness).
+`./oracle/` and the standalone `./evoxc_jit_probe.py` are the two things here that run today; the oracle runs as a *consumer* of the library's own gates — `src/evogp/fused/tests/` and `python -m evogp.fused.check`.
 Everything under `./archive/` is read-only evidence: its producing code was deleted with the torch stack and is recoverable at commit `6720723`.
 The shipped-stack benchmarks are library code now, not `test/` code: `src/evogp/gp/measure_popscale.py`, `src/evogp/gp/measure_generation.py`, `src/evogp/gp/measure_fused.py` and `python -m evogp.fused.check --stage all`.
 Their reports of record are `src/evogp/gp/POPSCALE.md`, `src/evogp/gp/DEVICE_LOOP.md` and `src/evogp/fused/FUSED.md`.
 ## API Surface / tree
-- `./oracle/` → the independent plain-torch evaluator `reference_eval.py` + `goldens/` (7 frozen `.npz` cases); DEV-only, imported by nothing in the library, added to `sys.path` by its consumers; described in `./oracle/CONTEXT.md`.
-- `./archive/` → the records of record of the pre-2.0.0a2 tree: markdown reports, raw JSON timing records, run logs and the rounds' captures, in the old `benchmark/` layout (`archive/benchmark/{evoxc,r2,r4,r5,r6,legacy,new,xval,fixtures}`); entry page `./archive/README.md`, which indexes every report.
+- `./oracle/` → the independent plain-torch evaluator `reference_eval.py` + `goldens/` (7 frozen `.npz` cases); DEV-only, imported by no library module, added to `sys.path` by its dev consumers; described in `./oracle/CONTEXT.md`.
+- `./archive/` → the records of record of the pre-2.0.0a2 tree: markdown reports, raw JSON timing records, run logs and the rounds' captures, in the old `benchmark/` layout (`archive/benchmark/{evoxc,r2,r4,r5,r6,legacy,new,xval,fixtures}`); entry page `./archive/README.md`, which indexes every report of record (the counts, the provenance and the index live there, not here).
 - `./evoxc_jit_probe.py` → standalone `evoxc` build/run economics probe (imports `evoxc` + numpy, never `evogp`; a docstring table plus its own PASS/FAIL checks, exit 1 on failure).
 - Nothing else. There is no `fixtures/`, no `goldens/`, no notebook and no harness script at this level.
 ## Run commands (exact)
@@ -49,7 +49,7 @@ Measured on the reference box at this commit, for the commands above:
 - `src/evogp/fused/CONTEXT.md` still quotes the goldens leg as `10/10`; with `test/goldens/` deleted the same stage reads `6/6` (the oracle fixtures alone). Those files are outside this node.
 ## Routing Table
 - `./oracle/` → The independent plain-torch numeric oracle and its 7 frozen fixtures; the reference behind `src/evogp/fused/tests/` and `evogp.fused.check --stage parity|goldens|multi`.
-- `./archive/` → Read-only records of record of the pre-2.0.0a2 tree (torch stack + the four `EVOGP_EVAL_MODE` routes), with `./archive/README.md` as the single entry point and an index of every report.
+- `./archive/` → Read-only records of record of the pre-2.0.0a2 tree (torch stack + the four `EVOGP_EVAL_MODE` routes), with `./archive/README.md` as the single entry point and an index of every report of record.
 - `./evoxc_jit_probe.py` → The standalone evoxc build/run economics probe (no `evogp` import).
 ## Notes for Agents
 - Performance questions about the *shipped* stack are answered in `../src/evogp/gp/` and `../src/evogp/fused/`, never here; read `src/evogp/gp/POPSCALE.md` / `DEVICE_LOOP.md` / `src/evogp/fused/FUSED.md` and run the `measure_*` scripts.
