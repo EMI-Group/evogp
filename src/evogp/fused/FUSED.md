@@ -2,6 +2,8 @@
 > It was measured on the pre-2.0.0a2 tree, whose torch-native stack (`evogp.tree`, `evogp.algorithm`, `evogp.problem`, `evogp.pipeline`) is now gone.
 > Module names in its prose (`fused_engine.py`, `forest.py`, `tree.py`, `dense_engine.resolve_route`, `EVOGP_EVAL_MODE`) refer to that deleted wiring.
 > The route itself now lives in `src/evogp/fused/` (`engine.py` + `kernels.py`) and is called directly by `evogp.gp.fused_eval`.
+> The in-library battery `fused_check.py` became `python -m evogp.fused.check` (`fused/check.py` plus the `cases` / `contract` / `timing` libraries), and the independent oracle `reference_eval.py` moved to the dev-only `test/oracle/reference_eval.py`.
+> The `fused_envelope.py` harness (§11–§15) was deleted rather than ported, so its commands no longer exist; its stored records stay under `test/benchmark/evoxc/results/t1a1_fused/` and were re-checked against today's rule at the sizes quoted below.
 > The numbers below are unchanged and are no longer reproducible from this tree (the comparison harness is in `test/benchmark/evoxc/results/t1a1_auto_r3/`).
 
 # `EVOGP_EVAL_MODE=fused` — independent verification campaign (Triton whole-population route)
