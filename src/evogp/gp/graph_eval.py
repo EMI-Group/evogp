@@ -827,7 +827,7 @@ class GraphEvaluator:
 
     @property
     def problem_dim(self) -> int:
-        """``input_len`` -- the ``GenerateDescriptor.input_len`` companion."""
+        """``input_len`` -- the deleted ``GenerateDescriptor.input_len`` companion."""
         return self._input_len
 
     @property

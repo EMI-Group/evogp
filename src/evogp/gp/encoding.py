@@ -15,9 +15,10 @@ Public surface
 --------------
 ``init_population(config, key, ...)``
     One traced, memoized graph per config draws a whole random population from
-    the key (the same decision structure as ``../tree/generation.py``: level-wise
-    sampling on the padded complete-tree layout, then an axis-1 ``argsort`` of
-    the destination map into pre-order) and returns a
+    the key (the same decision structure as the deleted tree layer's
+    ``generation.py``: level-wise sampling on the padded complete-tree layout,
+    then an axis-1 ``argsort`` of the destination map into pre-order) and
+    returns a
     :class:`~evogp.gp.state.GPState` whose ``key`` is the key of the next
     generation.
 ``live_mask(channels)`` / ``row_length(channels)`` / ``is_leaf(size)``
@@ -28,10 +29,10 @@ Public surface
     ``max_nodes``, a child index outside its parent's subtree, a prefix-order
     violation, an opcode/arity disagreement).
 ``to_legacy_triple(channels)`` / ``from_legacy_triple(value, type, size)``
-    The numpy<->numpy bridge to ``../tree/``'s ``(batch_node_value float32,
-    batch_node_type int16, batch_subtree_size int16)`` triple, so the existing
-    evoxc engines can evaluate what this stack produces.  Exact round-trip for
-    single-output trees.
+    The numpy<->numpy bridge to the legacy ``(batch_node_value float32,
+    batch_node_type int16, batch_subtree_size int16)`` triple -- the deleted
+    tree layer's population layout, and what ``evogp.fused`` evaluates.  Exact
+    round-trip for single-output trees.
 
 This module imports **no torch** and -- so that ``import evogp.gp.encoding``
 works on a plain checkout -- it also imports ``evoxc`` lazily: every entry point
@@ -249,8 +250,8 @@ def validate_channels(
 ) -> None:
     """Validate a population encoding, raising ``ValueError`` on any defect.
 
-    The counterpart of the host-side decode validation of the tree layer
-    (``../tree/evoxc_engine.py``): a malformed tree is rejected here with the
+    The counterpart of the deleted tree layer's host-side decode validation
+    (``evoxc_engine.py``): a malformed tree is rejected here with the
     row and the node in the message instead of corrupting an evaluation.
 
     Checks, per row: the row length ``size[0]`` is in ``(0, max_nodes]``; every
@@ -417,8 +418,8 @@ def _validate_row(
 def to_legacy_triple(channels) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """``(batch_node_value float32, batch_node_type int16, batch_subtree_size int16)``.
 
-    The exact layout the tree layer's ``Forest`` stores
-    (``../tree/generation.py``): on a function node the *value* is the function
+    The exact layout the deleted tree layer's ``Forest`` stored
+    (``generation.py``): on a function node the *value* is the function
     id as a float and the *type* is the ``NType`` marker; on a leaf the value is
     the payload and the type is ``NType.VAR``/``NType.CONST``; the padding is
     zero in all three.
@@ -850,7 +851,7 @@ def init_population(
 ) -> GPState:
     """Draw a random population, one traced graph per ``(config, pop_size)``.
 
-    The decision structure is the tree layer's (``../tree/generation.py``, see
+    The decision structure is the deleted tree layer's (``generation.py``, see
     ``DESIGN.md``): a node at depth ``d`` is a function iff
     ``r >= depth2leaf_probs[d]``, its id is the number of cdf entries ``<= r``,
     its arity follows from the id; a leaf is a constant with probability

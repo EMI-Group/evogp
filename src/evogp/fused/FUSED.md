@@ -1,3 +1,9 @@
+> **Record note (post-2.0.0a2).** This document is the fused route's independent verification campaign and design record of record.
+> It was measured on the pre-2.0.0a2 tree, whose torch-native stack (`evogp.tree`, `evogp.algorithm`, `evogp.problem`, `evogp.pipeline`) is now gone.
+> Module names in its prose (`fused_engine.py`, `forest.py`, `tree.py`, `dense_engine.resolve_route`, `EVOGP_EVAL_MODE`) refer to that deleted wiring.
+> The route itself now lives in `src/evogp/fused/` (`engine.py` + `kernels.py`) and is called directly by `evogp.gp.fused_eval`.
+> The numbers below are unchanged and are no longer reproducible from this tree (the comparison harness is in `test/benchmark/evoxc/results/t1a1_auto_r3/`).
+
 # `EVOGP_EVAL_MODE=fused` — independent verification campaign (Triton whole-population route)
 
 Report of record for an independent re-measurement of the `fused` route (`fused_engine.py` + `fused_kernels.py`,

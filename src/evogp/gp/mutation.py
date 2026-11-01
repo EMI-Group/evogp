@@ -6,7 +6,8 @@ operator draws its candidate position/values for *every* row and folds the
 result back with ``select(mask, mutated, original)``.  Nothing is shape-variant,
 so one graph serves the whole run.
 
-Three operators (``MUTATION_KINDS``), mirroring ``../algorithm/mutation/``:
+Three operators (``MUTATION_KINDS``), mirroring the deleted torch stack's
+``mutation/``:
 
 ``point`` (``SinglePointMutation``)
     One node per row is replaced by a node of the *same kind*: a leaf keeps its

@@ -1,7 +1,8 @@
 """The problem layer of the evoxc GP stack: data, predictions and fitness.
 
-This is the counterpart of ``../problem/`` for the functional stack
-(:mod:`evogp.gp`), and it follows the same two rules as the rest of the subtree:
+This is the counterpart of the deleted torch stack's ``problem/`` for the
+functional stack (:mod:`evogp.gp`), and it follows the same two rules as the
+rest of the subtree:
 **no torch** and **numpy host data**.  A problem owns the task data and exposes
 the one plug-in surface ``evaluate(channels) -> [pop_size] float32`` that the
 future driver loop calls once per generation (``DESIGN.md`` section
@@ -16,13 +17,14 @@ Fitness contract, identical to the repo-wide one:
   ``NaN -> -inf``), and it never contains a NaN anyway: a non-finite loss is
   mapped to ``-inf`` here;
 * the divisor is the number of DATA ROWS only, never the number of outputs
-  (``../tree/ENGINE_SPEC.md`` section 5).
+  (the deleted ``ENGINE_SPEC.md`` section 5).
 
 Two problems are provided:
 
 * :class:`SymbolicRegression` -- ``X [n_rows, input_len]`` + ``y [n_rows]``,
   fitness ``-mean((y - pred)^2)`` (or ``-mean(|y - pred|)`` with
-  ``use_mse=False``), the same positive loss ``Forest.SR_fitness`` computes.
+  ``use_mse=False``), the same positive loss the deleted ``Forest.SR_fitness``
+  computed.
 * :class:`CustomLoss` -- a user-supplied ``loss(predictions, targets)`` callable
   over the whole population at once, negated the same way.  This is the escape
   hatch for tasks whose fitness is not a mean squared error (multi-output /
@@ -114,7 +116,8 @@ def _fitness_from_loss(loss: np.ndarray, pop_size: int) -> np.ndarray:
 # the problem surface
 # --------------------------------------------------------------------------- #
 class BaseProblem:
-    """The duck-typed contract of a problem (mirrors ``../problem/base.py``).
+    """The duck-typed contract of a problem (mirrors the deleted
+    ``BaseProblem``).
 
     A problem is anything with ``evaluate(channels) -> [pop_size] float32``
     (maximized); :attr:`problem_dim` / :attr:`solution_dim` describe the data
@@ -144,7 +147,8 @@ class SymbolicRegression(BaseProblem):
             matrix must be passed 2-D).
         y: ``[n_rows]`` float32 targets.
         use_mse: ``True`` (default) for the squared error, ``False`` for the
-            absolute error -- the ``use_MSE`` flag of ``Forest.SR_fitness``.
+            absolute error -- the ``use_MSE`` flag of the deleted
+            ``Forest.SR_fitness``.
 
     The stored data is a float32 copy: mutating the caller's arrays afterwards
     does not change the problem, and the problem never mutates its own data.
@@ -238,7 +242,8 @@ class CustomLoss(BaseProblem):
     The callable receives numpy arrays and runs once per ``evaluate`` over the
     WHOLE population, which is what makes this the multi-output escape hatch:
     the loss can combine several predicted columns (a ``CombinedForest`` in the
-    torch stack) without the per-tree loop the engine would otherwise impose.
+    deleted torch stack) without the per-tree loop an engine would otherwise
+    impose.
     """
 
     def __init__(
@@ -462,7 +467,7 @@ def _copysign_delta(evoxc, value):
     """``copysign(DELTA, value)`` -- evoxc has no copysign.
 
     The sign is read as ``sign(1 / value)``, the only composition that gets
-    ``-0.0`` right (the emitters of ``../tree/evoxc_engine.py`` use the same
+    ``-0.0`` right (the emitters of the deleted ``evoxc_engine.py`` used the same
     trick).  It is only reached for ``|value| <= DELTA``.
     """
     negative = evoxc.less(

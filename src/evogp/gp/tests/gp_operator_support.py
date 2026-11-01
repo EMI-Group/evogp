@@ -246,7 +246,7 @@ def assert_well_formed(state, *, context: str = "", zero_padding: bool = False) 
         context: label used in the assertion messages.
         zero_padding: also require zeroed padding.  Only the encoder guarantees
             that; an operator keeps the parent's stale columns past the row's new
-            length (exactly like ``../tree/splicing.py``, which documents that
+            length (exactly like the deleted ``splicing.py``, which documents that
             "only ``[0, subtree_size[row, 0])`` is semantically meaningful"), so
             this defaults to ``False``.
     """
@@ -392,7 +392,7 @@ def assert_row_equal(actual, expected, *, context: str = "") -> None:
 
     The declared lengths must agree first; past them the columns are padding and
     semantically irrelevant (the operator keeps the parent's stale values there,
-    as ``../tree/splicing.py`` does).
+    as the deleted ``splicing.py`` did).
     """
     prefix = f"{context}: " if context else ""
     lhs_len = int(np.asarray(actual.size)[0])
