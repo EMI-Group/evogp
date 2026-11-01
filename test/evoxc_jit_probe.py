@@ -35,9 +35,15 @@ Sections (all printed as one aligned table, plus a summary at the end):
   (h) extra diagnostics: run time vs N sweep (16..100000), fixed per-run
       overhead (1-op graph), host->device transfer and readback costs.
 
-Run (``python`` is not on PATH in the task environment; use the EvoX venv):
+Run (``python`` is not on PATH in the task environment; use the project venv, and
+point ``EVOXC_TESTS`` at the local evoxc checkout's ``tests/`` for section g):
 
-    /mnt/local-ssd/bchuang/evox/.venv/bin/python test/evoxc_jit_probe.py
+    PYTHONPATH=src:/root/evoxc:/root/evox/src EVOXC_DISABLE_LOCATIONS=1 \
+        EVOXC_TESTS=/root/evoxc/tests /tmp/rocvenv/bin/python test/evoxc_jit_probe.py
+
+Section (b)/(d)/(e) and the iree-cuda legs of (f)/(g) need an IREE CUDA target
+(an NVIDIA driver); on a ROCm box ``iree`` reports "CUDA driver library not
+available" and those checks fail while the numpy legs pass.
 
 Useful flags: ``--device N`` (cuda index; default 0), ``--sections a,b,f``,
 ``--reps-build`` (default 10), ``--reps-run`` (default 7),
@@ -917,7 +923,7 @@ def section_f(rep, dev):
 # --------------------------------------------------------------------------
 
 
-EVOXC_TESTS = Path("/mnt/local-ssd/bchuang/evoxc/tests")
+EVOXC_TESTS = Path(os.environ.get("EVOXC_TESTS", "/root/evoxc/tests"))
 
 IREE_CUDA_ADAPTATION = '''\
 """iree-cuda adaptation of evoxc's tests/test_meta_programming.py (section 1)."""
