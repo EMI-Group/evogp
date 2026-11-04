@@ -1,0 +1,154 @@
+name: release
+
+# Runs when a GitHub Release is published (the "acts on new release" hook).
+# `workflow_dispatch` with a `tag` input is a dry run: it builds, tests and
+# verifies the tag/version pair, but never publishes to PyPI and never
+# attaches anything to a release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and verify (dry run: nothing is published or attached)"
+        required: true
+        type: string
+
+# Minimal baseline; every job that needs more grants it itself.
+permissions:
+  contents: read
+
+# One version publishes once: runs for the same tag queue up instead of racing.
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag || github.run_id }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build and verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          fetch-depth: 0
+
+      - name: Set up uv and Python 3.12
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Verify the tag matches [project].version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG}"
+          case "${tag}" in
+            v*) ;;
+            *)
+              echo "::error::tag '${tag}' must be 'v<version>' (for example v1.0.0a1); refusing to build."
+              exit 1
+              ;;
+          esac
+          tag_version="${tag#v}"
+          pkg_version="$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')"
+          if [ "${tag_version}" != "${pkg_version}" ]; then
+            echo "::error::tag '${tag}' implies version '${tag_version}' but pyproject.toml declares [project].version = '${pkg_version}'; refusing to build."
+            exit 1
+          fi
+          echo "OK: tag '${tag}' matches [project].version '${pkg_version}'"
+
+      - name: Test gate (CPU-only suites)
+        env:
+          EVOXC_DISABLE_LOCATIONS: "1"
+        run: |
+          uv run --with pytest --with evoxc --with numpy python -m pytest src/evogp/gp/tests -q
+
+      - name: Build the wheel and the sdist
+        run: |
+          uv build
+
+      - name: Install the wheel into a clean venv
+        env:
+          WHEEL_VENV: ${{ runner.temp }}/wheel-venv
+        run: |
+          set -euo pipefail
+          uv venv --python 3.12 "${WHEEL_VENV}"
+          # --prerelease=allow: the runtime dependency evoxc may only be published as a pre-release.
+          uv pip install --python "${WHEEL_VENV}/bin/python" --prerelease=allow dist/*.whl
+
+      # Run from runner.temp so the checkout cannot shadow the installed wheel.
+      - name: Prove the installed wheel imports and converges
+        working-directory: ${{ runner.temp }}
+        env:
+          WHEEL_VENV: ${{ runner.temp }}/wheel-venv
+          EVOXC_DISABLE_LOCATIONS: "1"
+        run: |
+          set -euo pipefail
+          "${WHEEL_VENV}/bin/python" -c 'import pathlib, evogp.gp; path = pathlib.Path(evogp.gp.__file__).resolve(); print(f"evogp.gp -> {path}"); raise SystemExit(0 if "site-packages" in path.parts else f"evogp.gp resolved outside the installed wheel: {path}")'
+          "${WHEEL_VENV}/bin/python" -m evogp.gp.smoke
+
+      - name: Upload the distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish to PyPI
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: pypi
+    permissions:
+      # PyPI Trusted Publishing: OIDC token, no API token secret.
+      id-token: write
+      contents: read
+    steps:
+      - name: Download the distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  attach:
+    name: attach the distributions to the release
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Upload the distributions to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "${RELEASE_TAG}" dist/* --clobber

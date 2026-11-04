@@ -1,3 +1,86 @@
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.13.7,<0.14"]
+build-backend = "uv_build"
+
+[project]
+name = "evogp"
+version = "1.0.0a1"
+description = "Tree-based genetic programming on EvoX Compiler (evoxc) — the torch-free functional evogp.gp engine, pure Python, no build step."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Zhihong Wu", email = "zhihong2718@gmail.com" },
+    { name = "Lishuang Wang" },
+    { name = "Kebin Sun" },
+]
+keywords = [
+    "genetic programming",
+    "symbolic regression",
+    "evolutionary computation",
+    "tree-based genetic programming",
+    "evox",
+    "evoxc",
+    "numpy",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# The runtime core, and nothing else: `evoxc` (EvoX Compiler) is the evaluation
+# engine every route runs on and `numpy` is the host glue the shipped engine is
+# written in.  `import evogp.gp` needs neither torch, `evox` nor a device.
+dependencies = [
+    "evoxc>=0.1.0",
+    "numpy",
+]
+
+[project.optional-dependencies]
+# `evogp.fused`, the device-native Triton evaluation route: torch at module
+# scope, triton lazily at the first launch.  Needs a CUDA/HIP device and a
+# writable TRITON_CACHE_DIR.
+fused = ["torch", "triton"]
+# The `iree` backend of the in-graph route (`evogp.gp.GraphEvaluator`).
+iree = [
+    "iree-base-compiler>=3.11.0,<3.12",
+    "iree-base-runtime>=3.11.0,<3.12",
+]
+# `evogp.evox_ext`, the EvoX 2.0 `StdWorkflow` adapter — the only subtree that
+# imports `evox`.
+evox = ["evox>=2.0.0a1"]
+dev = ["pytest"]
+# `example/gp_uci_sr.py` symbolic-regresses scikit-learn's bundled
+# `load_diabetes` table; the library itself does not import it.
+examples = ["scikit-learn"]
+
+[project.urls]
+Homepage = "https://github.com/EMI-Group/evogp"
+Repository = "https://github.com/EMI-Group/evogp"
+Issues = "https://github.com/EMI-Group/evogp/issues"
+Changelog = "https://github.com/EMI-Group/evogp/blob/main/CHANGELOG.md"
+Paper = "https://arxiv.org/abs/2501.17168"
+
+[tool.uv.build-backend]
+# src-layout: the one top-level module is `src/evogp`.
+module-root = "src"
+module-name = "evogp"
+
+# The sdist carries the packaging metadata too (README.md, LICENSE and the
+# rewritten pyproject.toml are added by uv_build itself).
+source-include = ["CHANGELOG.md", "requirements.txt"]
+
+# The pytest suites stay in the repository, in neither archive: they need the
+# dev-only `test/oracle/` tooling that lives outside the tarball.
+source-exclude = ["tests"]
+
+# The raw measurement evidence behind `evogp/gp/POPSCALE.md` and
+# `evogp/gp/DEVICE_LOOP.md` is sdist-only.
+wheel-exclude = ["gp/evidence"]
