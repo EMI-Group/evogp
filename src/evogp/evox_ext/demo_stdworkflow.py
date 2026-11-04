@@ -34,7 +34,7 @@ configuration of the driver the workflow replaces, so the two are comparable
 and nothing is duplicated here.
 
 Unlike the torch stack's entry points (``evogp.sr_test``, deleted with that
-stack in 2.0.0a2) and the ``example/*.py`` scripts, which run at import time,
+stack in 1.0.0a1) and the ``example/*.py`` scripts, which run at import time,
 this module is guarded: importing it does nothing.
 """
 

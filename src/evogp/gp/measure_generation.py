@@ -32,7 +32,7 @@ graph question of :mod:`evogp.gp.fused_eval`:
 
 The torch-native stack's own generation sides (``evogp.algorithm`` /
 ``evogp.pipeline`` / ``evogp.problem`` over a ``Forest``) were removed with that
-stack in 2.0.0a2; recover them at commit 6720723.  A plain-torch generation is
+stack in 1.0.0a1; recover them at commit 6720723.  A plain-torch generation is
 not reconstructible from this subtree's code (the operators and the pipeline
 lived in the deleted stack), so no torch column survives here -- the per-CALL
 torch baselines live in :mod:`evogp.gp.measure_popscale` instead.

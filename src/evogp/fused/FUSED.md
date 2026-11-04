@@ -1,5 +1,5 @@
-> **Record note (post-2.0.0a2).** This document is the fused route's independent verification campaign and design record of record.
-> It was measured on the pre-2.0.0a2 tree, whose torch-native stack (`evogp.tree`, `evogp.algorithm`, `evogp.problem`, `evogp.pipeline`) is now gone.
+> **Record note (post-1.0.0a1).** This document is the fused route's independent verification campaign and design record of record.
+> It was measured on the pre-1.0 tree, whose torch-native stack (`evogp.tree`, `evogp.algorithm`, `evogp.problem`, `evogp.pipeline`) is now gone.
 > Module names in its prose (`fused_engine.py`, `forest.py`, `tree.py`, `dense_engine.resolve_route`, `EVOGP_EVAL_MODE`) refer to that deleted wiring.
 > The route itself now lives in `src/evogp/fused/` (`engine.py` + `kernels.py`) and is called directly by `evogp.gp.fused_eval`.
 > The in-library battery `fused_check.py` became `python -m evogp.fused.check` (`fused/check.py` plus the `cases` / `contract` / `timing` libraries), and the independent oracle `reference_eval.py` moved to the dev-only `test/oracle/reference_eval.py`.
@@ -454,8 +454,8 @@ $PY test/benchmark/evoxc/results/t1a1_fused/campaign_index.py
 $PY -m evogp.fused.check --stage multi      # the OUT_NODE protocol vs the oracle
 $PY -m evogp.fused.check --stage declines   # the decline/contract matrix
 #    (The `fused_envelope.py` harness behind §12–§15 — `--stage headline|envelope|minpop|
-#    sweep|degenerate` and the read-only `records` audit — was deleted with the pre-2.0.0a2
-#    tree and NOT ported; its own records stay beside this document.)
+#    sweep|degenerate` and the read-only `records` audit — was deleted with the pre-1.0
+#    torch-native tree and NOT ported; its own records stay beside this document.)
 
 # 7. end-to-end and the hermetic suite (run the suite AFTER all timing — parts of it touch the GPU)
 EVOGP_EVAL_MODE=fused EVOGP_EVOXC_BACKEND=iree $PY -m evogp.sr_test     # best fitness -0.2259 in ~10.4 s
@@ -874,7 +874,7 @@ was arm-order drift, which is why §15's protocol keeps the order alternation.
 - The records under `test/benchmark/evoxc/results/t1a1_fused/` predate §16.4, so their `geometry.scratch_bytes` is the older round figure and
   their geometric keys carry no value-buffer/chart terms. Their `envelope_ok` is unaffected: all 79 stored records
   still pass today's rule, which `fused_envelope.py --stage records` used to re-check read-only (it never rewrote
-  them; that harness was deleted rather than ported in 2.0.0a2, so the records themselves stay as committed evidence
+  them; that harness was deleted rather than ported in 1.0.0a1, so the records themselves stay as committed evidence
   in `test/benchmark/evoxc/results/t1a1_fused/`).
 - Module sizes are deliberate single units: `fused/engine.py` is 1 906 lines and `fused/kernels.py` 1 719 lines
   (a compilation unit each, and each says so at the top of the file); the battery is now split into
@@ -1033,7 +1033,7 @@ stated above; where they overlap, the campaign's own tables win):
   `fused/cases.py` (the parity / multi / goldens / declines case library), `fused/contract.py` and
   `fused/timing.py` (the six-cell timing and the geometry/tuning grids), which share one workload builder and one
   comparison helper (`cases.workload` / `cases.compare`) — do not duplicate either of them.
-- (Pre-2.0.0a2 stage, no longer present: `--stage wired` checked the `Forest` call sites and `resolve_route` in-process, and both were deleted with the torch-native stack.) `--stage wired` is the wiring gate: it drives the three `Forest` call sites with `EVOGP_EVAL_MODE=fused` set
+- (Pre-1.0 stage, no longer present: `--stage wired` checked the `Forest` call sites and `resolve_route` in-process, and both were deleted with the torch-native stack.) `--stage wired` is the wiring gate: it drives the three `Forest` call sites with `EVOGP_EVAL_MODE=fused` set
   in-process and asserts they equal the `specialized` reference (value bitwise or ≤1e-6 relative, loss ≤1e-5), that
   the facade SERVED each call (its counters move), that `resolve_route` names fused on `iree` with a `numpy`
   fallback while `pop_size == 1` / a population below `EVOGP_FUSED_MIN_POP` / a box with no device stay

@@ -1,18 +1,18 @@
 # Changelog
 
 Notable changes to EvoGP, newest first.
-The `2.0` line is a pre-release series aligned with `evox` 2.0.0a1; entries here carry no date, only the release.
+`1.0` is the first public pre-release series; `1.0.0a1` is the new `evoxc`-based engine.
 
-## 2.0.0a2 — pre-release: the single-stack release
+## 1.0.0a1 — 1.0-alpha (pre-release): the evoxc-based engine
 
 `evogp.gp` is now the whole engine.
-The torch-native stack is deleted, the GP engine is torch-free (`evoxc` graphs + numpy host glue), and it is
+The pre-1.0 torch-native stack is deleted, the GP engine is torch-free (`evoxc` graphs + numpy host glue), and it is
 presented as `evogp.gp` (the engine), `evogp.fused` (the optional device-native Triton evaluator) and
 `evogp.evox_ext` (the EvoX 2.0 `StdWorkflow` adapter).
 
 ### Removed
 
-- The torch-native stack, with no shims: the modules `evogp.tree`, `evogp.algorithm`, `evogp.problem`,
+- The pre-1.0 torch-native stack, with no shims: the modules `evogp.tree`, `evogp.algorithm`, `evogp.problem`,
   `evogp.pipeline`, `evogp.sr_test` and `evogp.tests` are gone.
 - The objects built on it: `Forest`, `Tree`, `CombinedForest`, `GenerateDescriptor`, `GeneticProgramming`,
   `StandardPipeline`, `DefaultSelection`, `DefaultMutation`, `SympyExpression`, `Tree.to_png`, and the classification
@@ -22,9 +22,11 @@ presented as `evogp.gp` (the engine), `evogp.fused` (the optional device-native 
   `batch` engine, and their knobs (`EVOGP_DENSE_*`, `EVOGP_EVOXC_CACHE_SIZE`, `EVOGP_EVOXC_ARTIFACT_DIR`,
   `EVOGP_BATCH_*`, `EVOGP_FUSED_MIN_POP`). The route is now whatever the caller passes as `evaluate=`.
 - The optional-dependency surface that went with them: the `torch`, `brax` and `visualize` extras and the
-  `scikit_learn`, `networkx` and `sympy` requirements. `install_requires` is `evoxc>=0.1.0` + `numpy`.
+  `scikit_learn`, `networkx` and `sympy` requirements. The runtime dependencies are `evoxc>=0.1.0` + `numpy`.
 - The ten torch-stack example scripts and the three torch-stack tutorials, replaced by five `evogp.gp` scripts and
   one notebook (see below).
+- `setup.py` and `MANIFEST.in`: both are replaced by the `pyproject.toml` metadata and the
+  `[tool.uv.build-backend]` inclusion rules.
 
 ### Added
 
@@ -56,15 +58,23 @@ presented as `evogp.gp` (the engine), `evogp.fused` (the optional device-native 
   `src/evogp/gp/DEVICE_LOOP.md`.
 - `example/gp_sr.py`, `example/gp_custom_loss.py`, `example/gp_uci_sr.py`, `example/gp_device.py`,
   `example/evox_workflow.py`; `tutorial/gp_intro.ipynb`; the dev-only numeric oracle at `test/oracle/`.
-- Extras `fused` (torch + triton), `iree` (iree-base-compiler / iree-base-runtime), `evox` (`evox>=2.0.0a1`),
-  `dev` (pytest) and `examples` (scikit-learn, for `example/gp_uci_sr.py` only); `MANIFEST.in` now ships
-  `CHANGELOG.md` as well as `README.md`, plus `LICENSE`, `requirements.txt`, the in-package Markdown and
-  `src/evogp/gp/evidence/*.json` in the sdist — while the wheel carries the in-package Markdown through
-  `setup.py`'s `package_data` and ships neither `tests/` nor `evidence/`.
+- The release pipeline `.github/workflows/release.yml`, on `release: published` plus a `workflow_dispatch` dry run:
+  it verifies the tag `v<version>` against `[project].version`, runs
+  `uv run --with pytest --with evoxc --with numpy python -m pytest src/evogp/gp/tests -q` (CPU-only), runs
+  `uv build`, smoke-installs the wheel in a clean venv and runs `python -m evogp.gp.smoke` from outside the
+  checkout, publishes the distributions to PyPI through Trusted Publishing, and attaches `dist/*` to the release.
+- Extras `fused` (torch + triton), `iree` (iree-base-compiler / iree-base-runtime 3.11), `evox` (`evox>=2.0.0a1`),
+  `dev` (pytest) and `examples` (scikit-learn, for `example/gp_uci_sr.py` only), declared in
+  `[project.optional-dependencies]`; the in-package Markdown ships in both archives, while the pytest suites stay
+  in the repository and the `gp/evidence/*.json` files are sdist-only.
 
 ### Changed
 
-- Version `2.0.0a1` → `2.0.0a2`; the package stays pure Python with no build step and no compiled extension.
+- `1.0.0a1` is the first public pre-release of the new engine; the package stays pure Python with no build step and
+  no compiled extension, and the distributions are built by the `uv_build` backend from `pyproject.toml` (`uv build`).
+- `pyproject.toml` is the single packaging source: `[project]` carries the metadata (version, `requires-python`,
+  SPDX `license`, extras, dependencies, URLs) and `[tool.uv.build-backend]` carries the inclusion rules — the whole
+  module directory under `src`, `source-exclude = ["tests"]` and `wheel-exclude = ["gp/evidence"]`.
 - Determinism is key-based: `run(..., key=0)` replaces `torch.manual_seed(0)`. The RNG is an `evoxc` splitmix64 key
   carried in `GPState` (the key of the NEXT generation), so a run is reproducible from one integer with no global
   seed and no torch.
@@ -76,8 +86,8 @@ presented as `evogp.gp` (the engine), `evogp.fused` (the optional device-native 
   MAXIMIZED, and every non-finite entry is mapped to `-inf` before ranking.
 - Importing a submodule is now cheap everywhere: `import evogp.gp` needs neither torch, `evox` nor `evoxc` at
   module scope (the purity is pinned by a source-grep test), and `import evogp` stays empty.
-- `README.md` was rewritten as a single-stack document (install, quick start, the three routes with their
-  measured numbers, the API, the migration list, layout, validation, licence).
+- `README.md` was rewritten for the 1.0-alpha release (install, quick start, the new-vs-old comparison, the three
+  routes with their measured numbers, the API, the migration list, layout, validation, releasing and licence).
 
 ### Known limitations
 
@@ -87,8 +97,8 @@ presented as `evogp.gp` (the engine), `evogp.fused` (the optional device-native 
   triple, and `CustomLoss` is the escape hatch for any other objective.
 - **No export and no population container**: nothing renders a tree to sympy, to an infix string or to a PNG, and
   there is no `Forest`-like object protocol — the population is the three channel rows.
-- **Per call, the fused objective as `evogp.gp` calls it is 9.0×–19.8× dearer than the deleted torch stack's own
-  pre-bound fused route** on the same trees (`src/evogp/gp/POPSCALE.md` §1.4/§5(a)): it pays the channel-triple
+- **Per call, the fused objective as `evogp.gp` calls it is 9.0×–19.8× dearer than the pre-1.0 torch-native stack's
+  own pre-bound fused route** on the same trees (`src/evogp/gp/POPSCALE.md` §1.4/§5(a)): it pays the channel-triple
   crossing. The win is the generation loop (1.83×–2.31× against the torch stack, 1.69×–2.34× against it with its
   fused kernel on), where the operator layer is one traced graph.
 - **The in-graph `iree` body materializes `[pop_size, n_rows]` intermediates per tree column**, so it is far dearer
@@ -101,15 +111,17 @@ presented as `evogp.gp` (the engine), `evogp.fused` (the optional device-native 
 - **`FusedDeviceEvaluator` returns ONE reused device fitness buffer**, overwritten by the next device call — copy it
   before the next call if the numbers must be kept.
 - **Channel validation is a Python loop** (~0.5 µs per live node), so `validate=False` is the only mitigation.
-- **No CI**: the three suites (`src/evogp/gp/tests`, `src/evogp/fused/tests`, `src/evogp/evox_ext/tests`) and the
-  fused battery are run by hand, quoted per path.
+- **CI is release-only**: nothing runs on a pull request or a push, and the release pipeline gates on
+  `src/evogp/gp/tests` alone; the three suites (`src/evogp/gp/tests`, `src/evogp/fused/tests`,
+  `src/evogp/evox_ext/tests`) and the fused battery are otherwise run by hand, quoted per path.
 - The two measurement records (`src/evogp/gp/POPSCALE.md`, `src/evogp/gp/DEVICE_LOOP.md`) and the fused route's
-  `src/evogp/fused/FUSED.md` were measured on the pre-2.0.0a2 tree with torch comparison lanes that this release no
-  longer carries; their numbers are read as records, not as a reproducible baseline of this tree.
+  `src/evogp/fused/FUSED.md` were measured on the pre-1.0 torch-native tree with torch comparison lanes that this
+  release no longer carries; their numbers are read as records, not as a reproducible baseline of this tree.
 
-## 2.0.0a1 — pre-release: the two-stack line
+## Development line (unreleased, superseded): the two-stack 2.0.x
 
-First release aligned with `evox` 2.0.0a1: two stacks over one `evoxc` engine — the torch-native
-`evogp.tree` / `evogp.algorithm` / `evogp.problem` / `evogp.pipeline` and the torch-free `evogp.gp` — with four
-selectable evaluation routes (`fused`, `dense`, `specialized`, opt-in `batch`) behind `EVOGP_EVAL_MODE`; the torch
-stack ships in that release and is recoverable at commit `6720723`.
+The two-stack `2.0.x` line was never published, and its version naming is retired in favour of `1.0.0a1`.
+It described two stacks over one `evoxc` engine — the torch-native `evogp.tree` / `evogp.algorithm` / `evogp.problem`
+/ `evogp.pipeline` and the torch-free `evogp.gp` — with four selectable evaluation routes (`fused`, `dense`,
+`specialized`, opt-in `batch`) behind `EVOGP_EVAL_MODE`; the torch stack it shipped is recoverable at commit
+`6720723`.

@@ -1,7 +1,7 @@
 # `src/evogp/gp/` — the torch-free functional GP stack (`evoxc` + numpy)
 ## Intent
 This subtree is the `evogp.gp` package: EvoGP's torch-free functional genetic-programming stack, built on `evoxc` (EvoX Compiler) tensors with numpy host glue.
-In the 2.0.0a2 single-stack release it is the library's GP engine, beside `evogp.fused` (the device-native Triton route), `evogp.evox_ext` (the EvoX 2.0 `StdWorkflow` adapter) and the two shared torch-free modules `evogp._tables` and `evogp._multi_output`.
+In the `1.0.0a1` single-stack release (EvoGP 1.0-alpha) it is the library's GP engine, beside `evogp.fused` (the device-native Triton route), `evogp.evox_ext` (the EvoX 2.0 `StdWorkflow` adapter) and the two shared torch-free modules `evogp._tables` and `evogp._multi_output`.
 It solves single-output symbolic regression end to end: random generation (`init_population`) → the operator layer (`select`, `apply_crossover`, `mutate`, `apply_variation`) → a pluggable evaluation → the `init_gp` / `step` / `run` driver.
 The idiom is Evox 2.0's (`/root/evox/src/evox/DESIGN.md`): frozen config dataclasses holding static leaves only, state as a dataclass whose leaves are `evoxc` tensors, plain module-level functions in the `init(config, key) -> state` / `step(config, state, evaluate) -> state` protocol, and a key-based RNG carried in the state instead of a global seed.
 No module of the subtree imports torch, `evox` or `evoxc` at module import time, so `import evogp.gp` works from a plain checkout with `PYTHONPATH=src` alone.
@@ -9,7 +9,7 @@ The ONE torch boundary is `fused_eval.py`, which resolves torch, triton and the 
 A whole loop also runs DEVICE-RESIDENT (`backend="iree"`, `evoxc.Device("rocm", 0)` on this box) with the objective on either of two device routes: `graph_eval.GraphEvaluator` — two `evoxc.run` calls per generation, the evaluation graph then the variation graph — or `fused_eval.FusedDeviceEvaluator` — ONE Triton launch per evaluation, the kernel reading the exported channel buffers and writing the fitness buffer the variation graph then consumes.
 Both routes keep zero host syncs, zero readbacks and zero transfers between the two halves of a generation.
 On a CPU box the same driver runs the numpy evaluator and converges in seconds: `python -m evogp.gp.smoke` measured 100 generations of pop 200 in 3.76 s on this box, `-0.27225` → `-0.10690` (best tree 57 nodes).
-The economics of both device objectives are recorded in `DEVICE_LOOP.md` (the loop) and `POPSCALE.md` (the population axis); both are measurements of the pre-2.0.0a2 tree (see Known Issues).
+The economics of both device objectives are recorded in `DEVICE_LOOP.md` (the loop) and `POPSCALE.md` (the population axis); both are measurements of the pre-1.0 torch-native tree (see Known Issues).
 EvoX 2.0 has no tree / GP / symbolic-regression component, so this stack plus `evogp.evox_ext` is EvoGP's contribution to the family rather than a port of anything that repository ships.
 
 ## Public API Surface
@@ -76,7 +76,7 @@ Inside the subtree the order is `_constants` → `config` / `state` → `encodin
 - **Multi-output is not implemented**: `init_population` raises `NotImplementedError` for `output_len > 1`, the legacy bridge refuses an `OUT_NODE`-tagged row, `graph_eval` refuses one on the host, and `FusedDeviceEvaluator` refuses one before any launch; `CustomLoss` is the only way to score such a task.
 - **No problem library beyond symbolic regression**: `problem.py` ships `SymbolicRegression` (MSE or MAE) and `CustomLoss` only — no classification, transformation, feature-building or robotics problem, and no benchmark suite inside this stack.
 - **No export formats**: nothing here renders a tree to sympy, to an infix string or to a PNG; a solved tree leaves the stack as the three channel rows of `GPResult.best_channels`.
-- **The fused device objective is dearer per call than the torch stack's own fused route in the same record** — 9.0×–19.8× on the same trees over pop 64 → 8 192 (`POPSCALE.md` §1.4/§5(a), a pre-2.0.0a2 measurement against a lane this tree no longer carries): `FusedDeviceEvaluator` exports three `evoxc` channel tensors over DLPack, converts them to the legacy triple in torch, writes the fitness buffer through `out=` and takes one `torch.cuda.synchronize()` per call, where that stack held the same layout as its own population tensors and launched pre-bound.
+- **The fused device objective is dearer per call than the torch stack's own fused route in the same record** — 9.0×–19.8× on the same trees over pop 64 → 8 192 (`POPSCALE.md` §1.4/§5(a), a pre-1.0 torch-native measurement against a lane this tree no longer carries): `FusedDeviceEvaluator` exports three `evoxc` channel tensors over DLPack, converts them to the legacy triple in torch, writes the fitness buffer through `out=` and takes one `torch.cuda.synchronize()` per call, where that stack held the same layout as its own population tensors and launched pre-bound.
   What the stack wins is the GENERATION loop (1.83×–2.31× in the same record), because its operator layer is one traced graph.
 - **Channel validation is a Python loop**: measured 6.9 ms for 256 trees averaging 52 nodes and 61.6 ms at 511 nodes each (≈0.5 µs per live node) on this box; no vectorized version exists and `validate=False` is the only mitigation.
 - **A second `CompileCache` lives in the problem layer** (`problem._GRAPH_COMPILE_CACHE`, with its own size knob) beside the shared one in `encoding`, so the stack holds two compile caches with independent sizes and independent reset entries.
@@ -86,7 +86,7 @@ Inside the subtree the order is `_constants` → `config` / `state` → `encodin
 - **`from_legacy_triple` raises `IndexError` instead of its documented `ValueError`** for an unknown `NType` marker on the single-individual (three 1-D rows) form, because the message formats a row index out of a non-existent second axis; the library only reaches it from the tests.
 - **The large-`k` elite `argsort` fallback is untested**: `variation._ARGSORT_ELITE_BREAK_EVEN` (50) is only crossed above 50 elites or at `elite_count == pop_size`, and `GPConfig` rejects the second case.
 - **Four private channel parsers bypass the documented single one**: `evaluator._prepare_channels`, `fused_eval._channel_matrices`, `fused_eval._channel_objects` and `graph_eval._channel_triple` each accept their own subset of the three channel forms instead of going through `encoding._channel_arrays`, and `GPTreeConfig.func_type` has no reader outside a config test.
-- **The two measurement records are historical**: `DEVICE_LOOP.md` and `POPSCALE.md` quote numbers taken on the pre-2.0.0a2 tree with torch comparison lanes that this harness set does not carry; nothing in this tree reproduces them, and they are read as records rather than as a current baseline.
+- **The two measurement records are historical**: `DEVICE_LOOP.md` and `POPSCALE.md` quote numbers taken on the pre-1.0 torch-native tree with torch comparison lanes that this harness set does not carry; nothing in this tree reproduces them, and they are read as records rather than as a current baseline.
 
 ## Test Strategy
 Run the suite from the repo root with a writable Triton directory (the device modules JIT the kernel) and `evoxc` on the path:
@@ -131,8 +131,8 @@ The dev-only oracle lives outside the suite at `../../../test/oracle/` (`referen
 - `./evidence/` → the committed raw records the two reports are written from: `device_loop.json`, `device_loop_gp_fused_round2.json`, `popscale.json`, `popscale_eval.json` and `popscale_cold/{numpy,gp,gp-fused,forest-auto}.json` (the last one a record of a lane outside the harness's `LANES`).
 - `DESIGN.md` → the constructions (channels, level-wise generation and argsort placement, splice arithmetic, selection / mutation sketches, "Evaluation and the driver").
 - `EVOXC_API.md` → the verified `evoxc` contract; extend it rather than re-deriving the facts from the source.
-- `POPSCALE.md` → the record of the population axis (per-call column, generation column, cold start, convergence), measured on the pre-2.0.0a2 tree.
-- `DEVICE_LOOP.md` → the record of the device-resident loop (per-cell step / evaluation / variation tables, sync and transfer counts, convergence, the fused-vs-in-graph head-to-head), measured on the pre-2.0.0a2 tree.
+- `POPSCALE.md` → the record of the population axis (per-call column, generation column, cold start, convergence), measured on the pre-1.0 torch-native tree.
+- `DEVICE_LOOP.md` → the record of the device-resident loop (per-cell step / evaluation / variation tables, sync and transfer counts, convergence, the fused-vs-in-graph head-to-head), measured on the pre-1.0 torch-native tree.
 - `../fused/` → the device-native Triton route this stack's `fused_eval` plugs in (`engine`, `kernels`, `memo`, `cases`, `check`, `contract`, `timing`, its own tests, and `FUSED.md` as the design/report of record).
 - `../evox_ext/` → the EvoX 2.0 adapter that presents this stack as `StdWorkflow` components; the only subtree that imports `evox`.
 - `../_tables.py` → the torch-free single source of truth for the ids (imports nothing) and `../_multi_output.py` → the shared `OUT_NODE` refusal rule and `MAX_OUT_LEN`.

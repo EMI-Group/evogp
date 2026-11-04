@@ -11,7 +11,7 @@ the Triton kernel) plus the two self-contained plain-torch baselines of
 :mod:`evogp.gp._torch_baseline`, which are built from the population's legacy
 triple alone.  The torch-native stack's own lanes (``evogp.tree``'s ``Forest``
 under the shipped default and under a forced ``EVOGP_EVAL_MODE=fused``) were
-removed with that stack in 2.0.0a2; recover them at commit 6720723.
+removed with that stack in 1.0.0a1; recover them at commit 6720723.
 
 Where :mod:`evogp.gp.measure_generation` measures a whole GENERATION (evaluation
 + select/crossover/mutate), this harness measures the PRIMARY metric of the
@@ -458,7 +458,7 @@ def measure_pop(
 
     One :class:`_Population` feeds every lane, so all of them evaluate the same
     trees; no lane needs a process of its own any more (the torch-native lanes
-    that did were removed with their stack in 2.0.0a2).
+    that did were removed with their stack in 1.0.0a1).
     """
     lanes = list(lanes)
     unknown = [lane for lane in lanes if lane not in LANES]
