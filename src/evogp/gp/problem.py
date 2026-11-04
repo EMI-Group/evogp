@@ -346,7 +346,7 @@ class CustomLoss(BaseProblem):
 # The value buffer is grown column by column (``node = L-1`` down to ``0``) as a
 # ``[rows, pop_size, n_rows]`` tensor.  Only the second (and, for a ternary
 # function set, the third) child needs a gather -- ONE flat ``gather`` each, the
-# construction of :func:`_read_buffer` below (the idiom the pre-2.0 dense engine
+# construction of :func:`_read_buffer` below (the idiom the pre-1.0 dense engine
 # established): pre-order makes a node's first child the next
 # column, so ``v1`` is the previous column's value tensor itself and costs no
 # read at all.
@@ -646,7 +646,7 @@ def _read_buffer(flat, base, index: int, pop: int, n_rows: int, row_offsets):
     ``flat`` is the ``rows * pop * n_rows`` flattening of the value buffer (row 0
     = the newest column), ``base`` the :func:`_child_bases` grid of one child
     channel and ``row_offsets`` the :func:`_row_offsets` grid.  ONE flat
-    ``gather`` per child, exactly as the pre-2.0 dense engine's ``_read_buffer``
+    ``gather`` per child, exactly as the pre-1.0 dense engine's ``_read_buffer``
     did it.
 
     The index is flattened to ``(pn,)`` and the block reshaped back on purpose:

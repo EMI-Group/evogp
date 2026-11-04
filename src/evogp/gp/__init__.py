@@ -3,7 +3,7 @@
 The new Evox-2.0-style EvoGP: a functional genetic-programming stack built only
 on ``evoxc`` (EvoX Compiler) tensors and numpy host glue.  It replaces the
 torch-native stack (``evogp.tree``, ``evogp.algorithm``, ``evogp.problem`` and
-``evogp.pipeline``), which was deleted in 2.0.0a2: this subtree is the shipped
+``evogp.pipeline``), which was deleted in 1.0.0a1: this subtree is the shipped
 GP layer now, and the deleted stack is gone rather than kept beside it.
 
 The idiom is Evox 2.0's (``/root/evox/src/evox/DESIGN.md``): frozen config

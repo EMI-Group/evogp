@@ -2,7 +2,7 @@
 
 A real, converging end-to-end run of the driver on a CPU-only box -- formerly
 the counterpart of the torch stack's ``evogp/sr_test.py`` (deleted with that
-stack in 2.0.0a2), and deliberately its opposite in one respect: this module
+stack in 1.0.0a1), and deliberately its opposite in one respect: this module
 does **nothing** at import time.  The reference workload is the same synthetic
 2-input target
 ``x0**4 / (x0**4 + 1) + x1**4 / (x1**4 + 1)`` on 1 000 points drawn uniformly

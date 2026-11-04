@@ -12,8 +12,8 @@ There is deliberately NO torch import here (the module takes the ``torch``
 module as an argument, as the rest of this subtree resolves the boundary at call
 time), no ``evogp.tree`` and no ``Forest``: the tensors are built from the
 population's own numpy rows, so the baselines survive the removal of the
-torch-native stack in 2.0.0a2.  The torch comparison code that was built on that
-stack was removed in 2.0.0a2; recover it at commit 6720723.
+torch-native stack in 1.0.0a1.  The torch comparison code that was built on that
+stack was removed in 1.0.0a1; recover it at commit 6720723.
 
 Semantics are the ones the deleted engine documented (its ``ENGINE_SPEC.md``,
 kept in git history; recover it at commit 6720723): ``DIV`` masks a zero
