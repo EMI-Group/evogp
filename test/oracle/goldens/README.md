@@ -2,7 +2,7 @@
 
 Frozen `.npz` fixtures for the Triton `fused` route's golden check
 (`python -m evogp.fused.check --stage goldens`, tolerance 1e-4 rtol/atol).
-They were produced by the evoxc ETL engine of the pre-2.0.0a2 tree stack at repo
+They were produced by the evoxc ETL engine of the pre-1.0 torch-native stack at repo
 commit `0242bae1bc736f38c46d0d3951047dedf7a34305` (that engine was itself
 validated against the old CUDA kernels and `ENGINE_SPEC.md`), so they are
 historical captures: treat them as READ-ONLY data and never re-capture them.
