@@ -2,6 +2,12 @@
 # Compiler) is the evaluation engine every route runs on and `numpy` is the
 # host glue the stack is written in.  Both are PyPI distributions; a development
 # setup can equally use the sibling checkout (`pip install /path/to/evoxc`).
+#
+# The build is `uv_build`, configured entirely in `pyproject.toml` (the single
+# source of packaging truth — there is no `setup.py` and no `MANIFEST.in`):
+# `uv build` emits `dist/evogp-<version>.tar.gz` plus a pure-Python wheel.
+# Users need no build step; `pip install evogp` just installs this file's two
+# distributions.
 evoxc>=0.1.0
 numpy
 
