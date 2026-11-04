@@ -6,8 +6,8 @@ key-based determinism, but the data is scikit-learn's BUNDLED ``load_diabetes``
 table (442 rows x 10 numeric features, continuous target) instead of a synthetic
 function.  This is the offline stand-in for the old ``uci_sr.py`` paper script,
 which needed ``ucimlrepo`` + network access + ``pandas``; this loader ships
-inside scikit-learn, a hard requirement of ``setup.py``, so there is **no
-network, no new dependency** and nothing to download.
+inside scikit-learn, the ``examples`` extra declared in ``pyproject.toml``
+(``evogp[examples]``), so there is **no network** and nothing to download.
 
 Run it from the repository root (``evoxc`` is imported at call time only)::
 

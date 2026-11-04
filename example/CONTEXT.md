@@ -1,9 +1,9 @@
-# example/ — runnable end-to-end demos of the shipped 2.0.0a2 stack
+# example/ — runnable end-to-end demos of the shipped 1.0.0a1 stack
 
 ## Intent
 Five flat, standalone scripts, one concern per file, each a complete runnable story that ends in printed numbers.
 They demonstrate the stack this release actually ships: the torch-free functional stack `evogp.gp` (evoxc + numpy), its optional fused Triton objective, and the `evogp.evox_ext` adapter that presents the stack as an `evox` 2.0 `StdWorkflow`.
-The torch stack (`evogp.tree` / `evogp.algorithm` / `evogp.problem` / `evogp.pipeline`) and the ten scripts that targeted it are gone in this release, so nothing here imports them.
+The pre-1.0 torch-native stack (`evogp.tree` / `evogp.algorithm` / `evogp.problem` / `evogp.pipeline`, recoverable at commit `6720723`) and the ten scripts that targeted it are gone in this release, so nothing here imports them.
 This directory is documentation-by-example: it is the reference for wiring the public API, and the place to copy from when writing a new experiment.
 There are no subdirectories, no `__init__.py` (not a package), no shared helpers and no test harness — each file is self-contained on purpose.
 Every file carries a module docstring stating what it demonstrates, the exact run command, its requirements and its expected runtime / outcome.
@@ -15,7 +15,7 @@ Run from the **repo root** with the reference venv — no `python`/`python3` on 
 `/root/evox/src` is required only by `evox_workflow.py` (`import evox` needs that `src` directory; plain `/root/evox` does not work) — the other four need only `src` + `/root/evoxc`.
 `EVOXC_DISABLE_LOCATIONS=1` is evoxc's tracing-speed knob (~4x faster traces, not part of any compiled program or cache key); every file sets it itself with `os.environ.setdefault`, so it is optional on the command line.
 `TRITON_CACHE_DIR` only matters for `gp_device.py`'s fused route (a read-only `$HOME` makes the first launch die); a warm cache makes the second run of that file faster.
-Every file is `main()`-guarded (`if __name__ == "__main__": sys.exit(main())`), so importing one does nothing — unlike the deleted torch-stack scripts, which ran their experiment at import time.
+Every file is `main()`-guarded (`if __name__ == "__main__": sys.exit(main())`), so importing one does nothing — unlike the pre-1.0 torch-native stack's scripts, which ran their experiment at import time.
 No file needs a GPU except the device branch of `gp_device.py`, which falls back to the host loop instead of failing.
 `nanobind: leaked ...` lines on stderr at interpreter shutdown come from iree and are harmless; `evox_workflow.py` additionally prints two `RuntimeWarning: divide by zero / invalid value` lines from evoxc's numpy divide kernel (a GP population contains `/0` trees by construction).
 
@@ -33,9 +33,9 @@ Shipped settings, default routes, one process per run, repo root, `PYTHONPATH=sr
 |---|---|---|---|
 | `gp_sr.py` | pop 256 x 40 gen, 800 rows, `max_nodes=64` | **runs**, 1.83–1.90 s wall (1.72 s in the loop, 43 ms/generation); fitness −127.47717 → −0.00000, best at generation 33; winner 11 nodes, `((x1 * ((x1 + 4.128) - 4.128)) + (x0 * x0))`, RMSE 0.00000 | numpy + evoxc |
 | `gp_custom_loss.py` | pop 200 x 40 gen, 512 rows, `max_nodes=64` | **runs**, 1.36–1.40 s wall (0.96 s in the loop, 24 ms/generation); best accuracy 1.0000 at generation 13 (generation 0: 0.7305); `\|host accuracy − (best_fitness + 1)\| = 0.00e+00`, 0/512 misclassified | numpy + evoxc |
-| `gp_uci_sr.py` | pop 300 x 300 gen, 442 rows x 10 features, `max_nodes=128`, `max_layer_cnt=6` | **runs**, 21.2–21.3 s wall (20.5 s in the loop, 68 ms/generation); best fitness −0.469925 (= −MSE, standardised); tree R^2 **+0.5301** vs `lstsq` **+0.5177** vs train mean 0.0000 (RMSE 52.788 / 53.476 / 77.006) | scikit-learn (already a hard requirement; dataset is bundled, no network) |
+| `gp_uci_sr.py` | pop 300 x 300 gen, 442 rows x 10 features, `max_nodes=128`, `max_layer_cnt=6` | **runs**, 21.2–21.3 s wall (20.5 s in the loop, 68 ms/generation); best fitness −0.469925 (= −MSE, standardised); tree R^2 **+0.5301** vs `lstsq` **+0.5177** vs train mean 0.0000 (RMSE 52.788 / 53.476 / 77.006) | scikit-learn (the `examples` extra in `pyproject.toml`; dataset is bundled, no network) |
 | `gp_device.py` | pop 256 x 20 gen, 512 rows, `max_nodes=64` | **runs**, 12.8 s wall with a warm Triton cache / ~14.0 s cold; route `fused`; 0.66 ms per evaluation call (median of 10, min 0.60), 1.73 ms/generation steady state, 125 ms/generation including the first-generation graph compile; fitness −118.84114 → −0.04918, winner 17 nodes | torch + triton + iree for the device route; falls back to a ~1.0 s host run without them |
-| `evox_workflow.py` | pop 100 x 20 steps, 256 rows, `max_nodes=32` | **runs**, 1.79–1.81 s wall; `init()` 0.67 s (the one-time graph build), 32–35 ms/generation warm; best fitness −0.00000 at generation 12 (generation 0: −116.42137); plain driver on the same problem: 15.2–15.5 ms/generation, best −57.77399 | the `evox` checkout on `PYTHONPATH` (`/root/evox/src`); `evox` 2.0 pre-release, the only example that touches it |
+| `evox_workflow.py` | pop 100 x 20 steps, 256 rows, `max_nodes=32` | **runs**, 1.79–1.81 s wall; `init()` 0.67 s (the one-time graph build), 32–35 ms/generation warm; best fitness −0.00000 at generation 12 (generation 0: −116.42137); plain driver on the same problem: 15.2–15.5 ms/generation, best −57.77399 | the `evox` checkout on `PYTHONPATH` (`/root/evox/src`); the `evox` 2.0 pre-release (the `evox` extra), the only example that touches it |
 
 Every row is deterministic in its fitness numbers (`key=0` / `seed=0`, key-based RNG, no global seed and no torch) — a second run prints identical fitness, node counts and metrics; only the timings move.
 
@@ -44,8 +44,8 @@ Every row is deterministic in its fitness numbers (`key=0` / `seed=0`, key-based
 Populations and budgets: `gp_sr.py` 256/40, `gp_custom_loss.py` 200/40, `gp_uci_sr.py` 300/300, `gp_device.py` 256/20, `evox_workflow.py` 100/20 (steps).
 Tree width: `max_nodes=64` in the three synthetic demos, `128` in `gp_uci_sr.py`, `32` in `evox_workflow.py` (a complete tree of `max_layer_cnt=5` binary nodes needs 31).
 Function set is `("+", "-", "*", "/")` in every script; constants are drawn from `const_range`/`sample_cnt` (`(-5, 5)` x 8 in `gp_sr.py` and `gp_device.py`, `(-1, 1)` x 8 in `gp_custom_loss.py`, `(-2, 2)` x 16 in `gp_uci_sr.py`) or from an explicit `const_samples` tuple (`evox_workflow.py`).
-Operators: `elite_count=2` (3 in `gp_uci_sr.py`), `tournament_size=4`, `crossover_prob=0.9`, `mutation_prob=0.2`, `mutation_kind="subtree"` — the gp stack's closest analogues of the torch stack's `DefaultSelection(survival_rate=0.3, elite_rate=0.01)` and `DefaultMutation(0.2)`.
-No file writes anything to disk: no CSVs, logs, checkpoints, plots or result files — all output goes to stdout, and nothing is read from `imgs/` or `data/` (the deleted scripts' CWD-relative asset paths are gone with them).
+Operators: `elite_count=2` (3 in `gp_uci_sr.py`), `tournament_size=4`, `crossover_prob=0.9`, `mutation_prob=0.2`, `mutation_kind="subtree"` — the gp stack's closest analogues of the pre-1.0 torch-native stack's `DefaultSelection(survival_rate=0.3, elite_rate=0.01)` and `DefaultMutation(0.2)`.
+No file writes anything to disk: no CSVs, logs, checkpoints, plots or result files — all output goes to stdout, and nothing is read from `imgs/` or `data/` (the pre-1.0 scripts' CWD-relative asset paths are gone with them).
 
 ## Public API contract exercised
 Canonical wiring (three files): `SymbolicRegression(x, y)` or `CustomLoss(x, loss, targets)` → `GPTreeConfig(...)` + `GPConfig(...)` → `run(config, problem.evaluate, generations=, key=0, callback=)` → `GPResult`.
@@ -74,15 +74,16 @@ Timing caveats worth knowing when re-measuring: `gp_device.py`'s ~13 s wall is ~
 Keep every script self-contained and copy-pasteable: no imports from sibling example files, no shared helper module, one file = one complete runnable story.
 Start every file with `import os` and `os.environ.setdefault("EVOXC_DISABLE_LOCATIONS", "1")` BEFORE the other imports, because tracing must see the switch.
 Keep the `main()` guard: importing an example must not run it, and `main()` returns an int exit code (`sys.exit(main())`).
-Import only from `evogp.gp` (and its submodules) and — for the workflow demo only — `evogp.evox_ext`; never from the deleted `evogp.tree` / `evogp.algorithm` / `evogp.problem` / `evogp.pipeline`, and never `import torch` / `import triton` (the fused route resolves both lazily inside the library; `fused_available()` / `interop_available()` are the probes).
+Import only from `evogp.gp` (and its submodules) and — for the workflow demo only — `evogp.evox_ext`; never from the pre-1.0 `evogp.tree` / `evogp.algorithm` / `evogp.problem` / `evogp.pipeline`, and never `import torch` / `import triton` (the fused route resolves both lazily inside the library; `fused_available()` / `interop_available()` are the probes).
 Keep the knobs as plain module-level constants at the top (seed, pop, generations, rows, `max_nodes`, operator rates) — the directory's convention is "edit the constants and rerun", not a CLI.
-Do not add a hard dependency: an example may use an already-declared package (numpy, scikit-learn) and must state any optional one in its docstring and here.
+Do not add a hard dependency: an example may use a package already declared in `pyproject.toml` (numpy from `[project.dependencies]`, scikit-learn from the `examples` extra, `evogp[examples]`) and must state any other optional one in its docstring and here.
 A demo must be sized to finish in well under a minute at its shipped settings (`gp_uci_sr.py` at ~21 s is deliberately the slowest; `gp_device.py`'s ~13 s is one-time compile/probe cost, not loop time).
 Keep files in the 150–300 line range: the module docstring, the one-sentence-per-line reporting block and the route/fallback structure account for most of it, and `gp_device.py` at 300 lines is the widest legitimate case (three routes plus two fallbacks and the timing block).
 Match the repo style: `from __future__ import annotations`, type hints, one-sentence-per-line docstrings, ~88-column lines.
 
 ## Test Strategy
 No CI collects this directory and no pytest imports these scripts; the de-facto validation is running them, which is also how the numbers in the status table were produced.
+The release gate does not touch this directory either: `.github/workflows/release.yml` verifies the tag against `[project].version`, runs `src/evogp/gp/tests` on CPU and smokes the installed wheel with `python -m evogp.gp.smoke`.
 Cheapest checks, in order: (1) `PYTHONPATH=src /tmp/rocvenv/bin/python -m py_compile example/*.py` (syntax only, no device); (2) `gp_sr.py` (≈1.8 s, fitness −127.47717 → −0.00000) — the canonical API smoke; (3) `gp_custom_loss.py` (≈1.4 s, best accuracy 1.0000, exit code is the contract assertion) and `evox_workflow.py` (≈1.8 s, needs `/root/evox/src`); (4) `gp_device.py` (≈13 s warm; check the printed `route` line is `fused` on a torch box, and that the fallback path prints a reason instead of a traceback — `EVOGP_DEVICE_DEBUG=1` re-raises); (5) `gp_uci_sr.py` (≈21 s, the slowest run that still fits a smoke budget).
 Determinism check for any of them: run twice and diff the output with the timing fields stripped — every fitness number must be identical.
 Ground truth for "is an example still valid" is the library itself: read `../src/evogp/gp/__init__.py` (the public surface), `../src/evogp/gp/problem.py` (`SymbolicRegression` / `CustomLoss` contracts), `../src/evogp/gp/workflow.py` (`run` / `GPResult`) and `../src/evogp/evox_ext/__init__.py` rather than trusting these scripts.
@@ -91,7 +92,7 @@ The library's own end-to-end runs remain the authority for the numbers behind th
 ## See Also
 `../README.md` — the user-facing introduction, install instructions and the route table.
 `../src/evogp/gp/CONTEXT.md` — the functional stack: API surface, constraints, device loop, and the reports of record (`DEVICE_LOOP.md`, `POPSCALE.md`).
-`../src/evogp/gp/MIGRATION.md` — what the stack still lacks against the deleted torch stack (its steps 8/9 are the multi-output and display gaps these examples work around).
+`../src/evogp/gp/MIGRATION.md` — what the stack still lacks against the pre-1.0 torch-native stack (its steps 8/9 are the multi-output and display gaps these examples work around).
 `../src/evogp/evox_ext/CONTEXT.md` — the `StdWorkflow` component contract behind `evox_workflow.py`.
 `../src/evogp/gp/smoke.py` and `../src/evogp/evox_ext/demo_stdworkflow.py` — the in-library reference runs the examples are modelled on.
 `../test/` — hand-run validation tooling and the benchmark harness, sibling and read-only from here; escalate any write need to the parent.

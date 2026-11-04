@@ -4,9 +4,10 @@
 counterpart.  A generation can live on the GPU even though the stack is
 ``evoxc`` + numpy: the channel triple never leaves the device, ``evaluate`` is
 the in-graph ``evoxc`` route (:class:`~evogp.gp.GraphEvaluator`) or -- when
-torch and triton are installed -- the sibling Triton kernel behind
-:class:`~evogp.gp.FusedDeviceEvaluator`, and :func:`evogp.gp.run` is handed
-``backend="iree"`` + the device kind so the operator graphs run there too.
+torch and triton are installed, i.e. the ``fused`` extra of ``pyproject.toml``
+-- the sibling Triton kernel behind :class:`~evogp.gp.FusedDeviceEvaluator`,
+and :func:`evogp.gp.run` is handed ``backend="iree"`` + the device kind so the
+operator graphs run there too.
 Nothing here imports torch or triton: both are resolved lazily inside
 ``evogp.gp.fused_eval``, and :func:`~evogp.gp.fused_available` /
 :func:`~evogp.gp.interop_available` are the probes that decide the route.  The

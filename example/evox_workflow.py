@@ -10,9 +10,10 @@ box, on the target ``x0**2 + x1**2`` over ``[-5, 5]`` (reachable with the
 shipped ``+ - * /`` set, so a short run converges instead of only drifting).
 
 Run it from the repository root.  This is the ONLY example that needs the
-``evox`` checkout (``evox`` 2.0.0a1 is a PyPI pre-release, and no ``evogp``
-module imports it outside ``evogp.evox_ext``); note ``/root/evox/src``, since
-the checkout root itself does not put ``evox`` on the path::
+``evox`` checkout (the ``evox`` 2.0 pre-release is the ``evox`` extra declared in
+``pyproject.toml``, and no ``evogp`` module imports it outside
+``evogp.evox_ext``); note ``/root/evox/src``, since the checkout root itself does
+not put ``evox`` on the path::
 
     PYTHONPATH=src:/root/evoxc:/root/evox/src python example/evox_workflow.py
 

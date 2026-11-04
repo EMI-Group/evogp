@@ -27,8 +27,9 @@ contract -- the RNG stream lives in the state (:func:`evogp.gp.run`, no global
 seed and no torch), so two runs print identical fitness numbers.
 
 ``evogp.gp`` has no public ``to_sympy_expr`` yet (step 9 of ``MIGRATION.md`` is
-still open: the torch stack's exporter went away with its stack), so the local
-decoder in this file -- :func:`render_expression` -- is the stand-in.
+still open: the pre-1.0 torch-native stack's exporter went away with its stack),
+so the local decoder in this file -- :func:`render_expression` -- is the
+stand-in.
 """
 
 from __future__ import annotations
