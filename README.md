@@ -346,10 +346,10 @@ The release pipeline is `.github/workflows/release.yml`, and it triggers on a **
 2. Tag the release and push the tag: `git tag v1.0.0a1 && git push origin v1.0.0a1`.
 3. Draft a GitHub Release from that tag, mark it **Pre-release**, and publish it.
 
-On publication the workflow verifies the tag against the version in `pyproject.toml`, runs the CPU test gate (the
-three suites quoted per path, plus the smoke), builds the wheel and sdist with `uv build`, smoke-installs the wheel
-in a clean environment, publishes to PyPI through **Trusted Publishing** (OIDC, no API token in the repository) and
-attaches the distributions to the Release. A version mismatch, a failing test or a failed smoke install stops the
+On publication the workflow verifies the tag against the version in `pyproject.toml`, runs the CPU gate
+(`src/evogp/gp/tests` on a hosted runner; the fused and `evox_ext` suites stay on the reference box), builds the
+wheel and sdist with `uv build`, smoke-installs the wheel in a clean environment, publishes to PyPI through
+**Trusted Publishing** (OIDC, no API token in the repository) and attaches the distributions to the Release. A version mismatch, a failing test or a failed smoke install stops the
 job before anything reaches PyPI.
 
 ## Citation
