@@ -296,7 +296,7 @@ src/evogp/           _tables.py (node/function ids) and _multi_output.py (the OU
 example/             five runnable scripts: gp_sr, gp_custom_loss, gp_uci_sr, gp_device, evox_workflow
 tutorial/            gp_intro.ipynb — the same walkthrough as a notebook, with stored outputs
 test/                dev tooling, not a suite: oracle/ (the plain-torch numeric oracle and its
-                     goldens), goldens/ (frozen legacy captures), benchmark/ (historical campaigns)
+                     frozen goldens), evoxc_jit_probe.py, archive/ (read-only records)
 pyproject.toml       packaging: the uv_build backend, version, extras and package data
 .github/workflows/   release.yml — tag ↔ version check, CPU test gate, uv build, wheel smoke
                      install and PyPI Trusted Publishing on a published GitHub Release
