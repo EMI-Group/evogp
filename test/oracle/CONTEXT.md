@@ -4,7 +4,7 @@
 This directory holds the independent, deliberately slow plain-torch reimplementation of the tree evaluator and its frozen `.npz` captures.
 It is DEV-ONLY tooling: nothing here is shipped in the `evogp` wheel and nothing under `src/evogp/` imports it.
 It exists because the package no longer carries a torch stack, while the Triton `fused` route still needs a numeric check written independently of the code it checks.
-It was formerly shipped at `src/evogp/tests/reference_eval.py` + `src/evogp/tests/goldens/` and moved here in the 2.0.0a2 pre-release.
+It was formerly shipped at `src/evogp/tests/reference_eval.py` + `src/evogp/tests/goldens/` and moved here in the 1.0.0a1 pre-release.
 The consumers are `src/evogp/fused/tests/` (pytest parity cases) and `python -m evogp.fused.check --stage parity|goldens|multi` (the device battery).
 
 ## API Surface

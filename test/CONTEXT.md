@@ -1,4 +1,4 @@
-# `test/` — dev tooling (a numeric oracle + one evoxc probe) and the archived records of the pre-2.0.0a2 stack
+# `test/` — dev tooling (a numeric oracle + one evoxc probe) and the archived records of the pre-1.0 torch-native stack
 ## Intent
 This directory holds the two things that deliberately are **not** part of the `evogp` package: the independent numerics oracle the fused route is checked against (`./oracle/`), and the frozen performance evidence of the deleted torch stack (`./archive/`), plus one surviving probe (`./evoxc_jit_probe.py`, evoxc-only economics).
 It is dev tooling, **not** a pytest suite: no shipped runtime module imports it — only the dev gates do, by appending `test/oracle` to `sys.path` (`src/evogp/fused/check.py`, `src/evogp/fused/tests/conftest.py`) — and `pytest test` collects nothing (the harness's two torch-free test modules were deleted with the harness).
@@ -8,7 +8,7 @@ The shipped-stack benchmarks are library code now, not `test/` code: `src/evogp/
 Their reports of record are `src/evogp/gp/POPSCALE.md`, `src/evogp/gp/DEVICE_LOOP.md` and `src/evogp/fused/FUSED.md`.
 ## API Surface / tree
 - `./oracle/` → the independent plain-torch evaluator `reference_eval.py` + `goldens/` (7 frozen `.npz` cases); DEV-only, imported by no library module, added to `sys.path` by its dev consumers; described in `./oracle/CONTEXT.md`.
-- `./archive/` → the records of record of the pre-2.0.0a2 tree: markdown reports, raw JSON timing records, run logs and the rounds' captures, in the old `benchmark/` layout (`archive/benchmark/{evoxc,r2,r4,r5,r6,legacy,new,xval,fixtures}`); entry page `./archive/README.md`, which indexes every report of record (the counts, the provenance and the index live there, not here).
+- `./archive/` → the records of record of the pre-1.0 torch-native tree: markdown reports, raw JSON timing records, run logs and the rounds' captures, in the old `benchmark/` layout (`archive/benchmark/{evoxc,r2,r4,r5,r6,legacy,new,xval,fixtures}`); entry page `./archive/README.md`, which indexes every report of record (the counts, the provenance and the index live there, not here).
 - `./evoxc_jit_probe.py` → standalone `evoxc` build/run economics probe (imports `evoxc` + numpy, never `evogp`; a docstring table plus its own PASS/FAIL checks, exit 1 on failure).
 - Nothing else. There is no `fixtures/`, no `goldens/`, no notebook and no harness script at this level.
 ## Run commands (exact)
@@ -40,7 +40,10 @@ Measured on the reference box at this commit, for the commands above:
 - Its reports name paths as `test/benchmark/...`; the same file now lives at `test/archive/benchmark/<same>`, and the `*.py`/`*.sh` they cite were deleted (recover at `6720723`).
 - `./oracle/` may import `torch` and is the one directory where that is correct; it must import nothing from `evogp`, so it can catch the library's bugs instead of inheriting them.
 - No new dependency, no build step and no compiled extension: everything here is plain Python over the venv's torch/evoxc/numpy.
-- There is no CI and no pytest ini in the repo; nothing in this directory is collected by `pytest src/evogp/...`.
+- CI is release-only: `.github/workflows/release.yml` runs when a GitHub Release is published (plus a `workflow_dispatch` dry run), so nothing runs on a pull request or a push.
+- Its build job checks the tag against `[project].version`, runs the CPU gate `python -m pytest src/evogp/gp/tests`, builds with `uv build`, installs the wheel into a clean venv and re-runs `evogp.gp.smoke` from outside the checkout, then publishes via PyPI Trusted Publishing and attaches the same wheel/sdist to the release.
+- The fused and device suites are not in CI, so they — and the gates in this directory — still run by hand on the reference box.
+- There is no pytest ini in the repo; nothing in this directory is collected by `pytest src/evogp/...`.
 ## Known Issues
 - `evoxc_jit_probe.py`'s iree-cuda legs cannot be green on a ROCm box: iree reports `CUDA driver library 'libcuda.so' not available`, so `--sections abcdefgh` fails in (b)/(d)/(e) and in the iree-cuda parts of (f)/(g) while every numpy leg passes.
 - Its section-(f) DLPack expectation is stale: it still expects `torch.from_dlpack` of an `evoxc` device tensor to be refused, and prints `UNEXPECTEDLY ACCEPTED`, because `/root/evoxc` `474bf72` added the native device export the `evogp.gp` fused objective depends on.
@@ -49,11 +52,11 @@ Measured on the reference box at this commit, for the commands above:
 - `src/evogp/fused/CONTEXT.md` still quotes the goldens leg as `10/10`; with `test/goldens/` deleted the same stage reads `6/6` (the oracle fixtures alone). Those files are outside this node.
 ## Routing Table
 - `./oracle/` → The independent plain-torch numeric oracle and its 7 frozen fixtures; the reference behind `src/evogp/fused/tests/` and `evogp.fused.check --stage parity|goldens|multi`.
-- `./archive/` → Read-only records of record of the pre-2.0.0a2 tree (torch stack + the four `EVOGP_EVAL_MODE` routes), with `./archive/README.md` as the single entry point and an index of every report of record.
+- `./archive/` → Read-only records of record of the pre-1.0 torch-native tree (torch stack + the four `EVOGP_EVAL_MODE` routes), with `./archive/README.md` as the single entry point and an index of every report of record.
 - `./evoxc_jit_probe.py` → The standalone evoxc build/run economics probe (no `evogp` import).
 ## Notes for Agents
 - Performance questions about the *shipped* stack are answered in `../src/evogp/gp/` and `../src/evogp/fused/`, never here; read `src/evogp/gp/POPSCALE.md` / `DEVICE_LOOP.md` / `src/evogp/fused/FUSED.md` and run the `measure_*` scripts.
-- Need a number from the old four-route engine? Read it out of `./archive/` and quote it with its provenance (pre-2.0.0a2 tree, commit `6720723` for the code) — do not present it as a current measurement.
+- Need a number from the old four-route engine? Read it out of `./archive/` and quote it with its provenance (pre-1.0 torch-native tree, commit `6720723` for the code) — do not present it as a current measurement.
 - Numeric disagreements go to `./oracle/reference_eval.py`: it is the semantics of record for op placement, NaN/±inf and the multi-output accumulation rule, and it is slow by design.
 ## See Also
 Sibling paths (read-only from this node — escalate any needed write to the parent `./`): `../src/evogp/` (the shipped library: `gp/`, `fused/`, `evox_ext/`), `../example/`, `../tutorial/`.
